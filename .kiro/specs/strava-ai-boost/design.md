@@ -67,7 +67,8 @@ The system uses a local web interface approach to avoid complexity of user manag
 
 ### 1. Local Web Interface
 
-**Technology**: AWS Cloudscape Design System
+**Backend**: Python Flask/FastAPI application
+**Frontend**: AWS Cloudscape Design System components
 **Purpose**: Configuration and monitoring interface
 
 **Key Components**:
@@ -77,21 +78,43 @@ The system uses a local web interface approach to avoid complexity of user manag
 - **Module Manager**: Enable/disable integrations (Campus Coach, Enduraw)
 
 **API Interface**:
-```typescript
-interface ConfigurationAPI {
-  // OAuth Management
-  initiateStravaAuth(): Promise<AuthURL>
-  getConnectionStatus(): Promise<ConnectionStatus>
-  
-  // Module Management
-  getAvailableModules(): Promise<Module[]>
-  enableModule(moduleId: string, config: ModuleConfig): Promise<void>
-  disableModule(moduleId: string): Promise<void>
-  
-  // Dashboard Data
-  getActivityStats(): Promise<ActivityStatistics>
-  getProcessingStatus(): Promise<ProcessingStatus[]>
-}
+```python
+from typing import List, Dict, Any
+from pydantic import BaseModel
+
+class ConfigurationAPI:
+    """Python Flask/FastAPI endpoints for local interface"""
+    
+    # OAuth Management
+    async def initiate_strava_auth(self) -> Dict[str, str]:
+        """Return Strava OAuth authorization URL"""
+        pass
+    
+    async def get_connection_status(self) -> Dict[str, Any]:
+        """Get current Strava connection status"""
+        pass
+    
+    # Module Management
+    async def get_available_modules(self) -> List[Dict[str, Any]]:
+        """Get list of available modules"""
+        pass
+    
+    async def enable_module(self, module_id: str, config: Dict[str, Any]) -> Dict[str, str]:
+        """Enable module with configuration"""
+        pass
+    
+    async def disable_module(self, module_id: str) -> Dict[str, str]:
+        """Disable module"""
+        pass
+    
+    # Dashboard Data
+    async def get_activity_stats(self) -> Dict[str, Any]:
+        """Get activity processing statistics"""
+        pass
+    
+    async def get_processing_status(self) -> List[Dict[str, Any]]:
+        """Get current processing status"""
+        pass
 ```
 
 ### 2. Strava Integration Layer
@@ -135,33 +158,63 @@ Handler   Logic         Backup        Analysis       Lambda        Notification
 6. **UpdateActivity**: Post enhanced content back to Strava
 7. **NotifyCompletion**: Update status in local interface
 
-### 4. AI Content Generation
+### 4. AI Content Generation with AgentCore Memory
 
-**Amazon Bedrock Integration**:
+**Strands Agent with AgentCore Memory**:
+- **Agent Framework**: Strands Agent for orchestration
+- **Memory System**: AgentCore Memory for persistent personalization
 - **Model**: Claude Sonnet 4.5 for intelligent analysis and content generation
 - **Analysis Pipeline**: 
   - Activity data processing (67+ Strava fields)
   - Streams analysis (velocity, heart rate, altitude, time)
   - Pattern detection (intervals, effort zones, workout classification)
-  - Style analysis (previous activities for consistency)
+  - Personal style learning (via AgentCore Memory)
 
-**Content Generation Strategy**:
+**Content Generation Agent with Memory**:
 ```python
-class ContentGenerator:
+from strands import Agent
+from agentcore_memory import MemoryClient
+
+class ContentGenerationAgent(Agent):
+    def __init__(self):
+        super().__init__()
+        self.memory = MemoryClient()
+        self.bedrock_client = BedrockClient()
+    
     async def generate_content(self, activity_data: ActivityData, 
                              streams_data: StreamsData,
+                             user_id: str,
                              modules: List[Module]) -> EnhancedContent:
+        # Retrieve user's personal style from memory
+        personal_style = await self.memory.get_user_style(user_id)
+        previous_expressions = await self.memory.get_used_expressions(user_id)
+        
         # Analyze activity patterns using Bedrock
         patterns = await self.analyze_patterns(streams_data)
         
         # Apply active modules (Campus Coach matching, etc.)
         module_insights = await self.apply_modules(activity_data, modules)
         
-        # Generate personalized content
-        content = await self.bedrock_generate(patterns, module_insights)
+        # Generate personalized content avoiding repetition
+        content = await self.bedrock_generate(
+            patterns, 
+            module_insights, 
+            personal_style,
+            previous_expressions
+        )
+        
+        # Store new expressions and style updates in memory
+        await self.memory.store_generated_content(user_id, content)
+        await self.memory.update_user_style(user_id, content.style_elements)
         
         return content
 ```
+
+**AgentCore Memory Integration**:
+- **Personal Style Storage**: Learn and remember user's preferred tone and terminology
+- **Expression Tracking**: Avoid repetitive phrases and vary content structure
+- **Performance Memory**: Remember user's typical performance patterns for context
+- **Module Preferences**: Store which modules user engages with most
 
 ### 5. Module System
 
@@ -180,10 +233,13 @@ class BaseModule:
 ```
 
 **Campus Coach Module**:
-- **AgentCore Browser Tool**: Automated web scraping
+- **AgentCore Browser Tool**: Automated web scraping using browser automation agent
+- **Known Issue**: Cold start problem requiring retry logic (30% first-try success rate)
+- **Strands Agent Integration**: Session matching agent using Bedrock for intelligent analysis
 - **Session Matching**: AI-powered matching of activities to planned sessions
 - **Confidence Scoring**: Intelligent matching with threshold-based inclusion
-- **Compliance Analysis**: Compare actual vs planned performance
+- **Compliance Analysis**: Compare actual vs planned performance using streams data
+- **Retry Strategy**: Exponential backoff for AgentCore Browser Tool invocations
 
 **Enduraw Module**:
 - **Wait Strategy**: 2-7 minute delay for Enduraw processing
@@ -194,43 +250,54 @@ class BaseModule:
 
 ### Core Data Structures
 
-```typescript
-interface ActivityData {
-  id: string
-  name: string
-  description: string
-  type: 'Run' | 'Ride' | 'Swim' | 'Workout'
-  distance: number
-  moving_time: number
-  elapsed_time: number
-  total_elevation_gain: number
-  start_date: string
-  // ... 67+ additional Strava fields
-}
+```python
+from typing import List, Optional, Dict, Any, Literal
+from pydantic import BaseModel
+from datetime import datetime
 
-interface StreamsData {
-  velocity_smooth: number[]
-  heartrate: number[]
-  time: number[]
-  distance: number[]
-  altitude: number[]
-}
+class ActivityData(BaseModel):
+    """Strava activity data model"""
+    id: str
+    name: str
+    description: Optional[str]
+    type: Literal['Run', 'Ride', 'Swim', 'Workout']
+    distance: float
+    moving_time: int
+    elapsed_time: int
+    total_elevation_gain: float
+    start_date: datetime
+    # ... 67+ additional Strava fields as optional attributes
 
-interface ProcessingStatus {
-  activity_id: string
-  status: 'queued' | 'processing' | 'completed' | 'failed'
-  step: string
-  timestamp: string
-  error_message?: string
-  modules_active: string[]
-}
+class StreamsData(BaseModel):
+    """Strava streams data model"""
+    velocity_smooth: List[float]
+    heartrate: List[int]
+    time: List[int]
+    distance: List[float]
+    altitude: List[float]
 
-interface ModuleConfig {
-  module_id: string
-  enabled: boolean
-  credentials?: Record<string, string>
-  settings: Record<string, any>
-}
+class ProcessingStatus(BaseModel):
+    """Activity processing status"""
+    activity_id: str
+    status: Literal['queued', 'processing', 'completed', 'failed']
+    step: str
+    timestamp: datetime
+    error_message: Optional[str] = None
+    modules_active: List[str]
+
+class ModuleConfig(BaseModel):
+    """Module configuration"""
+    module_id: str
+    enabled: bool
+    credentials: Optional[Dict[str, str]] = None
+    settings: Dict[str, Any]
+
+class StravaRateLimit(BaseModel):
+    """Rate limit tracking"""
+    limit_type: Literal['short_term', 'daily']
+    current_usage: int
+    reset_time: datetime
+    last_request: datetime
 ```
 
 ### DynamoDB Tables
@@ -378,10 +445,11 @@ Based on the prework analysis, the following correctness properties have been id
 - **Implementation**: AWS SDK built-in retries + custom logic
 
 **3. Module-Specific Failures**
-- **Campus Coach**: Scraping failures, authentication issues
+- **Campus Coach**: AgentCore Browser Tool cold start issues, scraping failures, authentication issues
+- **AgentCore Cold Start**: Known issue with ~30% first-try success rate
 - **Enduraw**: Timeout waiting for analysis
-- **Strategy**: Graceful degradation, fallback to basic content
-- **Implementation**: Try-catch with fallback content generation
+- **Strategy**: Retry logic with exponential backoff, graceful degradation, fallback to basic content
+- **Implementation**: Multi-retry Campus Coach invocation, try-catch with fallback content generation
 
 **4. Data Processing Failures**
 - **Invalid activity data**: Missing fields, corrupted streams
@@ -531,16 +599,50 @@ def test_comprehensive_data_analysis_property(activity_data, streams_data):
 
 ### Infrastructure as Code
 
+**Technology Stack**:
+- **Language**: Python 3.12
+- **Infrastructure**: AWS CDK (Python) + AgentCore CLI scripts
+- **AI Framework**: Strands Agents for agent orchestration
+- **Memory System**: AgentCore Memory for persistent personalization
+- **Browser Automation**: AgentCore Browser Tool for Campus Coach scraping
+- **AgentCore Deployment**: Shell scripts using AgentCore CLI (not CDK L2 due to experimental status)
+- **AWS Services**: Lambda, DynamoDB, Step Functions, Bedrock, SQS, Secrets Manager
+
 **AWS CDK Stack Organization**:
 ```
 strava-ai-boost/
+├── app.py                              # CDK app entry point
 ├── stacks/
-│   ├── core-infrastructure-stack.py    # DynamoDB, IAM roles
-│   ├── api-gateway-stack.py           # Local interface API
-│   ├── webhook-processing-stack.py    # Strava webhooks, SQS
-│   ├── content-generation-stack.py    # Step Functions, Bedrock
-│   ├── campus-coach-stack.py          # AgentCore integration
-│   └── monitoring-stack.py            # CloudWatch, alarms
+│   ├── core_infrastructure_stack.py    # DynamoDB, IAM roles
+│   ├── api_gateway_stack.py           # Local interface API
+│   ├── webhook_processing_stack.py    # Strava webhooks, SQS
+│   ├── content_generation_stack.py    # Step Functions, Bedrock
+│   └── monitoring_stack.py            # CloudWatch, alarms
+├── scripts/
+│   ├── deploy_agentcore.sh            # AgentCore CLI deployment
+│   ├── setup_memory.sh                # AgentCore Memory configuration
+│   └── deploy_campus_coach_agent.sh   # Campus Coach agent deployment
+├── lambda_functions/
+│   ├── webhook_handler.py             # Strava webhook processing
+│   ├── activity_processor.py          # Activity data processing
+│   ├── content_generator.py           # Bedrock content generation
+│   └── campus_coach_invoker.py        # AgentCore invocation
+├── src/
+│   ├── agents/
+│   │   ├── content_generation_agent.py # Strands Agent with AgentCore Memory
+│   │   ├── campus_coach_agent.py       # AgentCore Browser Tool agent
+│   │   └── session_matching_agent.py   # Strands Agent for matching
+│   ├── modules/
+│   │   ├── base_module.py             # Base module interface
+│   │   ├── campus_coach_module.py     # Campus Coach integration
+│   │   └── enduraw_module.py          # Enduraw integration
+│   └── utils/
+│       ├── strava_client.py           # Strava API client
+│       ├── rate_limiter.py            # Rate limiting logic
+│       └── data_models.py             # Pydantic models
+└── local_interface/
+    ├── app.py                         # Flask/FastAPI application
+    └── static/                        # Cloudscape UI components
 ```
 
 ### Environment Configuration
@@ -615,3 +717,76 @@ class BaseModule:
 - Multi-language support
 
 This design provides a solid foundation for the Strava AI Boost system while maintaining the simplicity and modularity principles outlined in the requirements. The architecture leverages proven patterns from the existing strava-ai-coach project while simplifying deployment and user management through the local web interface approach.
+
+### AgentCore Integration Strategy
+
+**Deployment Approach**:
+- **CLI-Based Deployment**: Use AgentCore CLI for stable deployment (avoiding experimental CDK L2)
+- **Shell Scripts**: Automated deployment scripts for agents and memory configuration
+- **CDK Integration**: Lambda functions invoke AgentCore agents via AWS SDK calls
+- **Agent Management**: Deploy and manage agents through shell scripts using AgentCore CLI
+- **Memory Configuration**: Set up AgentCore Memory through CLI commands
+
+**AgentCore CLI Deployment Scripts**:
+```bash
+# scripts/deploy_agentcore.sh
+#!/bin/bash
+set -e
+
+echo "🚀 Deploying AgentCore infrastructure..."
+
+# Configure AgentCore
+agentcore configure --region eu-west-1 --profile your-aws-profile
+
+# Deploy Memory service
+agentcore memory create --name strava-ai-boost-memory \
+  --description "Personal style and expression memory for Strava AI Boost"
+
+# Deploy Content Generation Agent with Memory
+agentcore agent deploy \
+  --name content-generation-agent \
+  --runtime python \
+  --memory strava-ai-boost-memory \
+  --file src/agents/content_generation_agent.py
+
+# Deploy Campus Coach Browser Agent
+agentcore agent deploy \
+  --name campus-coach-scraper \
+  --runtime browser \
+  --file src/agents/campus_coach_agent.py
+
+echo "✅ AgentCore deployment complete"
+```
+
+**Lambda Integration with AgentCore**:
+```python
+import boto3
+from agentcore_client import AgentCoreClient
+
+class AgentCoreInvoker:
+    def __init__(self):
+        self.agentcore = AgentCoreClient(region='eu-west-1')
+    
+    async def invoke_content_agent(self, activity_data: dict, user_id: str) -> dict:
+        """Invoke content generation agent with memory"""
+        response = await self.agentcore.invoke_agent(
+            agent_name='content-generation-agent',
+            input_data={
+                'activity_data': activity_data,
+                'user_id': user_id,
+                'memory_context': True
+            }
+        )
+        return response
+    
+    async def invoke_campus_coach_agent(self, credentials: dict) -> dict:
+        """Invoke Campus Coach scraping agent"""
+        response = await self.agentcore.invoke_agent(
+            agent_name='campus-coach-scraper',
+            input_data={
+                'credentials': credentials,
+                'action': 'extract_sessions'
+            }
+        )
+        return response
+```
