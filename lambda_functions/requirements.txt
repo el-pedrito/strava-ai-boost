@@ -1,0 +1,23 @@
+# Lambda Runtime Dependencies ONLY
+# These are packaged with Lambda functions or included in Lambda layers
+# boto3 is already available in Lambda runtime, but we specify version for consistency
+
+# AWS SDK (already in Lambda runtime, but explicit for local testing)
+boto3>=1.34.0
+botocore>=1.34.0
+
+# HTTP requests for Strava API calls
+requests>=2.31.0
+requests-oauthlib>=1.3.1
+
+# Data validation and parsing
+pydantic>=2.0.0
+
+# Type hints support
+typing-extensions>=4.0.0
+
+# Future: Strands Agents framework (will be added during agent setup)
+# strands-agents>=1.0.0
+
+# Future: AgentCore client (will be added during AgentCore setup)  
+# agentcore-client>=1.0.0

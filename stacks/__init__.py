@@ -1,0 +1,1 @@
+# Stacks package for Strava AI Boost CDK application

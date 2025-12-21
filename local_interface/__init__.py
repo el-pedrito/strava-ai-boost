@@ -1,0 +1,1 @@
+# Local web interface package for Strava AI Boost

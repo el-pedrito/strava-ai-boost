@@ -1,0 +1,4 @@
+# file: ./stacks/core_infrastructure_stack.py
+# hypothesis_version: 6.148.7
+
+['*', 'CampusCoachSecret', 'ContentLambdaRole', 'StepFunctionsRole', 'StravaOAuthSecret', 'WebhookLambdaRole', 'WeekNumberIndex', 'activities', 'activity_id', 'bedrock:InvokeModel', 'coaching_sessions', 'created_at', 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:Query', 'dynamodb:UpdateItem', 'lambda.amazonaws.com', 'limit_type', 'processing_status', 'rate_limits', 'session_date', 'session_id', 'states.amazonaws.com', 'ttl', 'user_config', 'user_id', 'week_number']
