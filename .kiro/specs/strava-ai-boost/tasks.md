@@ -19,44 +19,44 @@
   - **Property 16: Secure communication using HTTPS for all API endpoints**
   - **Validates: Requirements 7.2**
 
-## Strava Integration and Rate Limiting
-
-- [ ] 2. Implement Strava OAuth integration and rate limiting in Python
-  - [ ] 2.1 Create Python OAuth flow handler with PKCE support using requests-oauthlib
+- [x] 2. Implement Strava OAuth integration and rate limiting in Python
+  - [x] 2.1 Create Python OAuth flow handler with PKCE support using requests-oauthlib
     - Implement OAuth authorization URL generation
     - Handle OAuth callback and token exchange
     - Store tokens securely in Secrets Manager
     - _Requirements: 1.2, 1.3, 7.3_
   
-  - [ ] 2.2 Implement secure token storage in AWS Secrets Manager with boto3 and automatic rotation
+  - [x] 2.2 Implement secure token storage in AWS Secrets Manager with boto3 and automatic rotation
     - Create Secrets Manager helper functions
     - Implement token refresh logic
     - Add automatic rotation configuration
     - _Requirements: 1.3, 1.5, 7.3_
   
-  - [ ] 2.3 Build Python rate limiting system tracking 100/15min and 1000/day limits with DynamoDB
+  - [x] 2.3 Build Python rate limiting system tracking 100/15min and 1000/day limits with DynamoDB
     - Create rate limiter Lambda function implementation
     - Implement DynamoDB-based rate tracking
     - Add exponential backoff logic
     - _Requirements: 10.1, 10.2, 10.3, 10.4_
   
-  - [ ] 2.4 Create Strava API client class with retry logic and exponential backoff using requests
+  - [x] 2.4 Create Strava API client class with retry logic and exponential backoff using requests
     - Build reusable Strava API client
     - Implement retry logic with exponential backoff
     - Add rate limit checking before API calls
     - _Requirements: 8.1, 8.4, 10.1, 10.2_
 
-- [ ] 2.5 Write property test for OAuth token security
+- [x] 2.5 Write property test for OAuth token security
   - **Property 1: OAuth tokens securely stored in Secrets Manager**
   - **Validates: Requirements 1.3, 7.3**
 
-- [ ] 2.6 Write property test for rate limit compliance
+- [x] 2.6 Write property test for rate limit compliance
   - **Property 13: API calls respect both 15-minute and daily rate limits**
   - **Validates: Requirements 10.1, 10.2**
+  - **Status: PASSED** - All 6 test methods passed with 100 examples each
 
-- [ ] 2.7 Write property test for rate limit persistence
+- [x] 2.7 Write property test for rate limit persistence
   - **Property 14: Rate limit data persisted in DynamoDB across Lambda invocations**
   - **Validates: Requirements 10.5**
+  - **Status: PASSED** - All 5 test methods passed with 100 examples each
 
 ## Missing Lambda Functions and Step Functions Integration
 
