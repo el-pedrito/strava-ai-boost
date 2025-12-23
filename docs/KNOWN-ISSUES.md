@@ -1,7 +1,7 @@
 # Strava AI Boost - Known Issues and Troubleshooting
 
-**Version:** v0.1.0 - Infrastructure Complete  
-**Last Updated:** 2025-12-21
+**Version:** v1.3.0 - AgentCore Integration Complete  
+**Last Updated:** 2025-12-23
 
 This document tracks current known issues, their workarounds, and troubleshooting procedures for the Strava AI Boost system.
 
@@ -489,6 +489,6 @@ AgentCoreError: Agent invocation timeout after 30 seconds
 
 ---
 
-**Version:** v0.1.0 - Infrastructure Complete  
-**Last Updated:** 2025-12-21  
-**Next Review:** 2025-12-28 (Weekly review cycle)
+**Version:** v1.3.0 - AgentCore Integration Complete  
+**Last Updated:** 2025-12-23  
+**Next Review:** 2025-12-30 (Weekly review cycle)

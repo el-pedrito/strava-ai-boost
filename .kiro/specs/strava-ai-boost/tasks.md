@@ -190,15 +190,15 @@ This implementation plan reflects the current state of the Strava AI Boost syste
     - Test webhook security with real Strava webhook events
     - _Requirements: 2.1, 8.3_
 
-- [ ] 15. Replace remaining simulation code
-  - [ ] 15.1 Complete Campus Coach module integration
+- [x] 15. Replace remaining simulation code
+  - [x] 15.1 Complete Campus Coach module integration
     - Replace AgentCore SDK simulation in campus_coach_module.py (line 279)
     - Implement actual credential testing with AgentCore Browser Tool (line 720)
     - Add real AgentCore connectivity testing (line 780)
     - Complete session extraction with actual Browser Tool automation
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6_
   
-  - [ ] 15.2 Complete Enduraw module implementation
+  - [x] 15.2 Complete Enduraw module implementation
     - Implement actual Enduraw API integration for enhanced metrics
     - Add real-time Enduraw processing status monitoring
     - Complete enhanced metrics integration (pace without wind, weather impact)

@@ -1,7 +1,7 @@
 # Strava AI Boost - Technical Architecture
 
-**Version:** v0.1.0 - Infrastructure Complete  
-**Last Updated:** 2025-12-21
+**Version:** v1.3.0 - AgentCore Integration Complete  
+**Last Updated:** 2025-12-23
 
 This document provides detailed technical implementation information for the Strava AI Boost system, including AWS services configuration, data models, and integration patterns.
 
@@ -410,7 +410,7 @@ class CampusCoachAgent:
 
 ## Performance Metrics
 
-### Current Performance (v0.1.0)
+### Current Performance (v1.3.0)
 - **CDK Synthesis**: 4-5 seconds for complete infrastructure
 - **Property Tests**: 100 iterations per test in <5 seconds
 - **Infrastructure Validation**: 10 comprehensive tests
@@ -510,6 +510,6 @@ CDK_DEFAULT_REGION=eu-west-1
 
 ---
 
-**Version:** v0.1.0 - Infrastructure Complete  
-**Last Updated:** 2025-12-21  
-**Next Version:** v0.2.0 - Strava OAuth Integration
+**Version:** v1.3.0 - AgentCore Integration Complete  
+**Last Updated:** 2025-12-23  
+**Next Version:** v1.4.0 - Local Web Interface Enhancement

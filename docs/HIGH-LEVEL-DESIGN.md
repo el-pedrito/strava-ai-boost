@@ -1,7 +1,7 @@
 # Strava AI Boost - High-Level Design
 
-**Version:** v0.1.0 - Infrastructure Complete  
-**Last Updated:** 2025-12-21
+**Version:** v1.3.0 - AgentCore Integration Complete  
+**Last Updated:** 2025-12-23
 
 This document provides a comprehensive overview of the Strava AI Boost system architecture, design decisions, and visual diagrams for understanding the complete system.
 
@@ -436,6 +436,6 @@ class StravaRateLimiter:
 
 ---
 
-**Version:** v0.1.0 - Infrastructure Complete  
-**Last Updated:** 2025-12-21  
-**Next Milestone:** v0.2.0 - Strava OAuth Integration
+**Version:** v1.3.0 - AgentCore Integration Complete  
+**Last Updated:** 2025-12-23  
+**Next Milestone:** v1.4.0 - Local Web Interface Enhancement

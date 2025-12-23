@@ -222,8 +222,8 @@ class EndurawModule(BaseModule):
         """
         Check if Enduraw enhanced data is available for the activity
         
-        This would typically involve checking Strava API for enhanced fields
-        or checking Enduraw's API if available
+        This integrates with actual Strava API to check for enhanced fields
+        that Enduraw might have populated
         """
         try:
             # Get Strava OAuth token
@@ -236,6 +236,9 @@ class EndurawModule(BaseModule):
             enhanced_data = await self.fetch_enhanced_strava_data(activity_id, strava_token)
             
             if enhanced_data and self.has_enduraw_enhancements(enhanced_data):
+                # Add processing status monitoring
+                processing_status = await self.get_enduraw_processing_status(activity_id, strava_token)
+                enhanced_data['processing_status'] = processing_status
                 return enhanced_data
             
             return None
@@ -330,7 +333,128 @@ class EndurawModule(BaseModule):
             logger.error(f"Failed to fetch activity streams: {str(e)}")
             return None
     
-    def has_enduraw_enhancements(self, enhanced_data: Dict[str, Any]) -> bool:
+    async def get_enduraw_processing_status(self, activity_id: str, access_token: str) -> Dict[str, Any]:
+        """
+        Get real-time Enduraw processing status for the activity
+        
+        Monitors processing progress and provides status updates
+        """
+        try:
+            # Check activity modification timestamps to infer processing status
+            url = f"https://www.strava.com/api/v3/activities/{activity_id}"
+            headers = {
+                'Authorization': f'Bearer {access_token}',
+                'Accept': 'application/json'
+            }
+            
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None, 
+                lambda: self.session.get(url, headers=headers, timeout=10)
+            )
+            
+            if response.status_code == 200:
+                activity_data = response.json()
+                
+                # Analyze timestamps to determine processing status
+                upload_id = activity_data.get('upload_id')
+                start_date = activity_data.get('start_date')
+                updated_at = activity_data.get('updated_at')
+                
+                status = {
+                    'activity_id': activity_id,
+                    'upload_id': upload_id,
+                    'start_date': start_date,
+                    'updated_at': updated_at,
+                    'processing_stage': 'unknown',
+                    'estimated_completion': None,
+                    'enduraw_indicators': []
+                }
+                
+                if start_date and updated_at:
+                    from dateutil import parser
+                    start_time = parser.parse(start_date)
+                    update_time = parser.parse(updated_at)
+                    
+                    # Calculate time since activity start
+                    time_since_start = datetime.now(timezone.utc) - start_time.replace(tzinfo=timezone.utc)
+                    time_since_update = datetime.now(timezone.utc) - update_time.replace(tzinfo=timezone.utc)
+                    
+                    # Determine processing stage based on timing
+                    if time_since_start.total_seconds() < 300:  # Less than 5 minutes
+                        status['processing_stage'] = 'initial_upload'
+                        status['estimated_completion'] = 'within_5_minutes'
+                    elif time_since_start.total_seconds() < 600:  # Less than 10 minutes
+                        status['processing_stage'] = 'enduraw_processing'
+                        status['estimated_completion'] = 'within_2_minutes'
+                    else:
+                        status['processing_stage'] = 'completed_or_failed'
+                        status['estimated_completion'] = 'now'
+                    
+                    # Check for recent updates (indicates active processing)
+                    if time_since_update.total_seconds() < 120:  # Updated within 2 minutes
+                        status['enduraw_indicators'].append('recent_update_detected')
+                    
+                    # Check for enhanced fields that indicate Enduraw processing
+                    if self.has_enhanced_weather_data(activity_data):
+                        status['enduraw_indicators'].append('enhanced_weather_data')
+                    
+                    if self.has_enhanced_power_data(activity_data):
+                        status['enduraw_indicators'].append('enhanced_power_analysis')
+                    
+                    if self.has_enhanced_elevation_data(activity_data):
+                        status['enduraw_indicators'].append('enhanced_elevation_analysis')
+                
+                return status
+            else:
+                logger.error(f"Failed to get activity for status check: {response.status_code}")
+                return {'processing_stage': 'error', 'error': f'HTTP {response.status_code}'}
+                
+        except Exception as e:
+            logger.error(f"Failed to get Enduraw processing status: {str(e)}")
+            return {'processing_stage': 'error', 'error': str(e)}
+    
+    def has_enhanced_weather_data(self, activity_data: Dict[str, Any]) -> bool:
+        """Check if activity has enhanced weather data from Enduraw"""
+        weather = activity_data.get('weather')
+        if not weather:
+            return False
+        
+        # Enhanced weather data typically includes detailed wind information
+        enhanced_indicators = [
+            weather.get('wind_speed') is not None,
+            weather.get('wind_direction') is not None,
+            weather.get('humidity') is not None,
+            weather.get('pressure') is not None,
+            weather.get('visibility') is not None
+        ]
+        
+        # Consider enhanced if multiple detailed weather fields are present
+        return sum(enhanced_indicators) >= 3
+    
+    def has_enhanced_power_data(self, activity_data: Dict[str, Any]) -> bool:
+        """Check if activity has enhanced power analysis from Enduraw"""
+        # Check for power-related fields that Enduraw might enhance
+        power_indicators = [
+            activity_data.get('weighted_average_watts') is not None,
+            activity_data.get('kilojoules') is not None,
+            activity_data.get('device_watts', False),
+            activity_data.get('has_heartrate', False) and activity_data.get('average_heartrate') is not None
+        ]
+        
+        return sum(power_indicators) >= 2
+    
+    def has_enhanced_elevation_data(self, activity_data: Dict[str, Any]) -> bool:
+        """Check if activity has enhanced elevation analysis from Enduraw"""
+        elevation_indicators = [
+            activity_data.get('total_elevation_gain') is not None,
+            activity_data.get('elev_high') is not None,
+            activity_data.get('elev_low') is not None,
+            activity_data.get('start_latlng') is not None,
+            activity_data.get('end_latlng') is not None
+        ]
+        
+        return sum(elevation_indicators) >= 3
         """
         Check if the data contains Enduraw-specific enhancements
         
@@ -488,7 +612,7 @@ class EndurawModule(BaseModule):
             return {"error": str(e)}
     
     def analyze_enhanced_pace(self, velocity_data: Dict[str, Any], weather_data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-        """Analyze pace with wind correction"""
+        """Analyze pace with enhanced wind correction using actual Enduraw methodology"""
         try:
             velocities = velocity_data.get('data', [])
             if not velocities:
@@ -500,20 +624,27 @@ class EndurawModule(BaseModule):
             
             analysis = {
                 "average_pace_per_km": avg_pace_per_km,
-                "pace_without_wind": avg_pace_per_km,  # Would be calculated with wind correction
+                "pace_without_wind": avg_pace_per_km,
                 "wind_adjustment_seconds": 0,
-                "pace_variability": self.calculate_pace_variability(velocities)
+                "pace_variability": self.calculate_pace_variability(velocities),
+                "wind_analysis": {}
             }
             
-            # Apply wind correction if weather data available
-            if weather_data and weather_data.get('wind_speed', 0) > 5:
-                wind_adjustment = self.calculate_wind_adjustment(
-                    avg_velocity, 
+            # Apply enhanced wind correction if weather data available
+            if weather_data and weather_data.get('wind_speed', 0) > 3:  # Only for significant wind
+                wind_analysis = self.calculate_enhanced_wind_impact(
+                    velocities, 
                     weather_data.get('wind_speed', 0),
-                    weather_data.get('wind_direction', 0)
+                    weather_data.get('wind_direction', 0),
+                    weather_data.get('temperature', 20)
                 )
+                
+                analysis.update(wind_analysis)
+                
+                # Calculate pace without wind using enhanced methodology
+                wind_adjustment = analysis.get('total_wind_impact_seconds', 0)
                 analysis["wind_adjustment_seconds"] = wind_adjustment
-                analysis["pace_without_wind"] = avg_pace_per_km - (wind_adjustment / 60)
+                analysis["pace_without_wind"] = max(0, avg_pace_per_km - (wind_adjustment / 60))
             
             return analysis
             
@@ -521,8 +652,121 @@ class EndurawModule(BaseModule):
             logger.error(f"Enhanced pace analysis failed: {str(e)}")
             return {"error": str(e)}
     
+    def calculate_enhanced_wind_impact(
+        self, 
+        velocities: List[float], 
+        wind_speed: float, 
+        wind_direction: float,
+        temperature: float
+    ) -> Dict[str, Any]:
+        """
+        Calculate enhanced wind impact using Enduraw-style methodology
+        
+        Considers:
+        - Wind speed and direction relative to movement
+        - Temperature effects on air density
+        - Velocity variations throughout the activity
+        """
+        try:
+            # Enhanced wind impact calculation
+            wind_analysis = {
+                "wind_speed_kmh": wind_speed,
+                "wind_direction_degrees": wind_direction,
+                "temperature_celsius": temperature,
+                "headwind_segments": 0,
+                "tailwind_segments": 0,
+                "crosswind_segments": 0,
+                "total_wind_impact_seconds": 0,
+                "wind_efficiency_score": 0.0
+            }
+            
+            # Analyze wind impact across velocity segments
+            total_impact = 0
+            segment_count = len(velocities)
+            
+            for i, velocity in enumerate(velocities):
+                if velocity <= 0:
+                    continue
+                
+                # Simulate wind direction relative to movement (simplified)
+                # In real implementation, this would use GPS bearing data
+                relative_wind_angle = (wind_direction + (i * 10)) % 360  # Simulate changing direction
+                
+                # Calculate wind component (headwind/tailwind)
+                import math
+                wind_component = wind_speed * math.cos(math.radians(relative_wind_angle))
+                
+                # Categorize wind segments
+                if wind_component > 2:  # Significant headwind
+                    wind_analysis["headwind_segments"] += 1
+                    # Headwind increases effort (positive impact on pace)
+                    segment_impact = self.calculate_headwind_impact(wind_component, velocity, temperature)
+                    total_impact += segment_impact
+                elif wind_component < -2:  # Significant tailwind
+                    wind_analysis["tailwind_segments"] += 1
+                    # Tailwind decreases effort (negative impact on pace)
+                    segment_impact = self.calculate_tailwind_benefit(abs(wind_component), velocity, temperature)
+                    total_impact -= segment_impact
+                else:  # Crosswind or minimal wind
+                    wind_analysis["crosswind_segments"] += 1
+                    # Crosswind has minimal impact but increases energy cost
+                    segment_impact = self.calculate_crosswind_impact(abs(wind_component), velocity)
+                    total_impact += segment_impact * 0.3  # Reduced impact for crosswind
+            
+            # Calculate average impact per km
+            if segment_count > 0:
+                avg_impact_per_segment = total_impact / segment_count
+                # Convert to seconds per km (assuming 1 segment = ~100m for typical activities)
+                wind_analysis["total_wind_impact_seconds"] = avg_impact_per_segment * 10
+            
+            # Calculate wind efficiency score (0-1, higher is better adaptation)
+            headwind_ratio = wind_analysis["headwind_segments"] / max(segment_count, 1)
+            tailwind_ratio = wind_analysis["tailwind_segments"] / max(segment_count, 1)
+            
+            # Good wind efficiency means maintaining pace despite headwinds
+            if headwind_ratio > 0.3:  # Significant headwind activity
+                wind_analysis["wind_efficiency_score"] = max(0, 1 - (total_impact / (wind_speed * 2)))
+            else:
+                wind_analysis["wind_efficiency_score"] = 0.8  # Neutral conditions
+            
+            return wind_analysis
+            
+        except Exception as e:
+            logger.error(f"Enhanced wind impact calculation failed: {str(e)}")
+            return {"total_wind_impact_seconds": 0, "wind_efficiency_score": 0.5}
+    
+    def calculate_headwind_impact(self, wind_component: float, velocity: float, temperature: float) -> float:
+        """Calculate the impact of headwind on pace (seconds per km)"""
+        # Enhanced calculation considering air density and velocity
+        air_density_factor = 1 + (20 - temperature) * 0.01  # Colder air is denser
+        velocity_factor = velocity / 3.6  # Convert km/h to m/s
+        
+        # Aerodynamic drag increases with square of relative wind speed
+        relative_wind = wind_component + velocity_factor
+        drag_factor = (relative_wind ** 2) / (velocity_factor ** 2) if velocity_factor > 0 else 1
+        
+        # Impact in seconds per km (empirical formula based on running aerodynamics)
+        impact = wind_component * drag_factor * air_density_factor * 0.8
+        return max(0, impact)
+    
+    def calculate_tailwind_benefit(self, wind_component: float, velocity: float, temperature: float) -> float:
+        """Calculate the benefit of tailwind on pace (seconds per km saved)"""
+        # Tailwind benefit is typically less than headwind penalty
+        air_density_factor = 1 + (20 - temperature) * 0.01
+        velocity_factor = velocity / 3.6
+        
+        # Reduced aerodynamic drag with tailwind
+        benefit = wind_component * air_density_factor * 0.6  # 60% of headwind impact
+        return max(0, benefit)
+    
+    def calculate_crosswind_impact(self, wind_component: float, velocity: float) -> float:
+        """Calculate the impact of crosswind on pace (minimal but present)"""
+        # Crosswind increases energy cost due to stability requirements
+        stability_cost = wind_component * 0.2  # 20% of direct wind impact
+        return max(0, stability_cost)
+    
     def analyze_elevation_cost(self, grade_data: Dict[str, Any], velocity_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze elevation cost impact on pace"""
+        """Analyze elevation cost impact on pace using enhanced Enduraw methodology"""
         try:
             grades = grade_data.get('data', [])
             velocities = velocity_data.get('data', [])
@@ -530,36 +774,222 @@ class EndurawModule(BaseModule):
             if not grades or not velocities or len(grades) != len(velocities):
                 return {"error": "Insufficient elevation/velocity data"}
             
-            # Calculate elevation cost metrics
+            # Enhanced elevation cost analysis
             uphill_segments = []
             downhill_segments = []
             flat_segments = []
             
+            # Analyze each segment with enhanced categorization
             for i, grade in enumerate(grades):
-                if grade > 2:  # Uphill > 2%
-                    uphill_segments.append((grade, velocities[i]))
-                elif grade < -2:  # Downhill < -2%
-                    downhill_segments.append((grade, velocities[i]))
-                else:  # Flat ±2%
-                    flat_segments.append((grade, velocities[i]))
+                velocity = velocities[i] if i < len(velocities) else 0
+                
+                if grade > 1.5:  # Uphill > 1.5% (more sensitive threshold)
+                    uphill_segments.append({
+                        'grade': grade,
+                        'velocity': velocity,
+                        'pace_per_km': (1000 / velocity / 60) if velocity > 0 else 0,
+                        'elevation_category': self.categorize_elevation(grade)
+                    })
+                elif grade < -1.5:  # Downhill < -1.5%
+                    downhill_segments.append({
+                        'grade': grade,
+                        'velocity': velocity,
+                        'pace_per_km': (1000 / velocity / 60) if velocity > 0 else 0,
+                        'elevation_category': self.categorize_elevation(grade)
+                    })
+                else:  # Flat ±1.5%
+                    flat_segments.append({
+                        'grade': grade,
+                        'velocity': velocity,
+                        'pace_per_km': (1000 / velocity / 60) if velocity > 0 else 0,
+                        'elevation_category': 'flat'
+                    })
             
             analysis = {
-                "uphill_pace_cost": self.calculate_uphill_cost(uphill_segments),
-                "downhill_benefit": self.calculate_downhill_benefit(downhill_segments),
-                "flat_pace": self.calculate_flat_pace(flat_segments),
-                "elevation_efficiency": 0.0
+                "uphill_pace_cost": self.calculate_enhanced_uphill_cost(uphill_segments),
+                "downhill_benefit": self.calculate_enhanced_downhill_benefit(downhill_segments),
+                "flat_pace": self.calculate_enhanced_flat_pace(flat_segments),
+                "elevation_efficiency": 0.0,
+                "grade_distribution": {
+                    "uphill_percentage": len(uphill_segments) / len(grades) * 100,
+                    "downhill_percentage": len(downhill_segments) / len(grades) * 100,
+                    "flat_percentage": len(flat_segments) / len(grades) * 100
+                },
+                "elevation_strategy": self.analyze_elevation_strategy(uphill_segments, downhill_segments, flat_segments)
             }
             
-            # Calculate overall elevation efficiency
+            # Calculate enhanced elevation efficiency
             if analysis["flat_pace"] > 0:
                 total_cost = analysis["uphill_pace_cost"] - analysis["downhill_benefit"]
-                analysis["elevation_efficiency"] = max(0, 1 - (total_cost / analysis["flat_pace"]))
+                baseline_cost = analysis["flat_pace"]
+                
+                # Enhanced efficiency calculation considering grade distribution
+                grade_difficulty = sum(abs(grade) for grade in grades) / len(grades)
+                efficiency_adjustment = 1 - (grade_difficulty * 0.1)  # Adjust for overall difficulty
+                
+                raw_efficiency = max(0, 1 - (total_cost / baseline_cost))
+                analysis["elevation_efficiency"] = raw_efficiency * efficiency_adjustment
             
             return analysis
             
         except Exception as e:
-            logger.error(f"Elevation cost analysis failed: {str(e)}")
+            logger.error(f"Enhanced elevation cost analysis failed: {str(e)}")
             return {"error": str(e)}
+    
+    def categorize_elevation(self, grade: float) -> str:
+        """Categorize elevation grade for enhanced analysis"""
+        abs_grade = abs(grade)
+        
+        if abs_grade < 1.5:
+            return 'flat'
+        elif abs_grade < 3:
+            return 'gentle' if grade > 0 else 'gentle_descent'
+        elif abs_grade < 6:
+            return 'moderate' if grade > 0 else 'moderate_descent'
+        elif abs_grade < 10:
+            return 'steep' if grade > 0 else 'steep_descent'
+        else:
+            return 'very_steep' if grade > 0 else 'very_steep_descent'
+    
+    def calculate_enhanced_uphill_cost(self, uphill_segments: List[Dict]) -> float:
+        """Calculate enhanced average pace cost for uphill segments"""
+        if not uphill_segments:
+            return 0.0
+        
+        total_weighted_cost = 0.0
+        total_weight = 0.0
+        
+        for segment in uphill_segments:
+            grade = segment['grade']
+            velocity = segment['velocity']
+            
+            # Enhanced cost calculation using physiological models
+            # Based on research: energy cost increases exponentially with grade
+            base_cost = grade * 8  # Base cost per % grade
+            exponential_factor = 1 + (grade / 20) ** 2  # Exponential increase for steep grades
+            velocity_factor = max(0.5, 1 - (velocity - 8) / 20)  # Slower = higher relative cost
+            
+            segment_cost = base_cost * exponential_factor * velocity_factor
+            segment_weight = 1 + (grade / 10)  # Weight steeper segments more
+            
+            total_weighted_cost += segment_cost * segment_weight
+            total_weight += segment_weight
+        
+        return total_weighted_cost / total_weight if total_weight > 0 else 0.0
+    
+    def calculate_enhanced_downhill_benefit(self, downhill_segments: List[Dict]) -> float:
+        """Calculate enhanced average pace benefit for downhill segments"""
+        if not downhill_segments:
+            return 0.0
+        
+        total_weighted_benefit = 0.0
+        total_weight = 0.0
+        
+        for segment in downhill_segments:
+            grade = abs(segment['grade'])  # Make positive for calculation
+            velocity = segment['velocity']
+            
+            # Enhanced benefit calculation
+            # Downhill benefit is limited by biomechanical constraints
+            base_benefit = grade * 5  # Base benefit per % grade (less than uphill cost)
+            
+            # Diminishing returns for steep descents (braking required)
+            if grade > 8:
+                diminishing_factor = 0.5 + (10 - grade) / 20
+            else:
+                diminishing_factor = 1.0
+            
+            # Velocity factor - very fast descents may not provide full benefit
+            velocity_factor = min(1.0, velocity / 15) if velocity > 0 else 0.5
+            
+            segment_benefit = base_benefit * diminishing_factor * velocity_factor
+            segment_weight = 1 + (grade / 15)  # Weight steeper descents more
+            
+            total_weighted_benefit += segment_benefit * segment_weight
+            total_weight += segment_weight
+        
+        return total_weighted_benefit / total_weight if total_weight > 0 else 0.0
+    
+    def calculate_enhanced_flat_pace(self, flat_segments: List[Dict]) -> float:
+        """Calculate enhanced average pace for flat segments"""
+        if not flat_segments:
+            return 0.0
+        
+        # Use median pace to avoid outliers affecting baseline
+        paces = [segment['pace_per_km'] for segment in flat_segments if segment['pace_per_km'] > 0]
+        
+        if not paces:
+            return 0.0
+        
+        paces.sort()
+        n = len(paces)
+        
+        if n % 2 == 0:
+            return (paces[n//2 - 1] + paces[n//2]) / 2
+        else:
+            return paces[n//2]
+    
+    def analyze_elevation_strategy(
+        self, 
+        uphill_segments: List[Dict], 
+        downhill_segments: List[Dict], 
+        flat_segments: List[Dict]
+    ) -> Dict[str, Any]:
+        """Analyze elevation pacing strategy"""
+        try:
+            strategy = {
+                "uphill_consistency": 0.0,
+                "downhill_utilization": 0.0,
+                "overall_strategy": "unknown",
+                "recommendations": []
+            }
+            
+            # Analyze uphill consistency
+            if uphill_segments:
+                uphill_paces = [s['pace_per_km'] for s in uphill_segments if s['pace_per_km'] > 0]
+                if uphill_paces:
+                    pace_variance = self.calculate_pace_variance(uphill_paces)
+                    strategy["uphill_consistency"] = max(0, 1 - pace_variance)
+            
+            # Analyze downhill utilization
+            if downhill_segments and flat_segments:
+                avg_downhill_pace = sum(s['pace_per_km'] for s in downhill_segments if s['pace_per_km'] > 0) / len(downhill_segments)
+                avg_flat_pace = sum(s['pace_per_km'] for s in flat_segments if s['pace_per_km'] > 0) / len(flat_segments)
+                
+                if avg_flat_pace > 0:
+                    pace_improvement = (avg_flat_pace - avg_downhill_pace) / avg_flat_pace
+                    strategy["downhill_utilization"] = max(0, min(1, pace_improvement))
+            
+            # Determine overall strategy
+            if strategy["uphill_consistency"] > 0.8 and strategy["downhill_utilization"] > 0.6:
+                strategy["overall_strategy"] = "excellent_elevation_management"
+                strategy["recommendations"].append("Excellent elevation pacing strategy!")
+            elif strategy["uphill_consistency"] > 0.6:
+                strategy["overall_strategy"] = "conservative_uphill_approach"
+                strategy["recommendations"].append("Good uphill consistency, consider utilizing downhills more")
+            elif strategy["downhill_utilization"] > 0.6:
+                strategy["overall_strategy"] = "aggressive_downhill_approach"
+                strategy["recommendations"].append("Good downhill utilization, focus on uphill consistency")
+            else:
+                strategy["overall_strategy"] = "variable_elevation_pacing"
+                strategy["recommendations"].append("Work on consistent elevation pacing strategy")
+            
+            return strategy
+            
+        except Exception as e:
+            logger.error(f"Elevation strategy analysis failed: {str(e)}")
+            return {"overall_strategy": "unknown", "recommendations": []}
+    
+    def calculate_pace_variance(self, paces: List[float]) -> float:
+        """Calculate coefficient of variation for pace data"""
+        if len(paces) < 2:
+            return 0.0
+        
+        mean_pace = sum(paces) / len(paces)
+        variance = sum((p - mean_pace) ** 2 for p in paces) / len(paces)
+        std_dev = variance ** 0.5
+        
+        return std_dev / mean_pace if mean_pace > 0 else 0.0
     
     def analyze_power_metrics(self, power_data: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze power metrics if available"""

@@ -59,8 +59,9 @@ class CampusCoachModule(BaseModule):
                 'campus-coaching-sessions'
             )
             
-            # TODO: Initialize AgentCore client when SDK is available
-            # self.agentcore_client = AgentCoreClient(region='eu-west-1')
+            # Initialize AgentCore client via Bedrock Agent Runtime
+            self.bedrock_agent_runtime = boto3.client('bedrock-agent-runtime', region_name='eu-west-1')
+            self.agentcore_agent_name = os.environ.get('CAMPUS_COACH_AGENT_NAME', 'campuscoach')
             
             logger.info("Campus Coach module initialized successfully")
             
@@ -276,28 +277,138 @@ class CampusCoachModule(BaseModule):
     async def extract_sessions_agentcore(self, credentials: Dict[str, str]) -> List[Dict[str, Any]]:
         """Extract sessions using AgentCore Browser Tool"""
         try:
-            # TODO: Replace with actual AgentCore SDK calls when available
-            # For now, return mock data that matches the expected structure
+            # Invoke AgentCore Browser Tool agent via Bedrock Agent Runtime
+            session_id = f"campus-coach-{datetime.now(timezone.utc).timestamp()}"
             
-            if self.agentcore_client:
-                # Actual AgentCore invocation
-                response = await self.agentcore_client.invoke_agent(
-                    agent_name='campus-coach-scraper',
-                    input_data={
-                        'credentials': credentials,
-                        'action': 'extract_sessions',
-                        'weeks': 2  # Extract last 2 weeks
-                    }
-                )
-                return response.get('sessions', [])
-            else:
-                # Mock implementation for development
-                logger.warning("AgentCore client not available, using mock data")
-                return await self.generate_mock_sessions()
+            # Prepare input for AgentCore Browser Tool agent
+            agent_input = {
+                'action': 'extract_sessions',
+                'credentials': credentials,
+                'target_weeks': 2,  # Extract current and next week
+                'retry_on_failure': True
+            }
+            
+            logger.info(f"Invoking AgentCore Browser Tool agent: {self.agentcore_agent_name}")
+            
+            # Invoke AgentCore agent via Bedrock Agent Runtime
+            response = self.bedrock_agent_runtime.invoke_agent(
+                agentId=self.agentcore_agent_name,
+                agentAliasId='TSTALIASID',  # Test alias ID for AgentCore
+                sessionId=session_id,
+                inputText=json.dumps(agent_input)
+            )
+            
+            # Process streaming response
+            completion = ""
+            for event in response.get('completion', []):
+                if 'chunk' in event:
+                    chunk = event['chunk']
+                    if 'bytes' in chunk:
+                        completion += chunk['bytes'].decode('utf-8')
+            
+            logger.info(f"AgentCore agent response length: {len(completion)}")
+            
+            # Parse agent response
+            try:
+                # Try to extract JSON from response
+                import re
+                json_match = re.search(r'\{.*\}', completion, re.DOTALL)
+                
+                if json_match:
+                    agent_response = json.loads(json_match.group())
+                    
+                    # Extract sessions from agent response
+                    if agent_response.get('success', False):
+                        sessions = agent_response.get('sessions', [])
+                        logger.info(f"Successfully extracted {len(sessions)} sessions from AgentCore agent")
+                        return sessions
+                    else:
+                        error_msg = agent_response.get('error', 'Unknown agent error')
+                        logger.error(f"AgentCore agent reported error: {error_msg}")
+                        raise Exception(f"AgentCore agent error: {error_msg}")
+                else:
+                    # Fallback: try to parse as plain text response
+                    logger.warning("Could not parse JSON from agent response, using fallback parsing")
+                    sessions = self.parse_agent_text_response(completion)
+                    if sessions:
+                        return sessions
+                    else:
+                        raise Exception("No sessions found in agent response")
+                        
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse agent response as JSON: {str(e)}")
+                sessions = self.parse_agent_text_response(completion)
+                if sessions:
+                    return sessions
+                else:
+                    raise Exception(f"Failed to parse agent response: {str(e)}")
                 
         except Exception as e:
             logger.error(f"AgentCore session extraction failed: {str(e)}")
+            
+            # Check if this is a cold start issue (common with Browser Tool agents)
+            if "timeout" in str(e).lower() or "unavailable" in str(e).lower():
+                logger.warning("Possible cold start issue detected - this is expected on first invocation")
+            
             raise
+    
+    def parse_agent_text_response(self, response_text: str) -> Optional[List[Dict[str, Any]]]:
+        """
+        Fallback parser for agent text responses when JSON parsing fails
+        
+        Attempts to extract session information from plain text response
+        """
+        try:
+            sessions = []
+            
+            # Look for session patterns in text
+            lines = response_text.split('\n')
+            
+            current_session = {}
+            for line in lines:
+                line = line.strip()
+                
+                # Look for session indicators
+                if 'session' in line.lower() and ':' in line:
+                    if current_session:
+                        sessions.append(current_session)
+                        current_session = {}
+                    
+                    # Extract session ID/name
+                    session_id = line.split(':')[1].strip()
+                    current_session['session_id'] = session_id
+                    current_session['extracted_at'] = datetime.now(timezone.utc).isoformat()
+                
+                elif 'date:' in line.lower():
+                    current_session['session_date'] = line.split(':')[1].strip()
+                
+                elif 'type:' in line.lower():
+                    current_session['session_type'] = line.split(':')[1].strip()
+                
+                elif 'distance:' in line.lower():
+                    try:
+                        distance_str = line.split(':')[1].strip()
+                        current_session['planned_distance'] = float(distance_str.replace('km', '').strip())
+                    except:
+                        pass
+                
+                elif 'description:' in line.lower():
+                    current_session['description'] = line.split(':')[1].strip()
+            
+            # Add last session if exists
+            if current_session:
+                sessions.append(current_session)
+            
+            if sessions:
+                logger.info(f"Parsed {len(sessions)} sessions from text response")
+                return sessions
+            else:
+                logger.warning("No sessions found in text response")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Failed to parse agent text response: {str(e)}")
+            return None
     
     async def generate_mock_sessions(self) -> List[Dict[str, Any]]:
         """Generate mock Campus Coach sessions for development"""
@@ -715,22 +826,77 @@ Return your analysis in JSON format:
             logger.error(f"Failed to store sessions: {str(e)}")
     
     async def test_login_credentials(self, credentials: Dict[str, str]) -> bool:
-        """Test Campus Coach login credentials"""
+        """Test Campus Coach login credentials using AgentCore Browser Tool"""
         try:
-            # TODO: Implement actual credential testing with AgentCore Browser Tool
-            # For now, return True for valid-looking credentials
-            username = credentials.get('username', '')
-            password = credentials.get('password', '')
+            # Use AgentCore Browser Tool to test credentials
+            session_id = f"credential-test-{datetime.now(timezone.utc).timestamp()}"
             
-            if len(username) > 3 and len(password) > 6:
-                logger.info("Campus Coach credentials appear valid (mock validation)")
-                return True
-            else:
-                logger.error("Campus Coach credentials appear invalid")
-                return False
+            # Prepare input for credential testing
+            test_input = {
+                'action': 'test_credentials',
+                'credentials': credentials,
+                'timeout_seconds': 30
+            }
+            
+            logger.info("Testing Campus Coach credentials with AgentCore Browser Tool")
+            
+            # Invoke AgentCore agent for credential testing
+            response = self.bedrock_agent_runtime.invoke_agent(
+                agentId=self.agentcore_agent_name,
+                agentAliasId='TSTALIASID',
+                sessionId=session_id,
+                inputText=json.dumps(test_input)
+            )
+            
+            # Process streaming response
+            completion = ""
+            for event in response.get('completion', []):
+                if 'chunk' in event:
+                    chunk = event['chunk']
+                    if 'bytes' in chunk:
+                        completion += chunk['bytes'].decode('utf-8')
+            
+            # Parse credential test response
+            try:
+                import re
+                json_match = re.search(r'\{.*\}', completion, re.DOTALL)
+                
+                if json_match:
+                    test_response = json.loads(json_match.group())
+                    success = test_response.get('success', False)
+                    
+                    if success:
+                        logger.info("Campus Coach credentials validated successfully")
+                        return True
+                    else:
+                        error_msg = test_response.get('error', 'Credential validation failed')
+                        logger.error(f"Campus Coach credential validation failed: {error_msg}")
+                        return False
+                else:
+                    # Fallback: look for success indicators in text
+                    if 'success' in completion.lower() or 'login successful' in completion.lower():
+                        logger.info("Campus Coach credentials appear valid (text parsing)")
+                        return True
+                    else:
+                        logger.error("Campus Coach credentials appear invalid (text parsing)")
+                        return False
+                        
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse credential test response: {str(e)}")
+                # Fallback validation based on text content
+                if 'success' in completion.lower() or 'valid' in completion.lower():
+                    return True
+                else:
+                    return False
                 
         except Exception as e:
-            logger.error(f"Credential testing failed: {str(e)}")
+            logger.error(f"AgentCore credential testing failed: {str(e)}")
+            
+            # Check if this is a cold start issue
+            if "timeout" in str(e).lower() or "unavailable" in str(e).lower():
+                logger.warning("Possible cold start issue during credential testing")
+            
+            # For credential testing, we should be conservative and return False on errors
             return False
     
     async def store_credentials_securely(self, credentials: Dict[str, str]) -> None:
@@ -777,13 +943,52 @@ Return your analysis in JSON format:
     async def test_agentcore_connectivity(self) -> bool:
         """Test AgentCore Browser Tool connectivity"""
         try:
-            # TODO: Implement actual AgentCore connectivity test
-            # For now, return True as mock
-            logger.info("AgentCore connectivity test passed (mock)")
-            return True
+            # Test AgentCore agent connectivity with a simple ping
+            session_id = f"connectivity-test-{datetime.now(timezone.utc).timestamp()}"
             
+            # Prepare simple connectivity test
+            test_input = {
+                'action': 'ping',
+                'test_connectivity': True
+            }
+            
+            logger.info("Testing AgentCore Browser Tool connectivity")
+            
+            # Invoke AgentCore agent for connectivity test
+            response = self.bedrock_agent_runtime.invoke_agent(
+                agentId=self.agentcore_agent_name,
+                agentAliasId='TSTALIASID',
+                sessionId=session_id,
+                inputText=json.dumps(test_input)
+            )
+            
+            # Process streaming response
+            completion = ""
+            for event in response.get('completion', []):
+                if 'chunk' in event:
+                    chunk = event['chunk']
+                    if 'bytes' in chunk:
+                        completion += chunk['bytes'].decode('utf-8')
+            
+            # If we got any response, connectivity is working
+            if completion and len(completion) > 0:
+                logger.info("AgentCore Browser Tool connectivity test passed")
+                return True
+            else:
+                logger.error("AgentCore Browser Tool connectivity test failed - no response")
+                return False
+                
         except Exception as e:
             logger.error(f"AgentCore connectivity test failed: {str(e)}")
+            
+            # Check for specific error types
+            if "ResourceNotFoundException" in str(e):
+                logger.error("AgentCore agent not found - ensure agent is deployed")
+            elif "AccessDeniedException" in str(e):
+                logger.error("Access denied to AgentCore agent - check IAM permissions")
+            elif "timeout" in str(e).lower():
+                logger.warning("AgentCore connectivity test timeout - possible cold start")
+            
             return False
     
     def get_required_credentials(self) -> List[str]:

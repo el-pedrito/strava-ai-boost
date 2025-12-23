@@ -1,7 +1,7 @@
 # Strava AI Boost - Setup and Deployment Guide
 
-**Version:** v0.1.0 - Infrastructure Complete  
-**Last Updated:** 2025-12-21
+**Version:** v1.3.0 - AgentCore Integration Complete  
+**Last Updated:** 2025-12-23
 
 This guide provides step-by-step instructions for setting up and deploying the Strava AI Boost system in your AWS environment.
 
@@ -517,6 +517,6 @@ For issues and questions:
 
 ---
 
-**Version:** v0.1.0 - Infrastructure Complete  
-**Last Updated:** 2025-12-21  
-**Next Phase:** Strava OAuth Integration (Task 2)
+**Version:** v1.3.0 - AgentCore Integration Complete  
+**Last Updated:** 2025-12-23  
+**Next Phase:** Local Web Interface Enhancement (Task 16+)

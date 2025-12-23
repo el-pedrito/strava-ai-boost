@@ -1,7 +1,7 @@
 # Strava AI Boost - Testing Guide
 
-**Version:** v0.1.0 - Infrastructure Complete  
-**Last Updated:** 2025-12-21
+**Version:** v1.3.0 - AgentCore Integration Complete  
+**Last Updated:** 2025-12-23
 
 This guide provides comprehensive testing procedures and validation steps for the Strava AI Boost system, including property-based testing, unit testing, and integration testing strategies.
 
@@ -517,6 +517,6 @@ with mock_aws():
 
 ---
 
-**Version:** v0.1.0 - Infrastructure Complete  
-**Last Updated:** 2025-12-21  
+**Version:** v1.3.0 - AgentCore Integration Complete  
+**Last Updated:** 2025-12-23  
 **Test Coverage:** Infrastructure Security and Correctness (100%)

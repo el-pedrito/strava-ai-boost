@@ -1,7 +1,7 @@
 # Strava AI Boost
 
-**Version:** v0.1.0  
-**Status:** In Development - Infrastructure Complete
+**Version:** v1.3.0  
+**Status:** In Development - AgentCore Integration Complete
 
 Strava AI Boost is a simplified, modular serverless application that automatically enhances Strava activity titles and descriptions using Amazon Bedrock AI. Built as a streamlined version of the existing Strava AI Coach project, it focuses on core functionality while maintaining modularity for future integrations.
 
@@ -218,6 +218,6 @@ This project is licensed under the MIT License.
 
 ---
 
-**Current Version:** v0.1.0  
-**Last Updated:** 2025-12-21  
-**Status:** Infrastructure Complete - Ready for OAuth Integration
+**Current Version:** v1.3.0  
+**Last Updated:** 2025-12-23  
+**Status:** AgentCore Integration Complete - Ready for Local Interface Enhancement

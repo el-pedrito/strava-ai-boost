@@ -136,8 +136,7 @@ def invoke_agent_with_retry(agent_input: Dict[str, Any]) -> Optional[List[Dict[s
         try:
             logger.info(f"AgentCore invocation attempt {attempt}/{MAX_RETRIES}")
             
-            # TODO: Replace with actual AgentCore SDK call
-            # For now, simulate the invocation
+            # Invoke AgentCore Browser Tool agent
             sessions_data = invoke_agentcore_agent(agent_input)
             
             if sessions_data:
@@ -165,7 +164,7 @@ def invoke_agentcore_agent(agent_input: Dict[str, Any]) -> Optional[List[Dict[st
     """
     Invoke AgentCore Browser Tool agent using AWS Bedrock Agent Runtime
     
-    Replaces placeholder with actual AgentCore SDK integration
+    Integrates with actual AgentCore Browser Tool for Campus Coach session extraction
     """
     try:
         # Get agent configuration from environment
