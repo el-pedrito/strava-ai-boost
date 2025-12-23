@@ -9,6 +9,7 @@ for proper integration of utility classes with error handling and monitoring.
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime, UTC
 import logging
+import asyncio
 from contextlib import contextmanager
 
 from .strava_client import StravaAPIClient, create_strava_client_from_env
@@ -16,7 +17,12 @@ from .oauth_handler import StravaOAuthHandler, create_oauth_handler_from_env
 from .rate_limiter import StravaRateLimiter, create_rate_limiter_from_env
 from .secrets_manager import StravaTokenManager, create_token_manager_from_env
 from .data_transformers import (
-    StravaDataTransformer, DataQualityReport
+    StravaDataTransformer, DataQualityReport, create_data_transformer,
+    DataValidator, create_data_validator
+)
+from .monitoring import (
+    CloudWatchMetrics, PerformanceTracker, create_cloudwatch_metrics,
+    create_performance_tracker
 )
 from .monitoring import (
     CloudWatchMetrics, SystemHealthMonitor, PerformanceTracker,
@@ -44,6 +50,7 @@ class IntegratedStravaClient:
                  rate_limiter: Optional[StravaRateLimiter] = None,
                  token_manager: Optional[StravaTokenManager] = None,
                  data_transformer: Optional[StravaDataTransformer] = None,
+                 data_validator: Optional[Any] = None,
                  metrics: Optional[CloudWatchMetrics] = None,
                  performance_tracker: Optional[PerformanceTracker] = None,
                  user_id: str = "default"):
@@ -111,6 +118,71 @@ class IntegratedStravaClient:
                     error_type=type(error).__name__,
                     error_message=str(error)
                 )
+    
+    async def get_activity(self, activity_id: str) -> Dict[str, Any]:
+        """
+        Get activity data with rate limiting.
+        
+        Args:
+            activity_id: Strava activity ID
+            
+        Returns:
+            Activity data dictionary
+        """
+        with self._track_operation("get_activity"):
+            # Check rate limits and wait if needed
+            self.rate_limiter.wait_if_needed()
+            
+            # Get activity data
+            response = await self.strava_client.get_activity(activity_id)
+            
+            # Record the request
+            self.rate_limiter.record_request()
+            
+            return response.data if hasattr(response, 'data') else response
+    
+    async def get_activity_streams(self, activity_id: str) -> Dict[str, Any]:
+        """
+        Get activity streams data with rate limiting.
+        
+        Args:
+            activity_id: Strava activity ID
+            
+        Returns:
+            Streams data dictionary
+        """
+        with self._track_operation("get_activity_streams"):
+            # Check rate limits and wait if needed
+            self.rate_limiter.wait_if_needed()
+            
+            # Get streams data
+            response = await self.strava_client.get_activity_streams(activity_id)
+            
+            # Record the request
+            self.rate_limiter.record_request()
+            
+            return response.data if hasattr(response, 'data') else response
+    
+    async def get_activity_with_retry(self, activity_id: str, max_retries: int = 3) -> Dict[str, Any]:
+        """
+        Get activity data with retry logic.
+        
+        Args:
+            activity_id: Strava activity ID
+            max_retries: Maximum number of retry attempts
+            
+        Returns:
+            Activity data dictionary
+        """
+        for attempt in range(max_retries):
+            try:
+                return await self.get_activity(activity_id)
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise
+                logger.warning(f"Attempt {attempt + 1} failed for activity {activity_id}: {e}")
+                await asyncio.sleep(2 ** attempt)  # Exponential backoff
+    
     
     def get_activity_with_validation(self, activity_id: str) -> Tuple[ActivityData, List[ValidationError]]:
         """
@@ -341,6 +413,126 @@ class SystemMonitor:
             services_status['cloudwatch'] = False
         
         return services_status
+    
+    def _check_dynamodb_health(self) -> bool:
+        """Check DynamoDB health"""
+        try:
+            import boto3
+            dynamodb = boto3.client('dynamodb')
+            dynamodb.list_tables()
+            return True
+        except Exception as e:
+            logger.error(f"DynamoDB health check failed: {e}")
+            return False
+    
+    def _check_secrets_manager_health(self) -> bool:
+        """Check Secrets Manager health"""
+        try:
+            import boto3
+            secrets = boto3.client('secretsmanager')
+            secrets.list_secrets(MaxResults=1)
+            return True
+        except Exception as e:
+            logger.error(f"Secrets Manager health check failed: {e}")
+            return False
+    
+    def _check_bedrock_health(self) -> bool:
+        """Check Bedrock health"""
+        try:
+            import boto3
+            bedrock = boto3.client('bedrock-runtime')
+            # Simple check - list foundation models
+            bedrock.list_foundation_models()
+            return True
+        except Exception as e:
+            logger.error(f"Bedrock health check failed: {e}")
+            return False
+    
+    def _check_step_functions_health(self) -> bool:
+        """Check Step Functions health"""
+        try:
+            import boto3
+            stepfunctions = boto3.client('stepfunctions')
+            stepfunctions.list_state_machines(maxResults=1)
+            return True
+        except Exception as e:
+            logger.error(f"Step Functions health check failed: {e}")
+            return False
+    
+    async def check_system_health(self) -> Dict[str, Any]:
+        """
+        Perform comprehensive system health check.
+        
+        Returns:
+            Dictionary with system health status
+        """
+        services = {
+            'dynamodb': self._check_dynamodb_health(),
+            'secrets_manager': self._check_secrets_manager_health(),
+            'bedrock': self._check_bedrock_health(),
+            'step_functions': self._check_step_functions_health()
+        }
+        
+        # Determine overall status
+        healthy_services = sum(1 for status in services.values() if status)
+        total_services = len(services)
+        
+        if healthy_services == total_services:
+            overall_status = "healthy"
+        elif healthy_services > 0:
+            overall_status = "degraded"
+        else:
+            overall_status = "unhealthy"
+        
+        # Convert boolean to status strings
+        service_statuses = {
+            name: "healthy" if status else "unhealthy"
+            for name, status in services.items()
+        }
+        
+        from datetime import datetime, timezone
+        
+        return {
+            "overall_status": overall_status,
+            "services": service_statuses,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    
+    def collect_performance_metrics(self) -> Dict[str, Any]:
+        """
+        Collect system performance metrics.
+        
+        Returns:
+            Dictionary with performance metrics
+        """
+        import psutil
+        from datetime import datetime, timezone
+        
+        metrics = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "memory_usage": psutil.virtual_memory().percent,
+            "cpu_usage": psutil.cpu_percent(interval=1),
+        }
+        
+        # Try to get network connections, but handle permission errors gracefully
+        try:
+            metrics["active_connections"] = len(psutil.net_connections())
+        except (psutil.AccessDenied, PermissionError):
+            # On macOS, this requires elevated permissions
+            metrics["active_connections"] = -1  # Indicate unavailable
+        
+        metrics["disk_usage"] = psutil.disk_usage('/').percent
+        
+        # Send metrics to CloudWatch if available
+        if self.metrics:
+            try:
+                self.metrics.put_metric("SystemMemoryUsage", metrics["memory_usage"], "Percent")
+                self.metrics.put_metric("SystemCPUUsage", metrics["cpu_usage"], "Percent")
+                self.metrics.put_metric("ActiveConnections", metrics["active_connections"], "Count")
+            except Exception as e:
+                logger.error(f"Failed to send metrics to CloudWatch: {e}")
+        
+        return metrics
     
     def perform_comprehensive_health_check(self) -> Dict[str, Any]:
         """

@@ -17,10 +17,11 @@ import time
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# Initialize AWS clients
-dynamodb = boto3.resource('dynamodb')
-secretsmanager = boto3.client('secretsmanager')
-bedrock_agent_runtime = boto3.client('bedrock-agent-runtime')
+# Initialize AWS clients with region
+REGION = os.environ.get('AWS_REGION', 'eu-west-1')
+dynamodb = boto3.resource('dynamodb', region_name=REGION)
+secretsmanager = boto3.client('secretsmanager', region_name=REGION)
+bedrock_agent_runtime = boto3.client('bedrock-agent-runtime', region_name=REGION)
 
 # Environment variables
 COACHING_SESSIONS_TABLE = os.environ['COACHING_SESSIONS_TABLE']
@@ -162,46 +163,141 @@ def invoke_agent_with_retry(agent_input: Dict[str, Any]) -> Optional[List[Dict[s
 
 def invoke_agentcore_agent(agent_input: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
     """
-    Invoke AgentCore Browser Tool agent
+    Invoke AgentCore Browser Tool agent using AWS Bedrock Agent Runtime
     
-    TODO: Implement actual AgentCore SDK integration
-    This is a placeholder for the AgentCore agent invocation
+    Replaces placeholder with actual AgentCore SDK integration
     """
     try:
-        # TODO: Replace with actual AgentCore SDK call
-        # Example:
-        # response = bedrock_agent_runtime.invoke_agent(
-        #     agentId=CAMPUS_COACH_AGENT_ID,
-        #     agentAliasId='TSTALIASID',
-        #     sessionId=f"session-{datetime.utcnow().timestamp()}",
-        #     inputText=json.dumps(agent_input)
-        # )
+        # Get agent configuration from environment
+        agent_name = os.environ.get('CAMPUS_COACH_AGENT_NAME', 'campuscoach')
         
-        # For now, return placeholder data
-        logger.warning("Using placeholder AgentCore invocation - implement actual SDK call")
+        # Create session ID for this invocation
+        session_id = f"campus-coach-{datetime.utcnow().timestamp()}"
         
-        # Simulate successful extraction
-        placeholder_sessions = [
-            {
-                'session_id': f"session_{i}",
-                'session_date': datetime.utcnow().isoformat(),
-                'week_number': f"Week {i}",
-                'session_type': 'Interval Training',
-                'description': f"Placeholder session {i}",
-                'workout_structure': {
-                    'warmup': '15 min easy',
-                    'main': '5x1000m @ 5k pace',
-                    'cooldown': '10 min easy'
-                }
-            }
-            for i in range(1, 4)
-        ]
+        logger.info(f"Invoking AgentCore agent: {agent_name} with session: {session_id}")
         
-        return placeholder_sessions
+        # Prepare input for AgentCore Browser Tool agent
+        agent_prompt = json.dumps({
+            'action': 'extract_sessions',
+            'credentials': agent_input.get('credentials', {}),
+            'user_id': agent_input.get('user_id', 'default_user'),
+            'target_weeks': 2,  # Extract current and next week
+            'retry_on_failure': True
+        })
+        
+        # Invoke AgentCore agent via Bedrock Agent Runtime
+        response = bedrock_agent_runtime.invoke_agent(
+            agentId=agent_name,
+            agentAliasId='TSTALIASID',  # Test alias ID for AgentCore
+            sessionId=session_id,
+            inputText=agent_prompt
+        )
+        
+        # Process streaming response
+        completion = ""
+        for event in response.get('completion', []):
+            if 'chunk' in event:
+                chunk = event['chunk']
+                if 'bytes' in chunk:
+                    completion += chunk['bytes'].decode('utf-8')
+        
+        logger.info(f"AgentCore agent response length: {len(completion)}")
+        
+        # Parse agent response
+        try:
+            # Try to extract JSON from response
+            import re
+            json_match = re.search(r'\{.*\}', completion, re.DOTALL)
+            
+            if json_match:
+                agent_response = json.loads(json_match.group())
+                
+                # Extract sessions from agent response
+                if agent_response.get('success', False):
+                    sessions = agent_response.get('sessions', [])
+                    logger.info(f"Successfully extracted {len(sessions)} sessions from AgentCore agent")
+                    return sessions
+                else:
+                    error_msg = agent_response.get('error', 'Unknown agent error')
+                    logger.error(f"AgentCore agent reported error: {error_msg}")
+                    return None
+            else:
+                # Fallback: try to parse as plain text response
+                logger.warning("Could not parse JSON from agent response, using fallback parsing")
+                return parse_agent_text_response(completion)
+                
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse agent response as JSON: {str(e)}")
+            return parse_agent_text_response(completion)
         
     except Exception as e:
         logger.error(f"AgentCore agent invocation failed: {str(e)}")
+        
+        # Check if this is a cold start issue (common with Browser Tool agents)
+        if "timeout" in str(e).lower() or "unavailable" in str(e).lower():
+            logger.warning("Possible cold start issue detected - this is expected on first invocation")
+        
         raise
+
+
+def parse_agent_text_response(response_text: str) -> Optional[List[Dict[str, Any]]]:
+    """
+    Fallback parser for agent text responses when JSON parsing fails
+    
+    Attempts to extract session information from plain text response
+    """
+    try:
+        sessions = []
+        
+        # Look for session patterns in text
+        # This is a simplified parser - in production, the agent should return structured JSON
+        lines = response_text.split('\n')
+        
+        current_session = {}
+        for line in lines:
+            line = line.strip()
+            
+            # Look for session indicators
+            if 'session' in line.lower() and ':' in line:
+                if current_session:
+                    sessions.append(current_session)
+                    current_session = {}
+                
+                # Extract session ID/name
+                session_id = line.split(':')[1].strip()
+                current_session['session_id'] = session_id
+                current_session['extracted_at'] = datetime.utcnow().isoformat()
+            
+            elif 'date:' in line.lower():
+                current_session['session_date'] = line.split(':')[1].strip()
+            
+            elif 'type:' in line.lower():
+                current_session['session_type'] = line.split(':')[1].strip()
+            
+            elif 'distance:' in line.lower():
+                try:
+                    distance_str = line.split(':')[1].strip()
+                    current_session['planned_distance'] = float(distance_str.replace('km', '').strip())
+                except:
+                    pass
+            
+            elif 'description:' in line.lower():
+                current_session['description'] = line.split(':')[1].strip()
+        
+        # Add last session if exists
+        if current_session:
+            sessions.append(current_session)
+        
+        if sessions:
+            logger.info(f"Parsed {len(sessions)} sessions from text response")
+            return sessions
+        else:
+            logger.warning("No sessions found in text response")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Failed to parse agent text response: {str(e)}")
+        return None
 
 
 def store_coaching_sessions(sessions_data: List[Dict[str, Any]]) -> int:

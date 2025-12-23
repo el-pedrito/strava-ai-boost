@@ -197,3 +197,20 @@ The system provides an easy-to-deploy AWS serverless solution that users can ins
 5. WHEN the system is paused THEN the Strava AI Boost System SHALL display a clear visual indicator in the dashboard showing "Enhancement Paused" status with the pause timestamp
 6. WHEN viewing the dashboard while paused THEN the Strava AI Boost System SHALL show a prominent "Resume Enhancement" button and display how long the system has been paused
 7. WHEN the pause status changes THEN the Strava AI Boost System SHALL store the pause state and timestamp in DynamoDB for persistence across system restarts
+
+### Requirement 14
+
+**User Story:** As a user, I want to configure my personal profile and content preferences, so that the AI-generated content matches my personality, interests, and communication style.
+
+#### Acceptance Criteria
+
+1. WHEN a user accesses the local configuration interface THEN the Strava AI Boost System SHALL display a "Personal Profile" configuration section with comprehensive customization options
+2. WHEN configuring personal information THEN the Strava AI Boost System SHALL allow users to set their age range (18-25, 26-35, 36-45, 46-55, 55+) to adapt content tone and references
+3. WHEN configuring interests THEN the Strava AI Boost System SHALL provide checkboxes for interests including: technology, music, travel, food, nature, photography, family, work-life balance, competition, social fitness, outdoor adventures
+4. WHEN configuring sport approach THEN the Strava AI Boost System SHALL allow users to select their primary motivation: health & wellness, performance & competition, social & fun, personal challenge, stress relief, weight management
+5. WHEN configuring content style THEN the Strava AI Boost System SHALL provide content length options: short (< 100 chars), medium (100-200 chars), detailed (200+ chars), adaptive (varies by activity type)
+6. WHEN configuring communication tone THEN the Strava AI Boost System SHALL allow users to select preferred tone: technical & analytical, motivational & energetic, casual & friendly, humorous & fun, authentic & personal
+7. WHEN configuring language preferences THEN the Strava AI Boost System SHALL allow users to choose emoji usage (none, minimal, moderate, enthusiastic) and technical detail level (basic, intermediate, advanced)
+8. WHEN profile settings are saved THEN the Strava AI Boost System SHALL store the configuration in DynamoDB and use AgentCore Memory to learn and adapt content generation over time
+9. WHEN generating content THEN the Strava AI Boost System SHALL use the profile configuration to personalize tone, length, technical detail, and cultural references appropriate to the user's age and interests
+10. WHEN the user's preferences evolve THEN the Strava AI Boost System SHALL allow profile updates and use AgentCore Memory to track preference changes and content effectiveness over time

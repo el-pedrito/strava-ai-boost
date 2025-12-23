@@ -45,7 +45,7 @@ class TestDataValidation:
     def test_activity_data_validation_success(self):
         """Test successful activity data validation"""
         valid_activity = ActivityData(
-            id=12345,
+            id="12345",  # Changed from int to str
             name="Test Run",
             type="Run",
             start_date=datetime.now(timezone.utc),
@@ -58,7 +58,7 @@ class TestDataValidation:
         )
         
         # Verify the activity is valid
-        assert valid_activity.id == 12345
+        assert valid_activity.id == "12345"  # Now expects string
         assert valid_activity.distance == 5000.0
         assert valid_activity.type == "Run"
     

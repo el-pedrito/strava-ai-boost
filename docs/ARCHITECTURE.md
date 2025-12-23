@@ -176,7 +176,7 @@ Encryption: KMS managed
           "bedrock:InvokeModelWithResponseStream"
         ],
         "Resource": [
-          "arn:aws:bedrock:eu-west-1::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"
+          "arn:aws:bedrock:eu-west-1::foundation-model/global.anthropic.claude-sonnet-4-5-20250929-v1:0"
         ]
       }]
     }
@@ -488,7 +488,7 @@ typing-extensions>=4.0.0
 - **CDK**: v2.219.0
 - **Python Runtime**: 3.12
 - **Region**: eu-west-1 (Ireland)
-- **Bedrock Model**: anthropic.claude-3-5-sonnet-20241022-v2:0
+- **Bedrock Model**: global.anthropic.claude-sonnet-4-5-20250929-v1:0
 
 ## Deployment Configuration
 

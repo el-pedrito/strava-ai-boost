@@ -162,7 +162,7 @@ app.config['SESSION_COOKIE_HTTPONLY'] = True
           "bedrock:InvokeModelWithResponseStream"
         ],
         "Resource": [
-          "arn:aws:bedrock:eu-west-1::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"
+          "arn:aws:bedrock:eu-west-1::foundation-model/global.anthropic.claude-sonnet-4-5-20250929-v1:0"
         ]
       }]
     }

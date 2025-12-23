@@ -40,6 +40,57 @@ class StravaDataTransformer:
     Strava data types including activities, streams, and metadata.
     """
     
+    def transform_activity_data(self, raw_data: Dict[str, Any]) -> ActivityData:
+        """
+        Transform raw Strava activity data into ActivityData model.
+        Instance method wrapper for transform_raw_activity.
+        
+        Args:
+            raw_data: Raw activity data from Strava API
+            
+        Returns:
+            ActivityData object with validated and cleaned data
+        """
+        return self.transform_raw_activity(raw_data)
+    
+    def transform_streams_data(self, raw_streams: Dict[str, Any]) -> StreamsData:
+        """
+        Transform raw Strava streams data into StreamsData model.
+        Instance method wrapper for transform_raw_streams.
+        
+        Args:
+            raw_streams: Raw streams data from Strava API
+            
+        Returns:
+            StreamsData object with validated streams
+        """
+        return self.transform_raw_streams(raw_streams)
+    
+    def validate_and_sanitize(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Validate and sanitize raw data before transformation.
+        
+        Args:
+            raw_data: Raw data to validate and sanitize
+            
+        Returns:
+            Cleaned and validated data dictionary
+        """
+        if not isinstance(raw_data, dict):
+            raise ValueError("Input data must be a dictionary")
+        
+        # Create a copy to avoid modifying original
+        sanitized = raw_data.copy()
+        
+        # Remove null bytes and clean text fields
+        for key, value in sanitized.items():
+            if isinstance(value, str):
+                sanitized[key] = self._clean_text(value)
+            elif isinstance(value, (int, float)) and value < 0 and key in ['distance', 'moving_time', 'elapsed_time']:
+                sanitized[key] = 0  # Ensure non-negative values for these fields
+        
+        return sanitized
+    
     @staticmethod
     def transform_raw_activity(raw_data: Dict[str, Any]) -> ActivityData:
         """
@@ -94,7 +145,7 @@ class StravaDataTransformer:
             
             # Create ActivityData object
             activity_data = ActivityData(
-                id=int(raw_data['id']),
+                id=str(raw_data['id']),  # Convert to string as expected by tests
                 external_id=raw_data.get('external_id'),
                 upload_id=StravaDataTransformer._safe_int(raw_data.get('upload_id')),
                 name=str(raw_data.get('name', '')).strip(),
@@ -335,6 +386,9 @@ class StravaDataTransformer:
         
         # Remove null bytes and control characters
         cleaned = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', cleaned)
+        
+        # Remove HTML/script tags for security
+        cleaned = re.sub(r'<[^>]*>', '', cleaned)
         
         return cleaned if cleaned else None
     

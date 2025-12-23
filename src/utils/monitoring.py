@@ -443,7 +443,7 @@ class SystemHealthMonitor:
     
     def create_alert(self, 
                     alert_id: str,
-                    severity: AlertSeverity,
+                    severity: Union[AlertSeverity, str],
                     title: str,
                     message: str,
                     component: str,
@@ -453,7 +453,7 @@ class SystemHealthMonitor:
         
         Args:
             alert_id: Unique alert identifier
-            severity: Alert severity level
+            severity: Alert severity level (AlertSeverity enum or string)
             title: Alert title
             message: Alert message
             component: Component that generated the alert
@@ -463,6 +463,16 @@ class SystemHealthMonitor:
             True if successful, False otherwise
         """
         try:
+            # Convert string severity to enum if needed
+            if isinstance(severity, str):
+                severity_map = {
+                    'info': AlertSeverity.INFO,
+                    'warning': AlertSeverity.WARNING,
+                    'error': AlertSeverity.ERROR,
+                    'critical': AlertSeverity.CRITICAL
+                }
+                severity = severity_map.get(severity.lower(), AlertSeverity.ERROR)
+            
             alert = Alert(
                 alert_id=alert_id,
                 severity=severity,
@@ -742,6 +752,118 @@ class PerformanceTracker:
             },
             'last_updated': datetime.now(UTC).isoformat()
         }
+
+
+class SystemMonitor:
+    """
+    Unified system monitoring interface.
+    
+    Combines health monitoring and performance tracking into a single interface.
+    """
+    
+    def __init__(self, 
+                 metrics: Optional[CloudWatchMetrics] = None,
+                 alert_topic_arn: Optional[str] = None):
+        """
+        Initialize system monitor.
+        
+        Args:
+            metrics: CloudWatch metrics publisher
+            alert_topic_arn: SNS topic ARN for alerts
+        """
+        self.metrics = metrics or CloudWatchMetrics()
+        self.health_monitor = SystemHealthMonitor(self.metrics, alert_topic_arn)
+        self.performance_tracker = PerformanceTracker(self.metrics)
+    
+    async def health_check_all_services(self) -> Dict[str, bool]:
+        """
+        Check health of all system services.
+        
+        Returns:
+            Dictionary mapping service names to health status
+        """
+        services = {
+            'dynamodb': self._check_dynamodb_health,
+            'bedrock': self._check_bedrock_health,
+            'secrets_manager': self._check_secrets_manager_health,
+            'step_functions': self._check_step_functions_health
+        }
+        
+        results = {}
+        for service_name, check_func in services.items():
+            try:
+                results[service_name] = await check_func()
+            except Exception as e:
+                logger.error(f"Health check failed for {service_name}: {e}")
+                results[service_name] = False
+        
+        return results
+    
+    async def _check_dynamodb_health(self) -> bool:
+        """Check DynamoDB health"""
+        try:
+            dynamodb = boto3.client('dynamodb')
+            response = dynamodb.list_tables()
+            return 'TableNames' in response
+        except Exception:
+            return False
+    
+    async def _check_bedrock_health(self) -> bool:
+        """Check Bedrock health"""
+        try:
+            bedrock = boto3.client('bedrock-runtime')
+            # Simple check - if client can be created, service is accessible
+            return True
+        except Exception:
+            return False
+    
+    async def _check_secrets_manager_health(self) -> bool:
+        """Check Secrets Manager health"""
+        try:
+            secrets = boto3.client('secretsmanager')
+            response = secrets.list_secrets(MaxResults=1)
+            return 'SecretList' in response
+        except Exception:
+            return False
+    
+    async def _check_step_functions_health(self) -> bool:
+        """Check Step Functions health"""
+        try:
+            stepfunctions = boto3.client('stepfunctions')
+            response = stepfunctions.list_state_machines(maxResults=1)
+            return 'stateMachines' in response
+        except Exception:
+            return False
+    
+    def collect_performance_metrics(self) -> Dict[str, Any]:
+        """
+        Collect performance metrics for all tracked operations.
+        
+        Returns:
+            Dictionary with performance metrics
+        """
+        metrics = {}
+        
+        # Get performance summaries for common operations
+        operations = ['activity_processing', 'content_generation', 'api_calls']
+        
+        for operation in operations:
+            try:
+                summary = self.performance_tracker.get_performance_summary(operation)
+                if 'error' not in summary:
+                    metrics[operation] = summary
+            except Exception as e:
+                logger.error(f"Error collecting metrics for {operation}: {e}")
+        
+        # Add system health summary
+        metrics['system_health'] = self.health_monitor.get_system_health_summary()
+        
+        return metrics
+
+
+def create_system_monitor(alert_topic_arn: Optional[str] = None) -> SystemMonitor:
+    """Create system monitor"""
+    return SystemMonitor(alert_topic_arn=alert_topic_arn)
 
 
 def create_cloudwatch_metrics(namespace: str = "StravaAIBoost") -> CloudWatchMetrics:

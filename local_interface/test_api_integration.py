@@ -145,10 +145,10 @@ def test_api_endpoints():
     
     if fail_count == 0:
         print("\n🎉 All tests passed! API Gateway integration is working.")
-        return True
+        assert True  # Test passes
     else:
         print(f"\n⚠️  {fail_count} tests failed. Check Flask app and API Gateway configuration.")
-        return False
+        assert False, f"{fail_count} tests failed"
 
 
 def test_cors_headers():
@@ -169,14 +169,20 @@ def test_cors_headers():
             'Access-Control-Allow-Headers'
         ]
         
+        missing_headers = []
         for header in cors_headers:
             if header in response.headers:
                 print(f"✅ {header}: {response.headers[header]}")
             else:
                 print(f"❌ Missing: {header}")
+                missing_headers.append(header)
+        
+        # Assert that all required CORS headers are present
+        assert len(missing_headers) == 0, f"Missing CORS headers: {missing_headers}"
                 
     except Exception as e:
         print(f"❌ CORS test failed: {e}")
+        assert False, f"CORS test failed: {e}"
 
 
 def main():

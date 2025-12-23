@@ -493,7 +493,7 @@ class CampusCoachModule(BaseModule):
             
             # Call Bedrock Claude
             response = self.bedrock_client.invoke_model(
-                modelId="anthropic.claude-3-5-sonnet-20241022-v2:0",
+                modelId=os.environ.get('BEDROCK_MODEL_ID', 'global.anthropic.claude-sonnet-4-5-20250929-v1:0'),
                 body=json.dumps({
                     'anthropic_version': 'bedrock-2023-05-31',
                     'max_tokens': 1000,

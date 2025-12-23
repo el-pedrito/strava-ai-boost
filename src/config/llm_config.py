@@ -8,9 +8,9 @@ import os
 from typing import Dict, Any
 
 # Default LLM Model Configuration
-DEFAULT_BEDROCK_MODEL_ID = "anthropic.claude-3-5-sonnet-20241022-v2:0"
+DEFAULT_BEDROCK_MODEL_ID = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
 DEFAULT_ANTHROPIC_VERSION = "bedrock-2023-05-31"
-DEFAULT_MAX_TOKENS = 1200
+DEFAULT_MAX_TOKENS = 2000  # Increased for Claude Sonnet 4.5
 DEFAULT_TEMPERATURE = 0.7
 
 class LLMConfig:
@@ -38,8 +38,8 @@ class LLMConfig:
         if not self.bedrock_model_id:
             raise ValueError("BEDROCK_MODEL_ID cannot be empty")
         
-        if self.max_tokens <= 0 or self.max_tokens > 4096:
-            raise ValueError("LLM_MAX_TOKENS must be between 1 and 4096")
+        if self.max_tokens <= 0 or self.max_tokens > 8192:
+            raise ValueError("LLM_MAX_TOKENS must be between 1 and 8192")
         
         if self.temperature < 0 or self.temperature > 1:
             raise ValueError("LLM_TEMPERATURE must be between 0 and 1")

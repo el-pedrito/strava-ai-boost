@@ -29,10 +29,13 @@ try:
 except ImportError:
     # Fallback for development
     def get_model_arn(region: str = None) -> str:
+        import os
         region = region or "eu-west-1"
-        return f"arn:aws:bedrock:{region}::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"
+        model_id = os.environ.get('BEDROCK_MODEL_ID', 'global.anthropic.claude-sonnet-4-5-20250929-v1:0')
+        return f"arn:aws:bedrock:{region}::foundation-model/{model_id}"
     def get_bedrock_model_id() -> str:
-        return "anthropic.claude-3-5-sonnet-20241022-v2:0"
+        import os
+        return os.environ.get('BEDROCK_MODEL_ID', 'global.anthropic.claude-sonnet-4-5-20250929-v1:0')
 
 
 class ContentGenerationStack(Stack):
@@ -154,6 +157,7 @@ class ContentGenerationStack(Stack):
                 ],
                 resources=[
                     self.core_stack.activities_table.table_arn,
+                    self.core_stack.user_config_table.table_arn,
                     self.core_stack.rate_limits_table.table_arn,
                     f"{self.core_stack.activities_table.table_arn}/index/*"
                 ]
@@ -222,6 +226,7 @@ class ContentGenerationStack(Stack):
             role=strava_lambda_role,
             environment={
                 "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
+                "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
                 "RATE_LIMITS_TABLE": self.core_stack.table_names["rate_limits"],
                 "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
                 "BEDROCK_MODEL_ID": get_bedrock_model_id()
@@ -327,6 +332,35 @@ class ContentGenerationStack(Stack):
             }
         )
 
+        # Check if Campus Coach module is enabled
+        check_campus_coach = sfn.Choice(
+            self, "CheckCampusCoachEnabled",
+            comment="Check if Campus Coach module is enabled for this user"
+        )
+
+        # Campus Coach session extraction task (conditional)
+        extract_campus_sessions = sfn_tasks.LambdaInvoke(
+            self, "ExtractCampusSessions",
+            lambda_function=self.campus_coach_invoker,
+            comment="Extract Campus Coach sessions using AgentCore Browser Tool",
+            payload_response_only=True,
+            retry_on_service_exceptions=True,
+            input_path="$",
+            result_path="$.campus_coach_result"
+        )
+
+        # Skip Campus Coach extraction
+        skip_campus_coach = sfn.Pass(
+            self, "SkipCampusCoach",
+            comment="Skip Campus Coach extraction - module not enabled",
+            result_path="$.campus_coach_result",
+            result=sfn.Result.from_object({
+                "statusCode": 200,
+                "skipped": True,
+                "reason": "Campus Coach module not enabled"
+            })
+        )
+
         # Generate content task
         generate_content = sfn_tasks.LambdaInvoke(
             self, "GenerateContent",
@@ -364,6 +398,11 @@ class ContentGenerationStack(Stack):
             errors=["States.ALL"]
         )
 
+        extract_campus_sessions.add_catch(
+            failure,
+            errors=["States.ALL"]
+        )
+
         generate_content.add_catch(
             failure,
             errors=["States.ALL"]
@@ -374,15 +413,25 @@ class ContentGenerationStack(Stack):
             errors=["States.ALL"]
         )
 
-        # Define workflow
+        # Define workflow with Campus Coach conditional logic
+        
+        # Configure Campus Coach choice conditions
+        check_campus_coach.when(
+            sfn.Condition.boolean_equals("$.user_config.modules_config.campus_coach.enabled", True),
+            extract_campus_sessions.next(generate_content)
+        ).otherwise(
+            skip_campus_coach.next(generate_content)
+        )
+        
         definition = (
             transform_input
             .next(fetch_activity)
             .next(store_backup)
-            .next(generate_content)
-            .next(update_strava)
-            .next(success)
+            .next(check_campus_coach)
         )
+        
+        # Both Campus Coach paths lead to content generation, then update, then success
+        generate_content.next(update_strava).next(success)
 
         # Create Step Functions state machine
         self.state_machine = sfn.StateMachine(
@@ -400,6 +449,7 @@ class ContentGenerationStack(Stack):
         # Grant Step Functions permission to invoke Lambda functions
         for lambda_function in [
             self.activity_fetcher,
+            self.campus_coach_invoker,
             self.content_generator,
             self.strava_updater
         ]:

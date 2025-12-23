@@ -116,7 +116,7 @@ class StravaAPIClient:
         retry_strategy = Retry(
             total=max_retries,
             status_forcelist=[429, 500, 502, 503, 504],
-            method_whitelist=["HEAD", "GET", "OPTIONS"],
+            allowed_methods=["HEAD", "GET", "OPTIONS"],  # Updated from method_whitelist
             backoff_factor=1,
             raise_on_status=False
         )

@@ -1,0 +1,425 @@
+name: contentgen
+description: "Agent de génération de contenu Strava AI Boost avec personnalisation avancée, détection Enduraw et optimisation Claude Sonnet"
+
+# AgentCore Configuration
+runtime: python
+version: "1.0.0"
+region: eu-west-1
+
+# Memory Integration
+memory:
+  enabled: true
+  memory_name: strava-ai-boost-memory
+  memory_type: semantic
+  retention_days: 365
+  
+# Model Configuration - Optimized for Claude Sonnet 4.5
+model:
+  provider: bedrock
+  model_id: ${BEDROCK_MODEL_ID:-global.anthropic.claude-sonnet-4-5-20250929-v1:0}
+  region: ${BEDROCK_REGION:-eu-west-1}
+  temperature: 0.7  # Optimized for Claude Sonnet 4.5 consistency
+  max_tokens: 2000  # Increased for detailed content generation
+  
+# Agent Configuration
+agent:
+  framework: strands
+  prompt_file: ../prompts/content_generation_agent_prompt.md
+  
+# Input Schema
+input_schema:
+  type: object
+  required:
+    - activity_data
+    - user_id
+  properties:
+    activity_data:
+      type: object
+      description: "Données complètes de l'activité Strava (67+ champs)"
+      required:
+        - id
+        - name
+        - sport_type
+        - distance
+        - moving_time
+        - start_date
+      properties:
+        id:
+          type: string
+          description: "ID unique de l'activité Strava"
+        name:
+          type: string
+          description: "Titre actuel de l'activité"
+        description:
+          type: string
+          description: "Description actuelle (peut être null)"
+        sport_type:
+          type: string
+          enum: ["Run", "Ride", "Swim", "Workout", "Hike", "Walk"]
+          description: "Type d'activité sportive"
+        distance:
+          type: number
+          description: "Distance en mètres"
+        moving_time:
+          type: integer
+          description: "Temps de mouvement en secondes"
+        elapsed_time:
+          type: integer
+          description: "Temps total en secondes"
+        total_elevation_gain:
+          type: number
+          description: "Dénivelé positif en mètres"
+        start_date:
+          type: string
+          format: date-time
+          description: "Date/heure de début de l'activité"
+        average_heartrate:
+          type: number
+          description: "Fréquence cardiaque moyenne"
+        max_heartrate:
+          type: number
+          description: "Fréquence cardiaque maximale"
+        average_watts:
+          type: number
+          description: "Puissance moyenne"
+        max_watts:
+          type: number
+          description: "Puissance maximale"
+        average_speed:
+          type: number
+          description: "Vitesse moyenne en m/s"
+        max_speed:
+          type: number
+          description: "Vitesse maximale en m/s"
+        calories:
+          type: number
+          description: "Calories brûlées"
+        start_latitude:
+          type: number
+          description: "Latitude de départ"
+        start_longitude:
+          type: number
+          description: "Longitude de départ"
+        device_name:
+          type: string
+          description: "Nom de l'équipement utilisé"
+        trainer:
+          type: boolean
+          description: "Activité sur home trainer"
+        commute:
+          type: boolean
+          description: "Trajet domicile-travail"
+        achievement_count:
+          type: integer
+          description: "Nombre de records personnels"
+        pr_count:
+          type: integer
+          description: "Nombre de nouveaux PR"
+        kudos_count:
+          type: integer
+          description: "Nombre de kudos reçus"
+        perceived_exertion:
+          type: number
+          description: "Effort perçu (1-10)"
+    
+    streams_data:
+      type: object
+      description: "Données de streams Strava pour analyse détaillée"
+      properties:
+        velocity_smooth:
+          type: array
+          items:
+            type: number
+          description: "Vitesse lissée seconde par seconde"
+        heartrate:
+          type: array
+          items:
+            type: integer
+          description: "Fréquence cardiaque seconde par seconde"
+        time:
+          type: array
+          items:
+            type: integer
+          description: "Temps écoulé seconde par seconde"
+        distance:
+          type: array
+          items:
+            type: number
+          description: "Distance cumulative seconde par seconde"
+        altitude:
+          type: array
+          items:
+            type: number
+          description: "Altitude seconde par seconde"
+    
+    user_id:
+      type: string
+      description: "Identifiant unique de l'utilisateur pour la mémoire personnalisée"
+    
+    user_profile:
+      type: object
+      description: "Profil utilisateur pour personnalisation du contenu (Requirement 14)"
+      properties:
+        age_range:
+          type: string
+          enum: ["18-25", "26-35", "36-45", "46-55", "55+"]
+          description: "Tranche d'âge pour adaptation du ton et références"
+        interests:
+          type: array
+          items:
+            type: string
+            enum: ["technology", "music", "travel", "food", "nature", "photography", "family", "work-life balance", "competition", "social fitness", "outdoor adventures"]
+          description: "Centres d'intérêt pour personnalisation du contenu"
+        sport_approach:
+          type: string
+          enum: ["health & wellness", "performance & competition", "social & fun", "personal challenge", "stress relief", "weight management"]
+          description: "Approche sportive principale"
+        content_preferences:
+          type: object
+          properties:
+            length:
+              type: string
+              enum: ["short", "medium", "detailed", "adaptive"]
+              description: "Préférence de longueur de contenu"
+            tone:
+              type: string
+              enum: ["technical & analytical", "motivational & energetic", "casual & friendly", "humorous & fun", "authentic & personal"]
+              description: "Ton de communication préféré"
+            emoji_usage:
+              type: string
+              enum: ["none", "minimal", "moderate", "enthusiastic"]
+              description: "Utilisation des emojis"
+            technical_detail:
+              type: string
+              enum: ["basic", "intermediate", "advanced"]
+              description: "Niveau de détail technique"
+    
+    previous_activities:
+      type: array
+      description: "Activités précédentes pour analyse du style personnel"
+      items:
+        type: object
+        properties:
+          name:
+            type: string
+          description:
+            type: string
+          sport_type:
+            type: string
+          distance:
+            type: number
+          moving_time:
+            type: integer
+    
+    active_modules:
+      type: array
+      description: "Modules actifs pour cette génération"
+      items:
+        type: object
+        properties:
+          module_id:
+            type: string
+            enum: ["campus_coach", "enduraw"]
+          enabled:
+            type: boolean
+          insights:
+            type: object
+            description: "Données spécifiques au module"
+    
+    campus_coach_session:
+      type: object
+      description: "Session Campus Coach matchée (si module actif)"
+      properties:
+        session_id:
+          type: string
+        title:
+          type: string
+        confidence_score:
+          type: number
+          minimum: 0
+          maximum: 1
+        planned_intervals:
+          type: array
+          items:
+            type: object
+        compliance_analysis:
+          type: object
+          description: "Analyse de conformité planifié vs réalisé"
+    
+    enduraw_data:
+      type: object
+      description: "Données Enduraw enrichies (si module actif et détecté dans description)"
+      properties:
+        detected_in_description:
+          type: boolean
+          description: "CRITICAL: Enduraw détecté dans la description de l'activité"
+        pace_without_wind:
+          type: number
+          description: "Allure sans impact du vent"
+        weather_impact:
+          type: object
+          description: "Impact des conditions météo"
+          properties:
+            wind_speed:
+              type: number
+              description: "Vitesse du vent en km/h"
+            temperature_impact:
+              type: string
+              enum: ["positive", "negative", "neutral"]
+              description: "Impact de la température"
+        elevation_cost:
+          type: number
+          description: "Coût énergétique du dénivelé"
+        environmental_impact:
+          type: object
+          description: "Impact environnemental détaillé"
+          properties:
+            headwind_time:
+              type: number
+              description: "Temps en vent de face (secondes)"
+            tailwind_time:
+              type: number
+              description: "Temps en vent arrière (secondes)"
+
+# Output Schema
+output_schema:
+  type: object
+  required:
+    - title
+    - description
+    - confidence
+  properties:
+    title:
+      type: string
+      description: "Nouveau titre en français pour l'activité"
+      maxLength: 100
+    description:
+      type: string
+      description: "Description personnalisée en français"
+      maxLength: 2000
+    confidence:
+      type: number
+      minimum: 0
+      maximum: 1
+      description: "Score de confiance de la génération"
+    style_elements:
+      type: object
+      description: "Éléments de style détectés pour mise à jour mémoire"
+      properties:
+        tone:
+          type: string
+          enum: ["motivant", "technique", "décontracté", "humoristique", "fun_energique"]
+        expressions_used:
+          type: array
+          items:
+            type: string
+        structure_type:
+          type: string
+          enum: ["chronologique", "analytique", "narratif", "technique", "fun_celebratoire"]
+        fun_elements_included:
+          type: array
+          items:
+            type: string
+          description: "Éléments fun intégrés dans le contenu"
+        user_profile_applied:
+          type: boolean
+          description: "Profil utilisateur appliqué avec succès"
+        enduraw_detected:
+          type: boolean
+          description: "Enduraw détecté dans la description originale"
+    memory_updates:
+      type: object
+      description: "Mises à jour à appliquer à la mémoire utilisateur"
+      properties:
+        new_expressions:
+          type: array
+          items:
+            type: string
+        style_preferences:
+          type: object
+        performance_patterns:
+          type: object
+
+# Environment Variables
+environment:
+  BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-global.anthropic.claude-sonnet-4-5-20250929-v1:0}
+  BEDROCK_REGION: ${BEDROCK_REGION:-eu-west-1}
+  STRAVA_API_BASE_URL: "https://www.strava.com/api/v3"
+  MEMORY_REGION: "eu-west-1"
+  LOG_LEVEL: "INFO"
+
+# Resource Limits
+resources:
+  timeout: 300  # 5 minutes
+  memory: 1024  # 1GB
+  
+# IAM Permissions
+permissions:
+  - service: bedrock
+    actions:
+      - bedrock:InvokeModel
+    resources:
+      - "arn:aws:bedrock:${BEDROCK_REGION:-eu-west-1}::foundation-model/${BEDROCK_MODEL_ID:-global.anthropic.claude-sonnet-4-5-20250929-v1:0}"
+  
+  - service: agentcore-memory
+    actions:
+      - agentcore:GetMemory
+      - agentcore:PutMemory
+      - agentcore:QueryMemory
+    resources:
+      - "arn:aws:agentcore:eu-west-1:*:memory/strava-ai-boost-memory"
+  
+  - service: dynamodb
+    actions:
+      - dynamodb:GetItem
+      - dynamodb:PutItem
+      - dynamodb:Query
+    resources:
+      - "arn:aws:dynamodb:eu-west-1:*:table/strava-ai-boost-activities"
+      - "arn:aws:dynamodb:eu-west-1:*:table/campus-coaching-sessions"
+
+# Monitoring
+monitoring:
+  metrics:
+    - name: generation_latency
+      type: histogram
+      description: "Temps de génération de contenu"
+    - name: confidence_score
+      type: histogram
+      description: "Distribution des scores de confiance"
+    - name: memory_lookup_latency
+      type: histogram
+      description: "Temps de récupération mémoire"
+  
+  logs:
+    level: INFO
+    retention_days: 30
+  
+  alarms:
+    - name: high_error_rate
+      metric: error_rate
+      threshold: 0.05
+      comparison: GreaterThanThreshold
+    - name: high_latency
+      metric: generation_latency
+      threshold: 30000  # 30 seconds
+      comparison: GreaterThanThreshold
+
+# Deployment
+deployment:
+  strategy: blue_green
+  health_check:
+    path: /health
+    timeout: 30
+  
+  scaling:
+    min_instances: 0
+    max_instances: 10
+    target_utilization: 70
+
+# Tags
+tags:
+  Project: strava-ai-boost
+  Component: content-generation
+  Environment: production
+  Owner: strava-ai-boost-system

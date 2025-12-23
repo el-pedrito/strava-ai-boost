@@ -17,9 +17,10 @@ from datetime import datetime, timedelta
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# Initialize AWS clients
-dynamodb = boto3.resource('dynamodb')
-secretsmanager = boto3.client('secretsmanager')
+# Initialize AWS clients with region
+REGION = os.environ.get('AWS_REGION', 'eu-west-1')
+dynamodb = boto3.resource('dynamodb', region_name=REGION)
+secretsmanager = boto3.client('secretsmanager', region_name=REGION)
 
 # Environment variables
 ACTIVITIES_TABLE = os.environ['ACTIVITIES_TABLE']
@@ -58,6 +59,9 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Fetch streams data for detailed analysis
         streams_data = fetch_streams_data(activity_id, access_token)
         
+        # Fetch user configuration for module decisions
+        user_config = fetch_user_configuration(user_id)
+        
         # Store original description backup
         store_activity_backup(activity_id, activity_data)
         
@@ -70,6 +74,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'user_id': user_id,
             'activity_data': activity_data,
             'streams_data': streams_data,
+            'user_config': user_config,
             'fetched_at': datetime.utcnow().isoformat()
         }
         
@@ -312,3 +317,48 @@ def update_rate_limits(api_calls_made: int) -> None:
     except Exception as e:
         logger.error(f"Failed to update rate limits: {str(e)}")
         # Don't raise - rate limit tracking is important but not critical
+
+
+def fetch_user_configuration(user_id: str) -> Dict[str, Any]:
+    """Fetch user configuration from DynamoDB for module decisions"""
+    try:
+        # Get user configuration table name from environment
+        user_config_table = os.environ.get('USER_CONFIG_TABLE', 'strava-ai-boost-user-configuration')
+        table = dynamodb.Table(user_config_table)
+        
+        response = table.get_item(Key={'user_id': user_id})
+        
+        if 'Item' in response:
+            user_config = response['Item']
+            logger.info(f"Retrieved user configuration for {user_id}")
+            return user_config
+        else:
+            # Return default configuration if user config doesn't exist
+            default_config = {
+                'user_id': user_id,
+                'modules_config': {
+                    'campus_coach': {
+                        'enabled': False
+                    },
+                    'enduraw': {
+                        'enabled': False
+                    }
+                },
+                'strava_connected': False,
+                'created_at': datetime.utcnow().isoformat()
+            }
+            
+            logger.info(f"No user configuration found for {user_id}, using defaults")
+            return default_config
+            
+    except Exception as e:
+        logger.error(f"Failed to fetch user configuration for {user_id}: {str(e)}")
+        # Return minimal default config on error
+        return {
+            'user_id': user_id,
+            'modules_config': {
+                'campus_coach': {'enabled': False},
+                'enduraw': {'enabled': False}
+            },
+            'strava_connected': False
+        }

@@ -35,7 +35,9 @@ except ImportError as e:
             def get_setup_instructions(self): return {}
         return MockConfig()
     def is_strava_configured(): return False
-    def get_bedrock_model_id(): return "anthropic.claude-3-5-sonnet-20241022-v2:0"
+    def get_bedrock_model_id(): 
+        import os
+        return os.environ.get('BEDROCK_MODEL_ID', 'global.anthropic.claude-sonnet-4-5-20250929-v1:0')
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

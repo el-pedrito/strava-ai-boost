@@ -92,7 +92,7 @@ class ActivityData(BaseModel):
     )
     
     # === CORE ACTIVITY FIELDS ===
-    id: int = Field(description="Unique Strava activity ID")
+    id: str = Field(description="Unique Strava activity ID")  # Changed from int to str
     external_id: Optional[str] = Field(None, description="External activity ID from device")
     upload_id: Optional[int] = Field(None, description="Upload ID")
     name: str = Field(description="Activity name/title")

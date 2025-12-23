@@ -21,7 +21,7 @@ class TestActivityDataModel:
     def test_basic_activity_creation(self):
         """Test basic activity creation with required fields"""
         activity = ActivityData(
-            id=12345,
+            id="12345",  # Changed from int to str
             name="Morning Run",
             type="Run",
             start_date=datetime.now(timezone.utc),
@@ -33,7 +33,7 @@ class TestActivityDataModel:
             resource_state=2
         )
         
-        assert activity.id == 12345
+        assert activity.id == "12345"
         assert activity.name == "Morning Run"
         assert activity.type == "Run"
         assert activity.distance == 5000.0
@@ -41,7 +41,7 @@ class TestActivityDataModel:
     def test_activity_with_all_fields(self):
         """Test activity creation with comprehensive field set (67+ fields)"""
         activity_data = {
-            "id": 12345,
+            "id": "12345",  # Changed from int to str
             "name": "Morning Run",
             "description": "Great morning run",
             "type": "Run",
@@ -108,7 +108,7 @@ class TestActivityDataModel:
         """Test validation errors for invalid activity data"""
         with pytest.raises(ValidationError):
             ActivityData(
-                id=12345,
+                id="12345",  # Changed from int to str
                 name="Test",
                 type="Run",
                 start_date=datetime.now(timezone.utc),

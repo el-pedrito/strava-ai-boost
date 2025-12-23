@@ -26,7 +26,8 @@ try:
 except ImportError:
     # Fallback for development
     def get_bedrock_model_id():
-        return "anthropic.claude-3-5-sonnet-20241022-v2:0"
+        import os
+        return os.environ.get('BEDROCK_MODEL_ID', 'global.anthropic.claude-sonnet-4-5-20250929-v1:0')
     def get_bedrock_params():
         return {
             'modelId': get_bedrock_model_id(),
@@ -50,10 +51,11 @@ except ImportError as e:
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# Initialize AWS clients
-bedrock = boto3.client('bedrock-runtime')
-dynamodb = boto3.resource('dynamodb')
-secretsmanager = boto3.client('secretsmanager')
+# Initialize AWS clients with region
+REGION = os.environ.get('AWS_REGION', 'eu-west-1')
+bedrock = boto3.client('bedrock-runtime', region_name=REGION)
+dynamodb = boto3.resource('dynamodb', region_name=REGION)
+secretsmanager = boto3.client('secretsmanager', region_name=REGION)
 
 # Environment variables
 ACTIVITIES_TABLE = os.environ.get('ACTIVITIES_TABLE', 'strava-ai-boost-activities')
@@ -382,26 +384,101 @@ def generate_enhanced_content_with_agent(
 ) -> Dict[str, Any]:
     """
     Generate enhanced content using Strands Agent with AgentCore Memory
+    
+    Uses actual AgentCore agent invocation via Bedrock Agent Runtime
     """
     try:
-        logger.info("Generating content with Strands Agent...")
+        logger.info("Generating content with AgentCore Content Generation Agent...")
         
-        # Use Content Generation Agent if available
-        if ContentGenerationAgent:
-            enhanced_content = run_content_generation(
-                activity_data, streams_data, user_id, modules, AWS_REGION
-            )
+        # Use Bedrock Agent Runtime to invoke AgentCore Content Generation Agent
+        bedrock_agent_runtime = boto3.client('bedrock-agent-runtime')
+        
+        # Create session ID for this invocation
+        session_id = f"content-gen-{datetime.utcnow().timestamp()}"
+        
+        # Prepare input for AgentCore Content Generation Agent
+        agent_input = {
+            'action': 'generate_content',
+            'activity_data': activity_data,
+            'streams_data': streams_data,
+            'user_id': user_id,
+            'modules': modules,
+            'use_memory': True,
+            'personalization': True
+        }
+        
+        # Get agent name from environment
+        agent_name = os.environ.get('CONTENT_GENERATION_AGENT_NAME', 'contentgen')
+        
+        logger.info(f"Invoking AgentCore Content Generation Agent: {agent_name}")
+        
+        # Invoke AgentCore Content Generation Agent
+        response = bedrock_agent_runtime.invoke_agent(
+            agentId=agent_name,
+            agentAliasId='TSTALIASID',  # Test alias ID for AgentCore
+            sessionId=session_id,
+            inputText=json.dumps(agent_input)
+        )
+        
+        # Process streaming response
+        completion = ""
+        for event in response.get('completion', []):
+            if 'chunk' in event:
+                chunk = event['chunk']
+                if 'bytes' in chunk:
+                    completion += chunk['bytes'].decode('utf-8')
+        
+        logger.info(f"AgentCore Content Generation Agent response length: {len(completion)}")
+        
+        # Parse agent response
+        try:
+            # Try to extract JSON from response
+            import re
+            json_match = re.search(r'\{.*\}', completion, re.DOTALL)
             
-            logger.info(f"Content generated with confidence: {enhanced_content.get('confidence', 0.0)}")
-            return enhanced_content
-        else:
-            logger.warning("Content Generation Agent not available, using fallback")
+            if json_match:
+                agent_response = json.loads(json_match.group())
+                
+                # Validate response structure
+                if 'title' in agent_response and 'description' in agent_response:
+                    enhanced_content = {
+                        'title': agent_response.get('title', 'Enhanced Activity')[:50],
+                        'description': agent_response.get('description', 'AI-enhanced description'),
+                        'style_elements': agent_response.get('style_elements', ['ai_generated']),
+                        'confidence': agent_response.get('confidence', 0.8),
+                        'modules_used': [m['name'] for m in modules],
+                        'patterns_detected': agent_response.get('patterns_detected', []),
+                        'analysis_type': 'agentcore_memory',
+                        'memory_used': agent_response.get('memory_used', False),
+                        'expressions_avoided': agent_response.get('expressions_avoided', [])
+                    }
+                    
+                    logger.info(f"Content generated with confidence: {enhanced_content.get('confidence', 0.0)}")
+                    return enhanced_content
+                else:
+                    logger.warning("Invalid response structure from AgentCore agent")
+                    return generate_enhanced_content_fallback(
+                        activity_data, streams_data, user_id, modules
+                    )
+            else:
+                logger.warning("Could not parse JSON from AgentCore agent response")
+                return generate_enhanced_content_fallback(
+                    activity_data, streams_data, user_id, modules
+                )
+                
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse AgentCore agent response: {str(e)}")
             return generate_enhanced_content_fallback(
                 activity_data, streams_data, user_id, modules
             )
             
     except Exception as e:
-        logger.error(f"Agent content generation failed: {str(e)}")
+        logger.error(f"AgentCore Content Generation Agent invocation failed: {str(e)}")
+        
+        # Check if this is a cold start or availability issue
+        if "timeout" in str(e).lower() or "unavailable" in str(e).lower():
+            logger.warning("Possible AgentCore agent cold start or availability issue")
+        
         # Fallback to direct Bedrock generation
         return generate_enhanced_content_fallback(
             activity_data, streams_data, user_id, modules

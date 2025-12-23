@@ -30,8 +30,10 @@ try:
 except ImportError:
     # Fallback for development
     def get_model_arn(region: str = None) -> str:
+        import os
         region = region or "eu-west-1"
-        return f"arn:aws:bedrock:{region}::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"
+        model_id = os.environ.get('BEDROCK_MODEL_ID', 'global.anthropic.claude-sonnet-4-5-20250929-v1:0')
+        return f"arn:aws:bedrock:{region}::foundation-model/{model_id}"
 
 
 class CoreInfrastructureStack(Stack):

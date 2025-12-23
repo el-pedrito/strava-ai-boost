@@ -7,6 +7,7 @@ import pytest
 from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime, timezone
 import asyncio
+import os
 
 from src.utils.integration import IntegratedStravaClient, SystemMonitor
 from src.utils.data_transformers import StravaDataTransformer
@@ -21,7 +22,7 @@ class TestIntegratedStravaClient:
     def mock_dependencies(self):
         """Create mock dependencies for testing"""
         oauth_handler = Mock()
-        rate_limiter = AsyncMock()
+        rate_limiter = Mock()  # Changed from AsyncMock to Mock
         strava_client = AsyncMock()
         
         return oauth_handler, rate_limiter, strava_client
@@ -31,9 +32,18 @@ class TestIntegratedStravaClient:
         """Create integrated client with mocked dependencies"""
         oauth_handler, rate_limiter, strava_client = mock_dependencies
         
-        with patch('src.utils.integration.StravaOAuthHandler', return_value=oauth_handler), \
-             patch('src.utils.integration.StravaRateLimiter', return_value=rate_limiter), \
-             patch('src.utils.integration.StravaAPIClient', return_value=strava_client):
+        with patch('src.utils.integration.create_strava_client_from_env', return_value=strava_client), \
+             patch('src.utils.integration.create_oauth_handler_from_env', return_value=oauth_handler), \
+             patch('src.utils.integration.create_rate_limiter_from_env', return_value=rate_limiter), \
+             patch('src.utils.integration.create_token_manager_from_env', return_value=Mock()), \
+             patch('src.utils.integration.create_data_transformer', return_value=Mock()), \
+             patch('src.utils.integration.create_data_validator', return_value=Mock()), \
+             patch('src.utils.integration.create_cloudwatch_metrics', return_value=Mock()), \
+             patch('src.utils.integration.create_performance_tracker', return_value=Mock()), \
+             patch.dict('os.environ', {
+                 'STRAVA_CLIENT_ID': 'test_client_id',
+                 'STRAVA_CLIENT_SECRET': 'test_client_secret'
+             }):
             
             client = IntegratedStravaClient()
             return client, oauth_handler, rate_limiter, strava_client
@@ -44,7 +54,8 @@ class TestIntegratedStravaClient:
         client, oauth_handler, rate_limiter, strava_client = integrated_client
         
         # Setup mocks
-        rate_limiter.check_and_wait.return_value = True
+        rate_limiter.wait_if_needed.return_value = True
+        rate_limiter.record_request.return_value = (True, [])
         strava_client.get_activity.return_value = {
             "id": "12345",
             "name": "Test Run",
@@ -60,7 +71,8 @@ class TestIntegratedStravaClient:
         activity = await client.get_activity("12345")
         
         # Verify rate limiting was checked
-        rate_limiter.check_and_wait.assert_called_once()
+        rate_limiter.wait_if_needed.assert_called_once()
+        rate_limiter.record_request.assert_called_once()
         
         # Verify activity was retrieved
         strava_client.get_activity.assert_called_once_with("12345")
@@ -73,7 +85,8 @@ class TestIntegratedStravaClient:
         client, oauth_handler, rate_limiter, strava_client = integrated_client
         
         # Setup mocks
-        rate_limiter.check_and_wait.return_value = True
+        rate_limiter.wait_if_needed.return_value = True
+        rate_limiter.record_request.return_value = (True, [])
         strava_client.get_activity_streams.return_value = {
             "velocity_smooth": [2.5, 2.7, 2.8],
             "heartrate": [140, 145, 150],
@@ -86,7 +99,8 @@ class TestIntegratedStravaClient:
         streams = await client.get_activity_streams("12345")
         
         # Verify rate limiting was checked
-        rate_limiter.check_and_wait.assert_called_once()
+        rate_limiter.wait_if_needed.assert_called_once()
+        rate_limiter.record_request.assert_called_once()
         
         # Verify streams were retrieved
         strava_client.get_activity_streams.assert_called_once_with("12345")
@@ -99,7 +113,8 @@ class TestIntegratedStravaClient:
         client, oauth_handler, rate_limiter, strava_client = integrated_client
         
         # Setup mocks - first call fails, second succeeds
-        rate_limiter.check_and_wait.return_value = True
+        rate_limiter.wait_if_needed.return_value = True
+        rate_limiter.record_request.return_value = (True, [])
         strava_client.get_activity.side_effect = [
             Exception("Temporary error"),
             {
@@ -208,7 +223,7 @@ class TestSystemMonitor:
     @pytest.fixture
     def system_monitor(self, mock_cloudwatch):
         """Create system monitor with mocked CloudWatch"""
-        with patch('src.utils.integration.CloudWatchMetrics', return_value=mock_cloudwatch):
+        with patch('src.utils.integration.create_cloudwatch_metrics', return_value=mock_cloudwatch):
             monitor = SystemMonitor()
             return monitor, mock_cloudwatch
     

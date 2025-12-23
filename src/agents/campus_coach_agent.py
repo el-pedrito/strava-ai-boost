@@ -25,7 +25,8 @@ try:
 except ImportError:
     # Fallback for development
     def get_bedrock_model_id():
-        return "anthropic.claude-3-5-sonnet-20241022-v2:0"
+        import os
+        return os.environ.get('BEDROCK_MODEL_ID', 'global.anthropic.claude-sonnet-4-5-20250929-v1:0')
     def get_bedrock_params():
         return {
             'modelId': get_bedrock_model_id(),
@@ -67,7 +68,7 @@ class CampusCoachAgent:
         self.user_config_table_name = 'strava-ai-boost-user-configuration'
         
         # AgentCore Browser Tool configuration
-        self.agentcore_agent_name = 'strava-ai-boost-campus-coach-scraper'
+        self.agentcore_agent_name = 'campuscoach'
         self.max_retries = 3
         self.retry_delay_base = 2  # seconds
         
@@ -165,41 +166,292 @@ class CampusCoachAgent:
         """
         Invoke AgentCore Browser Tool for Campus Coach scraping
         
-        TODO: Replace with actual AgentCore Browser Tool invocation
-        Currently simulated for development
+        Uses actual AgentCore Browser Tool invocation via Bedrock Agent Runtime
         """
         try:
-            # TODO: Replace with actual AgentCore Browser Tool invocation
-            # agentcore_client = AgentCoreClient(region=self.region)
-            # result = await agentcore_client.invoke_agent(
-            #     agent_name=self.agentcore_agent_name,
-            #     input_data={
-            #         'action': 'extract_sessions',
-            #         'credentials': credentials,
-            #         'target_weeks': 2  # Extract current and next week
-            #     }
-            # )
+            # Use Bedrock Agent Runtime to invoke AgentCore Browser Tool agent
+            bedrock_agent_runtime = boto3.client('bedrock-agent-runtime', region_name=self.region)
             
-            # Simulation of Campus Coach session extraction
-            logger.info("Simulating Campus Coach session extraction...")
+            # Create session ID for this invocation
+            session_id = f"campus-coach-{datetime.now(timezone.utc).timestamp()}"
             
-            # Simulate realistic session data
-            sessions = await self.simulate_session_extraction()
-            
-            return {
-                'success': True,
-                'sessions': sessions,
-                'extraction_method': 'simulated',
-                'timestamp': datetime.now(timezone.utc).isoformat()
+            # Prepare input for AgentCore Browser Tool agent
+            browser_input = {
+                'action': 'extract_sessions',
+                'credentials': credentials,
+                'target_weeks': 2,  # Extract current and next week
+                'campus_coach_url': 'https://campus.coach',
+                'extraction_config': {
+                    'login_selector': '#login-form',
+                    'username_field': 'input[name="username"]',
+                    'password_field': 'input[name="password"]',
+                    'sessions_selector': '.training-session',
+                    'wait_timeout': 30000  # 30 seconds
+                }
             }
+            
+            # Get agent name from environment
+            agent_name = os.environ.get('CAMPUS_COACH_AGENT_NAME', self.agentcore_agent_name)
+            
+            logger.info(f"Invoking AgentCore Browser Tool agent: {agent_name}")
+            
+            # Invoke AgentCore Browser Tool agent
+            response = bedrock_agent_runtime.invoke_agent(
+                agentId=agent_name,
+                agentAliasId='TSTALIASID',  # Test alias ID for AgentCore
+                sessionId=session_id,
+                inputText=json.dumps(browser_input)
+            )
+            
+            # Process streaming response
+            completion = ""
+            for event in response.get('completion', []):
+                if 'chunk' in event:
+                    chunk = event['chunk']
+                    if 'bytes' in chunk:
+                        completion += chunk['bytes'].decode('utf-8')
+            
+            logger.info(f"AgentCore Browser Tool response length: {len(completion)}")
+            
+            # Parse agent response
+            try:
+                # Try to extract JSON from response
+                import re
+                json_match = re.search(r'\{.*\}', completion, re.DOTALL)
+                
+                if json_match:
+                    agent_response = json.loads(json_match.group())
+                    
+                    # Validate response structure
+                    if agent_response.get('success', False):
+                        sessions = agent_response.get('sessions', [])
+                        
+                        # Validate session data
+                        validated_sessions = []
+                        for session in sessions:
+                            if self.validate_session_data(session):
+                                validated_sessions.append(session)
+                            else:
+                                logger.warning(f"Invalid session data: {session}")
+                        
+                        return {
+                            'success': True,
+                            'sessions': validated_sessions,
+                            'extraction_method': 'agentcore_browser_tool',
+                            'timestamp': datetime.now(timezone.utc).isoformat(),
+                            'agent_response': agent_response
+                        }
+                    else:
+                        error_msg = agent_response.get('error', 'Unknown browser tool error')
+                        logger.error(f"AgentCore Browser Tool reported error: {error_msg}")
+                        return {
+                            'success': False,
+                            'error': error_msg,
+                            'sessions': []
+                        }
+                else:
+                    # Fallback: try to parse as plain text
+                    logger.warning("Could not parse JSON from browser tool response, attempting text parsing")
+                    sessions = self.parse_browser_tool_text_response(completion)
+                    
+                    if sessions:
+                        return {
+                            'success': True,
+                            'sessions': sessions,
+                            'extraction_method': 'text_parsed',
+                            'timestamp': datetime.now(timezone.utc).isoformat()
+                        }
+                    else:
+                        return {
+                            'success': False,
+                            'error': 'Could not parse browser tool response',
+                            'sessions': []
+                        }
+                        
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse browser tool response as JSON: {str(e)}")
+                return {
+                    'success': False,
+                    'error': f'JSON parse error: {str(e)}',
+                    'sessions': []
+                }
             
         except Exception as e:
             logger.error(f"AgentCore Browser Tool invocation failed: {str(e)}")
+            
+            # Check if this is a cold start issue
+            if "timeout" in str(e).lower() or "unavailable" in str(e).lower():
+                logger.warning("Possible cold start issue detected - this is expected on first invocation")
+            
             return {
                 'success': False,
                 'error': str(e),
                 'sessions': []
             }
+    
+    def validate_session_data(self, session: Dict[str, Any]) -> bool:
+        """
+        Validate session data structure and required fields
+        
+        Args:
+            session: Session data dictionary
+            
+        Returns:
+            True if session data is valid, False otherwise
+        """
+        try:
+            required_fields = ['session_id', 'session_date', 'session_type']
+            
+            # Check required fields
+            for field in required_fields:
+                if field not in session or not session[field]:
+                    logger.warning(f"Missing required field: {field}")
+                    return False
+            
+            # Validate date format
+            try:
+                datetime.fromisoformat(session['session_date'].replace('Z', '+00:00'))
+            except ValueError:
+                logger.warning(f"Invalid date format: {session['session_date']}")
+                return False
+            
+            # Validate numeric fields if present
+            numeric_fields = ['planned_distance', 'planned_duration']
+            for field in numeric_fields:
+                if field in session and session[field] is not None:
+                    try:
+                        float(session[field])
+                    except (ValueError, TypeError):
+                        logger.warning(f"Invalid numeric value for {field}: {session[field]}")
+                        return False
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Session validation error: {str(e)}")
+            return False
+    
+    def parse_browser_tool_text_response(self, response_text: str) -> List[Dict[str, Any]]:
+        """
+        Fallback parser for browser tool text responses when JSON parsing fails
+        
+        Attempts to extract session information from plain text response
+        """
+        try:
+            sessions = []
+            
+            # Look for session patterns in text
+            lines = response_text.split('\n')
+            
+            current_session = {}
+            session_counter = 1
+            
+            for line in lines:
+                line = line.strip()
+                
+                # Look for session indicators
+                if any(keyword in line.lower() for keyword in ['session', 'workout', 'training']):
+                    if current_session and len(current_session) > 2:  # Has meaningful data
+                        sessions.append(current_session)
+                    
+                    # Start new session
+                    current_session = {
+                        'session_id': f"parsed_session_{session_counter}",
+                        'extracted_at': datetime.now(timezone.utc).isoformat()
+                    }
+                    session_counter += 1
+                
+                # Parse specific fields
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    key = key.strip().lower()
+                    value = value.strip()
+                    
+                    if 'date' in key:
+                        current_session['session_date'] = value
+                    elif 'type' in key:
+                        current_session['session_type'] = value
+                    elif 'distance' in key:
+                        try:
+                            distance_str = value.replace('km', '').replace('mi', '').strip()
+                            current_session['planned_distance'] = float(distance_str)
+                        except:
+                            pass
+                    elif 'duration' in key or 'time' in key:
+                        try:
+                            # Parse duration (e.g., "45 min", "1h 30m")
+                            duration_minutes = self.parse_duration_string(value)
+                            if duration_minutes:
+                                current_session['planned_duration'] = duration_minutes
+                        except:
+                            pass
+                    elif 'pace' in key:
+                        current_session['planned_pace'] = value
+                    elif 'description' in key or 'notes' in key:
+                        current_session['description'] = value
+            
+            # Add last session if exists
+            if current_session and len(current_session) > 2:
+                sessions.append(current_session)
+            
+            # Validate parsed sessions
+            validated_sessions = []
+            for session in sessions:
+                if self.validate_session_data(session):
+                    validated_sessions.append(session)
+            
+            logger.info(f"Parsed {len(validated_sessions)} valid sessions from text response")
+            return validated_sessions
+            
+        except Exception as e:
+            logger.error(f"Failed to parse browser tool text response: {str(e)}")
+            return []
+    
+    def parse_duration_string(self, duration_str: str) -> Optional[int]:
+        """
+        Parse duration string to minutes
+        
+        Args:
+            duration_str: Duration string (e.g., "45 min", "1h 30m", "90 minutes")
+            
+        Returns:
+            Duration in minutes or None if parsing fails
+        """
+        try:
+            duration_str = duration_str.lower().strip()
+            
+            # Handle "1h 30m" format
+            if 'h' in duration_str and 'm' in duration_str:
+                parts = duration_str.split()
+                hours = 0
+                minutes = 0
+                
+                for part in parts:
+                    if 'h' in part:
+                        hours = int(part.replace('h', ''))
+                    elif 'm' in part:
+                        minutes = int(part.replace('m', ''))
+                
+                return hours * 60 + minutes
+            
+            # Handle "45 min" or "45 minutes" format
+            elif 'min' in duration_str:
+                minutes_str = duration_str.replace('minutes', '').replace('min', '').strip()
+                return int(minutes_str)
+            
+            # Handle "1.5h" format
+            elif 'h' in duration_str:
+                hours_str = duration_str.replace('h', '').strip()
+                hours = float(hours_str)
+                return int(hours * 60)
+            
+            # Handle plain number (assume minutes)
+            else:
+                return int(float(duration_str))
+                
+        except Exception as e:
+            logger.error(f"Failed to parse duration string '{duration_str}': {str(e)}")
+            return None
     
     async def simulate_session_extraction(self) -> List[Dict[str, Any]]:
         """
