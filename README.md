@@ -1,9 +1,41 @@
 # Strava AI Boost
 
-**Version:** v1.3.0  
-**Status:** In Development - AgentCore Integration Complete
+**Version:** v1.3.5  
+**Status:** In Development - Architecture Diagrams Complete
 
 Strava AI Boost is a simplified, modular serverless application that automatically enhances Strava activity titles and descriptions using Amazon Bedrock AI. Built as a streamlined version of the existing Strava AI Coach project, it focuses on core functionality while maintaining modularity for future integrations.
+
+## 🚀 Quick Start
+
+**New to Strava AI Boost?** Get started in 5 minutes:
+
+👉 **[Quick Start Guide](docs/getting-started/QUICK-START.md)**
+
+## 📚 Documentation
+
+**📖 [Complete Documentation Hub](docs/README.md)** - Single entry point to all documentation
+
+**Quick Links:**
+- 🚀 **[Quick Start Guide](docs/getting-started/QUICK-START.md)** - Get running in 5 minutes
+- 🎯 **[First Activity Guide](docs/getting-started/FIRST-STEPS.md)** - Your first enhancement
+- 🔧 **[Troubleshooting](docs/user-guide/TROUBLESHOOTING.md)** - Common issues
+
+## 🎯 Choose Your Path
+
+### I'm New - Just Want to Try It
+→ **[Quick Start Guide](docs/getting-started/QUICK-START.md)**
+
+### I Want Full Control and Understanding  
+→ **[Complete Setup Guide](docs/getting-started/COMPLETE-SETUP.md)**
+
+### I Have Issues or Questions
+→ **[Troubleshooting Guide](docs/user-guide/TROUBLESHOOTING.md)**
+
+### I Want to Understand the Technical Details
+→ **[Architecture Documentation](docs/reference/ARCHITECTURE.md)** or **[AgentCore Guide](docs/advanced/AGENTCORE.md)**
+
+### I Need to Run Tests or Validate the System
+→ **[Testing Guide](docs/advanced/TESTING.md)**
 
 ## Overview
 
@@ -48,22 +80,81 @@ The system uses a local web interface approach to avoid complexity of user manag
 
 ## Architecture
 
-### High-Level Architecture
+### High-Level System Flow
 
+```mermaid
+graph TB
+    subgraph "Local Environment"
+        UI[Local Web Interface<br/>Flask + Cloudscape]
+        Browser[Web Browser<br/>localhost:8000]
+    end
+    
+    subgraph "AWS Cloud"
+        subgraph "API Layer"
+            APIGW[API Gateway<br/>REST API]
+            Webhook[Webhook Handler<br/>Lambda]
+        end
+        
+        subgraph "Processing"
+            SQS[SQS Queue<br/>Activity Processing]
+            SF[Step Functions<br/>Workflow]
+            Processor[Activity Processor<br/>Lambda]
+        end
+        
+        subgraph "AI Services"
+            Bedrock[Amazon Bedrock<br/>Claude Sonnet 4.5]
+            AgentCore[AgentCore<br/>Memory + Browser Tool]
+        end
+        
+        subgraph "Storage"
+            DDB[(DynamoDB<br/>Activities, Config)]
+            Secrets[Secrets Manager<br/>OAuth Tokens]
+        end
+        
+        subgraph "External"
+            Strava[Strava API<br/>Activities & Updates]
+            Campus[Campus Coach<br/>Training Sessions]
+        end
+    end
+    
+    Browser --> UI
+    UI --> APIGW
+    Strava --> Webhook
+    Webhook --> SQS
+    SQS --> SF
+    SF --> Processor
+    Processor --> Bedrock
+    Processor --> AgentCore
+    Processor --> DDB
+    Processor --> Secrets
+    Processor --> Strava
+    AgentCore --> Campus
 ```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Local Web     │    │   AWS Serverless │    │     Strava      │
-│   Interface     │◄──►│    Backend       │◄──►│      API        │
-│ (Cloudscape UI) │    │                  │    │                 │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-                              │
-                              ▼
-                       ┌──────────────────┐
-                       │   Third-Party    │
-                       │   Integrations   │
-                       │ (Campus Coach,   │
-                       │   Enduraw)       │
-                       └──────────────────┘
+
+### Detailed Processing Flow
+
+```mermaid
+sequenceDiagram
+    participant S as Strava
+    participant W as Webhook Handler
+    participant Q as SQS Queue
+    participant SF as Step Functions
+    participant P as Activity Processor
+    participant B as Bedrock Claude
+    participant AC as AgentCore
+    participant D as DynamoDB
+    
+    S->>W: Activity Created Webhook
+    W->>D: Check Rate Limits
+    W->>Q: Queue Activity for Processing
+    Q->>SF: Trigger Workflow
+    SF->>P: Process Activity
+    P->>S: Fetch Activity Details
+    P->>AC: Get Campus Coach Data (if enabled)
+    P->>B: Generate Enhanced Content
+    P->>D: Store Enhanced Content
+    P->>S: Update Activity
+    P->>D: Update Processing Status
 ```
 
 ### Technology Stack
@@ -89,94 +180,6 @@ The system uses a local web interface approach to avoid complexity of user manag
 - AgentCore Browser Tool: Campus Coach scraping
 - Claude Sonnet 4.5: Content generation and analysis
 
-## Quick Start
-
-### 1. Clone and Setup
-
-```bash
-git clone <repository-url>
-cd strava-ai-boost
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-### 2. Configure AWS Profile
-
-```bash
-export AWS_PROFILE=your-aws-profile
-aws sts get-caller-identity --profile your-aws-profile
-```
-
-### 3. Deploy Infrastructure
-
-```bash
-# Bootstrap CDK (first time only)
-cdk bootstrap --profile your-aws-profile
-
-# Deploy infrastructure
-cdk deploy --profile your-aws-profile
-```
-
-### 4. Run Tests
-
-```bash
-# Run property-based security tests
-python -m pytest tests/test_infrastructure_properties.py -v
-
-# Run all tests
-python -m pytest -v
-```
-
-## Project Structure
-
-```
-strava-ai-boost/
-├── app.py                              # CDK app entry point
-├── stacks/
-│   ├── core_infrastructure_stack.py    # DynamoDB, IAM roles
-│   ├── api_gateway_stack.py           # Local interface API
-│   ├── webhook_processing_stack.py    # Strava webhooks, SQS
-│   ├── content_generation_stack.py    # Step Functions, Bedrock
-│   └── monitoring_stack.py            # CloudWatch, alarms
-├── scripts/
-│   ├── deploy_agentcore.sh            # AgentCore CLI deployment
-│   ├── setup_memory.sh                # AgentCore Memory configuration
-│   └── deploy_campus_coach_agent.sh   # Campus Coach agent deployment
-├── lambda_functions/
-│   ├── webhook_handler.py             # Strava webhook processing
-│   ├── activity_processor.py          # Activity data processing
-│   ├── content_generator.py           # Bedrock content generation
-│   └── campus_coach_invoker.py        # AgentCore invocation
-├── src/
-│   ├── agents/
-│   │   ├── content_generation_agent.py # Strands Agent with AgentCore Memory
-│   │   ├── campus_coach_agent.py       # AgentCore Browser Tool agent
-│   │   └── session_matching_agent.py   # Strands Agent for matching
-│   ├── modules/
-│   │   ├── base_module.py             # Base module interface
-│   │   ├── campus_coach_module.py     # Campus Coach integration
-│   │   └── enduraw_module.py          # Enduraw integration
-│   └── utils/
-│       ├── strava_client.py           # Strava API client
-│       ├── rate_limiter.py            # Rate limiting logic
-│       └── data_models.py             # Pydantic models
-├── local_interface/
-│   ├── app.py                         # Flask/FastAPI application
-│   └── static/                        # Cloudscape UI components
-├── tests/
-│   └── test_infrastructure_properties.py # Property-based security tests
-└── docs/
-    ├── README.md                      # This file
-    ├── ARCHITECTURE.md                # Technical architecture
-    ├── HIGH-LEVEL-DESIGN.md           # System design and decisions
-    ├── SETUP.md                       # Deployment procedures
-    ├── SECURITY.md                    # Security practices
-    ├── CHANGELOG.md                   # Version history
-    ├── testing-guide.md               # Testing procedures
-    └── KNOWN-ISSUES.md                # Current issues and troubleshooting
-```
-
 ## Performance Targets
 
 - **Webhook Processing**: <5 seconds to queue
@@ -193,18 +196,6 @@ strava-ai-boost/
 - **IAM**: Least privilege principle with AWS managed policies
 - **Local Interface**: Local-only access (127.0.0.1)
 
-## Documentation
-
-For detailed information, see:
-
-- [Architecture Documentation](docs/ARCHITECTURE.md) - Technical implementation details
-- [High-Level Design](docs/HIGH-LEVEL-DESIGN.md) - System architecture and decisions
-- [Setup Guide](docs/SETUP.md) - Deployment and configuration
-- [Security Guide](docs/SECURITY.md) - Security practices and policies
-- [Testing Guide](docs/testing-guide.md) - Testing procedures and validation
-- [Known Issues](docs/KNOWN-ISSUES.md) - Current issues and troubleshooting
-- [Changelog](docs/CHANGELOG.md) - Version history and changes
-
 ## Contributing
 
 1. Follow the property-based testing approach for all infrastructure changes
@@ -218,6 +209,6 @@ This project is licensed under the MIT License.
 
 ---
 
-**Current Version:** v1.3.0  
+**Current Version:** v1.3.2  
 **Last Updated:** 2025-12-23  
-**Status:** AgentCore Integration Complete - Ready for Local Interface Enhancement
+**Status:** Documentation Restructured - Improved User Experience

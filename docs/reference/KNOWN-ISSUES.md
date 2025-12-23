@@ -1,4 +1,4 @@
-# Strava AI Boost - Known Issues and Troubleshooting
+# ⚠️ Known Issues and Troubleshooting
 
 **Version:** v1.3.0 - AgentCore Integration Complete  
 **Last Updated:** 2025-12-23

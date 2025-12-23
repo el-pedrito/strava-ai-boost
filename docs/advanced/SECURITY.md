@@ -1,4 +1,4 @@
-# Strava AI Boost - Security Guide
+# 🔒 Security Guide
 
 **Version:** v1.3.0 - AgentCore Integration Complete  
 **Last Updated:** 2025-12-23

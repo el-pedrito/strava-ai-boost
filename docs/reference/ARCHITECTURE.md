@@ -1,9 +1,144 @@
-# Strava AI Boost - Technical Architecture
+# 🏗️ Technical Architecture
 
-**Version:** v1.3.0 - AgentCore Integration Complete  
+**Version:** v1.3.5 - Architecture Diagrams Complete  
 **Last Updated:** 2025-12-23
 
 This document provides detailed technical implementation information for the Strava AI Boost system, including AWS services configuration, data models, and integration patterns.
+
+## System Architecture Overview
+
+### Complete System Diagram
+
+```mermaid
+graph TB
+    subgraph "User Environment"
+        User[User]
+        Browser[Web Browser]
+        LocalApp[Local Flask App<br/>Port 8000]
+    end
+    
+    subgraph "AWS Account - eu-west-1"
+        subgraph "API & Webhook Layer"
+            APIGW[API Gateway<br/>Configuration API]
+            WebhookLambda[Webhook Handler<br/>Lambda Function]
+            WebhookAPI[Webhook API<br/>Strava Integration]
+        end
+        
+        subgraph "Message Processing"
+            SQS[SQS Queue<br/>Activity Processing]
+            DLQ[Dead Letter Queue<br/>Failed Messages]
+        end
+        
+        subgraph "Orchestration"
+            StepFunctions[Step Functions<br/>Activity Workflow]
+            ProcessorLambda[Activity Processor<br/>Lambda Function]
+        end
+        
+        subgraph "AI & Content Generation"
+            Bedrock[Amazon Bedrock<br/>Claude Sonnet 4.5]
+            AgentCoreMemory[AgentCore Memory<br/>Personalization]
+            AgentCoreBrowser[AgentCore Browser<br/>Campus Coach Scraping]
+        end
+        
+        subgraph "Data Storage"
+            ActivitiesTable[(Activities Table<br/>DynamoDB)]
+            ConfigTable[(User Config Table<br/>DynamoDB)]
+            RateLimitsTable[(Rate Limits Table<br/>DynamoDB)]
+            SessionsTable[(Campus Sessions<br/>DynamoDB)]
+            SecretsManager[Secrets Manager<br/>OAuth Tokens]
+        end
+        
+        subgraph "Monitoring"
+            CloudWatch[CloudWatch<br/>Logs & Metrics]
+            XRay[X-Ray<br/>Distributed Tracing]
+        end
+    end
+    
+    subgraph "External Services"
+        StravaAPI[Strava API<br/>Activities & Webhooks]
+        CampusCoach[Campus Coach<br/>Training Platform]
+        Enduraw[Enduraw<br/>Enhanced Analytics]
+    end
+    
+    %% User Flow
+    User --> Browser
+    Browser --> LocalApp
+    LocalApp --> APIGW
+    
+    %% Webhook Flow
+    StravaAPI --> WebhookAPI
+    WebhookAPI --> WebhookLambda
+    WebhookLambda --> SQS
+    SQS --> StepFunctions
+    StepFunctions --> ProcessorLambda
+    
+    %% Processing Flow
+    ProcessorLambda --> StravaAPI
+    ProcessorLambda --> Bedrock
+    ProcessorLambda --> AgentCoreMemory
+    ProcessorLambda --> AgentCoreBrowser
+    AgentCoreBrowser --> CampusCoach
+    
+    %% Data Flow
+    ProcessorLambda --> ActivitiesTable
+    ProcessorLambda --> ConfigTable
+    ProcessorLambda --> RateLimitsTable
+    ProcessorLambda --> SessionsTable
+    ProcessorLambda --> SecretsManager
+    
+    %% Monitoring
+    ProcessorLambda --> CloudWatch
+    ProcessorLambda --> XRay
+    
+    %% Error Handling
+    SQS --> DLQ
+```
+
+### Data Flow Architecture
+
+```mermaid
+graph LR
+    subgraph "Input Sources"
+        SA[Strava Activity<br/>Webhook]
+        CC[Campus Coach<br/>Sessions]
+        ER[Enduraw<br/>Analytics]
+    end
+    
+    subgraph "Processing Pipeline"
+        WH[Webhook<br/>Handler]
+        AP[Activity<br/>Processor]
+        CG[Content<br/>Generator]
+    end
+    
+    subgraph "AI Services"
+        AC[AgentCore<br/>Memory]
+        BR[Bedrock<br/>Claude]
+        BT[Browser Tool<br/>Scraping]
+    end
+    
+    subgraph "Storage"
+        DB[(DynamoDB<br/>Tables)]
+        SM[Secrets<br/>Manager]
+    end
+    
+    subgraph "Output"
+        SU[Strava<br/>Update]
+        UI[Local<br/>Interface]
+    end
+    
+    SA --> WH
+    WH --> AP
+    AP --> CG
+    CG --> AC
+    CG --> BR
+    AP --> BT
+    BT --> CC
+    AP --> DB
+    AP --> SM
+    CG --> SU
+    DB --> UI
+    ER --> AP
+```
 
 ## Infrastructure Overview
 

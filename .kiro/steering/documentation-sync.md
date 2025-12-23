@@ -20,26 +20,45 @@ Les versions sont gérées dans les fichiers de documentation (`docs/ARCHITECTUR
 
 #### **OBLIGATOIRE** - Ces fichiers DOIVENT avoir la même version :
 
-1. **docs/ARCHITECTURE.md**
+1. **README.md** (project homepage)
+   ```markdown
+   **Version:** vX.Y.Z
+   **Status:** In Development - Description
+   ```
+
+2. **docs/README.md** (documentation hub)
+   ```markdown
+   **Version:** vX.Y.Z
+   **Status:** In Development - Description
+   ```
+
+3. **docs/reference/ARCHITECTURE.md**
    ```markdown
    **Version:** vX.Y.Z - Production Ready with Intelligent Analysis
    **Last Updated:** YYYY-MM-DD
    ```
 
-2. **docs/HIGH-LEVEL-DESIGN.md**
+4. **docs/reference/CHANGELOG.md**
+   ```markdown
+   ## [X.Y.Z] - YYYY-MM-DD - Titre Descriptif
+   ```
+
+5. **docs/advanced/TESTING.md**
+   ```markdown
+   **Version:** vX.Y.Z - Documentation Restructure Complete
+   **Last Updated:** YYYY-MM-DD
+   ```
+
+6. **docs/advanced/PERFORMANCE.md**
    ```markdown
    **Version:** vX.Y.Z - Production Ready
    **Last Updated:** YYYY-MM-DD
    ```
 
-3. **docs/CHANGELOG.md**
+7. **docs/advanced/SECURITY.md**
    ```markdown
-   ## [X.Y.Z] - YYYY-MM-DD - Titre Descriptif
-   ```
-
-4. **README.md** (footer)
-   ```markdown
-   **Current Version:** vX.Y.Z
+   **Version:** vX.Y.Z - Production Ready
+   **Last Updated:** YYYY-MM-DD
    ```
 
 ### Semantic Versioning Rules
@@ -56,38 +75,67 @@ Les versions sont gérées dans les fichiers de documentation (`docs/ARCHITECTUR
 
 | File | Purpose | Update Trigger |
 |------|---------|----------------|
-| `README.md` | Project overview, quick start | Any significant change |
-| `docs/ARCHITECTURE.md` | Technical architecture | Code changes, new services |
-| `docs/HIGH-LEVEL-DESIGN.md` | Visual overview | Architecture changes |
-| `docs/CHANGELOG.md` | Change history | Every commit |
-| `docs/SETUP.md` | Deployment guide | Infrastructure changes |
-| `docs/SECURITY.md` | Security practices | Security changes |
-| `docs/testing-guide.md` | Testing procedures | Test changes |
+| `README.md` | Project homepage, quick links | Any significant change |
+| `docs/README.md` | Documentation hub, navigation | Structure changes |
+| `docs/reference/ARCHITECTURE.md` | Technical architecture, diagrams | Code changes, new services |
+| `docs/reference/CHANGELOG.md` | Change history | Every commit |
+| `docs/getting-started/QUICK-START.md` | 5-minute deployment | Infrastructure changes |
+| `docs/getting-started/COMPLETE-SETUP.md` | Full deployment guide | Infrastructure changes |
+| `docs/getting-started/FIRST-STEPS.md` | First activity guide | Usage flow changes |
+| `docs/user-guide/DASHBOARD.md` | Local interface guide | UI changes |
+| `docs/user-guide/CONFIGURATION.md` | OAuth and module setup | Configuration changes |
+| `docs/user-guide/TROUBLESHOOTING.md` | Common issues | Bug fixes, new issues |
+| `docs/advanced/AGENTCORE.md` | AI agents and memory | AgentCore changes |
+| `docs/advanced/PERFORMANCE.md` | Monitoring and tuning | Performance changes |
+| `docs/advanced/SECURITY.md` | Security practices | Security changes |
+| `docs/advanced/TESTING.md` | Testing procedures | Test changes |
+| `docs/reference/KNOWN-ISSUES.md` | Current issues | Bug reports, fixes |
 
 ### Cross-References to Check
 
 When updating one file, check these cross-references:
 
-#### **README.md References**
-- Links to all docs files
-- Version numbers
-- Prerequisites list
-- Quick start commands
-- Architecture overview
+#### **README.md References (Project Homepage)**
+- Links to docs/README.md (documentation hub)
+- Quick links to QUICK-START.md, FIRST-STEPS.md, TROUBLESHOOTING.md
+- Version numbers and status
+- Architecture diagrams (Mermaid)
+- Technology stack overview
 
-#### **ARCHITECTURE.md References**
-- AWS service versions
-- Lambda configurations
-- DynamoDB table names
-- Step Functions workflow
-- Performance metrics
+#### **docs/README.md References (Documentation Hub)**
+- Links to all documentation files in subdirectories
+- Navigation structure consistency
+- "Choose Your Path" user journey links
+- Cross-references between guides
 
-#### **HIGH-LEVEL-DESIGN.md References**
-- Architecture diagrams
-- Technology stack versions
-- Cost estimates
-- Performance metrics
-- Security configurations
+#### **docs/reference/ARCHITECTURE.md References**
+- AWS service versions and configurations
+- Lambda configurations and timeouts
+- DynamoDB table names and GSI configurations
+- Step Functions workflow diagrams
+- Performance metrics and cost estimates
+- Mermaid diagrams for system architecture
+
+#### **docs/getting-started/ References**
+- Cross-references between QUICK-START → FIRST-STEPS → COMPLETE-SETUP
+- Links to CONFIGURATION.md and TROUBLESHOOTING.md
+- AWS profile references (your-aws-profile)
+- Deployment script references
+
+#### **docs/user-guide/ References**
+- Links between DASHBOARD.md ↔ CONFIGURATION.md ↔ TROUBLESHOOTING.md
+- References to getting-started guides
+- Links to advanced topics when relevant
+
+#### **docs/advanced/ References**
+- Cross-references between AGENTCORE.md, PERFORMANCE.md, SECURITY.md, TESTING.md
+- Links back to user guides and getting started
+- References to ARCHITECTURE.md for technical details
+
+#### **docs/reference/ References**
+- CHANGELOG.md version consistency with other files
+- KNOWN-ISSUES.md links to TROUBLESHOOTING.md
+- ARCHITECTURE.md technical cross-references
 
 ---
 
@@ -95,48 +143,59 @@ When updating one file, check these cross-references:
 
 ### When Modifying Code
 
-#### **Lambda Functions** (`lambda_functions/*.py`)
-- [ ] Update `docs/ARCHITECTURE.md` - Lambda section
-- [ ] Update `docs/HIGH-LEVEL-DESIGN.md` - Compute architecture
-- [ ] Update `README.md` if public API changes
-- [ ] Update `docs/CHANGELOG.md` with changes
-- [ ] Check timeout/memory configurations are documented
+#### **Getting Started Guides** (`docs/getting-started/*.md`)
+- [ ] Update `README.md` - Quick links section if public flow changes
+- [ ] Update `docs/README.md` - Getting started navigation
+- [ ] Update cross-references between QUICK-START → FIRST-STEPS → COMPLETE-SETUP
+- [ ] Update `docs/reference/CHANGELOG.md` with changes
+- [ ] Check AWS profile references (your-aws-profile) are consistent
+- [ ] Verify deployment script references are accurate
 
-#### **CDK Stacks** (`stacks/*.py`)
-- [ ] Update `docs/ARCHITECTURE.md` - Infrastructure section
-- [ ] Update `docs/HIGH-LEVEL-DESIGN.md` - Architecture decisions
-- [ ] Update `README.md` - Architecture overview
-- [ ] Update `docs/CHANGELOG.md` with changes
-- [ ] Check all AWS service configurations are documented
+#### **User Guide Updates** (`docs/user-guide/*.md`)
+- [ ] Update `docs/README.md` - User guide navigation
+- [ ] Update cross-references between DASHBOARD ↔ CONFIGURATION ↔ TROUBLESHOOTING
+- [ ] Update `docs/reference/CHANGELOG.md` with changes
+- [ ] Check links to getting-started and advanced sections
+- [ ] Verify OAuth flow documentation consistency
 
-#### **Agents** (`src/agents/*.py`)
-- [ ] Update `docs/ARCHITECTURE.md` - Campus Coach Agent section
-- [ ] Update `docs/HIGH-LEVEL-DESIGN.md` - AI Agents section
-- [ ] Update `README.md` - Campus Coach Agent section
-- [ ] Update `docs/CHANGELOG.md` with changes
-- [ ] Check agent configuration is documented
+#### **Advanced Topics** (`docs/advanced/*.md`)
+- [ ] Update `docs/README.md` - Advanced topics navigation
+- [ ] Update `docs/reference/ARCHITECTURE.md` - Technical details section
+- [ ] Update cross-references between AGENTCORE, PERFORMANCE, SECURITY, TESTING
+- [ ] Update `docs/reference/CHANGELOG.md` with changes
+- [ ] Check agent configuration documentation consistency
 
-#### **Configuration Files** (`cdk.json`, `requirements.txt`)
-- [ ] Update `docs/ARCHITECTURE.md` - Dependencies section
-- [ ] Update `docs/HIGH-LEVEL-DESIGN.md` - Technology stack
-- [ ] Update `README.md` - Dependencies section
-- [ ] Update `docs/CHANGELOG.md` if significant
+#### **Reference Documentation** (`docs/reference/*.md`)
+- [ ] Update `docs/README.md` - Reference navigation
+- [ ] Update cross-references to technical documentation
+- [ ] Update `docs/reference/CHANGELOG.md` with changes
+- [ ] Sync version numbers across all reference files
+- [ ] Update Mermaid diagrams if architecture changes
 
 ### When Modifying Documentation
 
-#### **README.md Changes**
-- [ ] Sync with `docs/ARCHITECTURE.md` overview
-- [ ] Sync with `docs/HIGH-LEVEL-DESIGN.md` overview
+#### **README.md Changes (Project Homepage)**
+- [ ] Sync with `docs/README.md` navigation structure
 - [ ] Update version numbers everywhere
-- [ ] Check all links are valid
+- [ ] Check all quick links are valid
 - [ ] Update "Last Updated" dates
+- [ ] Verify Mermaid diagrams are current
+- [ ] Update technology stack overview
+
+#### **docs/README.md Changes (Documentation Hub)**
+- [ ] Sync navigation with actual file structure
+- [ ] Update all cross-references to documentation files
+- [ ] Verify "Choose Your Path" links work
+- [ ] Update version numbers
+- [ ] Check all subdirectory links are valid
 
 #### **Architecture Changes**
-- [ ] Sync `docs/ARCHITECTURE.md` with `docs/HIGH-LEVEL-DESIGN.md`
-- [ ] Update diagrams if needed
+- [ ] Sync `docs/reference/ARCHITECTURE.md` with system changes
+- [ ] Update Mermaid diagrams if needed
 - [ ] Update performance metrics
 - [ ] Update cost estimates
 - [ ] Sync version numbers
+- [ ] Update AWS service configurations
 
 ---
 
@@ -300,22 +359,28 @@ DOC_CHANGES=$(git diff --name-only HEAD | grep "docs/\|README.md")
 Based on changes, update relevant documentation files:
 
 #### If Lambda Functions Changed:
-1. Update `docs/ARCHITECTURE.md` - Lambda section
-2. Update `docs/HIGH-LEVEL-DESIGN.md` - Compute architecture
+1. Update `docs/reference/ARCHITECTURE.md` - Lambda section
+2. Update `README.md` - Architecture diagrams if needed
 3. Update performance metrics if applicable
-4. Update `docs/CHANGELOG.md`
+4. Update `docs/reference/CHANGELOG.md`
 
 #### If CDK Stacks Changed:
-1. Update `docs/ARCHITECTURE.md` - Infrastructure
-2. Update `docs/HIGH-LEVEL-DESIGN.md` - Architecture decisions
+1. Update `docs/reference/ARCHITECTURE.md` - Infrastructure section
+2. Update `README.md` - Architecture diagrams
 3. Update cost estimates if applicable
-4. Update `docs/CHANGELOG.md`
+4. Update `docs/reference/CHANGELOG.md`
 
 #### If Agents Changed:
-1. Update `docs/ARCHITECTURE.md` - Campus Coach Agent
-2. Update `docs/HIGH-LEVEL-DESIGN.md` - AI Agents
-3. Update `README.md` - Campus Coach Agent section
-4. Update `docs/CHANGELOG.md`
+1. Update `docs/advanced/AGENTCORE.md` - Agent configuration
+2. Update `docs/reference/ARCHITECTURE.md` - AI services section
+3. Update `README.md` - AI services overview
+4. Update `docs/reference/CHANGELOG.md`
+
+#### If Documentation Structure Changed:
+1. Update `docs/README.md` - Navigation structure
+2. Update `README.md` - Quick links
+3. Update all cross-references in affected files
+4. Update `docs/reference/CHANGELOG.md`
 
 ### Step 3: Sync Versions
 
@@ -325,15 +390,17 @@ NEW_VERSION="X.Y.Z"  # Replace with actual version
 NEW_DATE=$(date +%Y-%m-%d)
 
 # Update ARCHITECTURE.md
-sed -i "s/Version:.*$/Version: v$NEW_VERSION - Production Ready/" docs/ARCHITECTURE.md
-sed -i "s/Last Updated:.*$/Last Updated: $NEW_DATE/" docs/ARCHITECTURE.md
+sed -i "s/Version:.*$/Version: v$NEW_VERSION - Production Ready/" docs/reference/ARCHITECTURE.md
+sed -i "s/Last Updated:.*$/Last Updated: $NEW_DATE/" docs/reference/ARCHITECTURE.md
 
-# Update HIGH-LEVEL-DESIGN.md
-sed -i "s/Version:.*$/Version: v$NEW_VERSION - Production Ready/" docs/HIGH-LEVEL-DESIGN.md
-sed -i "s/Last Updated:.*$/Last Updated: $NEW_DATE/" docs/HIGH-LEVEL-DESIGN.md
+# Update README.md
+sed -i "s/Version:.*$/Version: v$NEW_VERSION/" README.md
+
+# Update docs/README.md
+sed -i "s/Version:.*$/Version: v$NEW_VERSION/" docs/README.md
 
 # Verify CHANGELOG.md has new version entry
-grep "## \[$NEW_VERSION\]" docs/CHANGELOG.md || echo "⚠️  Add version to CHANGELOG.md"
+grep "## \[$NEW_VERSION\]" docs/reference/CHANGELOG.md || echo "⚠️  Add version to CHANGELOG.md"
 ```
 
 ### Step 4: Validate Consistency
@@ -344,10 +411,13 @@ grep "## \[$NEW_VERSION\]" docs/CHANGELOG.md || echo "⚠️  Add version to CHA
 
 # Manual verification
 echo "Check these files have consistent versions:"
-echo "- docs/ARCHITECTURE.md"
-echo "- docs/HIGH-LEVEL-DESIGN.md"
-echo "- docs/CHANGELOG.md"
 echo "- README.md"
+echo "- docs/README.md"
+echo "- docs/reference/ARCHITECTURE.md"
+echo "- docs/reference/CHANGELOG.md"
+echo "- docs/advanced/TESTING.md"
+echo "- docs/advanced/PERFORMANCE.md"
+echo "- docs/advanced/SECURITY.md"
 ```
 
 ---
@@ -357,7 +427,7 @@ echo "- README.md"
 ### Adding New Feature
 
 ```markdown
-# In docs/CHANGELOG.md
+# In docs/reference/CHANGELOG.md
 ## [X.Y.Z] - YYYY-MM-DD - Feature Name
 
 ### Added
@@ -366,15 +436,16 @@ echo "- README.md"
   - Performance impact
   - Cost impact
 
-# In docs/ARCHITECTURE.md
+# In docs/reference/ARCHITECTURE.md
 ## New Feature Section
 Description of architecture...
-
-# In docs/HIGH-LEVEL-DESIGN.md
-Update relevant diagrams and architecture decisions...
+Update Mermaid diagrams if needed...
 
 # In README.md
-Update overview if user-facing feature...
+Update architecture diagrams if user-facing feature...
+
+# In docs/README.md
+Update navigation if new documentation added...
 ```
 
 ### Fixing Bug
@@ -406,9 +477,10 @@ Update overview if user-facing feature...
   - Improvement: Z% faster / W% cheaper
 
 # Update ALL performance metrics in:
-- docs/ARCHITECTURE.md
-- docs/HIGH-LEVEL-DESIGN.md
+- docs/reference/ARCHITECTURE.md
 - README.md
+- docs/README.md (if mentioned)
+- docs/advanced/PERFORMANCE.md
 ```
 
 ---
@@ -442,7 +514,8 @@ Before every commit, verify:
 - [ ] "Last Updated" dates are current
 - [ ] All affected documentation files are updated
 - [ ] README.md reflects current state
-- [ ] Architecture diagrams are up-to-date (if applicable)
+- [ ] docs/README.md navigation is up-to-date
+- [ ] Mermaid diagrams are current (if applicable)
 
 ---
 
