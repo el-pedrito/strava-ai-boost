@@ -8,13 +8,15 @@ Python Flask application with AWS Cloudscape components for:
 - Processing status monitoring
 """
 
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session
 import boto3
 import json
 import os
 import sys
 from typing import Dict, Any, List
 import logging
+import requests
+from datetime import datetime, timedelta
 
 # Add src directory to path for config imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -43,13 +45,34 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 
+# Session configuration for OAuth state management
+app.config['SESSION_COOKIE_SECURE'] = False  # Set to True in production with HTTPS
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=1)
+
 # AWS clients
 dynamodb = boto3.resource('dynamodb', region_name='eu-west-1')
 secretsmanager = boto3.client('secretsmanager', region_name='eu-west-1')
 apigateway = boto3.client('apigateway', region_name='eu-west-1')
 
-# Configuration
+# Configuration - All URLs from environment variables
 API_GATEWAY_URL = os.environ.get('API_GATEWAY_URL', 'https://api.strava-ai-boost.local')
+STRAVA_OAUTH_URL = os.environ.get('STRAVA_OAUTH_URL', 'https://www.strava.com/oauth/authorize')
+STRAVA_TOKEN_URL = os.environ.get('STRAVA_TOKEN_URL', 'https://www.strava.com/oauth/token')
+CAMPUS_COACH_URL = os.environ.get('CAMPUS_COACH_URL', 'https://campus.coach')
+ENDURAW_URL = os.environ.get('ENDURAW_URL', 'https://enduraw.com')
+
+# API Gateway endpoints
+API_ENDPOINTS = {
+    'dashboard_stats': f"{API_GATEWAY_URL}/dashboard/stats",
+    'dashboard_activities': f"{API_GATEWAY_URL}/dashboard/activities", 
+    'status': f"{API_GATEWAY_URL}/status",
+    'oauth_status': f"{API_GATEWAY_URL}/config/oauth",
+    'oauth_callback': f"{API_GATEWAY_URL}/config/oauth",
+    'modules': f"{API_GATEWAY_URL}/config/modules",
+    'enhancement': f"{API_GATEWAY_URL}/config/enhancement"
+}
 
 
 @app.route('/')
@@ -175,8 +198,14 @@ def strava_oauth():
         auth_url, state, code_verifier = oauth_handler.get_authorization_url()
         
         # Store state and code_verifier in session for callback
-        # In production, use secure session storage
-        # For now, we'll use a simple approach
+        session['oauth_state'] = state
+        session['oauth_code_verifier'] = code_verifier
+        session['oauth_client_id'] = oauth_config['client_id']
+        session['oauth_client_secret'] = oauth_config['client_secret']
+        session['oauth_redirect_uri'] = oauth_config['redirect_uri']
+        session.permanent = True
+        
+        logger.info(f"Initiating OAuth flow with state: {state[:10]}...")
         
         return redirect(auth_url)
         
@@ -197,7 +226,7 @@ def oauth_callback():
             flash(f'OAuth error: {error} - {error_description}', 'error')
             return redirect(url_for('config'))
         
-        # Get authorization code
+        # Get authorization code and state
         code = request.args.get('code')
         state = request.args.get('state')
         
@@ -205,13 +234,58 @@ def oauth_callback():
             flash('No authorization code received from Strava', 'error')
             return redirect(url_for('config'))
         
-        # TODO: Complete OAuth token exchange
-        # This requires implementing session storage for state and code_verifier
-        # For now, show success message
+        # Validate state parameter (CSRF protection)
+        stored_state = session.get('oauth_state')
+        if not stored_state or stored_state != state:
+            flash('Invalid state parameter - possible security issue', 'error')
+            return redirect(url_for('config'))
         
-        flash('OAuth callback received successfully. Token exchange implementation pending.', 'info')
+        # Get stored OAuth parameters from session
+        code_verifier = session.get('oauth_code_verifier')
+        client_id = session.get('oauth_client_id')
+        client_secret = session.get('oauth_client_secret')
+        redirect_uri = session.get('oauth_redirect_uri')
+        
+        if not all([code_verifier, client_id, client_secret, redirect_uri]):
+            flash('Missing OAuth session data - please try again', 'error')
+            return redirect(url_for('config'))
+        
+        # Create OAuth handler
+        oauth_handler = StravaOAuthHandler(
+            client_id=client_id,
+            client_secret=client_secret,
+            redirect_uri=redirect_uri
+        )
+        
+        # Exchange authorization code for tokens
+        authorization_response = request.url
+        tokens = oauth_handler.exchange_code_for_tokens(
+            authorization_response=authorization_response,
+            code_verifier=code_verifier,
+            state=state
+        )
+        
+        # Store tokens securely in AWS Secrets Manager
+        if oauth_handler.store_tokens_securely(tokens):
+            # Clear OAuth session data
+            session.pop('oauth_state', None)
+            session.pop('oauth_code_verifier', None)
+            session.pop('oauth_client_id', None)
+            session.pop('oauth_client_secret', None)
+            session.pop('oauth_redirect_uri', None)
+            
+            flash('Successfully connected to Strava! Your account is now linked.', 'success')
+            logger.info("OAuth flow completed successfully")
+        else:
+            flash('Failed to store OAuth tokens securely. Please try again.', 'error')
+            logger.error("Failed to store OAuth tokens")
+        
         return redirect(url_for('config'))
         
+    except ValueError as e:
+        logger.error(f"OAuth callback validation error: {str(e)}")
+        flash(f'OAuth validation error: {str(e)}', 'error')
+        return redirect(url_for('config'))
     except Exception as e:
         logger.error(f"OAuth callback error: {str(e)}")
         flash(f'OAuth callback error: {str(e)}', 'error')
@@ -252,25 +326,113 @@ def api_configure_module(module_id: str):
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/status')
-def api_get_status():
-    """API endpoint for real-time status"""
+@app.route('/oauth/disconnect', methods=['POST'])
+def oauth_disconnect():
+    """Disconnect and revoke Strava OAuth tokens"""
     try:
-        status = get_system_status()
-        return jsonify(status)
+        # Check if Strava app is configured
+        strava_config = get_strava_config()
+        if not strava_config.is_configured():
+            flash('Strava application not configured', 'error')
+            return redirect(url_for('config'))
+        
+        # Create OAuth handler
+        oauth_config = strava_config.get_oauth_config()
+        oauth_handler = StravaOAuthHandler(
+            client_id=oauth_config['client_id'],
+            client_secret=oauth_config['client_secret'],
+            redirect_uri=oauth_config['redirect_uri']
+        )
+        
+        # Revoke tokens
+        if oauth_handler.revoke_tokens():
+            flash('Successfully disconnected from Strava. Your tokens have been revoked.', 'success')
+            logger.info("OAuth tokens revoked successfully")
+        else:
+            flash('Failed to revoke tokens. Please try again.', 'error')
+            logger.error("Failed to revoke OAuth tokens")
+        
+        return redirect(url_for('config'))
+        
     except Exception as e:
-        logger.error(f"Get status error: {str(e)}")
+        logger.error(f"OAuth disconnect error: {str(e)}")
+        flash(f'Disconnect error: {str(e)}', 'error')
+        return redirect(url_for('config'))
+
+
+@app.route('/api/dashboard/stats')
+def api_dashboard_stats():
+    """API endpoint for dashboard statistics"""
+    try:
+        # Call AWS API Gateway for dashboard stats
+        api_url = f"{API_GATEWAY_URL}/dashboard/stats"
+        
+        try:
+            response = requests.get(api_url, timeout=10)
+            if response.status_code == 200:
+                return jsonify(response.json())
+            else:
+                logger.warning(f"Dashboard API returned status {response.status_code}")
+        except requests.RequestException as e:
+            logger.warning(f"Failed to call Dashboard API: {e}")
+        
+        # Fallback to local data
+        stats = {
+            'activity_stats': {
+                'total_activities': 0,
+                'completed_activities': 0,
+                'failed_activities': 0,
+                'success_rate': 0
+            },
+            'performance_metrics': {
+                'avg_processing_time': '0s',
+                'system_health': 'unknown'
+            },
+            'module_stats': {
+                'campus_coach_usage': 0,
+                'enduraw_usage': 0
+            },
+            'last_updated': datetime.utcnow().isoformat()
+        }
+        
+        return jsonify(stats)
+        
+    except Exception as e:
+        logger.error(f"Dashboard stats error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/activities')
-def api_get_activities():
-    """API endpoint for activity history"""
+@app.route('/api/processing/status')
+def api_processing_status():
+    """API endpoint for real-time processing status"""
     try:
-        activities = get_recent_activities()
-        return jsonify(activities)
+        # Call AWS API Gateway for processing status
+        api_url = f"{API_GATEWAY_URL}/status"
+        
+        try:
+            response = requests.get(api_url, timeout=10)
+            if response.status_code == 200:
+                return jsonify(response.json())
+            else:
+                logger.warning(f"Status API returned status {response.status_code}")
+        except requests.RequestException as e:
+            logger.warning(f"Failed to call Status API: {e}")
+        
+        # Fallback to local data
+        status = {
+            'system_status': 'unknown',
+            'recent_activities': [],
+            'queue_status': {
+                'processing_queue': {'approximate_messages': 0},
+                'dead_letter_queue': {'approximate_messages': 0}
+            },
+            'last_updated': datetime.utcnow().isoformat()
+        }
+        
+        return jsonify(status)
+        
     except Exception as e:
-        logger.error(f"Get activities error: {str(e)}")
+        logger.error(f"Processing status error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -278,13 +440,40 @@ def api_get_activities():
 def api_get_enhancement_status():
     """API endpoint to get enhancement status"""
     try:
-        # TODO: Call AWS API Gateway to get enhancement status
-        # For now, return placeholder data
-        return jsonify({
-            'enhancement_enabled': True,
-            'enhancement_paused_at': None,
-            'status': 'active'
-        })
+        # Call AWS API Gateway to get enhancement status
+        try:
+            response = requests.get(API_ENDPOINTS['enhancement'], timeout=10)
+            if response.status_code == 200:
+                return jsonify(response.json())
+            else:
+                logger.warning(f"Enhancement API returned status {response.status_code}: {response.text}")
+        except requests.RequestException as e:
+            logger.warning(f"Failed to call API Gateway: {e}")
+        
+        # Fallback to local DynamoDB query
+        table = dynamodb.Table('strava-ai-boost-user-configuration')
+        response = table.get_item(Key={'user_id': 'SYSTEM_CONFIG'})
+        
+        if 'Item' in response:
+            config = response['Item']
+            enhancement_enabled = config.get('enhancement_enabled', True)
+            paused_at = config.get('enhancement_paused_at')
+            
+            return jsonify({
+                'enhancement_enabled': enhancement_enabled,
+                'enhancement_paused_at': paused_at,
+                'status': 'active' if enhancement_enabled else 'paused',
+                'fallback': True
+            })
+        else:
+            # Default configuration
+            return jsonify({
+                'enhancement_enabled': True,
+                'enhancement_paused_at': None,
+                'status': 'active',
+                'fallback': True
+            })
+            
     except Exception as e:
         logger.error(f"Get enhancement status error: {str(e)}")
         return jsonify({'error': str(e)}), 500
@@ -298,17 +487,69 @@ def api_toggle_enhancement():
         action = data.get('action')  # 'pause' or 'resume'
         
         if action not in ['pause', 'resume']:
-            return jsonify({'error': 'Invalid action'}), 400
+            return jsonify({'error': 'Invalid action. Use "pause" or "resume"'}), 400
         
-        # TODO: Call AWS API Gateway to toggle enhancement status
-        # For now, return success
-        status = 'paused' if action == 'pause' else 'active'
-        message = f'Enhancement has been {action}d'
+        # Call AWS API Gateway to toggle enhancement status
+        try:
+            response = requests.post(
+                API_ENDPOINTS['enhancement'], 
+                json={'action': action},
+                timeout=10,
+                headers={'Content-Type': 'application/json'}
+            )
+            if response.status_code == 200:
+                result = response.json()
+                
+                # Show user-friendly message
+                if action == 'pause':
+                    flash('Enhancement has been paused. New activities will not be processed.', 'info')
+                else:
+                    flash('Enhancement has been resumed. New activities will be processed automatically.', 'success')
+                
+                return jsonify(result)
+            else:
+                logger.warning(f"Enhancement API returned status {response.status_code}: {response.text}")
+        except requests.RequestException as e:
+            logger.warning(f"Failed to call API Gateway: {e}")
         
-        return jsonify({
-            'status': status,
-            'message': message
-        })
+        # Fallback to local DynamoDB update
+        table = dynamodb.Table('strava-ai-boost-user-configuration')
+        
+        if action == 'pause':
+            paused_at = datetime.utcnow().isoformat()
+            table.put_item(
+                Item={
+                    'user_id': 'SYSTEM_CONFIG',
+                    'enhancement_enabled': False,
+                    'enhancement_paused_at': paused_at,
+                    'updated_at': paused_at
+                }
+            )
+            flash('Enhancement has been paused. New activities will not be processed.', 'info')
+            return jsonify({
+                'status': 'paused',
+                'paused_at': paused_at,
+                'message': 'Enhancement paused',
+                'fallback': True
+            })
+        else:  # resume
+            resumed_at = datetime.utcnow().isoformat()
+            table.put_item(
+                Item={
+                    'user_id': 'SYSTEM_CONFIG',
+                    'enhancement_enabled': True,
+                    'enhancement_paused_at': None,
+                    'enhancement_resumed_at': resumed_at,
+                    'updated_at': resumed_at
+                }
+            )
+            flash('Enhancement has been resumed. New activities will be processed automatically.', 'success')
+            return jsonify({
+                'status': 'active',
+                'resumed_at': resumed_at,
+                'message': 'Enhancement resumed',
+                'fallback': True
+            })
         
     except Exception as e:
         logger.error(f"Toggle enhancement error: {str(e)}")
@@ -318,18 +559,28 @@ def api_toggle_enhancement():
 def get_system_status() -> Dict[str, Any]:
     """Get overall system status"""
     try:
-        # TODO: Implement system status checks
-        # - Check DynamoDB tables
-        # - Check Lambda functions
-        # - Check Step Functions
-        # - Check AgentCore agents
+        # Try to get status from API Gateway first
+        try:
+            response = requests.get(API_ENDPOINTS['status'], timeout=5)
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.warning(f"Status API returned status {response.status_code}: {response.text}")
+        except requests.RequestException as e:
+            logger.warning(f"Failed to get status from API Gateway: {e}")
+        
+        # Fallback to local status checks
+        oauth_status = get_oauth_status()
         
         return {
-            'strava_connected': True,  # Placeholder
-            'agentcore_status': 'healthy',
+            'strava_connected': oauth_status.get('connected', False),
+            'agentcore_status': 'unknown',
             'processing_queue_depth': 0,
-            'last_activity_processed': '2024-12-18T10:00:00Z',
-            'success_rate_24h': 98.5
+            'last_activity_processed': None,
+            'success_rate_24h': 0,
+            'enhancement_status': 'unknown',
+            'system_health': 'unknown',
+            'fallback': True
         }
     except Exception as e:
         logger.error(f"System status error: {str(e)}")
@@ -339,19 +590,39 @@ def get_system_status() -> Dict[str, Any]:
 def get_recent_activities() -> List[Dict[str, Any]]:
     """Get recent processed activities"""
     try:
-        # TODO: Query DynamoDB for recent activities
+        # Try to get activities from API Gateway first
+        try:
+            response = requests.get(API_ENDPOINTS['dashboard_activities'], timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                return data.get('activities', [])
+            else:
+                logger.warning(f"Dashboard API returned status {response.status_code}: {response.text}")
+        except requests.RequestException as e:
+            logger.warning(f"Failed to get activities from API Gateway: {e}")
         
-        # Placeholder data
-        return [
-            {
-                'id': '12345',
-                'name': 'Morning Run',
-                'date': '2024-12-18',
-                'status': 'completed',
-                'modules_used': ['campus_coach'],
-                'processing_time': '15s'
-            }
-        ]
+        # Fallback to local DynamoDB query
+        try:
+            table = dynamodb.Table('strava-ai-boost-activities')
+            response = table.scan(Limit=10)
+            
+            activities = []
+            for item in response.get('Items', []):
+                activities.append({
+                    'id': item.get('activity_id'),
+                    'name': item.get('original_name', 'Unknown Activity'),
+                    'date': item.get('created_at', ''),
+                    'status': item.get('processing_status', 'unknown'),
+                    'modules_used': item.get('modules_used', []),
+                    'processing_time': 'unknown'
+                })
+            
+            return activities
+            
+        except Exception as e:
+            logger.warning(f"Failed to query DynamoDB: {e}")
+            return []
+        
     except Exception as e:
         logger.error(f"Get activities error: {str(e)}")
         return []
@@ -383,33 +654,29 @@ def get_oauth_status() -> Dict[str, Any]:
     """Get Strava OAuth connection status"""
     try:
         # Check if Strava app is configured first
-        if not is_strava_configured():
+        strava_config = get_strava_config()
+        if not strava_config.is_configured():
             return {
                 'connected': False,
                 'configured': False,
                 'message': 'Strava application not configured'
             }
         
-        # Check for OAuth tokens in Secrets Manager
-        try:
-            secret_name = "strava-ai-boost-oauth-tokens"
-            response = secretsmanager.get_secret_value(SecretId=secret_name)
-            tokens = json.loads(response['SecretString'])
-            
-            return {
-                'connected': True,
-                'configured': True,
-                'expires_at': tokens.get('expires_at'),
-                'scopes': tokens.get('scope', '').split(','),
-                'obtained_at': tokens.get('obtained_at')
-            }
-            
-        except secretsmanager.exceptions.ResourceNotFoundException:
-            return {
-                'connected': False,
-                'configured': True,
-                'message': 'No OAuth tokens found - please connect to Strava'
-            }
+        # Create OAuth handler and check connection status
+        oauth_config = strava_config.get_oauth_config()
+        oauth_handler = StravaOAuthHandler(
+            client_id=oauth_config['client_id'],
+            client_secret=oauth_config['client_secret'],
+            redirect_uri=oauth_config['redirect_uri']
+        )
+        
+        # Get connection status from OAuth handler
+        status = oauth_handler.get_connection_status()
+        
+        # Add configuration status
+        status['configured'] = True
+        
+        return status
         
     except Exception as e:
         logger.error(f"OAuth status error: {str(e)}")
@@ -423,8 +690,45 @@ def get_oauth_status() -> Dict[str, Any]:
 def get_module_configurations() -> Dict[str, Any]:
     """Get module configurations"""
     try:
-        # TODO: Get module configs from DynamoDB
+        # Try to get module configs from API Gateway first
+        try:
+            response = requests.get(API_ENDPOINTS['modules'], timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                return data.get('modules', {})
+            else:
+                logger.warning(f"Modules API returned status {response.status_code}: {response.text}")
+        except requests.RequestException as e:
+            logger.warning(f"Failed to get modules from API Gateway: {e}")
         
+        # Fallback to local DynamoDB query
+        try:
+            table = dynamodb.Table('strava-ai-boost-user-configuration')
+            response = table.get_item(Key={'user_id': 'MODULE_CONFIG'})
+            stored_config = response.get('Item', {})
+            
+            return {
+                'campus_coach': {
+                    'id': 'campus_coach',
+                    'name': 'Campus Coach',
+                    'description': 'Training session matching and analysis',
+                    'enabled': stored_config.get('campus_coach_enabled', False),
+                    'configured': stored_config.get('campus_coach_configured', False),
+                    'requires_credentials': True
+                },
+                'enduraw': {
+                    'id': 'enduraw',
+                    'name': 'Enduraw Integration',
+                    'description': 'Enhanced analytics with weather and wind data',
+                    'enabled': stored_config.get('enduraw_enabled', False),
+                    'configured': True,
+                    'requires_credentials': False
+                }
+            }
+        except Exception as e:
+            logger.warning(f"Failed to query DynamoDB for modules: {e}")
+            
+        # Final fallback
         return {
             'campus_coach': {
                 'id': 'campus_coach',
@@ -451,13 +755,53 @@ def get_module_configurations() -> Dict[str, Any]:
 def configure_module(module_id: str, config_data: Dict[str, Any]) -> bool:
     """Configure a module"""
     try:
-        # TODO: Implement module configuration
-        # - Validate credentials if required
-        # - Store configuration in DynamoDB
-        # - Test module connectivity
+        # Try to configure module via API Gateway first
+        try:
+            payload = {
+                'module_id': module_id,
+                'enabled': config_data.get('enabled', False),
+                'config': config_data.get('config', {})
+            }
+            
+            response = requests.post(
+                API_ENDPOINTS['modules'],
+                json=payload,
+                timeout=10,
+                headers={'Content-Type': 'application/json'}
+            )
+            
+            if response.status_code == 200:
+                logger.info(f"Module {module_id} configured successfully via API Gateway")
+                return True
+            else:
+                logger.warning(f"Module API returned status {response.status_code}: {response.text}")
+        except requests.RequestException as e:
+            logger.warning(f"Failed to configure module via API Gateway: {e}")
         
-        logger.info(f"Configuring module {module_id} with data: {config_data}")
-        return True
+        # Fallback to local DynamoDB update
+        try:
+            table = dynamodb.Table('strava-ai-boost-user-configuration')
+            
+            # Get existing config
+            response = table.get_item(Key={'user_id': 'MODULE_CONFIG'})
+            module_config = response.get('Item', {'user_id': 'MODULE_CONFIG'})
+            
+            # Update module configuration
+            enabled = config_data.get('enabled', False)
+            module_config[f'{module_id}_enabled'] = enabled
+            module_config[f'{module_id}_configured'] = True
+            module_config[f'{module_id}_updated_at'] = datetime.utcnow().isoformat()
+            
+            # Store updated configuration
+            table.put_item(Item=module_config)
+            
+            logger.info(f"Module {module_id} configured locally: enabled={enabled}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to configure module locally: {e}")
+            return False
+        
     except Exception as e:
         logger.error(f"Module configuration error: {str(e)}")
         return False

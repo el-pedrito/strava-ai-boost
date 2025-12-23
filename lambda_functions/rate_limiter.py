@@ -1,320 +1,257 @@
 """
-Rate Limiter Lambda Function
+Rate Limiting Utility for API Lambda Functions
 
-Manages Strava API rate limits (100/15min, 1000/day) with DynamoDB persistence.
-Provides rate limit checking and reset functionality.
+Provides rate limiting functionality using DynamoDB to track requests
 """
 
 import json
 import os
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 import boto3
 from botocore.exceptions import ClientError
 from datetime import datetime, timedelta
+import hashlib
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# Initialize AWS clients
+# Initialize DynamoDB client
 dynamodb = boto3.resource('dynamodb')
 
 # Environment variables
-RATE_LIMITS_TABLE = os.environ['RATE_LIMITS_TABLE']
+RATE_LIMITS_TABLE = os.environ.get('RATE_LIMITS_TABLE', 'strava-ai-boost-rate-limits')
+
+# Rate limit configurations (requests per minute)
+RATE_LIMITS = {
+    'dashboard': 60,      # 60 requests per minute for dashboard
+    'status': 120,        # 120 requests per minute for status (more frequent polling)
+    'configuration': 30,  # 30 requests per minute for configuration
+    'default': 60         # Default rate limit
+}
 
 
-def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+def check_rate_limit(client_ip: str, endpoint: str, user_agent: str = '') -> Tuple[bool, Dict[str, Any]]:
     """
-    Lambda handler for rate limit management
+    Check if request is within rate limits
     
-    Handles rate limit checking, updating, and reset operations
+    Args:
+        client_ip: Client IP address
+        endpoint: API endpoint being accessed
+        user_agent: User agent string (optional)
+    
+    Returns:
+        Tuple of (is_allowed, rate_limit_info)
     """
     try:
-        action = event.get('action', 'check')
+        # Create unique identifier for this client/endpoint combination
+        client_key = create_client_key(client_ip, endpoint, user_agent)
         
-        if action == 'check':
-            return check_rate_limits()
-        elif action == 'update':
-            api_calls = event.get('api_calls', 1)
-            return update_rate_limits(api_calls)
-        elif action == 'reset':
-            limit_type = event.get('limit_type', 'both')
-            return reset_rate_limits(limit_type)
-        elif action == 'status':
-            return get_rate_limit_status()
-        else:
-            raise ValueError(f"Unknown action: {action}")
+        # Get rate limit for this endpoint
+        limit = get_rate_limit_for_endpoint(endpoint)
+        
+        # Check current usage
+        current_usage = get_current_usage(client_key)
+        
+        # Check if within limits
+        is_allowed = current_usage < limit
+        
+        if is_allowed:
+            # Increment usage counter
+            increment_usage(client_key)
+        
+        # Prepare rate limit info
+        rate_limit_info = {
+            'limit': limit,
+            'remaining': max(0, limit - current_usage - (1 if is_allowed else 0)),
+            'reset_time': get_reset_time(),
+            'endpoint': endpoint
+        }
+        
+        return is_allowed, rate_limit_info
         
     except Exception as e:
-        logger.error(f"Rate limiter error: {str(e)}")
-        return {
-            'statusCode': 500,
-            'error': str(e),
-            'action': event.get('action')
-        }
-
-
-def check_rate_limits() -> Dict[str, Any]:
-    """Check current rate limit status"""
-    try:
-        table = dynamodb.Table(RATE_LIMITS_TABLE)
-        current_time = datetime.utcnow()
-        
-        # Check short-term limit (100/15min)
-        short_term_status = check_limit_type('short_term', 100, 15, current_time)
-        
-        # Check daily limit (1000/day)
-        daily_status = check_limit_type('daily', 1000, 1440, current_time)  # 1440 minutes = 24 hours
-        
-        # Determine overall status
-        within_limits = short_term_status['within_limit'] and daily_status['within_limit']
-        
-        return {
-            'statusCode': 200,
-            'within_limits': within_limits,
-            'short_term': short_term_status,
-            'daily': daily_status,
-            'checked_at': current_time.isoformat()
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to check rate limits: {str(e)}")
-        return {
-            'statusCode': 500,
-            'within_limits': False,
-            'error': str(e)
-        }
-
-
-def check_limit_type(
-    limit_type: str, 
-    max_requests: int, 
-    window_minutes: int, 
-    current_time: datetime
-) -> Dict[str, Any]:
-    """Check a specific rate limit type"""
-    try:
-        table = dynamodb.Table(RATE_LIMITS_TABLE)
-        
-        response = table.get_item(Key={'limit_type': limit_type})
-        
-        if 'Item' not in response:
-            # Initialize rate limit record
-            reset_time = current_time + timedelta(minutes=window_minutes)
-            table.put_item(
-                Item={
-                    'limit_type': limit_type,
-                    'current_usage': 0,
-                    'max_requests': max_requests,
-                    'window_minutes': window_minutes,
-                    'reset_time': reset_time.isoformat(),
-                    'last_request': current_time.isoformat()
-                }
-            )
-            
-            return {
-                'within_limit': True,
-                'current_usage': 0,
-                'max_requests': max_requests,
-                'remaining': max_requests,
-                'reset_time': reset_time.isoformat(),
-                'window_minutes': window_minutes
-            }
-        
-        item = response['Item']
-        current_usage = item.get('current_usage', 0)
-        reset_time_str = item.get('reset_time', '')
-        
-        # Check if reset time has passed
-        if reset_time_str:
-            reset_time = datetime.fromisoformat(reset_time_str)
-            if current_time >= reset_time:
-                # Reset the counter
-                new_reset_time = current_time + timedelta(minutes=window_minutes)
-                table.update_item(
-                    Key={'limit_type': limit_type},
-                    UpdateExpression="SET current_usage = :zero, reset_time = :reset, last_request = :time",
-                    ExpressionAttributeValues={
-                        ':zero': 0,
-                        ':reset': new_reset_time.isoformat(),
-                        ':time': current_time.isoformat()
-                    }
-                )
-                current_usage = 0
-                reset_time = new_reset_time
-        else:
-            reset_time = current_time + timedelta(minutes=window_minutes)
-        
-        within_limit = current_usage < max_requests
-        remaining = max(0, max_requests - current_usage)
-        
-        return {
-            'within_limit': within_limit,
-            'current_usage': current_usage,
-            'max_requests': max_requests,
-            'remaining': remaining,
-            'reset_time': reset_time.isoformat() if isinstance(reset_time, datetime) else reset_time,
-            'window_minutes': window_minutes
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to check {limit_type} limit: {str(e)}")
-        return {
-            'within_limit': False,
-            'current_usage': 0,
-            'max_requests': max_requests,
+        logger.error(f"Rate limit check error: {str(e)}")
+        # On error, allow the request but log the issue
+        return True, {
+            'limit': RATE_LIMITS.get('default', 60),
             'remaining': 0,
-            'error': str(e)
+            'reset_time': get_reset_time(),
+            'error': 'Rate limit check failed'
         }
 
 
-def update_rate_limits(api_calls: int) -> Dict[str, Any]:
-    """Update rate limit counters after API calls"""
+def create_client_key(client_ip: str, endpoint: str, user_agent: str = '') -> str:
+    """Create unique key for client identification"""
+    # Combine IP, endpoint, and optionally user agent for uniqueness
+    key_data = f"{client_ip}:{endpoint}"
+    
+    # Add user agent hash if provided (to distinguish different clients from same IP)
+    if user_agent:
+        ua_hash = hashlib.md5(user_agent.encode()).hexdigest()[:8]
+        key_data += f":{ua_hash}"
+    
+    # Create hash for consistent key length
+    client_hash = hashlib.sha256(key_data.encode()).hexdigest()[:16]
+    
+    # Include current minute for time-based bucketing
+    current_minute = datetime.utcnow().strftime('%Y%m%d%H%M')
+    
+    return f"rate_limit:{client_hash}:{current_minute}"
+
+
+def get_rate_limit_for_endpoint(endpoint: str) -> int:
+    """Get rate limit for specific endpoint"""
+    # Extract endpoint type from path
+    if 'dashboard' in endpoint:
+        return RATE_LIMITS['dashboard']
+    elif 'status' in endpoint:
+        return RATE_LIMITS['status']
+    elif 'configuration' in endpoint or 'config' in endpoint:
+        return RATE_LIMITS['configuration']
+    else:
+        return RATE_LIMITS['default']
+
+
+def get_current_usage(client_key: str) -> int:
+    """Get current usage count for client key"""
     try:
         table = dynamodb.Table(RATE_LIMITS_TABLE)
-        current_time = datetime.utcnow()
         
-        # Update short-term limit
-        short_term_result = update_limit_type('short_term', api_calls, current_time)
+        response = table.get_item(Key={'rate_limit_key': client_key})
         
-        # Update daily limit
-        daily_result = update_limit_type('daily', api_calls, current_time)
-        
-        return {
-            'statusCode': 200,
-            'api_calls_added': api_calls,
-            'short_term': short_term_result,
-            'daily': daily_result,
-            'updated_at': current_time.isoformat()
-        }
-        
+        if 'Item' in response:
+            return int(response['Item'].get('request_count', 0))
+        else:
+            return 0
+            
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ResourceNotFoundException':
+            logger.warning(f"Rate limits table {RATE_LIMITS_TABLE} not found")
+            return 0
+        else:
+            logger.error(f"Failed to get current usage: {str(e)}")
+            return 0
     except Exception as e:
-        logger.error(f"Failed to update rate limits: {str(e)}")
-        return {
-            'statusCode': 500,
-            'error': str(e),
-            'api_calls_added': api_calls
-        }
+        logger.error(f"Failed to get current usage: {str(e)}")
+        return 0
 
 
-def update_limit_type(limit_type: str, api_calls: int, current_time: datetime) -> Dict[str, Any]:
-    """Update a specific rate limit type"""
+def increment_usage(client_key: str) -> None:
+    """Increment usage counter for client key"""
     try:
         table = dynamodb.Table(RATE_LIMITS_TABLE)
         
-        # Use atomic update to increment usage
-        response = table.update_item(
-            Key={'limit_type': limit_type},
-            UpdateExpression="ADD current_usage :calls SET last_request = :time",
+        # Use atomic counter increment
+        table.update_item(
+            Key={'rate_limit_key': client_key},
+            UpdateExpression='ADD request_count :inc SET updated_at = :timestamp, expires_at = :expires',
             ExpressionAttributeValues={
-                ':calls': api_calls,
-                ':time': current_time.isoformat()
-            },
-            ReturnValues="ALL_NEW"
+                ':inc': 1,
+                ':timestamp': datetime.utcnow().isoformat(),
+                ':expires': int((datetime.utcnow() + timedelta(minutes=2)).timestamp())  # Expire after 2 minutes
+            }
         )
         
-        item = response['Attributes']
-        
-        return {
-            'current_usage': item.get('current_usage', 0),
-            'max_requests': item.get('max_requests', 0),
-            'remaining': max(0, item.get('max_requests', 0) - item.get('current_usage', 0)),
-            'reset_time': item.get('reset_time', ''),
-            'last_request': item.get('last_request', '')
-        }
-        
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ResourceNotFoundException':
+            logger.warning(f"Rate limits table {RATE_LIMITS_TABLE} not found, skipping rate limit tracking")
+        else:
+            logger.error(f"Failed to increment usage: {str(e)}")
     except Exception as e:
-        logger.error(f"Failed to update {limit_type} limit: {str(e)}")
-        return {
-            'error': str(e),
-            'current_usage': 0,
-            'max_requests': 0,
-            'remaining': 0
-        }
+        logger.error(f"Failed to increment usage: {str(e)}")
 
 
-def reset_rate_limits(limit_type: str = 'both') -> Dict[str, Any]:
-    """Reset rate limit counters"""
-    try:
-        table = dynamodb.Table(RATE_LIMITS_TABLE)
-        current_time = datetime.utcnow()
-        
-        results = {}
-        
-        if limit_type in ['both', 'short_term']:
-            # Reset short-term limit
-            reset_time = current_time + timedelta(minutes=15)
-            table.update_item(
-                Key={'limit_type': 'short_term'},
-                UpdateExpression="SET current_usage = :zero, reset_time = :reset, last_request = :time",
-                ExpressionAttributeValues={
-                    ':zero': 0,
-                    ':reset': reset_time.isoformat(),
-                    ':time': current_time.isoformat()
-                }
-            )
-            results['short_term'] = 'reset'
-        
-        if limit_type in ['both', 'daily']:
-            # Reset daily limit
-            reset_time = current_time + timedelta(days=1)
-            table.update_item(
-                Key={'limit_type': 'daily'},
-                UpdateExpression="SET current_usage = :zero, reset_time = :reset, last_request = :time",
-                ExpressionAttributeValues={
-                    ':zero': 0,
-                    ':reset': reset_time.isoformat(),
-                    ':time': current_time.isoformat()
-                }
-            )
-            results['daily'] = 'reset'
-        
-        return {
-            'statusCode': 200,
-            'reset_results': results,
-            'reset_at': current_time.isoformat()
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to reset rate limits: {str(e)}")
-        return {
-            'statusCode': 500,
-            'error': str(e),
-            'limit_type': limit_type
-        }
+def get_reset_time() -> str:
+    """Get the time when rate limits reset (next minute)"""
+    next_minute = datetime.utcnow().replace(second=0, microsecond=0) + timedelta(minutes=1)
+    return next_minute.isoformat()
 
 
-def get_rate_limit_status() -> Dict[str, Any]:
-    """Get detailed rate limit status information"""
-    try:
-        table = dynamodb.Table(RATE_LIMITS_TABLE)
+def create_rate_limit_response(rate_limit_info: Dict[str, Any]) -> Dict[str, Any]:
+    """Create rate limit exceeded response"""
+    return {
+        'statusCode': 429,
+        'headers': {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'X-RateLimit-Limit': str(rate_limit_info['limit']),
+            'X-RateLimit-Remaining': str(rate_limit_info['remaining']),
+            'X-RateLimit-Reset': rate_limit_info['reset_time'],
+            'Retry-After': '60'  # Retry after 60 seconds
+        },
+        'body': json.dumps({
+            'error': 'Rate limit exceeded',
+            'message': f'Too many requests. Limit: {rate_limit_info["limit"]} requests per minute',
+            'rate_limit': rate_limit_info,
+            'timestamp': datetime.utcnow().isoformat()
+        })
+    }
+
+
+def add_rate_limit_headers(headers: Dict[str, str], rate_limit_info: Dict[str, Any]) -> Dict[str, str]:
+    """Add rate limit headers to response"""
+    headers.update({
+        'X-RateLimit-Limit': str(rate_limit_info['limit']),
+        'X-RateLimit-Remaining': str(rate_limit_info['remaining']),
+        'X-RateLimit-Reset': rate_limit_info['reset_time']
+    })
+    return headers
+
+
+def extract_client_info(event: Dict[str, Any]) -> Tuple[str, str]:
+    """Extract client IP and user agent from Lambda event"""
+    # Get client IP from various possible sources
+    client_ip = 'unknown'
+    
+    # Check for IP in request context (API Gateway)
+    request_context = event.get('requestContext', {})
+    identity = request_context.get('identity', {})
+    
+    if identity.get('sourceIp'):
+        client_ip = identity['sourceIp']
+    elif event.get('headers', {}).get('X-Forwarded-For'):
+        # Get first IP from X-Forwarded-For header
+        forwarded_ips = event['headers']['X-Forwarded-For'].split(',')
+        client_ip = forwarded_ips[0].strip()
+    elif event.get('headers', {}).get('X-Real-IP'):
+        client_ip = event['headers']['X-Real-IP']
+    
+    # Get user agent
+    headers = event.get('headers', {})
+    user_agent = headers.get('User-Agent', headers.get('user-agent', ''))
+    
+    return client_ip, user_agent
+
+
+# Decorator for easy rate limiting
+def rate_limited(endpoint_name: str):
+    """Decorator to add rate limiting to Lambda handlers"""
+    def decorator(handler_func):
+        def wrapper(event, context):
+            try:
+                # Extract client information
+                client_ip, user_agent = extract_client_info(event)
+                
+                # Check rate limit
+                is_allowed, rate_limit_info = check_rate_limit(client_ip, endpoint_name, user_agent)
+                
+                if not is_allowed:
+                    return create_rate_limit_response(rate_limit_info)
+                
+                # Call original handler
+                response = handler_func(event, context)
+                
+                # Add rate limit headers to successful responses
+                if isinstance(response, dict) and 'headers' in response:
+                    response['headers'] = add_rate_limit_headers(response['headers'], rate_limit_info)
+                
+                return response
+                
+            except Exception as e:
+                logger.error(f"Rate limiting decorator error: {str(e)}")
+                # On error, call original handler without rate limiting
+                return handler_func(event, context)
         
-        # Get all rate limit records
-        response = table.scan()
-        items = response.get('Items', [])
-        
-        status = {}
-        for item in items:
-            limit_type = item.get('limit_type')
-            status[limit_type] = {
-                'current_usage': item.get('current_usage', 0),
-                'max_requests': item.get('max_requests', 0),
-                'remaining': max(0, item.get('max_requests', 0) - item.get('current_usage', 0)),
-                'reset_time': item.get('reset_time', ''),
-                'last_request': item.get('last_request', ''),
-                'window_minutes': item.get('window_minutes', 0)
-            }
-        
-        return {
-            'statusCode': 200,
-            'rate_limits': status,
-            'retrieved_at': datetime.utcnow().isoformat()
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to get rate limit status: {str(e)}")
-        return {
-            'statusCode': 500,
-            'error': str(e),
-            'rate_limits': {}
-        }
+        return wrapper
+    return decorator

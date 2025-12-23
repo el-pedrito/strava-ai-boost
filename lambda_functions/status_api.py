@@ -14,6 +14,7 @@ from typing import Dict, Any, Optional
 import boto3
 from botocore.exceptions import ClientError
 from datetime import datetime
+from rate_limiter import check_rate_limit, create_rate_limit_response, add_rate_limit_headers, extract_client_info
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -27,6 +28,16 @@ sqs = boto3.client('sqs')
 ACTIVITIES_TABLE = os.environ['ACTIVITIES_TABLE']
 
 
+# CORS headers
+CORS_HEADERS = {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+    'Access-Control-Max-Age': '86400'
+}
+
+
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Lambda handler for status API endpoints
@@ -34,51 +45,108 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     Provides real-time processing status information
     """
     try:
+        # Extract client information for rate limiting
+        client_ip, user_agent = extract_client_info(event)
+        
+        # Check rate limit
+        is_allowed, rate_limit_info = check_rate_limit(client_ip, 'status', user_agent)
+        
+        if not is_allowed:
+            return create_rate_limit_response(rate_limit_info)
+        
         http_method = event.get('httpMethod', 'GET')
         path = event.get('path', '')
         path_parameters = event.get('pathParameters') or {}
         query_params = event.get('queryStringParameters') or {}
         
-        # CORS headers
-        headers = {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-        }
-        
+        # Handle CORS preflight
         if http_method == 'OPTIONS':
+            headers = add_rate_limit_headers(CORS_HEADERS.copy(), rate_limit_info)
             return {
                 'statusCode': 200,
                 'headers': headers,
                 'body': json.dumps({'status': 'ok'})
             }
         
+        # Validate request
+        validation_error = validate_request(event)
+        if validation_error:
+            return create_error_response(400, validation_error, rate_limit_info)
+        
         # Route requests based on path
         if path_parameters.get('activity_id'):
             # Get status for specific activity
             activity_id = path_parameters['activity_id']
             response_data = get_activity_status(activity_id)
+            return create_success_response(response_data, rate_limit_info=rate_limit_info)
         else:
             # Get overall system status
             response_data = get_system_status(query_params)
-        
-        return {
-            'statusCode': 200,
-            'headers': headers,
-            'body': json.dumps(response_data)
-        }
+            return create_success_response(response_data, rate_limit_info=rate_limit_info)
         
     except Exception as e:
         logger.error(f"Status API error: {str(e)}")
-        return {
-            'statusCode': 500,
-            'headers': {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            },
-            'body': json.dumps({'error': str(e)})
-        }
+        return create_error_response(500, 'Internal server error')
+
+
+def validate_request(event: Dict[str, Any]) -> str:
+    """Validate incoming request"""
+    try:
+        # Check HTTP method
+        http_method = event.get('httpMethod', '')
+        if http_method not in ['GET', 'OPTIONS']:
+            return f'Method {http_method} not allowed'
+        
+        # Validate activity_id if present
+        path_parameters = event.get('pathParameters') or {}
+        activity_id = path_parameters.get('activity_id')
+        
+        if activity_id:
+            # Basic activity ID validation (should be numeric string)
+            if not activity_id.isdigit():
+                return 'Activity ID must be numeric'
+            
+            # Check reasonable length (Strava activity IDs are typically 10 digits)
+            if len(activity_id) < 8 or len(activity_id) > 15:
+                return 'Activity ID format invalid'
+        
+        return None  # No validation errors
+        
+    except Exception as e:
+        logger.error(f"Request validation error: {str(e)}")
+        return f'Request validation failed: {str(e)}'
+
+
+def create_error_response(status_code: int, message: str, rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
+    """Create standardized error response"""
+    headers = CORS_HEADERS.copy()
+    if rate_limit_info:
+        headers = add_rate_limit_headers(headers, rate_limit_info)
+    
+    return {
+        'statusCode': status_code,
+        'headers': headers,
+        'body': json.dumps({
+            'error': message,
+            'timestamp': datetime.utcnow().isoformat()
+        })
+    }
+
+
+def create_success_response(data: Dict[str, Any], status_code: int = 200, rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
+    """Create standardized success response"""
+    headers = CORS_HEADERS.copy()
+    if rate_limit_info:
+        headers = add_rate_limit_headers(headers, rate_limit_info)
+    
+    return {
+        'statusCode': status_code,
+        'headers': headers,
+        'body': json.dumps({
+            **data,
+            'timestamp': datetime.utcnow().isoformat()
+        })
+    }
 
 
 def get_activity_status(activity_id: str) -> Dict[str, Any]:

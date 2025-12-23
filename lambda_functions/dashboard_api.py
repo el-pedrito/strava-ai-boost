@@ -15,6 +15,7 @@ from typing import Dict, Any, List
 import boto3
 from botocore.exceptions import ClientError
 from datetime import datetime, timedelta
+from rate_limiter import check_rate_limit, create_rate_limit_response, add_rate_limit_headers, extract_client_info
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -29,6 +30,16 @@ USER_CONFIG_TABLE = os.environ['USER_CONFIG_TABLE']
 COACHING_SESSIONS_TABLE = os.environ['COACHING_SESSIONS_TABLE']
 
 
+# CORS headers
+CORS_HEADERS = {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+    'Access-Control-Max-Age': '86400'
+}
+
+
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Lambda handler for dashboard API endpoints
@@ -36,53 +47,122 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     Handles various dashboard data requests
     """
     try:
+        # Extract client information for rate limiting
+        client_ip, user_agent = extract_client_info(event)
+        
+        # Check rate limit
+        is_allowed, rate_limit_info = check_rate_limit(client_ip, 'dashboard', user_agent)
+        
+        if not is_allowed:
+            return create_rate_limit_response(rate_limit_info)
+        
         http_method = event.get('httpMethod', 'GET')
         path = event.get('path', '')
         query_params = event.get('queryStringParameters') or {}
         
-        # CORS headers
-        headers = {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-        }
-        
+        # Handle CORS preflight
         if http_method == 'OPTIONS':
+            headers = add_rate_limit_headers(CORS_HEADERS.copy(), rate_limit_info)
             return {
                 'statusCode': 200,
                 'headers': headers,
                 'body': json.dumps({'status': 'ok'})
             }
         
+        # Validate request
+        validation_error = validate_request(event)
+        if validation_error:
+            return create_error_response(400, validation_error, rate_limit_info)
+        
         # Route requests based on path
         if '/dashboard/stats' in path:
             response_data = get_dashboard_stats(query_params)
+            return create_success_response(response_data, rate_limit_info=rate_limit_info)
         elif '/dashboard/activities' in path:
             response_data = get_activity_history(query_params)
+            return create_success_response(response_data, rate_limit_info=rate_limit_info)
         else:
-            return {
-                'statusCode': 404,
-                'headers': headers,
-                'body': json.dumps({'error': 'Endpoint not found'})
-            }
-        
-        return {
-            'statusCode': 200,
-            'headers': headers,
-            'body': json.dumps(response_data)
-        }
+            return create_error_response(404, 'Endpoint not found', rate_limit_info)
         
     except Exception as e:
         logger.error(f"Dashboard API error: {str(e)}")
-        return {
-            'statusCode': 500,
-            'headers': {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            },
-            'body': json.dumps({'error': str(e)})
-        }
+        return create_error_response(500, 'Internal server error')
+
+
+def validate_request(event: Dict[str, Any]) -> str:
+    """Validate incoming request"""
+    try:
+        # Check HTTP method
+        http_method = event.get('httpMethod', '')
+        if http_method not in ['GET', 'OPTIONS']:
+            return f'Method {http_method} not allowed'
+        
+        # Validate query parameters for dashboard requests
+        query_params = event.get('queryStringParameters') or {}
+        
+        # Validate 'days' parameter if present
+        if 'days' in query_params:
+            try:
+                days = int(query_params['days'])
+                if days < 1 or days > 365:
+                    return 'Days parameter must be between 1 and 365'
+            except ValueError:
+                return 'Days parameter must be a valid integer'
+        
+        # Validate pagination parameters
+        if 'limit' in query_params:
+            try:
+                limit = int(query_params['limit'])
+                if limit < 1 or limit > 100:
+                    return 'Limit parameter must be between 1 and 100'
+            except ValueError:
+                return 'Limit parameter must be a valid integer'
+        
+        if 'offset' in query_params:
+            try:
+                offset = int(query_params['offset'])
+                if offset < 0:
+                    return 'Offset parameter must be non-negative'
+            except ValueError:
+                return 'Offset parameter must be a valid integer'
+        
+        return None  # No validation errors
+        
+    except Exception as e:
+        logger.error(f"Request validation error: {str(e)}")
+        return f'Request validation failed: {str(e)}'
+
+
+def create_error_response(status_code: int, message: str, rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
+    """Create standardized error response"""
+    headers = CORS_HEADERS.copy()
+    if rate_limit_info:
+        headers = add_rate_limit_headers(headers, rate_limit_info)
+    
+    return {
+        'statusCode': status_code,
+        'headers': headers,
+        'body': json.dumps({
+            'error': message,
+            'timestamp': datetime.utcnow().isoformat()
+        })
+    }
+
+
+def create_success_response(data: Dict[str, Any], status_code: int = 200, rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
+    """Create standardized success response"""
+    headers = CORS_HEADERS.copy()
+    if rate_limit_info:
+        headers = add_rate_limit_headers(headers, rate_limit_info)
+    
+    return {
+        'statusCode': status_code,
+        'headers': headers,
+        'body': json.dumps({
+            **data,
+            'timestamp': datetime.utcnow().isoformat()
+        })
+    }
 
 
 def get_dashboard_stats(query_params: Dict[str, str]) -> Dict[str, Any]:
