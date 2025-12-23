@@ -16,7 +16,7 @@ import sys
 from typing import Dict, Any, List
 import logging
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 
 # Add src directory to path for config imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -296,13 +296,157 @@ def oauth_callback():
 
 @app.route('/api/modules', methods=['GET'])
 def api_get_modules():
-    """API endpoint to get module status"""
+    """API endpoint to get module configurations"""
     try:
         modules = get_module_configurations()
-        return jsonify(modules)
+        return jsonify({'modules': modules})
     except Exception as e:
         logger.error(f"Get modules error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/modules/status')
+def api_get_module_status():
+    """API endpoint for real-time module status monitoring"""
+    try:
+        # Get module configurations and status
+        modules = get_module_status()
+        
+        # Add health checks and processing status for each module
+        for module_id, module_data in modules.items():
+            if module_data.get('enabled'):
+                # Add health check status
+                health_status = check_module_health(module_id)
+                module_data.update(health_status)
+                
+                # Add processing status from Step Functions if available
+                processing_status = get_module_processing_status(module_id)
+                module_data.update(processing_status)
+        
+        return jsonify({
+            'modules': modules,
+            'last_updated': datetime.now(UTC).isoformat(),
+            'system_status': 'healthy' if all(m.get('status') != 'error' for m in modules.values()) else 'degraded'
+        })
+        
+    except Exception as e:
+        logger.error(f"Module status API error: {str(e)}")
+        return jsonify({
+            'error': str(e),
+            'modules': {},
+            'system_status': 'error'
+        }), 500
+
+
+def check_module_health(module_id: str) -> Dict[str, Any]:
+    """Check module health status"""
+    try:
+        health_data = {
+            'health_status': 'unknown',
+            'last_health_check': datetime.now(UTC).isoformat()
+        }
+        
+        if module_id == 'campus_coach':
+            # Check Campus Coach credentials and AgentCore agent status
+            try:
+                # Check if credentials exist
+                secret_name = 'strava-ai-boost-campus-coach-credentials'
+                secretsmanager.get_secret_value(SecretId=secret_name)
+                
+                # Check recent extraction success
+                sessions_table = dynamodb.Table('strava-ai-boost-campus-coaching-sessions')
+                recent_sessions = sessions_table.scan(
+                    FilterExpression='extracted_at > :recent_time',
+                    ExpressionAttributeValues={
+                        ':recent_time': (datetime.now(UTC) - timedelta(days=7)).isoformat()
+                    },
+                    Limit=1
+                )
+                
+                if recent_sessions.get('Items'):
+                    health_data['health_status'] = 'healthy'
+                    health_data['last_successful_extraction'] = recent_sessions['Items'][0].get('extracted_at')
+                else:
+                    health_data['health_status'] = 'warning'
+                    health_data['health_message'] = 'No recent extractions found'
+                    
+            except Exception as e:
+                health_data['health_status'] = 'error'
+                health_data['health_message'] = f'Health check failed: {str(e)}'
+                
+        elif module_id == 'enduraw':
+            # Enduraw is a third-party integration, check if it's properly configured
+            health_data['health_status'] = 'healthy'
+            health_data['health_message'] = 'Third-party integration - status depends on Enduraw service'
+        
+        return health_data
+        
+    except Exception as e:
+        logger.error(f"Module health check error for {module_id}: {e}")
+        return {
+            'health_status': 'error',
+            'health_message': f'Health check failed: {str(e)}',
+            'last_health_check': datetime.now(UTC).isoformat()
+        }
+
+
+def get_module_processing_status(module_id: str) -> Dict[str, Any]:
+    """Get module processing status from Step Functions workflow"""
+    try:
+        processing_data = {
+            'processing_status': 'unknown',
+            'active_executions': 0,
+            'last_execution': None
+        }
+        
+        # Try to get Step Functions status
+        try:
+            stepfunctions = boto3.client('stepfunctions', region_name='eu-west-1')
+            
+            # Get state machine ARN (would need to be configured)
+            state_machine_arn = os.environ.get('STEP_FUNCTIONS_ARN')
+            
+            if state_machine_arn:
+                # Get recent executions
+                executions = stepfunctions.list_executions(
+                    stateMachineArn=state_machine_arn,
+                    statusFilter='RUNNING',
+                    maxResults=10
+                )
+                
+                processing_data['active_executions'] = len(executions.get('executions', []))
+                
+                # Get most recent execution
+                all_executions = stepfunctions.list_executions(
+                    stateMachineArn=state_machine_arn,
+                    maxResults=1
+                )
+                
+                if all_executions.get('executions'):
+                    latest = all_executions['executions'][0]
+                    processing_data['last_execution'] = {
+                        'name': latest.get('name'),
+                        'status': latest.get('status'),
+                        'start_date': latest.get('startDate').isoformat() if latest.get('startDate') else None
+                    }
+                    processing_data['processing_status'] = 'active' if processing_data['active_executions'] > 0 else 'idle'
+            else:
+                processing_data['processing_status'] = 'not_configured'
+                processing_data['processing_message'] = 'Step Functions ARN not configured'
+                
+        except Exception as e:
+            logger.warning(f"Failed to get Step Functions status: {e}")
+            processing_data['processing_status'] = 'unavailable'
+            processing_data['processing_message'] = f'Step Functions unavailable: {str(e)}'
+        
+        return processing_data
+        
+    except Exception as e:
+        logger.error(f"Processing status error for {module_id}: {e}")
+        return {
+            'processing_status': 'error',
+            'processing_message': f'Processing status check failed: {str(e)}'
+        }
 
 
 @app.route('/api/modules/<module_id>', methods=['POST'])
@@ -313,19 +457,71 @@ def api_configure_module(module_id: str):
         
         # Validate module ID
         if module_id not in ['campus_coach', 'enduraw']:
-            return jsonify({'error': 'Invalid module ID'}), 400
+            return jsonify({
+                'success': False,
+                'error': 'Invalid module ID. Supported modules: campus_coach, enduraw'
+            }), 400
         
-        # TODO: Configure module
-        success = configure_module(module_id, config_data)
+        # Validate request data
+        if not config_data:
+            return jsonify({
+                'success': False,
+                'error': 'Missing configuration data'
+            }), 400
         
-        if success:
-            return jsonify({'status': 'configured'})
-        else:
-            return jsonify({'error': 'Configuration failed'}), 500
+        # Validate enabled field
+        enabled = config_data.get('enabled')
+        if enabled is None:
+            return jsonify({
+                'success': False,
+                'error': 'Missing "enabled" field in configuration'
+            }), 400
+        
+        if not isinstance(enabled, bool):
+            return jsonify({
+                'success': False,
+                'error': '"enabled" field must be a boolean'
+            }), 400
+        
+        # Validate Campus Coach credentials if enabling
+        if module_id == 'campus_coach' and enabled:
+            config = config_data.get('config', {})
+            credentials = config.get('credentials', {})
             
+            if not credentials.get('username') or not credentials.get('password'):
+                return jsonify({
+                    'success': False,
+                    'error': 'Campus Coach credentials (username and password) are required when enabling the module'
+                }), 400
+        
+        # Configure module with validation and error handling
+        result = configure_module(module_id, config_data)
+        
+        if result['success']:
+            return jsonify({
+                'success': True,
+                'status': 'configured',
+                'module_id': module_id,
+                'enabled': enabled,
+                'message': result['message']
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': result['error']
+            }), 500
+            
+    except json.JSONDecodeError:
+        return jsonify({
+            'success': False,
+            'error': 'Invalid JSON in request body'
+        }), 400
     except Exception as e:
         logger.error(f"Configure module error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'success': False,
+            'error': f'Configuration error: {str(e)}'
+        }), 500
 
 
 @app.route('/oauth/disconnect', methods=['POST'])
@@ -394,7 +590,7 @@ def api_dashboard_stats():
                 'campus_coach_usage': 0,
                 'enduraw_usage': 0
             },
-            'last_updated': datetime.utcnow().isoformat()
+            'last_updated': datetime.now(UTC).isoformat()
         }
         
         return jsonify(stats)
@@ -428,7 +624,7 @@ def api_processing_status():
                 'processing_queue': {'approximate_messages': 0},
                 'dead_letter_queue': {'approximate_messages': 0}
             },
-            'last_updated': datetime.utcnow().isoformat()
+            'last_updated': datetime.now(UTC).isoformat()
         }
         
         return jsonify(status)
@@ -518,7 +714,7 @@ def api_toggle_enhancement():
         table = dynamodb.Table('strava-ai-boost-user-configuration')
         
         if action == 'pause':
-            paused_at = datetime.utcnow().isoformat()
+            paused_at = datetime.now(UTC).isoformat()
             table.put_item(
                 Item={
                     'user_id': 'SYSTEM_CONFIG',
@@ -535,7 +731,7 @@ def api_toggle_enhancement():
                 'fallback': True
             })
         else:  # resume
-            resumed_at = datetime.utcnow().isoformat()
+            resumed_at = datetime.now(UTC).isoformat()
             table.put_item(
                 Item={
                     'user_id': 'SYSTEM_CONFIG',
@@ -633,23 +829,105 @@ def get_recent_activities() -> List[Dict[str, Any]]:
 def get_module_status() -> Dict[str, Any]:
     """Get module status for dashboard"""
     try:
-        # TODO: Get module status from DynamoDB
+        # Try to get module status from API Gateway first
+        try:
+            response = requests.get(API_ENDPOINTS['modules'], timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                modules = data.get('modules', {})
+                
+                # Transform API response to dashboard format
+                status = {}
+                for module_id, module_data in modules.items():
+                    status[module_id] = {
+                        'enabled': module_data.get('enabled', False),
+                        'configured': module_data.get('configured', False),
+                        'status': module_data.get('status', 'unknown'),
+                        'last_extraction': module_data.get('last_extraction'),
+                        'wait_time': module_data.get('wait_time', '2-7 minutes') if module_id == 'enduraw' else None
+                    }
+                
+                return status
+            else:
+                logger.warning(f"Modules API returned status {response.status_code}: {response.text}")
+        except requests.RequestException as e:
+            logger.warning(f"Failed to get module status from API Gateway: {e}")
         
+        # Fallback to local DynamoDB query
+        try:
+            table = dynamodb.Table('strava-ai-boost-user-configuration')
+            response = table.get_item(Key={'user_id': 'MODULE_CONFIG'})
+            stored_config = response.get('Item', {})
+            
+            # Get Campus Coach last extraction from coaching sessions table
+            campus_coach_last_extraction = None
+            try:
+                sessions_table = dynamodb.Table('strava-ai-boost-campus-coaching-sessions')
+                sessions_response = sessions_table.scan(
+                    Limit=1,
+                    ScanIndexForward=False  # Get most recent
+                )
+                if sessions_response.get('Items'):
+                    latest_session = sessions_response['Items'][0]
+                    campus_coach_last_extraction = latest_session.get('extracted_at')
+            except Exception as e:
+                logger.warning(f"Failed to get Campus Coach last extraction: {e}")
+            
+            return {
+                'campus_coach': {
+                    'enabled': stored_config.get('campus_coach_enabled', False),
+                    'configured': stored_config.get('campus_coach_configured', False),
+                    'last_extraction': campus_coach_last_extraction,
+                    'status': 'active' if stored_config.get('campus_coach_enabled') else 'disabled',
+                    'credentials_updated': stored_config.get('campus_coach_credentials_updated'),
+                    'updated_at': stored_config.get('campus_coach_updated_at')
+                },
+                'enduraw': {
+                    'enabled': stored_config.get('enduraw_enabled', False),
+                    'configured': True,  # No credentials required
+                    'wait_time': stored_config.get('enduraw_wait_time', '2-7 minutes'),
+                    'status': 'active' if stored_config.get('enduraw_enabled') else 'disabled',
+                    'updated_at': stored_config.get('enduraw_updated_at')
+                }
+            }
+            
+        except Exception as e:
+            logger.warning(f"Failed to query DynamoDB for module status: {e}")
+            
+        # Final fallback with default values
         return {
             'campus_coach': {
                 'enabled': False,
                 'configured': False,
-                'last_extraction': None
+                'last_extraction': None,
+                'status': 'disabled'
             },
             'enduraw': {
                 'enabled': False,
                 'configured': True,
-                'wait_time': '2-7 minutes'
+                'wait_time': '2-7 minutes',
+                'status': 'disabled'
             }
         }
+        
     except Exception as e:
         logger.error(f"Module status error: {str(e)}")
-        return {}
+        return {
+            'campus_coach': {
+                'enabled': False,
+                'configured': False,
+                'last_extraction': None,
+                'status': 'error',
+                'error': str(e)
+            },
+            'enduraw': {
+                'enabled': False,
+                'configured': True,
+                'wait_time': '2-7 minutes',
+                'status': 'error',
+                'error': str(e)
+            }
+        }
 
 
 def get_oauth_status() -> Dict[str, Any]:
@@ -690,7 +968,7 @@ def get_oauth_status() -> Dict[str, Any]:
 
 
 def get_module_configurations() -> Dict[str, Any]:
-    """Get module configurations"""
+    """Get module configurations with enhanced status information"""
     try:
         # Try to get module configs from API Gateway first
         try:
@@ -709,22 +987,38 @@ def get_module_configurations() -> Dict[str, Any]:
             response = table.get_item(Key={'user_id': 'MODULE_CONFIG'})
             stored_config = response.get('Item', {})
             
+            # Check Campus Coach credentials status
+            campus_coach_configured = stored_config.get('campus_coach_configured', False)
+            if not campus_coach_configured:
+                # Check if credentials exist in Secrets Manager
+                try:
+                    secretsmanager.get_secret_value(SecretId='strava-ai-boost-campus-coach-credentials')
+                    campus_coach_configured = True
+                except:
+                    campus_coach_configured = False
+            
             return {
                 'campus_coach': {
                     'id': 'campus_coach',
                     'name': 'Campus Coach',
-                    'description': 'Training session matching and analysis',
+                    'description': 'Training session matching and performance analysis',
                     'enabled': stored_config.get('campus_coach_enabled', False),
-                    'configured': stored_config.get('campus_coach_configured', False),
-                    'requires_credentials': True
+                    'configured': campus_coach_configured,
+                    'requires_credentials': True,
+                    'last_extraction': stored_config.get('campus_coach_last_extraction'),
+                    'updated_at': stored_config.get('campus_coach_updated_at'),
+                    'status': 'active' if stored_config.get('campus_coach_enabled') else 'disabled'
                 },
                 'enduraw': {
                     'id': 'enduraw',
                     'name': 'Enduraw Integration',
-                    'description': 'Enhanced analytics with weather and wind data',
+                    'description': 'Enhanced analytics with weather and wind impact',
                     'enabled': stored_config.get('enduraw_enabled', False),
-                    'configured': True,
-                    'requires_credentials': False
+                    'configured': True,  # No credentials required
+                    'requires_credentials': False,
+                    'wait_time': stored_config.get('enduraw_wait_time', '2-7 minutes'),
+                    'updated_at': stored_config.get('enduraw_updated_at'),
+                    'status': 'active' if stored_config.get('enduraw_enabled') else 'disabled'
                 }
             }
         except Exception as e:
@@ -735,18 +1029,21 @@ def get_module_configurations() -> Dict[str, Any]:
             'campus_coach': {
                 'id': 'campus_coach',
                 'name': 'Campus Coach',
-                'description': 'Training session matching and analysis',
+                'description': 'Training session matching and performance analysis',
                 'enabled': False,
                 'configured': False,
-                'requires_credentials': True
+                'requires_credentials': True,
+                'status': 'disabled'
             },
             'enduraw': {
                 'id': 'enduraw',
                 'name': 'Enduraw Integration',
-                'description': 'Enhanced analytics with weather and wind data',
+                'description': 'Enhanced analytics with weather and wind impact',
                 'enabled': False,
                 'configured': True,
-                'requires_credentials': False
+                'requires_credentials': False,
+                'wait_time': '2-7 minutes',
+                'status': 'disabled'
             }
         }
     except Exception as e:
@@ -754,15 +1051,18 @@ def get_module_configurations() -> Dict[str, Any]:
         return {}
 
 
-def configure_module(module_id: str, config_data: Dict[str, Any]) -> bool:
-    """Configure a module"""
+def configure_module(module_id: str, config_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Configure a module with comprehensive validation and error handling"""
     try:
+        enabled = config_data.get('enabled', False)
+        config = config_data.get('config', {})
+        
         # Try to configure module via API Gateway first
         try:
             payload = {
                 'module_id': module_id,
-                'enabled': config_data.get('enabled', False),
-                'config': config_data.get('config', {})
+                'enabled': enabled,
+                'config': config
             }
             
             response = requests.post(
@@ -774,7 +1074,10 @@ def configure_module(module_id: str, config_data: Dict[str, Any]) -> bool:
             
             if response.status_code == 200:
                 logger.info(f"Module {module_id} configured successfully via API Gateway")
-                return True
+                return {
+                    'success': True,
+                    'message': f'{module_id.replace("_", " ").title()} {"enabled" if enabled else "disabled"} successfully via API Gateway'
+                }
             else:
                 logger.warning(f"Module API returned status {response.status_code}: {response.text}")
         except requests.RequestException as e:
@@ -785,28 +1088,86 @@ def configure_module(module_id: str, config_data: Dict[str, Any]) -> bool:
             table = dynamodb.Table('strava-ai-boost-user-configuration')
             
             # Get existing config
-            response = table.get_item(Key={'user_id': 'MODULE_CONFIG'})
-            module_config = response.get('Item', {'user_id': 'MODULE_CONFIG'})
+            try:
+                response = table.get_item(Key={'user_id': 'MODULE_CONFIG'})
+                module_config = response.get('Item', {'user_id': 'MODULE_CONFIG'})
+            except Exception as e:
+                logger.warning(f"Failed to get existing module config: {e}")
+                module_config = {'user_id': 'MODULE_CONFIG'}
+            
+            # Handle Campus Coach credentials if enabling
+            if module_id == 'campus_coach' and enabled:
+                credentials = config.get('credentials', {})
+                if credentials.get('username') and credentials.get('password'):
+                    # Store credentials in Secrets Manager
+                    try:
+                        credential_data = {
+                            'username': credentials['username'],
+                            'password': credentials['password'],
+                            'configured_at': datetime.now(UTC).isoformat()
+                        }
+                        
+                        secret_name = 'strava-ai-boost-campus-coach-credentials'
+                        
+                        try:
+                            # Try to update existing secret
+                            secretsmanager.update_secret(
+                                SecretId=secret_name,
+                                SecretString=json.dumps(credential_data)
+                            )
+                            logger.info("Updated Campus Coach credentials in Secrets Manager")
+                        except secretsmanager.exceptions.ResourceNotFoundException:
+                            # Create new secret if it doesn't exist
+                            secretsmanager.create_secret(
+                                Name=secret_name,
+                                Description='Campus Coach credentials for Strava AI Boost',
+                                SecretString=json.dumps(credential_data)
+                            )
+                            logger.info("Created Campus Coach credentials in Secrets Manager")
+                        
+                        # Mark as configured
+                        module_config['campus_coach_configured'] = True
+                        module_config['campus_coach_credentials_updated'] = datetime.now(UTC).isoformat()
+                        
+                    except Exception as e:
+                        logger.error(f"Failed to store Campus Coach credentials: {e}")
+                        return {
+                            'success': False,
+                            'error': f'Failed to store Campus Coach credentials: {str(e)}'
+                        }
             
             # Update module configuration
-            enabled = config_data.get('enabled', False)
             module_config[f'{module_id}_enabled'] = enabled
             module_config[f'{module_id}_configured'] = True
-            module_config[f'{module_id}_updated_at'] = datetime.utcnow().isoformat()
+            module_config[f'{module_id}_updated_at'] = datetime.now(UTC).isoformat()
+            
+            # Add module-specific configuration
+            if module_id == 'enduraw':
+                module_config['enduraw_wait_time'] = config.get('wait_time', '2-7 minutes')
             
             # Store updated configuration
             table.put_item(Item=module_config)
             
             logger.info(f"Module {module_id} configured locally: enabled={enabled}")
-            return True
+            
+            return {
+                'success': True,
+                'message': f'{module_id.replace("_", " ").title()} {"enabled" if enabled else "disabled"} successfully'
+            }
             
         except Exception as e:
             logger.error(f"Failed to configure module locally: {e}")
-            return False
+            return {
+                'success': False,
+                'error': f'Failed to update module configuration: {str(e)}'
+            }
         
     except Exception as e:
         logger.error(f"Module configuration error: {str(e)}")
-        return False
+        return {
+            'success': False,
+            'error': f'Module configuration error: {str(e)}'
+        }
 
 
 if __name__ == '__main__':

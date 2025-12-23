@@ -13,7 +13,8 @@ import logging
 from typing import Dict, Any
 import boto3
 from botocore.exceptions import ClientError
-from datetime import datetime, UTC
+from datetime import datetime, UTC, timedelta
+import requests
 from rate_limiter import check_rate_limit, create_rate_limit_response, add_rate_limit_headers, extract_client_info
 
 logger = logging.getLogger()
@@ -151,32 +152,83 @@ def create_success_response(data: Dict[str, Any], status_code: int = 200, rate_l
 
 
 def get_oauth_status(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
-    """Get Strava OAuth connection status"""
+    """Get Strava OAuth connection status with comprehensive validation"""
     try:
         # Check if OAuth tokens exist in Secrets Manager
         try:
             response = secretsmanager.get_secret_value(SecretId=STRAVA_OAUTH_SECRET)
             tokens = json.loads(response['SecretString'])
             
+            # Validate token structure
+            required_fields = ['access_token', 'refresh_token', 'expires_at']
+            for field in required_fields:
+                if field not in tokens:
+                    return create_success_response({
+                        'connected': False,
+                        'status': 'invalid_tokens',
+                        'message': f'Invalid token structure: missing {field}'
+                    }, rate_limit_info=rate_limit_info)
+            
             # Check token expiry
             expires_at = tokens.get('expires_at')
             is_expired = False
+            expires_soon = False
             
             if expires_at:
-                if isinstance(expires_at, (int, float)):
-                    expiry_time = datetime.fromtimestamp(expires_at, UTC)
-                else:
-                    expiry_time = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
-                
-                is_expired = expiry_time <= datetime.now(UTC)
+                try:
+                    if isinstance(expires_at, (int, float)):
+                        expiry_time = datetime.fromtimestamp(expires_at, UTC)
+                    else:
+                        expiry_time = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                    
+                    current_time = datetime.now(UTC)
+                    is_expired = expiry_time <= current_time
+                    expires_soon = expiry_time <= (current_time + timedelta(minutes=30))
+                    
+                except Exception as e:
+                    logger.warning(f"Error parsing expiry time: {e}")
+                    is_expired = True
+            else:
+                is_expired = True
+            
+            # Get athlete information
+            athlete = tokens.get('athlete', {})
+            athlete_info = None
+            if athlete:
+                athlete_info = {
+                    'id': athlete.get('id'),
+                    'name': f"{athlete.get('firstname', '')} {athlete.get('lastname', '')}".strip(),
+                    'profile': athlete.get('profile'),
+                    'city': athlete.get('city'),
+                    'state': athlete.get('state'),
+                    'country': athlete.get('country')
+                }
+            
+            # Determine connection status
+            if is_expired:
+                status = 'expired'
+                connected = False
+                message = 'OAuth tokens have expired. Please reconnect to Strava.'
+            elif expires_soon:
+                status = 'expires_soon'
+                connected = True
+                message = 'OAuth tokens expire soon but are still valid.'
+            else:
+                status = 'active'
+                connected = True
+                message = 'Successfully connected to Strava with valid tokens.'
             
             return create_success_response({
-                'connected': not is_expired,
+                'connected': connected,
+                'status': status,
+                'message': message,
                 'expires_at': expires_at,
-                'scopes': tokens.get('scope', '').split(','),
+                'expires_soon': expires_soon,
+                'scopes': tokens.get('scope', '').split(',') if tokens.get('scope') else [],
                 'obtained_at': tokens.get('obtained_at'),
                 'last_refreshed': tokens.get('last_refreshed'),
-                'status': 'expired' if is_expired else 'active'
+                'athlete': athlete_info,
+                'token_type': tokens.get('token_type', 'Bearer')
             }, rate_limit_info=rate_limit_info)
             
         except ClientError as e:
@@ -184,69 +236,193 @@ def get_oauth_status(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
                 return create_success_response({
                     'connected': False,
                     'status': 'not_connected',
-                    'message': 'No OAuth tokens found'
+                    'message': 'No OAuth tokens found. Please connect to Strava first.'
                 }, rate_limit_info=rate_limit_info)
-            raise
+            else:
+                logger.error(f"Secrets Manager error: {e}")
+                return create_error_response(
+                    500,
+                    f'Failed to check OAuth status: {str(e)}',
+                    rate_limit_info
+                )
             
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON in stored tokens: {e}")
+        return create_success_response({
+            'connected': False,
+            'status': 'invalid_tokens',
+            'message': 'Stored tokens are corrupted. Please reconnect to Strava.'
+        }, rate_limit_info=rate_limit_info)
     except Exception as e:
         logger.error(f"OAuth status error: {str(e)}")
         return create_error_response(500, f'Failed to get OAuth status: {str(e)}', rate_limit_info)
 
 
 def handle_oauth_callback(event: Dict[str, Any], rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
-    """Handle OAuth callback and store tokens"""
+    """Handle OAuth callback and exchange authorization code for tokens"""
     try:
         body = json.loads(event.get('body', '{}'))
-        auth_code = body.get('code')
         
+        # Extract required parameters
+        auth_code = body.get('code')
+        state = body.get('state')
+        code_verifier = body.get('code_verifier')
+        client_id = body.get('client_id')
+        client_secret = body.get('client_secret')
+        
+        # Validate required parameters
         if not auth_code:
             return create_error_response(400, 'Missing authorization code', rate_limit_info)
         
-        # TODO: Exchange authorization code for tokens
-        # This would involve calling Strava's token endpoint
-        # For now, store placeholder tokens for testing
+        if not code_verifier:
+            return create_error_response(400, 'Missing PKCE code verifier', rate_limit_info)
         
-        tokens = {
-            'access_token': f'test_access_token_{auth_code[:10]}',
-            'refresh_token': f'test_refresh_token_{auth_code[:10]}',
-            'expires_at': int((datetime.now(UTC).timestamp() + 21600)),  # 6 hours from now
-            'scope': 'read,activity:read_all,activity:write',
-            'obtained_at': datetime.now(UTC).isoformat(),
-            'token_type': 'Bearer'
-        }
+        if not client_id or not client_secret:
+            return create_error_response(400, 'Missing Strava application credentials', rate_limit_info)
+        
+        # Exchange authorization code for tokens with Strava API
+        try:
+            token_data = {
+                'client_id': client_id,
+                'client_secret': client_secret,
+                'code': auth_code,
+                'grant_type': 'authorization_code',
+                'code_verifier': code_verifier
+            }
+            
+            # Call Strava token endpoint
+            token_response = requests.post(
+                'https://www.strava.com/oauth/token',
+                data=token_data,
+                timeout=30,
+                headers={'Accept': 'application/json'}
+            )
+            
+            if token_response.status_code != 200:
+                logger.error(f"Strava token exchange failed: {token_response.status_code} - {token_response.text}")
+                return create_error_response(
+                    400, 
+                    f'Token exchange failed: {token_response.json().get("message", "Unknown error")}',
+                    rate_limit_info
+                )
+            
+            # Parse token response
+            tokens = token_response.json()
+            
+            # Validate token response
+            required_fields = ['access_token', 'refresh_token', 'expires_at']
+            for field in required_fields:
+                if field not in tokens:
+                    return create_error_response(
+                        400,
+                        f'Invalid token response: missing {field}',
+                        rate_limit_info
+                    )
+            
+            # Add metadata to tokens
+            tokens['obtained_at'] = datetime.now(UTC).isoformat()
+            tokens['client_id'] = client_id
+            tokens['last_refreshed'] = None
+            
+            # Validate athlete information if present
+            athlete = tokens.get('athlete', {})
+            if athlete:
+                logger.info(f"OAuth successful for athlete: {athlete.get('firstname', 'Unknown')} {athlete.get('lastname', '')}")
+            
+        except requests.RequestException as e:
+            logger.error(f"HTTP error during token exchange: {e}")
+            return create_error_response(
+                500,
+                f'Failed to connect to Strava: {str(e)}',
+                rate_limit_info
+            )
+        except Exception as e:
+            logger.error(f"Error during token exchange: {e}")
+            return create_error_response(
+                500,
+                f'Token exchange error: {str(e)}',
+                rate_limit_info
+            )
         
         # Store tokens in Secrets Manager
         try:
-            secretsmanager.put_secret_value(
-                SecretId=STRAVA_OAUTH_SECRET,
-                SecretString=json.dumps(tokens)
-            )
+            # Prepare secret value with validation
+            secret_value = {
+                'access_token': tokens['access_token'],
+                'refresh_token': tokens['refresh_token'],
+                'expires_at': tokens['expires_at'],
+                'token_type': tokens.get('token_type', 'Bearer'),
+                'scope': tokens.get('scope', 'read,activity:write'),
+                'obtained_at': tokens['obtained_at'],
+                'client_id': client_id,
+                'last_refreshed': None,
+                'athlete': tokens.get('athlete', {})
+            }
             
-            logger.info("OAuth tokens stored successfully")
+            # Store in Secrets Manager
+            try:
+                secretsmanager.put_secret_value(
+                    SecretId=STRAVA_OAUTH_SECRET,
+                    SecretString=json.dumps(secret_value)
+                )
+                logger.info("OAuth tokens updated in Secrets Manager")
+                
+            except ClientError as e:
+                if e.response['Error']['Code'] == 'ResourceNotFoundException':
+                    # Create secret if it doesn't exist
+                    secretsmanager.create_secret(
+                        Name=STRAVA_OAUTH_SECRET,
+                        Description='Strava OAuth tokens for AI Boost',
+                        SecretString=json.dumps(secret_value)
+                    )
+                    logger.info("OAuth secret created and tokens stored")
+                else:
+                    raise
+            
+            # Update user configuration to mark OAuth as connected
+            try:
+                table = dynamodb.Table(USER_CONFIG_TABLE)
+                table.put_item(
+                    Item={
+                        'user_id': 'OAUTH_STATUS',
+                        'strava_connected': True,
+                        'connected_at': datetime.now(UTC).isoformat(),
+                        'athlete_id': tokens.get('athlete', {}).get('id'),
+                        'athlete_name': f"{tokens.get('athlete', {}).get('firstname', '')} {tokens.get('athlete', {}).get('lastname', '')}".strip(),
+                        'scopes': tokens.get('scope', '').split(','),
+                        'updated_at': datetime.now(UTC).isoformat()
+                    }
+                )
+                logger.info("OAuth status updated in DynamoDB")
+            except Exception as e:
+                logger.warning(f"Failed to update OAuth status in DynamoDB: {e}")
             
             return create_success_response({
                 'status': 'tokens_stored',
-                'message': 'OAuth tokens stored successfully',
-                'expires_at': tokens['expires_at']
+                'message': 'Successfully connected to Strava! Your account is now linked.',
+                'expires_at': tokens['expires_at'],
+                'athlete': {
+                    'id': tokens.get('athlete', {}).get('id'),
+                    'name': f"{tokens.get('athlete', {}).get('firstname', '')} {tokens.get('athlete', {}).get('lastname', '')}".strip(),
+                    'profile': tokens.get('athlete', {}).get('profile')
+                },
+                'scopes': tokens.get('scope', '').split(',')
             }, rate_limit_info=rate_limit_info)
             
         except ClientError as e:
-            if e.response['Error']['Code'] == 'ResourceNotFoundException':
-                # Create secret if it doesn't exist
-                secretsmanager.create_secret(
-                    Name=STRAVA_OAUTH_SECRET,
-                    Description='Strava OAuth tokens for AI Boost',
-                    SecretString=json.dumps(tokens)
-                )
-                
-                logger.info("OAuth secret created and tokens stored")
-                
-                return create_success_response({
-                    'status': 'tokens_stored',
-                    'message': 'OAuth tokens stored successfully',
-                    'expires_at': tokens['expires_at']
-                }, rate_limit_info=rate_limit_info)
-            raise
+            logger.error(f"AWS Secrets Manager error: {e}")
+            return create_error_response(
+                500,
+                f'Failed to store tokens securely: {str(e)}',
+                rate_limit_info
+            )
+        except Exception as e:
+            logger.error(f"Error storing tokens: {e}")
+            return create_error_response(
+                500,
+                f'Failed to store tokens: {str(e)}',
+                rate_limit_info
+            )
         
     except json.JSONDecodeError:
         return create_error_response(400, 'Invalid JSON in request body', rate_limit_info)
