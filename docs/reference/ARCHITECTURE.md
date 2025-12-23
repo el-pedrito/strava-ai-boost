@@ -596,6 +596,286 @@ class CampusCoachAgent:
 - Request correlation across services
 - Performance bottleneck identification
 
+## Automation Scripts
+
+### Strava Application Setup Automation
+
+The system includes comprehensive automation scripts for Strava application setup, validation, and maintenance. These scripts provide administrative tools that work alongside the user-facing web interface.
+
+#### Script Overview
+
+| Script | Purpose | Usage | Requirements |
+|--------|---------|-------|--------------|
+| `setup_strava_application.sh` | Interactive Strava app setup guide | Manual setup assistance | Strava Developer Account |
+| `configure_strava_webhook.sh` | Automated webhook subscription | Deployment automation | Valid Strava app credentials |
+| `validate_strava_setup.sh` | Comprehensive setup validation | Health checks, troubleshooting | Deployed infrastructure |
+| `strava_health_check.sh` | Continuous health monitoring | Monitoring, alerting | Active Strava connection |
+| `cleanup_strava_webhook.sh` | Webhook cleanup during uninstall | System cleanup | Webhook subscription exists |
+
+#### 1. setup_strava_application.sh
+
+**Purpose**: Interactive guide for Strava application creation and configuration
+
+**Features**:
+- Step-by-step Strava Developer Portal guidance
+- Automated credential validation
+- Integration with local web interface
+- Best practices recommendations
+
+**Usage**:
+```bash
+# Interactive setup guide
+./scripts/setup_strava_application.sh
+
+# Automated mode (CI/CD)
+./scripts/setup_strava_application.sh --non-interactive
+```
+
+**Workflow**:
+1. Guides user through Strava app creation
+2. Validates Client ID and Secret format
+3. Tests API connectivity
+4. Configures redirect URIs
+5. Provides next steps for web interface setup
+
+#### 2. configure_strava_webhook.sh
+
+**Purpose**: Automated Strava webhook subscription management
+
+**Features**:
+- Automatic webhook URL detection from CDK outputs
+- Subscription creation with proper verification
+- Callback URL validation
+- Subscription status monitoring
+
+**Usage**:
+```bash
+# Auto-configure webhook (recommended)
+./scripts/configure_strava_webhook.sh --auto
+
+# Manual configuration with custom URL
+./scripts/configure_strava_webhook.sh --webhook-url https://your-api-gateway-url/webhook
+
+# Validation mode only
+./scripts/configure_strava_webhook.sh --validate-only
+```
+
+**Integration Points**:
+- Called automatically by `deploy.sh` during deployment
+- Integrated with `uninstall.sh` for cleanup
+- Used by health check scripts for validation
+
+#### 3. validate_strava_setup.sh
+
+**Purpose**: Comprehensive Strava application and integration validation
+
+**Features**:
+- Multi-layer validation (credentials, API, webhook, processing)
+- Detailed error reporting with remediation suggestions
+- Integration testing with AWS services
+- Performance benchmarking
+
+**Validation Layers**:
+```bash
+# Layer 1: Credential Validation
+- Client ID/Secret format validation
+- Secrets Manager connectivity
+- OAuth token validity
+
+# Layer 2: API Connectivity
+- Strava API endpoint reachability
+- Rate limit status checking
+- Authentication flow testing
+
+# Layer 3: Webhook Integration
+- Webhook subscription verification
+- Callback URL accessibility
+- Event processing validation
+
+# Layer 4: Processing Pipeline
+- Lambda function connectivity
+- DynamoDB table access
+- Step Functions workflow validation
+```
+
+**Usage**:
+```bash
+# Complete validation suite
+./scripts/validate_strava_setup.sh
+
+# Quick validation (credentials + API only)
+./scripts/validate_strava_setup.sh --quick
+
+# Specific component validation
+./scripts/validate_strava_setup.sh --component webhook
+./scripts/validate_strava_setup.sh --component processing
+```
+
+#### 4. strava_health_check.sh
+
+**Purpose**: Continuous monitoring and health assessment
+
+**Features**:
+- Real-time system health monitoring
+- Automated issue detection and alerting
+- Performance metrics collection
+- Proactive maintenance recommendations
+
+**Health Check Categories**:
+```bash
+# OAuth Health
+- Token expiration monitoring
+- Refresh token validity
+- Authentication success rates
+
+# API Health  
+- Rate limit utilization tracking
+- API response time monitoring
+- Error rate analysis
+
+# Processing Health
+- Queue depth monitoring
+- Processing success rates
+- End-to-end latency tracking
+
+# Integration Health
+- Webhook delivery success
+- Module availability status
+- AgentCore connectivity
+```
+
+**Usage**:
+```bash
+# Continuous monitoring (recommended for cron)
+./scripts/strava_health_check.sh --monitor
+
+# One-time health assessment
+./scripts/strava_health_check.sh --check-now
+
+# Generate health report
+./scripts/strava_health_check.sh --report --output health-report.json
+```
+
+#### 5. cleanup_strava_webhook.sh
+
+**Purpose**: Clean webhook subscriptions during system uninstall
+
+**Features**:
+- Safe webhook subscription removal
+- Verification of cleanup completion
+- Backup of subscription data before removal
+- Integration with uninstall process
+
+**Usage**:
+```bash
+# Standard cleanup (with confirmation)
+./scripts/cleanup_strava_webhook.sh
+
+# Force cleanup (no confirmation)
+./scripts/cleanup_strava_webhook.sh --force
+
+# Backup only (no removal)
+./scripts/cleanup_strava_webhook.sh --backup-only
+```
+
+### Script Integration Architecture
+
+```mermaid
+graph TB
+    subgraph "User Workflow"
+        User[User] --> WebInterface[Local Web Interface<br/>OAuth Configuration]
+    end
+    
+    subgraph "Administrative Scripts"
+        Setup[setup_strava_application.sh<br/>Interactive Setup Guide]
+        Configure[configure_strava_webhook.sh<br/>Webhook Automation]
+        Validate[validate_strava_setup.sh<br/>Health Validation]
+        Monitor[strava_health_check.sh<br/>Continuous Monitoring]
+        Cleanup[cleanup_strava_webhook.sh<br/>Uninstall Cleanup]
+    end
+    
+    subgraph "AWS Infrastructure"
+        Secrets[Secrets Manager<br/>OAuth Tokens]
+        API[API Gateway<br/>Webhook Endpoint]
+        Lambda[Lambda Functions<br/>Processing Pipeline]
+    end
+    
+    User --> Setup
+    Setup --> WebInterface
+    WebInterface --> Secrets
+    Configure --> API
+    Validate --> Lambda
+    Monitor --> Secrets
+    Monitor --> API
+    Monitor --> Lambda
+    Cleanup --> API
+```
+
+### Script Execution Context
+
+**Development Environment**:
+- Interactive setup and validation
+- Detailed error reporting and guidance
+- Integration with local development tools
+
+**CI/CD Pipeline**:
+- Automated validation and health checks
+- Non-interactive modes for automation
+- Integration with deployment scripts
+
+**Production Monitoring**:
+- Continuous health monitoring via cron jobs
+- Automated alerting on health issues
+- Performance metrics collection
+
+### Error Handling and Recovery
+
+All scripts implement comprehensive error handling:
+
+```bash
+# Standard error handling pattern
+set -euo pipefail  # Exit on error, undefined vars, pipe failures
+
+# Logging with timestamps
+log() {
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*" >&2
+}
+
+# Error recovery with user guidance
+handle_error() {
+    local exit_code=$1
+    local error_context=$2
+    
+    log "ERROR: $error_context (exit code: $exit_code)"
+    
+    case $exit_code in
+        1) log "SOLUTION: Check AWS credentials and permissions" ;;
+        2) log "SOLUTION: Verify Strava application configuration" ;;
+        3) log "SOLUTION: Check network connectivity and API endpoints" ;;
+        *) log "SOLUTION: Run with --verbose for detailed diagnostics" ;;
+    esac
+    
+    exit $exit_code
+}
+```
+
+### Security Considerations
+
+**Credential Handling**:
+- No credentials stored in scripts
+- Secure retrieval from AWS Secrets Manager
+- Temporary credential usage with automatic cleanup
+
+**Access Control**:
+- Scripts require appropriate AWS IAM permissions
+- Validation of user permissions before execution
+- Audit logging of all administrative actions
+
+**Network Security**:
+- HTTPS-only communication with external APIs
+- Webhook URL validation and verification
+- Rate limiting and abuse prevention
+
 ## Dependencies
 
 ### Python Dependencies (Development)

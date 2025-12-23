@@ -235,38 +235,64 @@ fi
 # Phase 2: Remove Strava Webhook Subscription
 print_phase "🔗 Phase 2: Removing Strava webhook subscription"
 
-# Check if webhook configuration exists
-WEBHOOK_CONFIG_FILE="webhook-config-${ENVIRONMENT}.json"
-if [ -f "$WEBHOOK_CONFIG_FILE" ]; then
-    SUBSCRIPTION_ID=$(jq -r '.subscription_id' $WEBHOOK_CONFIG_FILE)
+# Use dedicated webhook cleanup script if available
+if [ -f "scripts/cleanup_strava_webhook.sh" ]; then
+    print_status "Using dedicated webhook cleanup script..."
     
-    if [ "$SUBSCRIPTION_ID" != "null" ] && [ -n "$SUBSCRIPTION_ID" ]; then
-        print_status "Removing Strava webhook subscription: $SUBSCRIPTION_ID"
+    # Set environment variable for cleanup script
+    export STRAVA_CLIENT_SECRET_ENV="$STRAVA_SECRET"
+    
+    if ./scripts/cleanup_strava_webhook.sh $ENVIRONMENT; then
+        print_status "✅ Webhook cleanup completed successfully"
+    else
+        print_warning "⚠️  Webhook cleanup script failed, trying manual cleanup"
         
-        # Get Strava client secret from Secrets Manager (if available)
-        if [ "$KEEP_DATA" = false ]; then
-            STRAVA_SECRET=$(aws secretsmanager get-secret-value --secret-id strava-ai-boost-oauth-tokens --profile $PROFILE --region $REGION --query 'SecretString' --output text 2>/dev/null | jq -r '.client_secret' 2>/dev/null || echo "")
-            
-            if [ -n "$STRAVA_SECRET" ] && [ "$STRAVA_SECRET" != "null" ]; then
-                DELETE_RESPONSE=$(curl -s -X DELETE \
-                    "https://www.strava.com/api/v3/push_subscriptions/$SUBSCRIPTION_ID" \
-                    -H "Authorization: Bearer $STRAVA_SECRET" \
-                    -H "Content-Type: application/json" || echo "ERROR")
-                
-                if [ "$DELETE_RESPONSE" != "ERROR" ]; then
-                    print_status "✅ Webhook subscription removed successfully"
-                else
-                    print_warning "⚠️  Could not remove webhook subscription automatically"
-                    print_warning "Please remove manually at https://developers.strava.com/"
-                fi
-            else
-                print_warning "Could not retrieve Strava credentials for webhook removal"
-            fi
-        fi
+        # Fallback to manual cleanup
+        manual_webhook_cleanup
     fi
 else
-    print_status "No webhook configuration found, skipping webhook removal"
+    print_status "Dedicated webhook cleanup script not found, using manual cleanup"
+    manual_webhook_cleanup
 fi
+
+# Manual webhook cleanup function (fallback)
+manual_webhook_cleanup() {
+    # Check if webhook configuration exists
+    WEBHOOK_CONFIG_FILE="webhook-config-${ENVIRONMENT}.json"
+    if [ -f "$WEBHOOK_CONFIG_FILE" ]; then
+        SUBSCRIPTION_ID=$(jq -r '.subscription_id' $WEBHOOK_CONFIG_FILE 2>/dev/null || echo "")
+        
+        if [ "$SUBSCRIPTION_ID" != "null" ] && [ -n "$SUBSCRIPTION_ID" ]; then
+            print_status "Removing Strava webhook subscription: $SUBSCRIPTION_ID"
+            
+            # Get Strava client secret from Secrets Manager (if available)
+            if [ "$KEEP_DATA" = false ]; then
+                STRAVA_SECRET=$(aws secretsmanager get-secret-value --secret-id strava-ai-boost-oauth-tokens --profile $PROFILE --region $REGION --query 'SecretString' --output text 2>/dev/null | jq -r '.client_secret' 2>/dev/null || echo "")
+                
+                if [ -n "$STRAVA_SECRET" ] && [ "$STRAVA_SECRET" != "null" ]; then
+                    DELETE_RESPONSE=$(curl -s -X DELETE \
+                        "https://www.strava.com/api/v3/push_subscriptions/$SUBSCRIPTION_ID" \
+                        -H "Authorization: Bearer $STRAVA_SECRET" \
+                        -H "Content-Type: application/json" || echo "ERROR")
+                    
+                    if [ "$DELETE_RESPONSE" != "ERROR" ]; then
+                        print_status "✅ Webhook subscription removed successfully"
+                    else
+                        print_warning "⚠️  Could not remove webhook subscription automatically"
+                        print_warning "Please remove manually at https://developers.strava.com/"
+                    fi
+                else
+                    print_warning "Could not retrieve Strava credentials for webhook removal"
+                fi
+            fi
+        fi
+    else
+        print_status "No webhook configuration found, skipping webhook removal"
+    fi
+    
+    # Remove local webhook configuration files
+    rm -f webhook-config-*.json 2>/dev/null || true
+}
 
 # Phase 3: Remove AgentCore Resources
 print_phase "🤖 Phase 3: Removing AgentCore resources"

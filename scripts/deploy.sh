@@ -69,6 +69,30 @@ else
     print_warning "Setup validation script not found, skipping validation"
 fi
 
+# Run Strava-specific validation
+if [ -f "scripts/validate_strava_setup.sh" ]; then
+    print_status "Running Strava application validation..."
+    chmod +x scripts/validate_strava_setup.sh
+    
+    # Run validation in non-interactive mode
+    if ./scripts/validate_strava_setup.sh $ENVIRONMENT --detailed; then
+        print_status "✅ Strava application validation passed"
+    else
+        VALIDATION_EXIT_CODE=$?
+        if [ $VALIDATION_EXIT_CODE -eq 2 ]; then
+            print_warning "⚠️  Strava validation passed with warnings"
+            print_warning "Review warnings and continue if acceptable"
+        else
+            print_error "❌ Strava application validation failed"
+            print_error "Please fix Strava configuration issues before deployment"
+            print_error "Run './scripts/validate_strava_setup.sh $ENVIRONMENT --detailed --fix-issues' for guidance"
+            exit 1
+        fi
+    fi
+else
+    print_warning "Strava validation script not found, skipping Strava validation"
+fi
+
 # Verify AWS credentials
 print_status "Verifying AWS credentials..."
 if ! aws sts get-caller-identity --profile $PROFILE > /dev/null 2>&1; then
@@ -313,6 +337,39 @@ else
     print_warning "Integration test script not found, skipping tests"
 fi
 
+# Step 10.5: Post-deployment Strava validation
+print_section "🔍 Step 10.5: Post-deployment Strava validation"
+
+if [ -f "scripts/validate_strava_setup.sh" ]; then
+    print_status "Running post-deployment Strava validation..."
+    
+    if ./scripts/validate_strava_setup.sh $ENVIRONMENT --detailed; then
+        print_status "✅ Post-deployment Strava validation passed"
+    else
+        VALIDATION_EXIT_CODE=$?
+        if [ $VALIDATION_EXIT_CODE -eq 2 ]; then
+            print_warning "⚠️  Post-deployment validation passed with warnings"
+        else
+            print_warning "⚠️  Post-deployment validation failed"
+            print_warning "Some components may need manual configuration"
+        fi
+    fi
+    
+    # Run health check
+    if [ -f "scripts/strava_health_check.sh" ]; then
+        print_status "Running initial health check..."
+        
+        if ./scripts/strava_health_check.sh $ENVIRONMENT; then
+            print_status "✅ Initial health check passed"
+        else
+            print_warning "⚠️  Initial health check found issues"
+            print_warning "Review health report for details"
+        fi
+    fi
+else
+    print_warning "Post-deployment validation script not found"
+fi
+
 # Step 11: Generate Deployment Summary
 print_section "📊 Step 11: Deployment summary"
 
@@ -343,6 +400,17 @@ echo "  ✅ Just start the local interface and use the dashboard"
 echo ""
 echo "  Optional: Configure Strava webhook subscription for real-time processing"
 echo "  (Use scripts/configure_strava_webhook.sh after OAuth setup)"
+
+echo ""
+print_status "🔍 Validation & Health Monitoring:"
+echo "  # Validate Strava configuration:"
+echo "  ./scripts/validate_strava_setup.sh $ENVIRONMENT --detailed"
+echo ""
+echo "  # Run health check:"
+echo "  ./scripts/strava_health_check.sh $ENVIRONMENT --webhook-test --rate-limit-check"
+echo ""
+echo "  # Continuous monitoring:"
+echo "  ./scripts/strava_health_check.sh $ENVIRONMENT --continuous --alert-threshold=80"
 
 echo ""
 print_status "📊 Monitoring Commands:"
