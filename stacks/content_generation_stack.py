@@ -18,6 +18,21 @@ from aws_cdk import (
 )
 from constructs import Construct
 from .core_infrastructure_stack import CoreInfrastructureStack
+import os
+import sys
+
+# Add src directory to path for config imports
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
+
+try:
+    from config.llm_config import llm_config, get_model_arn, get_bedrock_model_id
+except ImportError:
+    # Fallback for development
+    def get_model_arn(region: str = None) -> str:
+        region = region or "eu-west-1"
+        return f"arn:aws:bedrock:{region}::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"
+    def get_bedrock_model_id() -> str:
+        return "anthropic.claude-3-5-sonnet-20241022-v2:0"
 
 
 class ContentGenerationStack(Stack):
@@ -84,7 +99,7 @@ class ContentGenerationStack(Stack):
                     "bedrock:InvokeModelWithResponseStream"
                 ],
                 resources=[
-                    f"arn:aws:bedrock:{self.region}::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"
+                    get_model_arn(self.region)
                 ]
             )
         )
@@ -173,7 +188,8 @@ class ContentGenerationStack(Stack):
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
                 "COACHING_SESSIONS_TABLE": self.core_stack.table_names["coaching_sessions"],
                 "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
-                "CAMPUS_COACH_SECRET": self.core_stack.campus_coach_secret.secret_name
+                "CAMPUS_COACH_SECRET": self.core_stack.campus_coach_secret.secret_name,
+                "BEDROCK_MODEL_ID": get_bedrock_model_id()
             }
         )
 
@@ -189,7 +205,8 @@ class ContentGenerationStack(Stack):
             role=content_lambda_role,
             environment={
                 "COACHING_SESSIONS_TABLE": self.core_stack.table_names["coaching_sessions"],
-                "CAMPUS_COACH_SECRET": self.core_stack.campus_coach_secret.secret_name
+                "CAMPUS_COACH_SECRET": self.core_stack.campus_coach_secret.secret_name,
+                "BEDROCK_MODEL_ID": get_bedrock_model_id()
             }
         )
 
@@ -206,7 +223,8 @@ class ContentGenerationStack(Stack):
             environment={
                 "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
                 "RATE_LIMITS_TABLE": self.core_stack.table_names["rate_limits"],
-                "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name
+                "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
+                "BEDROCK_MODEL_ID": get_bedrock_model_id()
             }
         )
 
@@ -223,7 +241,8 @@ class ContentGenerationStack(Stack):
             environment={
                 "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
                 "RATE_LIMITS_TABLE": self.core_stack.table_names["rate_limits"],
-                "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name
+                "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
+                "BEDROCK_MODEL_ID": get_bedrock_model_id()
             }
         )
 

@@ -19,6 +19,19 @@ from aws_cdk import (
 )
 from constructs import Construct
 from typing import Dict, Any
+import os
+import sys
+
+# Add src directory to path for config imports
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
+
+try:
+    from config.llm_config import llm_config, get_model_arn
+except ImportError:
+    # Fallback for development
+    def get_model_arn(region: str = None) -> str:
+        region = region or "eu-west-1"
+        return f"arn:aws:bedrock:{region}::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"
 
 
 class CoreInfrastructureStack(Stack):
@@ -185,7 +198,7 @@ class CoreInfrastructureStack(Stack):
                     "bedrock:InvokeModelWithResponseStream"
                 ],
                 resources=[
-                    f"arn:aws:bedrock:{self.region}::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"
+                    get_model_arn(self.region)
                 ]
             )
         )
