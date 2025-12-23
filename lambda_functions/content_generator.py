@@ -141,8 +141,35 @@ def get_user_configuration(user_id: str) -> Dict[str, Any]:
 
 
 def get_active_modules(user_config: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Get list of active modules for the user"""
+    """Get list of active modules for the user using module registry"""
     try:
+        from modules import module_registry
+        
+        modules_config = user_config.get('modules_config', {})
+        active_modules = []
+        
+        # Get available modules from registry
+        available_modules = module_registry.get_available_modules()
+        
+        for module_id in available_modules:
+            config = modules_config.get(module_id, {})
+            if config.get('enabled', False):
+                # Get module info from registry
+                module_info = module_registry.get_module_info(module_id)
+                if module_info:
+                    active_modules.append({
+                        'name': module_id,
+                        'config': config,
+                        'enabled': True,
+                        'info': module_info
+                    })
+        
+        logger.info(f"Found {len(active_modules)} active modules from registry")
+        return active_modules
+        
+    except ImportError:
+        logger.warning("Module registry not available, using fallback")
+        # Fallback to original implementation
         modules_config = user_config.get('modules_config', {})
         active_modules = []
         
@@ -154,7 +181,7 @@ def get_active_modules(user_config: Dict[str, Any]) -> List[Dict[str, Any]]:
                     'enabled': True
                 })
         
-        logger.info(f"Found {len(active_modules)} active modules")
+        logger.info(f"Found {len(active_modules)} active modules (fallback)")
         return active_modules
         
     except Exception as e:
@@ -169,37 +196,140 @@ def apply_module_processing(
     modules: List[Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
     """
-    Apply module-specific processing before content generation
+    Apply module-specific processing using module registry
     
     Enhances modules with additional data (e.g., Campus Coach session matching)
     """
     enhanced_modules = []
     
-    for module in modules:
-        try:
-            if module['name'] == 'campus_coach' and module.get('enabled', False):
-                # Apply Campus Coach session matching
-                enhanced_module = apply_campus_coach_processing(
-                    activity_data, user_id, module
+    try:
+        from modules import module_registry, ModuleConfig
+        
+        for module in modules:
+            try:
+                module_id = module['name']
+                
+                # Create module instance from registry
+                config_data = module.get('config', {})
+                module_config = ModuleConfig(
+                    module_id=module_id,
+                    enabled=module.get('enabled', False),
+                    credentials=config_data.get('credentials'),
+                    settings=config_data.get('settings', {})
+                )
+                
+                module_instance = module_registry.create_module_instance(module_id, module_config)
+                
+                if module_instance:
+                    # Process with module instance
+                    enhanced_module = apply_module_instance_processing(
+                        activity_data, streams_data, user_id, module, module_instance
+                    )
+                    enhanced_modules.append(enhanced_module)
+                else:
+                    # Fallback to legacy processing
+                    enhanced_module = apply_legacy_module_processing(
+                        activity_data, streams_data, user_id, module
+                    )
+                    enhanced_modules.append(enhanced_module)
+                    
+            except Exception as e:
+                logger.error(f"Module {module.get('name', 'unknown')} processing failed: {str(e)}")
+                # Include module with error info
+                module_with_error = module.copy()
+                module_with_error['processing_error'] = str(e)
+                enhanced_modules.append(module_with_error)
+    
+    except ImportError:
+        logger.warning("Module registry not available, using legacy processing")
+        # Fallback to legacy processing for all modules
+        for module in modules:
+            try:
+                enhanced_module = apply_legacy_module_processing(
+                    activity_data, streams_data, user_id, module
                 )
                 enhanced_modules.append(enhanced_module)
-                
-            elif module['name'] == 'enduraw' and module.get('enabled', False):
-                # Enduraw processing (wait logic handled in webhook processor)
-                enhanced_modules.append(module)
-                
-            else:
-                # Other modules - pass through
-                enhanced_modules.append(module)
-                
-        except Exception as e:
-            logger.error(f"Module {module['name']} processing failed: {str(e)}")
-            # Include module with error info
-            module_with_error = module.copy()
-            module_with_error['processing_error'] = str(e)
-            enhanced_modules.append(module_with_error)
+            except Exception as e:
+                logger.error(f"Legacy module {module.get('name', 'unknown')} processing failed: {str(e)}")
+                module_with_error = module.copy()
+                module_with_error['processing_error'] = str(e)
+                enhanced_modules.append(module_with_error)
     
     return enhanced_modules
+
+
+def apply_module_instance_processing(
+    activity_data: Dict[str, Any],
+    streams_data: Optional[Dict[str, Any]],
+    user_id: str,
+    module: Dict[str, Any],
+    module_instance
+) -> Dict[str, Any]:
+    """Apply processing using module registry instance"""
+    try:
+        # Use asyncio to run the async module method
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            insight = loop.run_until_complete(
+                module_instance.analyze_activity_with_timeout(activity_data, streams_data)
+            )
+            
+            # Enhance module with insight results
+            enhanced_module = module.copy()
+            enhanced_module['insight'] = {
+                'module_id': insight.module_id,
+                'insights': insight.insights,
+                'confidence': insight.confidence,
+                'metadata': insight.metadata,
+                'processing_time_ms': insight.processing_time_ms,
+                'error_message': insight.error_message
+            }
+            
+            logger.info(f"Module {module['name']} processed with confidence: {insight.confidence}")
+            return enhanced_module
+            
+        finally:
+            loop.close()
+            
+    except Exception as e:
+        logger.error(f"Module instance processing error: {str(e)}")
+        enhanced_module = module.copy()
+        enhanced_module['processing_error'] = str(e)
+        return enhanced_module
+
+
+def apply_legacy_module_processing(
+    activity_data: Dict[str, Any],
+    streams_data: Optional[Dict[str, Any]],
+    user_id: str,
+    module: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Apply legacy module processing for backward compatibility"""
+    try:
+        module_name = module['name']
+        
+        if module_name == 'campus_coach' and module.get('enabled', False):
+            # Apply Campus Coach session matching
+            enhanced_module = apply_campus_coach_processing(
+                activity_data, user_id, module
+            )
+            return enhanced_module
+            
+        elif module_name == 'enduraw' and module.get('enabled', False):
+            # Enduraw processing (wait logic handled in webhook processor)
+            return module
+            
+        else:
+            # Other modules - pass through
+            return module
+            
+    except Exception as e:
+        logger.error(f"Legacy module {module.get('name', 'unknown')} processing failed: {str(e)}")
+        module_with_error = module.copy()
+        module_with_error['processing_error'] = str(e)
+        return module_with_error
 
 
 def apply_campus_coach_processing(
@@ -438,27 +568,67 @@ def extract_module_insights(modules: List[Dict[str, Any]]) -> Dict[str, Any]:
         module_name = module.get('name', 'unknown')
         
         if module_name == 'campus_coach':
-            session_matching = module.get('session_matching', {})
-            if session_matching.get('match_found', False):
-                insights['campus_coach'] = {
-                    'session_match': True,
-                    'confidence': session_matching.get('confidence', 0.0),
-                    'session_type': session_matching.get('session_data', {}).get('session_type', 'unknown'),
-                    'compliance_analysis': session_matching.get('compliance_analysis', {}),
-                    'reasoning': session_matching.get('reasoning', '')
-                }
+            # Extract Campus Coach insights
+            if 'insight' in module:
+                insight_data = module['insight']
+                campus_insights = insight_data.get('insights', {})
+                
+                if campus_insights.get('session_matched', False):
+                    insights['campus_coach'] = {
+                        'session_match': True,
+                        'confidence': insight_data.get('confidence', 0.0),
+                        'session_type': campus_insights.get('planned_session', {}).get('session_type', 'unknown'),
+                        'performance_analysis': campus_insights.get('performance_analysis', {}),
+                        'match_reasons': campus_insights.get('match_reasons', [])
+                    }
+                else:
+                    insights['campus_coach'] = {
+                        'session_match': False,
+                        'reason': campus_insights.get('match_reasons', ['No match found'])[0] if campus_insights.get('match_reasons') else 'No match found'
+                    }
             else:
-                insights['campus_coach'] = {
-                    'session_match': False,
-                    'reason': session_matching.get('reason', 'No match found')
-                }
+                # Legacy session matching format
+                session_matching = module.get('session_matching', {})
+                if session_matching.get('match_found', False):
+                    insights['campus_coach'] = {
+                        'session_match': True,
+                        'confidence': session_matching.get('confidence', 0.0),
+                        'session_type': session_matching.get('session_data', {}).get('session_type', 'unknown'),
+                        'compliance_analysis': session_matching.get('compliance_analysis', {}),
+                        'reasoning': session_matching.get('reasoning', '')
+                    }
+                else:
+                    insights['campus_coach'] = {
+                        'session_match': False,
+                        'reason': session_matching.get('reason', 'No match found')
+                    }
         
         elif module_name == 'enduraw':
-            # Enduraw insights would be extracted here
-            insights['enduraw'] = {
-                'enhanced_metrics_available': True,
-                'note': 'Enduraw processing completed'
-            }
+            # Extract Enduraw insights
+            if 'insight' in module:
+                insight_data = module['insight']
+                enduraw_insights = insight_data.get('insights', {})
+                
+                if enduraw_insights.get('enduraw_available', False):
+                    insights['enduraw'] = {
+                        'enhanced_metrics_available': True,
+                        'weather_analysis': enduraw_insights.get('weather_analysis', {}),
+                        'enhanced_metrics': enduraw_insights.get('enhanced_metrics', {}),
+                        'performance_insights': enduraw_insights.get('performance_insights', {}),
+                        'recommendations': enduraw_insights.get('recommendations', []),
+                        'processing_time': insight_data.get('metadata', {}).get('enduraw_processing_time')
+                    }
+                else:
+                    insights['enduraw'] = {
+                        'enhanced_metrics_available': False,
+                        'reason': enduraw_insights.get('error', 'Processing timeout or unavailable')
+                    }
+            else:
+                # Legacy or simple format
+                insights['enduraw'] = {
+                    'enhanced_metrics_available': True,
+                    'note': 'Enduraw processing completed'
+                }
     
     return insights
 
@@ -528,26 +698,68 @@ PERFORMANCE ANALYSIS:
 - Analysis type: {patterns.get('analysis_type', 'unknown')}
 """
     
-    # Add module insights
+    # Add module insights with enhanced formatting
     if module_insights:
         prompt += "\nMODULE INSIGHTS:\n"
-        for module, insights in module_insights.items():
-            prompt += f"- {module.title()}: {json.dumps(insights, indent=2)}\n"
+        
+        # Campus Coach insights
+        if 'campus_coach' in module_insights:
+            cc_insights = module_insights['campus_coach']
+            if cc_insights.get('session_match', False):
+                prompt += f"- Campus Coach: Matched planned {cc_insights.get('session_type', 'session')} "
+                prompt += f"(confidence: {cc_insights.get('confidence', 0):.1f})\n"
+                if cc_insights.get('performance_analysis'):
+                    prompt += f"  Performance: {cc_insights['performance_analysis']}\n"
+            else:
+                prompt += f"- Campus Coach: No session match ({cc_insights.get('reason', 'unknown')})\n"
+        
+        # Enduraw insights
+        if 'enduraw' in module_insights:
+            enduraw_insights = module_insights['enduraw']
+            if enduraw_insights.get('enhanced_metrics_available', False):
+                prompt += "- Enduraw: Enhanced analytics available\n"
+                
+                # Weather analysis
+                weather = enduraw_insights.get('weather_analysis', {})
+                if weather:
+                    impact = weather.get('impact_assessment', 'neutral')
+                    prompt += f"  Weather impact: {impact}\n"
+                
+                # Enhanced metrics
+                metrics = enduraw_insights.get('enhanced_metrics', {})
+                if metrics.get('pace_without_wind'):
+                    pace_data = metrics['pace_without_wind']
+                    if isinstance(pace_data, dict) and pace_data.get('wind_adjustment_seconds', 0) > 2:
+                        prompt += f"  Wind adjustment: +{pace_data['wind_adjustment_seconds']:.0f}s/km\n"
+                
+                if metrics.get('elevation_cost'):
+                    elev_data = metrics['elevation_cost']
+                    if isinstance(elev_data, dict):
+                        efficiency = elev_data.get('elevation_efficiency', 0)
+                        prompt += f"  Elevation efficiency: {efficiency:.1%}\n"
+                
+                # Recommendations
+                recommendations = enduraw_insights.get('recommendations', [])
+                if recommendations:
+                    prompt += f"  Key insight: {recommendations[0]}\n"
+            else:
+                prompt += f"- Enduraw: {enduraw_insights.get('reason', 'Not available')}\n"
     
     prompt += """
 REQUIREMENTS:
 1. Create a motivational and engaging title (max 50 characters)
 2. Write a description that's technical but fun (max 200 words)
 3. Use sport-specific terminology
-4. Include insights from performance analysis
-5. Reference module insights if available
-6. Maintain an authentic, personal tone
+4. Include insights from performance analysis and modules
+5. Reference weather/environmental factors if available from Enduraw
+6. Mention training session context if Campus Coach match found
+7. Maintain an authentic, personal tone that varies from previous activities
 
 Return response in JSON format:
 {
     "title": "Generated title here",
     "description": "Generated description here",
-    "style_elements": ["motivational", "technical"],
+    "style_elements": ["motivational", "technical", "weather_aware"],
     "confidence": 0.85
 }"""
     
