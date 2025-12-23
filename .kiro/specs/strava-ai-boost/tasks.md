@@ -1,14 +1,13 @@
 # Implementation Plan
 
-## Completed Infrastructure
+## Completed Infrastructure and Core Components
 
 - [x] 1. Set up project structure and core infrastructure
-  - Create Python CDK project structure following strava-ai-coach patterns
-  - Set up core DynamoDB tables (strava-activities, user-configuration, strava-rate-limits, campus-coaching-sessions)
-  - Configure AWS CDK stacks organization using Python (core, api-gateway, webhook, content-generation, monitoring)
-  - Set up IAM roles and policies with least privilege principle
-  - Initialize Strands Agents framework configuration
-  - Create shell scripts directory for AgentCore CLI deployment (scripts/)
+  - Create Python CDK project structure with 5 stacks (core, webhook, content-generation, api-gateway, monitoring)
+  - Set up core DynamoDB tables with encryption (activities, user-configuration, rate-limits, coaching-sessions)
+  - Configure IAM roles and policies with least privilege principle
+  - Create Secrets Manager secrets for OAuth tokens and Campus Coach credentials
+  - Initialize AgentCore CLI deployment scripts (scripts/)
   - _Requirements: 6.1, 6.3, 7.1, 7.5_
 
 - [x] 1.1 Write property test for infrastructure security
@@ -19,97 +18,92 @@
   - **Property 16: Secure communication using HTTPS for all API endpoints**
   - **Validates: Requirements 7.2**
 
-- [x] 2. Implement Strava OAuth integration and rate limiting in Python
-  - [x] 2.1 Create Python OAuth flow handler with PKCE support using requests-oauthlib
-    - Implement OAuth authorization URL generation
-    - Handle OAuth callback and token exchange
-    - Store tokens securely in Secrets Manager
+- [x] 2. Implement Strava OAuth integration and rate limiting
+  - [x] 2.1 Create OAuth handler with PKCE support and Secrets Manager integration
+    - Implement OAuth authorization URL generation and callback handling
+    - Store tokens securely in AWS Secrets Manager with automatic rotation
     - _Requirements: 1.2, 1.3, 7.3_
   
-  - [x] 2.2 Implement secure token storage in AWS Secrets Manager with boto3 and automatic rotation
-    - Create Secrets Manager helper functions
-    - Implement token refresh logic
-    - Add automatic rotation configuration
-    - _Requirements: 1.3, 1.5, 7.3_
+  - [x] 2.2 Build comprehensive rate limiting system with DynamoDB persistence
+    - Create rate limiter with 100/15min and 1000/day limits tracking
+    - Implement exponential backoff logic and cross-Lambda persistence
+    - Add comprehensive status reporting and monitoring
+    - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5_
   
-  - [x] 2.3 Build Python rate limiting system tracking 100/15min and 1000/day limits with DynamoDB
-    - Create rate limiter Lambda function implementation
-    - Implement DynamoDB-based rate tracking
-    - Add exponential backoff logic
-    - _Requirements: 10.1, 10.2, 10.3, 10.4_
-  
-  - [x] 2.4 Create Strava API client class with retry logic and exponential backoff using requests
-    - Build reusable Strava API client
-    - Implement retry logic with exponential backoff
-    - Add rate limit checking before API calls
+  - [x] 2.3 Create comprehensive Strava API client with retry logic
+    - Build reusable Strava API client with OAuth token management
+    - Implement retry logic with exponential backoff and rate limit integration
+    - Add comprehensive API methods for activities and streams data
     - _Requirements: 8.1, 8.4, 10.1, 10.2_
 
-- [x] 2.5 Write property test for OAuth token security
+- [x] 2.4 Write property test for OAuth token security
   - **Property 1: OAuth tokens securely stored in Secrets Manager**
   - **Validates: Requirements 1.3, 7.3**
+  - **Status: PASSED** - All 5 test methods passed with 100 examples each
 
-- [x] 2.6 Write property test for rate limit compliance
+- [x] 2.5 Write property test for rate limit compliance
   - **Property 13: API calls respect both 15-minute and daily rate limits**
   - **Validates: Requirements 10.1, 10.2**
   - **Status: PASSED** - All 6 test methods passed with 100 examples each
 
-- [x] 2.7 Write property test for rate limit persistence
+- [x] 2.6 Write property test for rate limit persistence
   - **Property 14: Rate limit data persisted in DynamoDB across Lambda invocations**
   - **Validates: Requirements 10.5**
   - **Status: PASSED** - All 5 test methods passed with 100 examples each
 
-## Missing Lambda Functions and Step Functions Integration
-
-- [ ] 3. Complete missing Lambda functions and Step Functions workflow
-  - [ ] 3.1 Create missing Lambda functions for Step Functions workflow
+- [x] 3. Complete webhook processing and Lambda functions
+  - [x] 3.1 Create webhook handler with SQS integration
+    - Implement webhook_handler.py for Strava webhook validation and queuing
+    - Add enhancement pause/resume control checking
+    - Integrate with SQS for reliable message processing
+    - _Requirements: 2.2, 13.3, 13.7_
+  
+  - [x] 3.2 Create activity processor with Step Functions integration
+    - Implement activity_processor.py to trigger Step Functions workflow
+    - Add proper error handling and retry logic
+    - Implement activity status tracking in DynamoDB
+    - _Requirements: 2.2, 2.3, 8.3_
+  
+  - [x] 3.3 Create supporting Lambda functions for Step Functions workflow
     - Implement activity_fetcher.py for Strava API data retrieval
     - Implement strava_updater.py for activity content updates
     - Implement campus_coach_invoker.py for AgentCore Browser Tool invocation
     - Add comprehensive streams data fetching
     - _Requirements: 2.4, 2.5, 2.6, 2.7, 2.8, 2.12_
-  
-  - [ ] 3.2 Complete Step Functions workflow integration with activity processor
-    - Update activity_processor.py to trigger Step Functions workflow
-    - Add proper error handling and retry logic
-    - Implement activity status tracking in DynamoDB
-    - _Requirements: 2.2, 2.3, 8.3_
-  
-  - [ ] 3.3 Deploy remaining CDK stacks (content generation, API gateway, monitoring)
-    - Deploy ContentGenerationStack with Step Functions workflow
-    - Deploy ApiGatewayStack for local interface endpoints
-    - Deploy MonitoringStack with CloudWatch alarms
-    - _Requirements: 6.1, 11.2, 11.3_
 
-- [ ]* 3.4 Write property test for webhook reliability
+- [x] 3.4 Write property test for webhook reliability
   - **Property 2: Valid webhooks queued in SQS for reliable processing**
   - **Validates: Requirements 2.2**
+  - **Status: COMPLETED** - Comprehensive test suite with 8 test methods covering all webhook scenarios
 
-- [ ]* 3.5 Write property test for error recovery
+- [x] 3.5 Write property test for error recovery
   - **Property 9: Processing failures trigger SQS retry with exponential backoff**
   - **Validates: Requirements 2.13**
+  - **Status: PASSED** ✅ - All 7 tests pass with 100% success rate
+  - **Quality Improvements**: Fixed datetime deprecation warnings, improved test logic robustness
 
-## AgentCore Agents Implementation
+## AgentCore Integration and Content Generation
 
-- [ ] 4. Implement AgentCore agents and Strands framework integration
-  - [ ] 4.1 Complete content generation agent with Strands framework
-    - Implement Strands Agent initialization and configuration in content_generation_agent.py
-    - Add AgentCore Memory client integration
-    - Implement personal style learning and storage
-    - Add expression tracking to avoid repetition
+- [ ] 4. Complete AgentCore agents and Strands framework integration
+  - [ ] 4.1 Complete content generation agent with Strands framework and AgentCore Memory
+    - Integrate Strands Agent framework in content_generation_agent.py
+    - Add AgentCore Memory client for personal style learning and expression tracking
+    - Implement memory-based content personalization to avoid repetition
+    - Connect with Bedrock Claude for intelligent content generation
     - _Requirements: 2.10_
   
   - [ ] 4.2 Create Campus Coach Browser Tool agent
-    - Implement AgentCore Browser Tool agent for web scraping in campus_coach_agent.py
-    - Add Campus Coach session extraction logic
-    - Implement retry logic for cold start issues
-    - Add secure credential management
+    - Implement AgentCore Browser Tool agent for automated session extraction
+    - Add Campus Coach session extraction logic with retry for cold start issues
+    - Implement secure credential management via Secrets Manager
+    - Add session matching and confidence scoring using Bedrock AI
     - _Requirements: 5.1, 5.3, 5.4_
   
-  - [ ] 4.3 Integrate Bedrock Claude for intelligent analysis
-    - Add Claude Sonnet 4.5 integration for pattern detection
-    - Implement effort analysis, intervals, heart rate zones detection
-    - Add workout classification logic
-    - Integrate with streams data analysis
+  - [ ] 4.3 Enhance content generator Lambda with agent integration
+    - Update content_generator.py to use Strands Agent and AgentCore Memory
+    - Integrate Bedrock Claude for pattern detection and workout classification
+    - Add streams data analysis for effort patterns and heart rate zones
+    - Implement module-based content enhancement
     - _Requirements: 2.9, 3.2_
 
 - [ ]* 4.4 Write property test for AI pattern detection
@@ -126,31 +120,31 @@
 
 ## Module System Implementation
 
-- [ ] 5. Implement modular system architecture in Python
-  - [ ] 5.1 Complete Python base module interface and registration system
-    - Implement abstract base classes for modules in base_module.py
+- [ ] 5. Complete modular system architecture
+  - [ ] 5.1 Enhance base module interface and registration system
+    - Complete base_module.py with abstract base classes and lifecycle management
     - Add module registration and discovery system
-    - Create module lifecycle management
+    - Implement module configuration validation
     - _Requirements: 4.1, 4.2_
   
-  - [ ] 5.2 Implement module configuration persistence in DynamoDB
-    - Add module configuration storage and retrieval
-    - Implement configuration validation
-    - Add module activation/deactivation logic
+  - [ ] 5.2 Implement module configuration persistence
+    - Add module configuration storage and retrieval in DynamoDB
+    - Implement configuration validation and activation/deactivation logic
+    - Integrate with user configuration table
     - _Requirements: 4.3, 4.4_
   
   - [ ] 5.3 Complete Campus Coach module implementation
-    - Finish Campus Coach module class in campus_coach_module.py
-    - Integrate with AgentCore Browser Tool agent
-    - Add session matching and confidence scoring logic
-    - Implement compliance analysis functionality
+    - Finish campus_coach_module.py with AgentCore Browser Tool integration
+    - Add session matching and confidence scoring logic using Bedrock AI
+    - Implement compliance analysis functionality comparing actual vs planned
+    - Add retry logic for AgentCore Browser Tool cold start issues
     - _Requirements: 5.1, 5.2, 5.5, 5.6, 3.3, 3.4, 3.5, 3.6, 3.7_
   
   - [ ] 5.4 Build Enduraw integration module
-    - Create Enduraw module class in enduraw_module.py
-    - Implement wait logic for 2-7 minute processing delay
+    - Create enduraw_module.py with wait logic for 2-7 minute processing delay
     - Add enhanced metrics fetching (pace without wind, weather, elevation cost)
     - Integrate enhanced metrics into content generation pipeline
+    - Implement toggle functionality via local interface
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6_
 
 - [ ]* 5.5 Write property test for module configuration
@@ -173,39 +167,32 @@
   - **Property 18: Enduraw data included in content generation**
   - **Validates: Requirements 9.5**
 
-## Utility Classes and Data Models
+## Data Models and Utility Enhancement
 
-- [ ] 6. Implement utility classes and data models
-  - [ ] 6.1 Create Strava API client utility class
-    - Implement strava_client.py with OAuth token management
-    - Add rate limiting integration
-    - Implement comprehensive API methods for activities and streams
-    - Add error handling and retry logic
-    - _Requirements: 8.1, 8.4, 10.1, 10.2_
-  
-  - [ ] 6.2 Complete data models using Pydantic
-    - Finish data_models.py with comprehensive Strava activity models
-    - Add streams data models with validation
-    - Implement module configuration models
-    - Add processing status and error models
+- [ ] 6. Complete data models and utility classes
+  - [ ] 6.1 Complete data models using Pydantic
+    - Finish data_models.py with comprehensive Strava activity models (67+ fields)
+    - Add streams data models with validation for second-by-second granularity
+    - Implement module configuration models and processing status models
+    - Add error handling and validation models
     - _Requirements: 2.6, 2.7, 2.8_
   
-  - [ ] 6.3 Implement rate limiter utility class
-    - Create rate_limiter.py with DynamoDB integration
-    - Add exponential backoff logic
-    - Implement rate limit checking and queuing
-    - Add monitoring and alerting integration
-    - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5_
+  - [ ] 6.2 Enhance utility classes integration
+    - Integrate strava_client.py with rate_limiter.py and oauth_handler.py
+    - Add comprehensive error handling and retry logic
+    - Implement monitoring and alerting integration
+    - Add utility functions for data transformation and validation
+    - _Requirements: 8.1, 8.4, 10.1, 10.2, 10.3, 10.4_
 
-- [ ]* 6.4 Write property test for data backup
+- [ ]* 6.3 Write property test for data backup
   - **Property 3: Original activity descriptions backed up before modification**
   - **Validates: Requirements 2.5**
 
-- [ ]* 6.5 Write property test for comprehensive analysis
+- [ ]* 6.4 Write property test for comprehensive analysis
   - **Property 4: All available Strava fields utilized in analysis**
   - **Validates: Requirements 2.7**
 
-- [ ]* 6.6 Write property test for streams precision
+- [ ]* 6.5 Write property test for streams precision
   - **Property 5: Streams data fetched with second-by-second granularity**
   - **Validates: Requirements 2.8, 3.1**
 
@@ -214,25 +201,25 @@
 
 ## Local Web Interface Implementation
 
-- [ ] 8. Complete local web interface implementation
-  - [ ] 8.1 Enhance Python Flask/FastAPI application
+- [ ] 8. Complete local web interface with AWS Cloudscape
+  - [ ] 8.1 Enhance Flask application with complete OAuth flow
     - Complete OAuth flow implementation with Strava in local_interface/app.py
-    - Add real-time dashboard with WebSocket or polling
-    - Implement module configuration interface
-    - Add enhancement pause/resume control with visual indicators
+    - Add real-time dashboard with activity statistics and engagement metrics
+    - Implement module configuration interface with enable/disable controls
+    - Add enhancement pause/resume control with visual indicators and persistence
     - _Requirements: 1.1, 4.1, 13.1, 13.5, 13.6_
   
   - [ ] 8.2 Implement AWS Cloudscape frontend components
-    - Create dashboard with activity statistics and engagement metrics
-    - Build configuration interface for module management
-    - Add real-time status monitoring with Step Functions progress
+    - Create HTML templates with AWS Cloudscape design system components
+    - Build configuration interface for module management (Campus Coach, Enduraw)
+    - Add real-time status monitoring with Step Functions progress display
     - Implement error display with clear messages and suggested actions
     - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 12.1, 12.2, 12.3, 12.4, 12.5_
   
-  - [ ] 8.3 Complete API Gateway integration
-    - Implement missing Lambda functions (configuration_api.py, dashboard_api.py, status_api.py)
-    - Add secure communication between local interface and AWS
-    - Implement request validation and rate limiting
+  - [ ] 8.3 Complete API Gateway integration for local interface
+    - Complete configuration_api.py, dashboard_api.py, status_api.py Lambda functions
+    - Add secure communication between local interface and AWS resources
+    - Implement request validation and rate limiting for API endpoints
     - Add CORS configuration for local development
     - _Requirements: 7.4_
 
@@ -248,69 +235,75 @@
   - **Property 21: Enhancement pause control persists and prevents processing**
   - **Validates: Requirements 13.3, 13.7**
 
-## AgentCore Deployment and Testing
+## AgentCore Deployment and Step Functions Integration
 
-- [ ] 9. Deploy and test AgentCore integration
+- [ ] 9. Deploy AgentCore agents and complete Step Functions workflow
   - [ ] 9.1 Deploy AgentCore agents using CLI scripts
-    - Run deploy_agentcore.sh script for infrastructure setup
-    - Deploy content generation agent with AgentCore Memory
-    - Deploy Campus Coach Browser Tool agent
+    - Run deploy_agentcore.sh script for AgentCore infrastructure setup
+    - Deploy content generation agent with AgentCore Memory integration
+    - Deploy Campus Coach Browser Tool agent with retry logic
     - Verify agent deployments and connectivity
     - _Requirements: 6.1_
   
-  - [ ] 9.2 Test AgentCore Memory integration
-    - Test personal style storage and retrieval
-    - Verify expression tracking functionality
-    - Test memory-based content personalization
-    - Validate memory persistence across invocations
-    - _Requirements: 2.10_
+  - [ ] 9.2 Complete Step Functions workflow with all Lambda functions
+    - Deploy ContentGenerationStack with complete Step Functions workflow
+    - Integrate all Lambda functions (fetcher, generator, updater, campus_coach_invoker)
+    - Add proper error handling and retry logic throughout workflow
+    - Test end-to-end activity processing pipeline
+    - _Requirements: 2.2, 2.3, 8.3, 6.1_
   
-  - [ ] 9.3 Test Campus Coach Browser Tool agent
-    - Test session extraction functionality
-    - Verify retry logic for cold start issues
-    - Test credential security and storage
-    - Validate session matching and confidence scoring
-    - _Requirements: 5.1, 5.2, 5.3, 5.4_
+  - [ ] 9.3 Test AgentCore Memory and Campus Coach integration
+    - Test personal style storage and retrieval via AgentCore Memory
+    - Verify Campus Coach session extraction with retry logic for cold starts
+    - Test session matching and confidence scoring
+    - Validate memory persistence across invocations
+    - _Requirements: 2.10, 5.1, 5.2, 5.3, 5.4_
 
 ## System Integration and Deployment
 
-- [ ] 10. Complete deployment and setup automation
-  - [ ] 10.1 Complete CDK deployment scripts
-    - Add environment configuration for different stages
+- [ ] 10. Complete deployment automation and documentation
+  - [ ] 10.1 Complete CDK deployment scripts and environment configuration
+    - Add environment configuration for different stages (dev, prod)
     - Implement webhook subscription automation with Strava
     - Add validation scripts for deployment verification
+    - Create deployment orchestration script
     - _Requirements: 6.2, 6.4_
   
-  - [ ] 10.2 Create setup instructions and documentation
-    - Write comprehensive setup guide
-    - Document AgentCore CLI requirements and installation
-    - Add troubleshooting guide for common issues
+  - [ ] 10.2 Create comprehensive setup instructions and documentation
+    - Write step-by-step setup guide with prerequisites
+    - Document AgentCore CLI requirements and installation process
+    - Add troubleshooting guide for common issues and monitoring commands
+    - Create user guide for local web interface
     - _Requirements: 6.5_
   
   - [ ] 10.3 Implement clean uninstall process
-    - Create CDK destroy scripts
-    - Add AgentCore cleanup scripts
-    - Implement complete resource removal process
+    - Create CDK destroy scripts with proper resource cleanup
+    - Add AgentCore cleanup scripts for agents and memory
+    - Implement complete resource removal process with verification
+    - Add data backup options before uninstall
     - _Requirements: 6.5_
 
-- [ ] 11. Final integration and end-to-end testing
-  - [ ] 11.1 Test complete activity processing pipeline
+- [ ] 11. Final integration testing and validation
+  - [ ] 11.1 Test complete activity processing pipeline end-to-end
     - Test webhook → SQS → Step Functions → Bedrock → Strava update flow
-    - Validate all module integrations work correctly
-    - Test error scenarios and recovery mechanisms
+    - Validate all module integrations (Campus Coach, Enduraw) work correctly
+    - Test error scenarios and recovery mechanisms with SQS retry
+    - Verify enhancement pause/resume functionality
     - _Requirements: All requirements validation_
   
-  - [ ] 11.2 Verify security configurations and encryption
-    - Test all security configurations
-    - Verify encryption at rest and in transit
-    - Validate IAM permissions and least privilege
+  - [ ] 11.2 Verify security configurations and compliance
+    - Test all security configurations and encryption at rest/in transit
+    - Validate IAM permissions follow least privilege principle
+    - Test OAuth token security and automatic refresh
+    - Verify Secrets Manager integration for all credentials
     - _Requirements: 7.1, 7.2, 7.3_
   
-  - [ ] 11.3 Test local web interface functionality
-    - Test OAuth flow end-to-end
-    - Verify dashboard real-time updates
-    - Test module configuration and management
-    - Validate enhancement pause/resume functionality
+  - [ ] 11.3 Test local web interface functionality completely
+    - Test OAuth flow end-to-end with Strava
+    - Verify dashboard real-time updates and activity statistics
+    - Test module configuration and management (enable/disable)
+    - Validate enhancement pause/resume with persistence
+    - Test error handling and user feedback
     - _Requirements: 1.1, 11.1, 12.1, 13.1_
 
 - [ ]* 11.4 Write integration tests for complete pipeline

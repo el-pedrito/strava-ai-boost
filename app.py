@@ -29,13 +29,43 @@ core_stack = CoreInfrastructureStack(
     description="Core infrastructure for Strava AI Boost - DynamoDB tables and IAM roles"
 )
 
+# Content generation stack - Step Functions, Bedrock, AgentCore
+content_stack = ContentGenerationStack(
+    app,
+    "StravaAIBoost-Content",
+    core_stack=core_stack,
+    env=env,
+    description="Content generation infrastructure with Step Functions and Bedrock"
+)
+
 # Webhook processing stack - Strava webhooks, SQS
 webhook_stack = WebhookProcessingStack(
     app,
     "StravaAIBoost-Webhook",
     core_stack=core_stack,
+    step_functions_arn=content_stack.state_machine_arn,
     env=env,
     description="Webhook processing infrastructure for Strava AI Boost"
+)
+
+# API Gateway stack - Local interface endpoints
+api_stack = ApiGatewayStack(
+    app,
+    "StravaAIBoost-API",
+    core_stack=core_stack,
+    env=env,
+    description="API Gateway for local web interface"
+)
+
+# Monitoring stack - CloudWatch alarms and dashboards
+monitoring_stack = MonitoringStack(
+    app,
+    "StravaAIBoost-Monitoring",
+    core_stack=core_stack,
+    webhook_stack=webhook_stack,
+    content_stack=content_stack,
+    env=env,
+    description="Monitoring and observability infrastructure"
 )
 
 # Synthesize the CDK app

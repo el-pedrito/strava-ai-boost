@@ -16,16 +16,26 @@ from botocore.exceptions import ClientError
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# Initialize AWS clients
-sqs = boto3.client('sqs')
-dynamodb = boto3.resource('dynamodb')
-secretsmanager = boto3.client('secretsmanager')
-
 # Environment variables
 PROCESSING_QUEUE_URL = os.environ['PROCESSING_QUEUE_URL']
 ACTIVITIES_TABLE = os.environ['ACTIVITIES_TABLE']
 RATE_LIMITS_TABLE = os.environ['RATE_LIMITS_TABLE']
 STRAVA_OAUTH_SECRET = os.environ['STRAVA_OAUTH_SECRET']
+
+
+def get_sqs_client():
+    """Get SQS client - allows for easier testing and error handling"""
+    return boto3.client('sqs')
+
+
+def get_dynamodb_resource():
+    """Get DynamoDB resource - allows for easier testing and error handling"""
+    return boto3.resource('dynamodb')
+
+
+def get_secretsmanager_client():
+    """Get Secrets Manager client - allows for easier testing and error handling"""
+    return boto3.client('secretsmanager')
 
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -142,6 +152,7 @@ def handle_webhook_notification(event: Dict[str, Any]) -> Dict[str, Any]:
             }
             
             # Send to SQS queue
+            sqs = get_sqs_client()
             sqs.send_message(
                 QueueUrl=PROCESSING_QUEUE_URL,
                 MessageBody=json.dumps(message),
@@ -183,6 +194,7 @@ def is_enhancement_paused() -> bool:
     Check if enhancement is currently paused by reading from DynamoDB
     """
     try:
+        dynamodb = get_dynamodb_resource()
         table = dynamodb.Table(os.environ.get('USER_CONFIG_TABLE', 'strava-ai-boost-user-configuration'))
         
         # Use a system-wide configuration key

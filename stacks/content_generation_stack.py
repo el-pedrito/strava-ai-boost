@@ -18,7 +18,6 @@ from aws_cdk import (
 )
 from constructs import Construct
 from .core_infrastructure_stack import CoreInfrastructureStack
-from .webhook_processing_stack import WebhookProcessingStack
 
 
 class ContentGenerationStack(Stack):
@@ -29,13 +28,11 @@ class ContentGenerationStack(Stack):
         scope: Construct, 
         construct_id: str, 
         core_stack: CoreInfrastructureStack,
-        webhook_stack: WebhookProcessingStack,
         **kwargs
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
         
         self.core_stack = core_stack
-        self.webhook_stack = webhook_stack
         
         # Create Lambda functions
         self._create_lambda_functions()
@@ -46,6 +43,121 @@ class ContentGenerationStack(Stack):
     def _create_lambda_functions(self) -> None:
         """Create Lambda functions for content generation pipeline"""
         
+        # Create IAM role for content generation Lambda functions
+        content_lambda_role = iam.Role(
+            self, "ContentLambdaRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AWSLambdaBasicExecutionRole"
+                )
+            ]
+        )
+
+        # Add permissions for DynamoDB access
+        content_lambda_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "dynamodb:PutItem",
+                    "dynamodb:GetItem",
+                    "dynamodb:UpdateItem",
+                    "dynamodb:Query",
+                    "dynamodb:Scan"
+                ],
+                resources=[
+                    self.core_stack.activities_table.table_arn,
+                    self.core_stack.user_config_table.table_arn,
+                    self.core_stack.coaching_sessions_table.table_arn,
+                    f"{self.core_stack.activities_table.table_arn}/index/*",
+                    f"{self.core_stack.coaching_sessions_table.table_arn}/index/*"
+                ]
+            )
+        )
+
+        # Add permissions for Bedrock access
+        content_lambda_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "bedrock:InvokeModel",
+                    "bedrock:InvokeModelWithResponseStream"
+                ],
+                resources=[
+                    f"arn:aws:bedrock:{self.region}::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"
+                ]
+            )
+        )
+
+        # Add permissions for AgentCore access
+        content_lambda_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "bedrock-agentcore:InvokeAgent",
+                    "bedrock-agentcore:GetAgent",
+                    "bedrock-agentcore:ListAgents"
+                ],
+                resources=["*"]  # AgentCore resources are dynamic
+            )
+        )
+
+        # Add permissions for Secrets Manager access
+        content_lambda_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "secretsmanager:GetSecretValue"
+                ],
+                resources=[
+                    self.core_stack.strava_oauth_secret.secret_arn,
+                    self.core_stack.campus_coach_secret.secret_arn
+                ]
+            )
+        )
+
+        # Create IAM role for activity fetcher and updater Lambda functions
+        strava_lambda_role = iam.Role(
+            self, "StravaLambdaRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AWSLambdaBasicExecutionRole"
+                )
+            ]
+        )
+
+        # Add permissions for DynamoDB access
+        strava_lambda_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "dynamodb:PutItem",
+                    "dynamodb:GetItem",
+                    "dynamodb:UpdateItem",
+                    "dynamodb:Query"
+                ],
+                resources=[
+                    self.core_stack.activities_table.table_arn,
+                    self.core_stack.rate_limits_table.table_arn,
+                    f"{self.core_stack.activities_table.table_arn}/index/*"
+                ]
+            )
+        )
+
+        # Add permissions for Secrets Manager access
+        strava_lambda_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "secretsmanager:GetSecretValue"
+                ],
+                resources=[
+                    self.core_stack.strava_oauth_secret.secret_arn
+                ]
+            )
+        )
+        
         # Content generation Lambda with Bedrock and AgentCore
         self.content_generator = lambda_.Function(
             self, "ContentGenerator",
@@ -55,7 +167,7 @@ class ContentGenerationStack(Stack):
             code=lambda_.Code.from_asset("lambda_functions"),
             timeout=Duration.minutes(5),
             memory_size=1024,
-            role=self.core_stack.content_lambda_role,
+            role=content_lambda_role,
             environment={
                 "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
@@ -74,7 +186,7 @@ class ContentGenerationStack(Stack):
             code=lambda_.Code.from_asset("lambda_functions"),
             timeout=Duration.minutes(10),  # Campus Coach extraction can take time
             memory_size=512,
-            role=self.core_stack.content_lambda_role,
+            role=content_lambda_role,
             environment={
                 "COACHING_SESSIONS_TABLE": self.core_stack.table_names["coaching_sessions"],
                 "CAMPUS_COACH_SECRET": self.core_stack.campus_coach_secret.secret_name
@@ -90,7 +202,7 @@ class ContentGenerationStack(Stack):
             code=lambda_.Code.from_asset("lambda_functions"),
             timeout=Duration.minutes(3),
             memory_size=512,
-            role=self.core_stack.webhook_lambda_role,
+            role=strava_lambda_role,
             environment={
                 "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
                 "RATE_LIMITS_TABLE": self.core_stack.table_names["rate_limits"],
@@ -107,7 +219,7 @@ class ContentGenerationStack(Stack):
             code=lambda_.Code.from_asset("lambda_functions"),
             timeout=Duration.minutes(2),
             memory_size=256,
-            role=self.core_stack.webhook_lambda_role,
+            role=strava_lambda_role,
             environment={
                 "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
                 "RATE_LIMITS_TABLE": self.core_stack.table_names["rate_limits"],
@@ -117,6 +229,43 @@ class ContentGenerationStack(Stack):
 
     def _create_step_functions_workflow(self) -> None:
         """Create Step Functions workflow for activity processing"""
+        
+        # Create IAM role for Step Functions
+        step_functions_role = iam.Role(
+            self, "StepFunctionsRole",
+            assumed_by=iam.ServicePrincipal("states.amazonaws.com")
+        )
+
+        # Add permissions for Lambda invocation
+        step_functions_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "lambda:InvokeFunction"
+                ],
+                resources=[
+                    f"arn:aws:lambda:{self.region}:{self.account}:function:StravaAIBoost-*"
+                ]
+            )
+        )
+
+        # Add permissions for CloudWatch Logs
+        step_functions_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "logs:CreateLogDelivery",
+                    "logs:GetLogDelivery",
+                    "logs:UpdateLogDelivery",
+                    "logs:DeleteLogDelivery",
+                    "logs:ListLogDeliveries",
+                    "logs:PutResourcePolicy",
+                    "logs:DescribeResourcePolicies",
+                    "logs:DescribeLogGroups"
+                ],
+                resources=["*"]
+            )
+        )
         
         # Create CloudWatch log group for Step Functions
         log_group = logs.LogGroup(
@@ -222,7 +371,7 @@ class ContentGenerationStack(Stack):
             state_machine_name="StravaAIBoost-ActivityProcessing",
             definition_body=sfn.DefinitionBody.from_chainable(definition),
             timeout=Duration.minutes(30),
-            role=self.core_stack.step_functions_role,
+            role=step_functions_role,
             logs=sfn.LogOptions(
                 destination=log_group,
                 level=sfn.LogLevel.ALL
@@ -235,7 +384,7 @@ class ContentGenerationStack(Stack):
             self.content_generator,
             self.strava_updater
         ]:
-            lambda_function.grant_invoke(self.core_stack.step_functions_role)
+            lambda_function.grant_invoke(step_functions_role)
 
     @property
     def state_machine_arn(self) -> str:

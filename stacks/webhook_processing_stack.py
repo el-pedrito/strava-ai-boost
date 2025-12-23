@@ -28,11 +28,13 @@ class WebhookProcessingStack(Stack):
         scope: Construct, 
         construct_id: str, 
         core_stack: CoreInfrastructureStack,
+        step_functions_arn: str = None,
         **kwargs
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
         
         self.core_stack = core_stack
+        self.step_functions_arn = step_functions_arn
         
         # Create SQS queues
         self._create_sqs_queues()
@@ -99,6 +101,16 @@ class WebhookProcessingStack(Stack):
         self.core_stack.strava_oauth_secret.grant_read(self.webhook_handler)
         
         # Activity processor Lambda (triggered by SQS)
+        activity_processor_env = {
+            "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
+            "RATE_LIMITS_TABLE": self.core_stack.table_names["rate_limits"],
+            "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name
+        }
+        
+        # Add Step Functions ARN if provided
+        if self.step_functions_arn:
+            activity_processor_env["STEP_FUNCTIONS_ARN"] = self.step_functions_arn
+        
         self.activity_processor = lambda_.Function(
             self, "ActivityProcessor",
             function_name="StravaAIBoost-ActivityProcessor",
@@ -108,11 +120,7 @@ class WebhookProcessingStack(Stack):
             timeout=Duration.seconds(300),  # 5 minutes for Strava API calls
             memory_size=512,
             # Create role locally instead of using core stack role
-            environment={
-                "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
-                "RATE_LIMITS_TABLE": self.core_stack.table_names["rate_limits"],
-                "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name
-            }
+            environment=activity_processor_env
         )
 
         # Grant SQS permissions to activity processor
@@ -124,6 +132,16 @@ class WebhookProcessingStack(Stack):
         
         # Grant Secrets Manager permissions to activity processor
         self.core_stack.strava_oauth_secret.grant_read(self.activity_processor)
+        
+        # Grant Step Functions permissions to activity processor if ARN provided
+        if self.step_functions_arn:
+            self.activity_processor.add_to_role_policy(
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=["states:StartExecution"],
+                    resources=[self.step_functions_arn]
+                )
+            )
         
         # Add SQS event source to activity processor
         self.activity_processor.add_event_source(

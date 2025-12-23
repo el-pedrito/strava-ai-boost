@@ -5,12 +5,14 @@ Pydantic models for type safety and validation across the system.
 """
 
 from typing import List, Optional, Dict, Any, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict, field_serializer
 from datetime import datetime
 
 
 class ActivityData(BaseModel):
     """Strava activity data model with 67+ fields"""
+    
+    model_config = ConfigDict()
     
     # Core activity fields
     id: str
@@ -62,10 +64,10 @@ class ActivityData(BaseModel):
     has_heartrate: bool = False
     has_kudoed: bool = False
     
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    @field_serializer('start_date', 'start_date_local')
+    def serialize_datetime(self, value: Optional[datetime]) -> Optional[str]:
+        """Serialize datetime to ISO format"""
+        return value.isoformat() if value else None
 
 
 class StreamsData(BaseModel):
@@ -95,6 +97,8 @@ class StreamsData(BaseModel):
 class ProcessingStatus(BaseModel):
     """Activity processing status tracking"""
     
+    model_config = ConfigDict()
+    
     activity_id: str
     user_id: str
     status: Literal['queued', 'processing', 'completed', 'failed'] = 'queued'
@@ -104,14 +108,16 @@ class ProcessingStatus(BaseModel):
     modules_active: List[str] = []
     processing_time_ms: Optional[int] = None
     
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    @field_serializer('timestamp')
+    def serialize_timestamp(self, value: datetime) -> str:
+        """Serialize timestamp to ISO format"""
+        return value.isoformat()
 
 
 class ModuleConfig(BaseModel):
     """Module configuration model"""
+    
+    model_config = ConfigDict()
     
     module_id: str
     name: str
@@ -123,10 +129,10 @@ class ModuleConfig(BaseModel):
     settings: Dict[str, Any] = {}
     last_updated: datetime = Field(default_factory=datetime.utcnow)
     
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    @field_serializer('last_updated')
+    def serialize_last_updated(self, value: datetime) -> str:
+        """Serialize last_updated to ISO format"""
+        return value.isoformat()
 
 
 class ModuleInsight(BaseModel):
@@ -162,11 +168,18 @@ class EnhancedContent(BaseModel):
 class StravaRateLimit(BaseModel):
     """Strava API rate limit tracking"""
     
+    model_config = ConfigDict()
+    
     limit_type: Literal['short_term', 'daily'] = 'short_term'
     current_usage: int = Field(ge=0)
     limit: int = Field(gt=0)
     reset_time: datetime
     last_request: datetime = Field(default_factory=datetime.utcnow)
+    
+    @field_serializer('reset_time', 'last_request')
+    def serialize_datetime(self, value: datetime) -> str:
+        """Serialize datetime to ISO format"""
+        return value.isoformat()
     
     @property
     def usage_percentage(self) -> float:
@@ -177,15 +190,12 @@ class StravaRateLimit(BaseModel):
     def is_near_limit(self, threshold: float = 80.0) -> bool:
         """Check if usage is near the limit"""
         return self.usage_percentage >= threshold
-    
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
 
 
 class CampusCoachSession(BaseModel):
     """Campus Coach training session model"""
+    
+    model_config = ConfigDict()
     
     session_id: str
     session_date: str  # YYYY-MM-DD format
@@ -197,14 +207,16 @@ class CampusCoachSession(BaseModel):
     target_pace: Optional[str] = None
     extracted_at: datetime = Field(default_factory=datetime.utcnow)
     
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    @field_serializer('extracted_at')
+    def serialize_extracted_at(self, value: datetime) -> str:
+        """Serialize extracted_at to ISO format"""
+        return value.isoformat()
 
 
 class SystemStatus(BaseModel):
     """Overall system status"""
+    
+    model_config = ConfigDict()
     
     strava_connected: bool = False
     agentcore_status: Literal['healthy', 'degraded', 'unhealthy'] = 'unhealthy'
@@ -221,6 +233,11 @@ class SystemStatus(BaseModel):
     dynamodb_healthy: bool = True
     step_functions_healthy: bool = True
     
+    @field_serializer('last_activity_processed', 'enhancement_paused_at')
+    def serialize_datetime(self, value: Optional[datetime]) -> Optional[str]:
+        """Serialize datetime to ISO format"""
+        return value.isoformat() if value else None
+    
     @property
     def is_paused(self) -> bool:
         """Check if enhancement is currently paused"""
@@ -232,8 +249,3 @@ class SystemStatus(BaseModel):
         if self.enhancement_paused_at and not self.enhancement_enabled:
             return (datetime.utcnow() - self.enhancement_paused_at).total_seconds() / 3600
         return None
-    
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }

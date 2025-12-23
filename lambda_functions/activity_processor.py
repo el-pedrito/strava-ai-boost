@@ -11,6 +11,7 @@ import logging
 from typing import Dict, Any, List
 import boto3
 from botocore.exceptions import ClientError
+from datetime import datetime, UTC
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -23,6 +24,7 @@ dynamodb = boto3.resource('dynamodb')
 ACTIVITIES_TABLE = os.environ['ACTIVITIES_TABLE']
 RATE_LIMITS_TABLE = os.environ['RATE_LIMITS_TABLE']
 STRAVA_OAUTH_SECRET = os.environ['STRAVA_OAUTH_SECRET']
+STEP_FUNCTIONS_ARN = os.environ['STEP_FUNCTIONS_ARN']
 
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -60,20 +62,26 @@ def process_activity_record(record: Dict[str, Any]) -> None:
             raise Exception("Rate limits exceeded")
         
         # Update activity status to processing
-        update_activity_status(activity_id, 'processing')
+        update_activity_status(activity_id, 'processing', critical=True)
         
-        # TODO: Start Step Functions workflow
-        # For now, just log the processing
-        logger.info(f"Would start Step Functions workflow for activity {activity_id}")
+        # Start Step Functions workflow
+        execution_arn = start_step_functions_workflow(activity_id, user_id, message_body)
         
-        # Update status to completed (placeholder)
-        update_activity_status(activity_id, 'completed')
+        if execution_arn:
+            logger.info(f"Started Step Functions workflow for activity {activity_id}: {execution_arn}")
+            # Status will be updated by the workflow
+        else:
+            logger.error(f"Failed to start Step Functions workflow for activity {activity_id}")
+            update_activity_status(activity_id, 'failed', 'Failed to start workflow', critical=False)
+            # Raise exception to trigger SQS retry
+            raise Exception("Failed to start Step Functions workflow")
         
     except Exception as e:
         logger.error(f"Failed to process activity record: {str(e)}")
         # Update status to failed
         if 'activity_id' in locals():
-            update_activity_status(activity_id, 'failed', str(e))
+            update_activity_status(activity_id, 'failed', str(e), critical=False)
+        # Re-raise to trigger SQS retry
         raise
 
 
@@ -107,7 +115,8 @@ def check_rate_limits() -> bool:
 def update_activity_status(
     activity_id: str, 
     status: str, 
-    error_message: str = None
+    error_message: str = None,
+    critical: bool = False
 ) -> None:
     """Update activity processing status in DynamoDB"""
     try:
@@ -116,7 +125,7 @@ def update_activity_status(
         update_expression = "SET processing_status = :status, updated_at = :timestamp"
         expression_values = {
             ':status': status,
-            ':timestamp': context.aws_request_id  # Use request ID as timestamp
+            ':timestamp': datetime.now(UTC).isoformat()  # Use current timestamp
         }
         
         if error_message:
@@ -133,4 +142,62 @@ def update_activity_status(
         
     except Exception as e:
         logger.error(f"Failed to update activity status: {str(e)}")
-        # Don't raise - this is not critical for processing
+        # For critical status updates (like initial processing), raise to trigger retry
+        if critical:
+            raise
+        # For non-critical updates (like final status), don't raise
+
+
+def start_step_functions_workflow(
+    activity_id: str, 
+    user_id: str, 
+    webhook_data: Dict[str, Any]
+) -> str:
+    """Start Step Functions workflow for activity processing"""
+    try:
+        # Prepare input for Step Functions
+        workflow_input = {
+            'activity_id': activity_id,
+            'user_id': user_id,
+            'webhook_data': webhook_data,
+            'processing_started_at': datetime.now(UTC).isoformat()
+        }
+        
+        # Start execution
+        response = stepfunctions.start_execution(
+            stateMachineArn=STEP_FUNCTIONS_ARN,
+            name=f"activity-{activity_id}-{int(datetime.now(UTC).timestamp())}",
+            input=json.dumps(workflow_input)
+        )
+        
+        execution_arn = response['executionArn']
+        
+        # Update activity with execution ARN for tracking
+        update_activity_execution_arn(activity_id, execution_arn)
+        
+        return execution_arn
+        
+    except Exception as e:
+        logger.error(f"Failed to start Step Functions workflow: {str(e)}")
+        # Re-raise to trigger SQS retry
+        raise
+
+
+def update_activity_execution_arn(activity_id: str, execution_arn: str) -> None:
+    """Update activity record with Step Functions execution ARN"""
+    try:
+        table = dynamodb.Table(ACTIVITIES_TABLE)
+        
+        table.update_item(
+            Key={'activity_id': activity_id},
+            UpdateExpression="SET execution_arn = :arn, processing_status = :status",
+            ExpressionAttributeValues={
+                ':arn': execution_arn,
+                ':status': 'processing'
+            }
+        )
+        
+        logger.info(f"Updated activity {activity_id} with execution ARN")
+        
+    except Exception as e:
+        logger.error(f"Failed to update execution ARN: {str(e)}")
