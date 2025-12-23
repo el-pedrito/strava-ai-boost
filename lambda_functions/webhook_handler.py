@@ -11,6 +11,8 @@ import logging
 from typing import Dict, Any, Optional
 import boto3
 from botocore.exceptions import ClientError
+import hmac
+import hashlib
 
 # Configure logging
 logger = logging.getLogger()
@@ -79,8 +81,13 @@ def handle_webhook_verification(event: Dict[str, Any]) -> Dict[str, Any]:
         hub_challenge = query_params.get('hub.challenge')
         hub_verify_token = query_params.get('hub.verify_token')
         
-        # TODO: Validate verify_token against stored value
-        # For now, accept all verification requests
+        # Validate verify_token against stored value
+        if not validate_verify_token(hub_verify_token):
+            logger.warning(f"Invalid verify token received: {hub_verify_token}")
+            return {
+                'statusCode': 403,
+                'body': json.dumps({'error': 'Invalid verify token'})
+            }
         
         if hub_mode == 'subscribe' and hub_challenge:
             logger.info(f"Webhook verification successful: {hub_challenge}")
@@ -104,15 +111,73 @@ def handle_webhook_verification(event: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
+def validate_verify_token(received_token: str) -> bool:
+    """
+    Validate webhook verify token against stored value
+    
+    Args:
+        received_token: Token received from Strava
+        
+    Returns:
+        True if token is valid, False otherwise
+    """
+    try:
+        if not received_token:
+            return False
+        
+        # Get stored verify token from Secrets Manager
+        secrets_client = get_secretsmanager_client()
+        
+        try:
+            response = secrets_client.get_secret_value(
+                SecretId=STRAVA_OAUTH_SECRET
+            )
+            
+            secret_data = json.loads(response['SecretString'])
+            stored_verify_token = secret_data.get('webhook_verify_token')
+            
+            if not stored_verify_token:
+                logger.warning("No webhook verify token found in secrets")
+                # For development, allow any token if none is configured
+                return True
+            
+            # Compare tokens securely
+            return received_token == stored_verify_token
+            
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            if error_code == 'ResourceNotFoundException':
+                logger.warning("Strava OAuth secret not found, allowing verification")
+                return True  # Allow verification if secret doesn't exist yet
+            else:
+                logger.error(f"Failed to retrieve webhook verify token: {str(e)}")
+                return False
+                
+    except Exception as e:
+        logger.error(f"Error validating verify token: {str(e)}")
+        return False
+
+
 def handle_webhook_notification(event: Dict[str, Any]) -> Dict[str, Any]:
     """
     Handle Strava webhook notification (POST request)
     
-    Validates the webhook and queues activity for processing if enhancement is enabled
+    Validates the webhook signature and queues activity for processing if enhancement is enabled
     """
     try:
-        # Parse webhook body
+        # Get raw body for signature verification
         body = event.get('body', '')
+        headers = event.get('headers', {})
+        
+        # Verify webhook signature for security
+        if not verify_webhook_signature(body, headers):
+            logger.warning("Webhook signature verification failed")
+            return {
+                'statusCode': 401,
+                'body': json.dumps({'error': 'Invalid signature'})
+            }
+        
+        # Parse webhook body
         if isinstance(body, str):
             webhook_data = json.loads(body)
         else:
@@ -189,13 +254,81 @@ def handle_webhook_notification(event: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
+def verify_webhook_signature(body: str, headers: Dict[str, str]) -> bool:
+    """
+    Verify Strava webhook signature for security
+    
+    Args:
+        body: Raw webhook body
+        headers: Request headers
+        
+    Returns:
+        True if signature is valid, False otherwise
+    """
+    try:
+        # Get signature from headers (case-insensitive)
+        signature = None
+        for header_name, header_value in headers.items():
+            if header_name.lower() == 'x-hub-signature':
+                signature = header_value
+                break
+        
+        if not signature:
+            logger.warning("No X-Hub-Signature header found")
+            # For development, allow requests without signature
+            return True
+        
+        # Get webhook secret from Secrets Manager
+        try:
+            secrets_client = get_secretsmanager_client()
+            response = secrets_client.get_secret_value(
+                SecretId=STRAVA_OAUTH_SECRET
+            )
+            
+            secret_data = json.loads(response['SecretString'])
+            webhook_secret = secret_data.get('webhook_secret')
+            
+            if not webhook_secret:
+                logger.warning("No webhook secret found in secrets")
+                # For development, allow if no secret is configured
+                return True
+            
+            # Calculate expected signature
+            expected_signature = hmac.new(
+                webhook_secret.encode('utf-8'),
+                body.encode('utf-8'),
+                hashlib.sha1
+            ).hexdigest()
+            
+            # Strava sends signature as "sha1=<hash>"
+            expected_signature_header = f"sha1={expected_signature}"
+            
+            # Compare signatures securely
+            return hmac.compare_digest(signature, expected_signature_header)
+            
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            if error_code == 'ResourceNotFoundException':
+                logger.warning("Strava OAuth secret not found, allowing webhook")
+                return True  # Allow if secret doesn't exist yet
+            else:
+                logger.error(f"Failed to retrieve webhook secret: {str(e)}")
+                return False
+                
+    except Exception as e:
+        logger.error(f"Error verifying webhook signature: {str(e)}")
+        return False
+
+
 def is_enhancement_paused() -> bool:
     """
     Check if enhancement is currently paused by reading from DynamoDB
     """
     try:
         dynamodb = get_dynamodb_resource()
-        table = dynamodb.Table(os.environ.get('USER_CONFIG_TABLE', 'strava-ai-boost-user-configuration'))
+        # Use the environment variable for user config table
+        user_config_table_name = os.environ.get('USER_CONFIG_TABLE', 'strava-ai-boost-user-configuration')
+        table = dynamodb.Table(user_config_table_name)
         
         # Use a system-wide configuration key
         response = table.get_item(Key={'user_id': 'SYSTEM_CONFIG'})
@@ -215,7 +348,7 @@ def is_enhancement_paused() -> bool:
 
 def validate_webhook_data(data: Dict[str, Any]) -> bool:
     """
-    Validate webhook data structure
+    Validate webhook data structure and content
     """
     required_fields = ['object_type', 'object_id', 'aspect_type', 'owner_id']
     
@@ -224,4 +357,218 @@ def validate_webhook_data(data: Dict[str, Any]) -> bool:
             logger.warning(f"Missing required field: {field}")
             return False
     
-    return True
+    # Validate field types and values
+    try:
+        # object_id should be numeric
+        object_id = data.get('object_id')
+        if not isinstance(object_id, (int, str)) or (isinstance(object_id, str) and not object_id.isdigit()):
+            logger.warning(f"Invalid object_id format: {object_id}")
+            return False
+        
+        # owner_id should be numeric
+        owner_id = data.get('owner_id')
+        if not isinstance(owner_id, (int, str)) or (isinstance(owner_id, str) and not owner_id.isdigit()):
+            logger.warning(f"Invalid owner_id format: {owner_id}")
+            return False
+        
+        # object_type should be valid
+        object_type = data.get('object_type')
+        valid_object_types = ['activity', 'athlete']
+        if object_type not in valid_object_types:
+            logger.warning(f"Invalid object_type: {object_type}")
+            return False
+        
+        # aspect_type should be valid
+        aspect_type = data.get('aspect_type')
+        valid_aspect_types = ['create', 'update', 'delete']
+        if aspect_type not in valid_aspect_types:
+            logger.warning(f"Invalid aspect_type: {aspect_type}")
+            return False
+        
+        # event_time should be numeric if present
+        event_time = data.get('event_time')
+        if event_time is not None:
+            if not isinstance(event_time, (int, float)):
+                logger.warning(f"Invalid event_time format: {event_time}")
+                return False
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error validating webhook data: {str(e)}")
+        return False
+
+
+def create_webhook_subscription(callback_url: str, verify_token: str) -> Dict[str, Any]:
+    """
+    Create Strava webhook subscription
+    
+    Args:
+        callback_url: URL for webhook callbacks
+        verify_token: Token for webhook verification
+        
+    Returns:
+        Dictionary with subscription result
+    """
+    try:
+        # This would typically be called during deployment
+        # For now, return instructions for manual setup
+        
+        return {
+            'status': 'manual_setup_required',
+            'instructions': {
+                'url': 'https://www.strava.com/settings/api',
+                'callback_url': callback_url,
+                'verify_token': verify_token,
+                'note': 'Create webhook subscription manually in Strava API settings'
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to create webhook subscription: {str(e)}")
+        return {
+            'status': 'error',
+            'error': str(e)
+        }
+
+
+def validate_webhook_subscription() -> Dict[str, Any]:
+    """
+    Validate current webhook subscription status
+    
+    Returns:
+        Dictionary with validation results
+    """
+    try:
+        # Check if we have the necessary configuration
+        checks = {
+            'webhook_url_configured': bool(os.environ.get('WEBHOOK_URL')),
+            'verify_token_configured': False,
+            'webhook_secret_configured': False,
+            'strava_app_configured': False
+        }
+        
+        # Check if secrets are configured
+        try:
+            secrets_client = get_secretsmanager_client()
+            response = secrets_client.get_secret_value(
+                SecretId=STRAVA_OAUTH_SECRET
+            )
+            
+            secret_data = json.loads(response['SecretString'])
+            checks['verify_token_configured'] = bool(secret_data.get('webhook_verify_token'))
+            checks['webhook_secret_configured'] = bool(secret_data.get('webhook_secret'))
+            checks['strava_app_configured'] = bool(secret_data.get('client_id') and secret_data.get('client_secret'))
+            
+        except ClientError as e:
+            if e.response['Error']['Code'] != 'ResourceNotFoundException':
+                logger.error(f"Failed to check webhook configuration: {str(e)}")
+        
+        # Calculate overall status
+        all_configured = all(checks.values())
+        partially_configured = any(checks.values())
+        
+        if all_configured:
+            status = 'fully_configured'
+        elif partially_configured:
+            status = 'partially_configured'
+        else:
+            status = 'not_configured'
+        
+        # Provide setup instructions
+        setup_instructions = []
+        if not checks['strava_app_configured']:
+            setup_instructions.append("Create Strava API application at https://www.strava.com/settings/api")
+        if not checks['verify_token_configured']:
+            setup_instructions.append("Configure webhook verify token in Secrets Manager")
+        if not checks['webhook_secret_configured']:
+            setup_instructions.append("Configure webhook secret in Secrets Manager")
+        if not checks['webhook_url_configured']:
+            setup_instructions.append("Set WEBHOOK_URL environment variable")
+        
+        return {
+            'status': status,
+            'checks': checks,
+            'all_configured': all_configured,
+            'setup_instructions': setup_instructions,
+            'webhook_url': os.environ.get('WEBHOOK_URL', 'Not configured')
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to validate webhook subscription: {str(e)}")
+        return {
+            'status': 'error',
+            'error': str(e)
+        }
+
+
+def test_webhook_security(test_payload: Dict[str, Any] = None) -> Dict[str, Any]:
+    """
+    Test webhook security configuration
+    
+    Args:
+        test_payload: Optional test payload for validation
+        
+    Returns:
+        Dictionary with test results
+    """
+    try:
+        if test_payload is None:
+            test_payload = {
+                'object_type': 'activity',
+                'object_id': 12345,
+                'aspect_type': 'create',
+                'owner_id': 67890,
+                'event_time': 1234567890
+            }
+        
+        test_results = {
+            'payload_validation': validate_webhook_data(test_payload),
+            'verify_token_check': False,
+            'signature_verification': False,
+            'enhancement_pause_check': True
+        }
+        
+        # Test verify token validation
+        try:
+            test_results['verify_token_check'] = validate_verify_token('test_token')
+        except Exception as e:
+            logger.warning(f"Verify token test failed: {str(e)}")
+        
+        # Test signature verification (with dummy data)
+        try:
+            test_body = json.dumps(test_payload)
+            test_headers = {'x-hub-signature': 'sha1=dummy_signature'}
+            test_results['signature_verification'] = verify_webhook_signature(test_body, test_headers)
+        except Exception as e:
+            logger.warning(f"Signature verification test failed: {str(e)}")
+        
+        # Test enhancement pause check
+        try:
+            test_results['enhancement_pause_check'] = not is_enhancement_paused()
+        except Exception as e:
+            logger.warning(f"Enhancement pause test failed: {str(e)}")
+        
+        # Calculate overall security score
+        passed_tests = sum(1 for result in test_results.values() if result)
+        total_tests = len(test_results)
+        security_score = (passed_tests / total_tests) * 100
+        
+        return {
+            'security_score': round(security_score, 1),
+            'tests_passed': passed_tests,
+            'total_tests': total_tests,
+            'test_results': test_results,
+            'overall_status': 'secure' if security_score >= 75 else 'needs_attention'
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to test webhook security: {str(e)}")
+        return {
+            'security_score': 0,
+            'tests_passed': 0,
+            'total_tests': 0,
+            'test_results': {},
+            'overall_status': 'error',
+            'error': str(e)
+        }

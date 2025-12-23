@@ -13,7 +13,7 @@ import logging
 from typing import Dict, Any, Optional
 import boto3
 from botocore.exceptions import ClientError
-from datetime import datetime
+from datetime import datetime, timedelta
 from rate_limiter import check_rate_limit, create_rate_limit_response, add_rate_limit_headers, extract_client_info
 
 logger = logging.getLogger()
@@ -23,6 +23,7 @@ logger.setLevel(logging.INFO)
 dynamodb = boto3.resource('dynamodb')
 stepfunctions = boto3.client('stepfunctions')
 sqs = boto3.client('sqs')
+cloudwatch = boto3.client('cloudwatch')
 
 # Environment variables
 ACTIVITIES_TABLE = os.environ['ACTIVITIES_TABLE']
@@ -281,61 +282,287 @@ def get_recent_activities_status() -> Dict[str, Any]:
 def get_queue_status() -> Dict[str, Any]:
     """Get SQS queue status information"""
     try:
-        # TODO: Get actual queue URLs from environment or configuration
-        # For now, return placeholder data
+        queue_status = {}
         
-        return {
-            'processing_queue': {
-                'approximate_messages': 0,
-                'approximate_messages_not_visible': 0,
-                'status': 'healthy'
-            },
-            'dead_letter_queue': {
-                'approximate_messages': 0,
-                'status': 'healthy'
-            },
-            'note': 'Queue status requires SQS queue URL configuration'
-        }
+        # Get processing queue status
+        processing_queue_url = os.environ.get('PROCESSING_QUEUE_URL')
+        if processing_queue_url:
+            try:
+                processing_attrs = sqs.get_queue_attributes(
+                    QueueUrl=processing_queue_url,
+                    AttributeNames=[
+                        'ApproximateNumberOfMessages',
+                        'ApproximateNumberOfMessagesNotVisible',
+                        'ApproximateNumberOfMessagesDelayed'
+                    ]
+                )
+                
+                queue_status['processing_queue'] = {
+                    'approximate_messages': int(processing_attrs['Attributes'].get('ApproximateNumberOfMessages', 0)),
+                    'approximate_messages_not_visible': int(processing_attrs['Attributes'].get('ApproximateNumberOfMessagesNotVisible', 0)),
+                    'approximate_messages_delayed': int(processing_attrs['Attributes'].get('ApproximateNumberOfMessagesDelayed', 0)),
+                    'status': 'healthy',
+                    'queue_url': processing_queue_url
+                }
+                
+                # Determine queue health
+                total_messages = queue_status['processing_queue']['approximate_messages']
+                if total_messages > 50:
+                    queue_status['processing_queue']['status'] = 'backlogged'
+                elif total_messages > 100:
+                    queue_status['processing_queue']['status'] = 'critical'
+                    
+            except Exception as e:
+                logger.error(f"Failed to get processing queue status: {str(e)}")
+                queue_status['processing_queue'] = {
+                    'status': 'error',
+                    'error': str(e)
+                }
+        else:
+            queue_status['processing_queue'] = {
+                'status': 'not_configured',
+                'note': 'PROCESSING_QUEUE_URL not set'
+            }
+        
+        # Get dead letter queue status
+        dlq_url = os.environ.get('DLQ_URL')
+        if dlq_url:
+            try:
+                dlq_attrs = sqs.get_queue_attributes(
+                    QueueUrl=dlq_url,
+                    AttributeNames=[
+                        'ApproximateNumberOfMessages',
+                        'ApproximateNumberOfMessagesNotVisible'
+                    ]
+                )
+                
+                dlq_messages = int(dlq_attrs['Attributes'].get('ApproximateNumberOfMessages', 0))
+                
+                queue_status['dead_letter_queue'] = {
+                    'approximate_messages': dlq_messages,
+                    'approximate_messages_not_visible': int(dlq_attrs['Attributes'].get('ApproximateNumberOfMessagesNotVisible', 0)),
+                    'status': 'healthy' if dlq_messages < 10 else 'attention_needed',
+                    'queue_url': dlq_url
+                }
+                
+                if dlq_messages > 20:
+                    queue_status['dead_letter_queue']['status'] = 'critical'
+                    
+            except Exception as e:
+                logger.error(f"Failed to get DLQ status: {str(e)}")
+                queue_status['dead_letter_queue'] = {
+                    'status': 'error',
+                    'error': str(e)
+                }
+        else:
+            queue_status['dead_letter_queue'] = {
+                'status': 'not_configured',
+                'note': 'DLQ_URL not set'
+            }
+        
+        # Add overall queue health assessment
+        processing_healthy = queue_status.get('processing_queue', {}).get('status') in ['healthy', 'backlogged']
+        dlq_healthy = queue_status.get('dead_letter_queue', {}).get('status') in ['healthy', 'not_configured']
+        
+        queue_status['overall_status'] = 'healthy' if processing_healthy and dlq_healthy else 'degraded'
+        
+        return queue_status
         
     except Exception as e:
         logger.error(f"Failed to get queue status: {str(e)}")
         return {
             'processing_queue': {'status': 'error'},
             'dead_letter_queue': {'status': 'error'},
+            'overall_status': 'error',
             'error': str(e)
         }
 
 
 def get_system_health() -> Dict[str, Any]:
-    """Get system health indicators"""
+    """Get system health indicators with comprehensive monitoring"""
     try:
+        health_checks = {}
+        
         # Check DynamoDB table accessibility
-        table_health = check_dynamodb_health()
+        health_checks['dynamodb_accessible'] = check_dynamodb_health()
         
         # Check recent error rates
-        error_rate = calculate_recent_error_rate()
+        health_checks['recent_error_rate'] = calculate_recent_error_rate()
         
-        # Determine overall health
-        overall_health = 'healthy'
-        if not table_health or error_rate > 10:  # More than 10% error rate
+        # Check Step Functions health
+        health_checks['step_functions_healthy'] = check_step_functions_health()
+        
+        # Check SQS queues health
+        queue_status = get_queue_status()
+        health_checks['sqs_healthy'] = queue_status.get('overall_status') == 'healthy'
+        
+        # Check Lambda functions health via CloudWatch metrics
+        health_checks['lambda_functions_healthy'] = check_lambda_functions_health()
+        
+        # Check Secrets Manager accessibility
+        health_checks['secrets_manager_healthy'] = check_secrets_manager_health()
+        
+        # Calculate overall health score
+        healthy_components = sum(1 for check in health_checks.values() if isinstance(check, bool) and check)
+        total_components = sum(1 for check in health_checks.values() if isinstance(check, bool))
+        
+        if total_components == 0:
+            health_score = 0
+        else:
+            health_score = (healthy_components / total_components) * 100
+        
+        # Determine overall health status
+        if health_score >= 90:
+            overall_health = 'healthy'
+        elif health_score >= 70:
             overall_health = 'degraded'
-        if error_rate > 50:  # More than 50% error rate
+        else:
             overall_health = 'unhealthy'
+        
+        # Get specific component issues
+        issues = []
+        if not health_checks.get('dynamodb_accessible', True):
+            issues.append('DynamoDB connectivity issues')
+        if health_checks.get('recent_error_rate', 0) > 10:
+            issues.append(f"High error rate: {health_checks['recent_error_rate']}%")
+        if not health_checks.get('step_functions_healthy', True):
+            issues.append('Step Functions execution issues')
+        if not health_checks.get('sqs_healthy', True):
+            issues.append('SQS queue issues')
+        if not health_checks.get('lambda_functions_healthy', True):
+            issues.append('Lambda function errors')
+        if not health_checks.get('secrets_manager_healthy', True):
+            issues.append('Secrets Manager access issues')
         
         return {
             'overall_health': overall_health,
-            'dynamodb_accessible': table_health,
-            'recent_error_rate': error_rate,
-            'last_check': datetime.utcnow().isoformat()
+            'health_score': round(health_score, 1),
+            'component_health': health_checks,
+            'issues': issues,
+            'last_check': datetime.utcnow().isoformat(),
+            'monitoring_enabled': True
         }
         
     except Exception as e:
         logger.error(f"Failed to get system health: {str(e)}")
         return {
             'overall_health': 'unknown',
+            'health_score': 0,
+            'component_health': {},
+            'issues': [f'Health check failed: {str(e)}'],
             'error': str(e),
             'last_check': datetime.utcnow().isoformat()
         }
+
+
+def check_step_functions_health() -> bool:
+    """Check Step Functions health by looking at recent execution metrics"""
+    try:
+        step_functions_arn = os.environ.get('STEP_FUNCTIONS_ARN')
+        if not step_functions_arn:
+            return True  # Assume healthy if not configured
+        
+        # Check recent executions (last hour)
+        one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+        
+        response = stepfunctions.list_executions(
+            stateMachineArn=step_functions_arn,
+            maxResults=20
+        )
+        
+        recent_executions = [
+            exec for exec in response.get('executions', [])
+            if exec['startDate'] >= one_hour_ago
+        ]
+        
+        if not recent_executions:
+            return True  # No recent executions, assume healthy
+        
+        # Calculate success rate
+        failed_executions = [
+            exec for exec in recent_executions
+            if exec['status'] in ['FAILED', 'TIMED_OUT', 'ABORTED']
+        ]
+        
+        failure_rate = len(failed_executions) / len(recent_executions) * 100
+        return failure_rate < 20  # Healthy if less than 20% failure rate
+        
+    except Exception as e:
+        logger.warning(f"Step Functions health check failed: {str(e)}")
+        return False
+
+
+def check_lambda_functions_health() -> bool:
+    """Check Lambda functions health via CloudWatch metrics"""
+    try:
+        # Check error rates for key Lambda functions in the last hour
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(hours=1)
+        
+        lambda_functions = [
+            'StravaAIBoost-WebhookHandler',
+            'StravaAIBoost-ActivityProcessor',
+            'StravaAIBoost-ContentGenerator'
+        ]
+        
+        total_errors = 0
+        total_invocations = 0
+        
+        for function_name in lambda_functions:
+            try:
+                # Get error count
+                error_response = cloudwatch.get_metric_statistics(
+                    Namespace='AWS/Lambda',
+                    MetricName='Errors',
+                    Dimensions=[{'Name': 'FunctionName', 'Value': function_name}],
+                    StartTime=start_time,
+                    EndTime=end_time,
+                    Period=3600,
+                    Statistics=['Sum']
+                )
+                
+                # Get invocation count
+                invocation_response = cloudwatch.get_metric_statistics(
+                    Namespace='AWS/Lambda',
+                    MetricName='Invocations',
+                    Dimensions=[{'Name': 'FunctionName', 'Value': function_name}],
+                    StartTime=start_time,
+                    EndTime=end_time,
+                    Period=3600,
+                    Statistics=['Sum']
+                )
+                
+                if error_response['Datapoints']:
+                    total_errors += error_response['Datapoints'][0]['Sum']
+                
+                if invocation_response['Datapoints']:
+                    total_invocations += invocation_response['Datapoints'][0]['Sum']
+                    
+            except Exception as e:
+                logger.warning(f"Failed to get metrics for {function_name}: {str(e)}")
+                continue
+        
+        if total_invocations == 0:
+            return True  # No invocations, assume healthy
+        
+        error_rate = (total_errors / total_invocations) * 100
+        return error_rate < 10  # Healthy if less than 10% error rate
+        
+    except Exception as e:
+        logger.warning(f"Lambda health check failed: {str(e)}")
+        return False
+
+
+def check_secrets_manager_health() -> bool:
+    """Check Secrets Manager accessibility"""
+    try:
+        # Try to list secrets to verify access
+        secrets_client = boto3.client('secretsmanager')
+        secrets_client.list_secrets(MaxResults=1)
+        return True
+    except Exception as e:
+        logger.warning(f"Secrets Manager health check failed: {str(e)}")
+        return False
 
 
 def check_dynamodb_health() -> bool:
@@ -375,34 +602,250 @@ def calculate_recent_error_rate() -> float:
 def get_step_functions_status(activity_id: str) -> Optional[Dict[str, Any]]:
     """Get Step Functions workflow status for an activity"""
     try:
-        # TODO: Implement Step Functions status lookup
-        # This requires tracking execution ARNs or using tags to find executions
+        # Get Step Functions ARN from environment
+        step_functions_arn = os.environ.get('STEP_FUNCTIONS_ARN')
+        if not step_functions_arn:
+            logger.warning("STEP_FUNCTIONS_ARN environment variable not set")
+            return {
+                'status': 'unknown',
+                'current_step': 'unknown',
+                'note': 'Step Functions ARN not configured'
+            }
         
-        # Placeholder implementation
-        return {
-            'status': 'unknown',
-            'current_step': 'unknown',
-            'note': 'Step Functions status tracking requires execution ARN mapping'
-        }
+        # List recent executions for the state machine
+        # We'll look for executions with the activity_id in the input
+        try:
+            response = stepfunctions.list_executions(
+                stateMachineArn=step_functions_arn,
+                statusFilter='RUNNING',
+                maxResults=50
+            )
+            
+            # Look for execution with matching activity_id
+            matching_execution = None
+            for execution in response.get('executions', []):
+                execution_arn = execution['executionArn']
+                
+                # Get execution details to check input
+                try:
+                    execution_details = stepfunctions.describe_execution(
+                        executionArn=execution_arn
+                    )
+                    
+                    # Parse input to check for activity_id
+                    input_data = json.loads(execution_details.get('input', '{}'))
+                    if input_data.get('activity_id') == activity_id:
+                        matching_execution = execution_details
+                        break
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to get execution details for {execution_arn}: {str(e)}")
+                    continue
+            
+            if matching_execution:
+                # Get execution history to determine current step
+                history_response = stepfunctions.get_execution_history(
+                    executionArn=matching_execution['executionArn'],
+                    reverseOrder=True,
+                    maxResults=10
+                )
+                
+                current_step = 'unknown'
+                for event in history_response.get('events', []):
+                    if event['type'] == 'TaskStateEntered':
+                        current_step = event.get('stateEnteredEventDetails', {}).get('name', 'unknown')
+                        break
+                    elif event['type'] == 'LambdaFunctionScheduled':
+                        # Extract step name from Lambda function name or resource
+                        resource = event.get('lambdaFunctionScheduledEventDetails', {}).get('resource', '')
+                        if 'ActivityFetcher' in resource:
+                            current_step = 'Fetching Activity Data'
+                        elif 'ContentGenerator' in resource:
+                            current_step = 'Generating Content'
+                        elif 'StravaUpdater' in resource:
+                            current_step = 'Updating Strava'
+                        elif 'CampusCoachInvoker' in resource:
+                            current_step = 'Campus Coach Analysis'
+                        break
+                
+                return {
+                    'status': matching_execution['status'].lower(),
+                    'current_step': current_step,
+                    'execution_arn': matching_execution['executionArn'],
+                    'start_date': matching_execution['startDate'].isoformat(),
+                    'state_machine_arn': step_functions_arn
+                }
+            else:
+                # Check for completed/failed executions in the last hour
+                one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+                
+                for status in ['SUCCEEDED', 'FAILED', 'TIMED_OUT', 'ABORTED']:
+                    response = stepfunctions.list_executions(
+                        stateMachineArn=step_functions_arn,
+                        statusFilter=status,
+                        maxResults=20
+                    )
+                    
+                    for execution in response.get('executions', []):
+                        # Only check recent executions
+                        if execution['startDate'] < one_hour_ago:
+                            continue
+                            
+                        execution_arn = execution['executionArn']
+                        try:
+                            execution_details = stepfunctions.describe_execution(
+                                executionArn=execution_arn
+                            )
+                            
+                            input_data = json.loads(execution_details.get('input', '{}'))
+                            if input_data.get('activity_id') == activity_id:
+                                return {
+                                    'status': execution_details['status'].lower(),
+                                    'current_step': 'completed' if status == 'SUCCEEDED' else 'failed',
+                                    'execution_arn': execution_arn,
+                                    'start_date': execution_details['startDate'].isoformat(),
+                                    'end_date': execution_details.get('stopDate', '').isoformat() if execution_details.get('stopDate') else None,
+                                    'state_machine_arn': step_functions_arn
+                                }
+                        except Exception as e:
+                            logger.warning(f"Failed to get execution details for {execution_arn}: {str(e)}")
+                            continue
+                
+                return {
+                    'status': 'not_found',
+                    'current_step': 'not_started',
+                    'note': f'No Step Functions execution found for activity {activity_id}'
+                }
+        
+        except Exception as sf_error:
+            logger.error(f"Step Functions API error: {str(sf_error)}")
+            return {
+                'status': 'error',
+                'current_step': 'unknown',
+                'error': str(sf_error)
+            }
         
     except Exception as e:
         logger.error(f"Failed to get Step Functions status: {str(e)}")
-        return None
+        return {
+            'status': 'error',
+            'current_step': 'unknown',
+            'error': str(e)
+        }
 
 
 def get_retry_information(activity_id: str) -> Dict[str, Any]:
     """Get retry information for failed activities"""
     try:
-        # TODO: Implement retry tracking
-        # This could involve checking SQS DLQ or maintaining retry counters
+        # Check SQS dead letter queue for retry information
+        dlq_url = os.environ.get('DLQ_URL')
+        if not dlq_url:
+            logger.warning("DLQ_URL environment variable not set")
+            return {
+                'retry_count': 0,
+                'max_retries': 3,
+                'next_retry': None,
+                'note': 'DLQ URL not configured'
+            }
         
-        # Placeholder implementation
-        return {
-            'retry_count': 0,
-            'max_retries': 3,
-            'next_retry': None,
-            'note': 'Retry information requires SQS DLQ integration'
-        }
+        try:
+            # Get messages from DLQ to check for this activity
+            response = sqs.receive_message(
+                QueueUrl=dlq_url,
+                MaxNumberOfMessages=10,
+                MessageAttributeNames=['All'],
+                AttributeNames=['All'],
+                WaitTimeSeconds=1  # Short poll
+            )
+            
+            messages = response.get('Messages', [])
+            activity_messages = []
+            
+            for message in messages:
+                try:
+                    # Parse message body to check for activity_id
+                    body = json.loads(message['Body'])
+                    if body.get('activity_id') == activity_id:
+                        activity_messages.append(message)
+                except json.JSONDecodeError:
+                    continue
+            
+            if activity_messages:
+                # Get the most recent message for this activity
+                latest_message = max(activity_messages, 
+                                   key=lambda m: m.get('Attributes', {}).get('SentTimestamp', '0'))
+                
+                # Extract retry information from message attributes
+                attributes = latest_message.get('Attributes', {})
+                message_attributes = latest_message.get('MessageAttributes', {})
+                
+                retry_count = int(attributes.get('ApproximateReceiveCount', '1'))
+                sent_timestamp = int(attributes.get('SentTimestamp', '0')) / 1000  # Convert to seconds
+                sent_time = datetime.fromtimestamp(sent_timestamp) if sent_timestamp > 0 else None
+                
+                # Calculate next retry time (exponential backoff)
+                if retry_count < 3:  # Max retries
+                    backoff_seconds = min(300, 30 * (2 ** retry_count))  # Max 5 minutes
+                    next_retry = sent_time + timedelta(seconds=backoff_seconds) if sent_time else None
+                else:
+                    next_retry = None
+                
+                return {
+                    'retry_count': retry_count - 1,  # Subtract 1 because first receive isn't a retry
+                    'max_retries': 3,
+                    'next_retry': next_retry.isoformat() if next_retry else None,
+                    'last_failure': sent_time.isoformat() if sent_time else None,
+                    'dlq_message_id': latest_message.get('MessageId'),
+                    'failure_reason': message_attributes.get('FailureReason', {}).get('StringValue', 'Unknown')
+                }
+            else:
+                # Check processing queue for retry information
+                processing_queue_url = os.environ.get('PROCESSING_QUEUE_URL')
+                if processing_queue_url:
+                    try:
+                        # Check if activity is currently in processing queue
+                        queue_response = sqs.receive_message(
+                            QueueUrl=processing_queue_url,
+                            MaxNumberOfMessages=10,
+                            MessageAttributeNames=['All'],
+                            WaitTimeSeconds=1
+                        )
+                        
+                        queue_messages = queue_response.get('Messages', [])
+                        for message in queue_messages:
+                            try:
+                                body = json.loads(message['Body'])
+                                if body.get('activity_id') == activity_id:
+                                    attributes = message.get('Attributes', {})
+                                    retry_count = int(attributes.get('ApproximateReceiveCount', '1'))
+                                    
+                                    return {
+                                        'retry_count': retry_count - 1,
+                                        'max_retries': 3,
+                                        'next_retry': None,
+                                        'status': 'queued_for_retry',
+                                        'queue_message_id': message.get('MessageId')
+                                    }
+                            except json.JSONDecodeError:
+                                continue
+                    except Exception as queue_error:
+                        logger.warning(f"Failed to check processing queue: {str(queue_error)}")
+                
+                return {
+                    'retry_count': 0,
+                    'max_retries': 3,
+                    'next_retry': None,
+                    'note': f'No retry information found for activity {activity_id}'
+                }
+        
+        except Exception as sqs_error:
+            logger.error(f"SQS error while checking retry information: {str(sqs_error)}")
+            return {
+                'retry_count': 0,
+                'max_retries': 3,
+                'next_retry': None,
+                'error': str(sqs_error)
+            }
         
     except Exception as e:
         logger.error(f"Failed to get retry information: {str(e)}")

@@ -11,11 +11,12 @@ Provides dashboard data for the local web interface including:
 import json
 import os
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import boto3
 from botocore.exceptions import ClientError
 from datetime import datetime, timedelta
 from rate_limiter import check_rate_limit, create_rate_limit_response, add_rate_limit_headers, extract_client_info
+import time
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -28,6 +29,41 @@ cloudwatch = boto3.client('cloudwatch')
 ACTIVITIES_TABLE = os.environ['ACTIVITIES_TABLE']
 USER_CONFIG_TABLE = os.environ['USER_CONFIG_TABLE']
 COACHING_SESSIONS_TABLE = os.environ['COACHING_SESSIONS_TABLE']
+
+# Simple in-memory cache with TTL for performance optimization
+_cache = {}
+_cache_ttl = {}
+CACHE_TTL_SECONDS = 300  # 5 minutes cache TTL
+
+def get_cached_or_compute(cache_key: str, compute_func, *args, **kwargs):
+    """Get data from cache or compute and cache it"""
+    current_time = time.time()
+    
+    # Check if we have cached data that's still valid
+    if cache_key in _cache and cache_key in _cache_ttl:
+        if current_time < _cache_ttl[cache_key]:
+            logger.info(f"Cache hit for {cache_key}")
+            return _cache[cache_key]
+    
+    # Compute fresh data
+    logger.info(f"Cache miss for {cache_key}, computing fresh data")
+    result = compute_func(*args, **kwargs)
+    
+    # Cache the result
+    _cache[cache_key] = result
+    _cache_ttl[cache_key] = current_time + CACHE_TTL_SECONDS
+    
+    # Clean up old cache entries (simple cleanup)
+    keys_to_remove = []
+    for key, ttl in _cache_ttl.items():
+        if current_time > ttl:
+            keys_to_remove.append(key)
+    
+    for key in keys_to_remove:
+        _cache.pop(key, None)
+        _cache_ttl.pop(key, None)
+    
+    return result
 
 
 # CORS headers
@@ -166,23 +202,41 @@ def create_success_response(data: Dict[str, Any], status_code: int = 200, rate_l
 
 
 def get_dashboard_stats(query_params: Dict[str, str]) -> Dict[str, Any]:
-    """Get dashboard statistics and metrics"""
+    """Get dashboard statistics and metrics with caching"""
     try:
         # Get time range from query params (default: last 30 days)
         days = int(query_params.get('days', '30'))
         start_date = datetime.utcnow() - timedelta(days=days)
         
-        # Get activity processing statistics
-        activity_stats = get_activity_processing_stats(start_date)
+        # Create cache keys based on parameters
+        cache_key_base = f"dashboard_stats_{days}d"
         
-        # Get system performance metrics
-        performance_metrics = get_performance_metrics()
+        # Get activity processing statistics (cached)
+        activity_stats = get_cached_or_compute(
+            f"{cache_key_base}_activity_stats",
+            get_activity_processing_stats,
+            start_date
+        )
         
-        # Get module usage statistics
-        module_stats = get_module_usage_stats(start_date)
+        # Get system performance metrics (cached with shorter TTL)
+        performance_metrics = get_cached_or_compute(
+            f"{cache_key_base}_performance",
+            get_performance_metrics
+        )
         
-        # Get engagement metrics (placeholder)
-        engagement_metrics = get_engagement_metrics(start_date)
+        # Get module usage statistics (cached)
+        module_stats = get_cached_or_compute(
+            f"{cache_key_base}_module_stats",
+            get_module_usage_stats,
+            start_date
+        )
+        
+        # Get engagement metrics (cached)
+        engagement_metrics = get_cached_or_compute(
+            f"{cache_key_base}_engagement",
+            get_engagement_metrics,
+            start_date
+        )
         
         return {
             'time_range': {
@@ -194,7 +248,8 @@ def get_dashboard_stats(query_params: Dict[str, str]) -> Dict[str, Any]:
             'performance_metrics': performance_metrics,
             'module_stats': module_stats,
             'engagement_metrics': engagement_metrics,
-            'last_updated': datetime.utcnow().isoformat()
+            'last_updated': datetime.utcnow().isoformat(),
+            'cache_enabled': True
         }
         
     except Exception as e:
@@ -203,56 +258,119 @@ def get_dashboard_stats(query_params: Dict[str, str]) -> Dict[str, Any]:
 
 
 def get_activity_processing_stats(start_date: datetime) -> Dict[str, Any]:
-    """Get activity processing statistics from DynamoDB"""
+    """Get activity processing statistics from DynamoDB using GSI for better performance"""
     try:
         table = dynamodb.Table(ACTIVITIES_TABLE)
         
-        # Scan activities table for recent activities
-        # TODO: Use GSI with date range for better performance
-        response = table.scan()
+        # Use GSI to query by processing status for better performance
+        # Query completed activities
+        completed_response = table.query(
+            IndexName='ProcessingStatusIndex',
+            KeyConditionExpression='processing_status = :status',
+            ExpressionAttributeValues={
+                ':status': 'completed',
+                ':start_date': start_date.isoformat()
+            },
+            FilterExpression='created_at >= :start_date'
+        )
+        completed_activities = completed_response.get('Items', [])
         
-        activities = response.get('Items', [])
+        # Query failed activities
+        failed_response = table.query(
+            IndexName='ProcessingStatusIndex',
+            KeyConditionExpression='processing_status = :status',
+            ExpressionAttributeValues={
+                ':status': 'failed',
+                ':start_date': start_date.isoformat()
+            },
+            FilterExpression='created_at >= :start_date'
+        )
+        failed_activities = failed_response.get('Items', [])
         
-        # Filter activities by date range
-        recent_activities = []
-        for activity in activities:
-            created_at = activity.get('created_at', '')
-            if created_at:
-                try:
-                    activity_date = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                    if activity_date >= start_date:
-                        recent_activities.append(activity)
-                except ValueError:
-                    # Skip activities with invalid dates
-                    continue
+        # Query processing activities
+        processing_response = table.query(
+            IndexName='ProcessingStatusIndex',
+            KeyConditionExpression='processing_status = :status',
+            ExpressionAttributeValues={
+                ':status': 'processing',
+                ':start_date': start_date.isoformat()
+            },
+            FilterExpression='created_at >= :start_date'
+        )
+        processing_activities = processing_response.get('Items', [])
+        
+        # Combine all activities for total count and type breakdown
+        all_activities = completed_activities + failed_activities + processing_activities
         
         # Calculate statistics
-        total_activities = len(recent_activities)
-        completed_activities = len([a for a in recent_activities if a.get('processing_status') == 'completed'])
-        failed_activities = len([a for a in recent_activities if a.get('processing_status') == 'failed'])
-        processing_activities = len([a for a in recent_activities if a.get('processing_status') == 'processing'])
+        total_activities = len(all_activities)
+        completed_count = len(completed_activities)
+        failed_count = len(failed_activities)
+        processing_count = len(processing_activities)
         
-        success_rate = (completed_activities / total_activities * 100) if total_activities > 0 else 0
+        success_rate = (completed_count / total_activities * 100) if total_activities > 0 else 0
         
         return {
             'total_activities': total_activities,
-            'completed_activities': completed_activities,
-            'failed_activities': failed_activities,
-            'processing_activities': processing_activities,
+            'completed_activities': completed_count,
+            'failed_activities': failed_count,
+            'processing_activities': processing_count,
             'success_rate': round(success_rate, 1),
-            'activity_types': get_activity_type_breakdown(recent_activities)
+            'activity_types': get_activity_type_breakdown(all_activities),
+            'query_method': 'gsi_optimized'
         }
         
     except Exception as e:
-        logger.error(f"Failed to get activity processing stats: {str(e)}")
-        return {
-            'total_activities': 0,
-            'completed_activities': 0,
-            'failed_activities': 0,
-            'processing_activities': 0,
-            'success_rate': 0,
-            'activity_types': {}
-        }
+        logger.error(f"Failed to get activity processing stats with GSI: {str(e)}")
+        # Fallback to scan method
+        logger.info("Falling back to table scan method")
+        
+        try:
+            response = table.scan()
+            activities = response.get('Items', [])
+            
+            # Filter activities by date range
+            recent_activities = []
+            for activity in activities:
+                created_at = activity.get('created_at', '')
+                if created_at:
+                    try:
+                        activity_date = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                        if activity_date >= start_date:
+                            recent_activities.append(activity)
+                    except ValueError:
+                        continue
+            
+            # Calculate statistics
+            total_activities = len(recent_activities)
+            completed_activities = len([a for a in recent_activities if a.get('processing_status') == 'completed'])
+            failed_activities = len([a for a in recent_activities if a.get('processing_status') == 'failed'])
+            processing_activities = len([a for a in recent_activities if a.get('processing_status') == 'processing'])
+            
+            success_rate = (completed_activities / total_activities * 100) if total_activities > 0 else 0
+            
+            return {
+                'total_activities': total_activities,
+                'completed_activities': completed_activities,
+                'failed_activities': failed_activities,
+                'processing_activities': processing_activities,
+                'success_rate': round(success_rate, 1),
+                'activity_types': get_activity_type_breakdown(recent_activities),
+                'query_method': 'scan_fallback'
+            }
+            
+        except Exception as fallback_error:
+            logger.error(f"Fallback scan method also failed: {str(fallback_error)}")
+            return {
+                'total_activities': 0,
+                'completed_activities': 0,
+                'failed_activities': 0,
+                'processing_activities': 0,
+                'success_rate': 0,
+                'activity_types': {},
+                'query_method': 'error',
+                'error': str(fallback_error)
+            }
 
 
 def get_activity_type_breakdown(activities: List[Dict[str, Any]]) -> Dict[str, int]:
@@ -397,18 +515,143 @@ def get_module_usage_stats(start_date: datetime) -> Dict[str, Any]:
 
 
 def get_engagement_metrics(start_date: datetime) -> Dict[str, Any]:
-    """Get engagement metrics (placeholder implementation)"""
+    """Get engagement metrics from Strava API and DynamoDB"""
     try:
-        # TODO: Implement actual engagement metrics from Strava API
-        # This would require fetching activity data from Strava to get kudos, comments, etc.
+        # Import Strava client here to avoid circular imports
+        import sys
+        import os
+        sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src', 'utils'))
         
-        # Placeholder metrics
+        from strava_client import create_strava_client_from_env
+        from oauth_handler import create_oauth_handler_from_env
+        
+        # Get activities from DynamoDB with enhanced data
+        table = dynamodb.Table(ACTIVITIES_TABLE)
+        response = table.scan()
+        activities = response.get('Items', [])
+        
+        # Filter activities by date range
+        recent_activities = []
+        for activity in activities:
+            created_at = activity.get('created_at', '')
+            if created_at:
+                try:
+                    activity_date = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                    if activity_date >= start_date:
+                        recent_activities.append(activity)
+                except ValueError:
+                    continue
+        
+        # Initialize metrics
+        total_kudos = 0
+        total_comments = 0
+        total_activities = len(recent_activities)
+        enhanced_activities = 0
+        baseline_kudos = 0
+        baseline_comments = 0
+        
+        # Try to get fresh engagement data from Strava API
+        try:
+            oauth_handler = create_oauth_handler_from_env()
+            strava_client = create_strava_client_from_env()
+            
+            # Check if we have valid OAuth tokens
+            if oauth_handler.get_valid_access_token("default"):
+                # Get recent activities from Strava API for fresh engagement data
+                strava_response = strava_client.get_activities(
+                    after=start_date,
+                    per_page=min(30, total_activities)  # Limit API calls
+                )
+                
+                if strava_response.is_success:
+                    strava_activities = strava_response.data
+                    
+                    # Create mapping of activity IDs to engagement data
+                    engagement_map = {}
+                    for strava_activity in strava_activities:
+                        activity_id = str(strava_activity.get('id'))
+                        engagement_map[activity_id] = {
+                            'kudos_count': strava_activity.get('kudos_count', 0),
+                            'comment_count': strava_activity.get('comment_count', 0)
+                        }
+                    
+                    # Calculate metrics using fresh Strava data
+                    for activity in recent_activities:
+                        activity_id = activity.get('activity_id')
+                        if activity_id in engagement_map:
+                            # Use fresh data from Strava API
+                            kudos = engagement_map[activity_id]['kudos_count']
+                            comments = engagement_map[activity_id]['comment_count']
+                        else:
+                            # Fallback to stored data
+                            kudos = activity.get('kudos_count', 0)
+                            comments = activity.get('comment_count', 0)
+                        
+                        total_kudos += kudos
+                        total_comments += comments
+                        
+                        # Track enhanced vs baseline activities
+                        if activity.get('enhanced_title') or activity.get('enhanced_description'):
+                            enhanced_activities += 1
+                        else:
+                            baseline_kudos += kudos
+                            baseline_comments += comments
+                
+                else:
+                    logger.warning("Failed to fetch activities from Strava API, using stored data")
+                    # Fallback to stored data
+                    for activity in recent_activities:
+                        total_kudos += activity.get('kudos_count', 0)
+                        total_comments += activity.get('comment_count', 0)
+                        
+                        if activity.get('enhanced_title') or activity.get('enhanced_description'):
+                            enhanced_activities += 1
+            else:
+                logger.info("No valid Strava OAuth token, using stored engagement data")
+                # Use stored data from DynamoDB
+                for activity in recent_activities:
+                    total_kudos += activity.get('kudos_count', 0)
+                    total_comments += activity.get('comment_count', 0)
+                    
+                    if activity.get('enhanced_title') or activity.get('enhanced_description'):
+                        enhanced_activities += 1
+        
+        except Exception as api_error:
+            logger.warning(f"Strava API error, using stored data: {str(api_error)}")
+            # Fallback to stored data
+            for activity in recent_activities:
+                total_kudos += activity.get('kudos_count', 0)
+                total_comments += activity.get('comment_count', 0)
+                
+                if activity.get('enhanced_title') or activity.get('enhanced_description'):
+                    enhanced_activities += 1
+        
+        # Calculate averages and improvements
+        avg_kudos_per_activity = total_kudos / total_activities if total_activities > 0 else 0
+        avg_comments_per_activity = total_comments / total_activities if total_activities > 0 else 0
+        
+        # Calculate engagement improvement (enhanced vs baseline)
+        engagement_improvement = 0
+        if enhanced_activities > 0 and (total_activities - enhanced_activities) > 0:
+            enhanced_kudos = total_kudos - baseline_kudos
+            enhanced_comments = total_comments - baseline_comments
+            
+            avg_enhanced_kudos = enhanced_kudos / enhanced_activities
+            avg_baseline_kudos = baseline_kudos / (total_activities - enhanced_activities)
+            
+            if avg_baseline_kudos > 0:
+                kudos_improvement = ((avg_enhanced_kudos - avg_baseline_kudos) / avg_baseline_kudos) * 100
+                engagement_improvement = max(0, kudos_improvement)  # Only show positive improvements
+        
         return {
-            'total_kudos': 0,
-            'total_comments': 0,
-            'avg_kudos_per_activity': 0,
-            'engagement_improvement': 0,
-            'note': 'Engagement metrics require Strava API integration'
+            'total_kudos': total_kudos,
+            'total_comments': total_comments,
+            'avg_kudos_per_activity': round(avg_kudos_per_activity, 1),
+            'avg_comments_per_activity': round(avg_comments_per_activity, 1),
+            'engagement_improvement': round(engagement_improvement, 1),
+            'enhanced_activities': enhanced_activities,
+            'total_activities': total_activities,
+            'data_source': 'strava_api_and_dynamodb'
         }
         
     except Exception as e:
@@ -417,28 +660,78 @@ def get_engagement_metrics(start_date: datetime) -> Dict[str, Any]:
             'total_kudos': 0,
             'total_comments': 0,
             'avg_kudos_per_activity': 0,
-            'engagement_improvement': 0
+            'avg_comments_per_activity': 0,
+            'engagement_improvement': 0,
+            'enhanced_activities': 0,
+            'total_activities': 0,
+            'error': str(e)
         }
 
 
 def get_activity_history(query_params: Dict[str, str]) -> Dict[str, Any]:
-    """Get recent activity history with processing details"""
+    """Get recent activity history with processing details using GSI for better performance"""
     try:
         # Get pagination parameters
         limit = int(query_params.get('limit', '20'))
         offset = int(query_params.get('offset', '0'))
+        status_filter = query_params.get('status')  # Optional status filter
         
         table = dynamodb.Table(ACTIVITIES_TABLE)
         
-        # Scan table for activities (TODO: use GSI for better performance)
-        response = table.scan()
-        activities = response.get('Items', [])
+        all_activities = []
         
-        # Sort by created_at descending
-        activities.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        if status_filter:
+            # Use GSI to query by specific status
+            try:
+                response = table.query(
+                    IndexName='ProcessingStatusIndex',
+                    KeyConditionExpression='processing_status = :status',
+                    ExpressionAttributeValues={':status': status_filter},
+                    ScanIndexForward=False  # Sort by created_at descending
+                )
+                all_activities = response.get('Items', [])
+            except Exception as gsi_error:
+                logger.warning(f"GSI query failed, falling back to scan: {str(gsi_error)}")
+                # Fallback to scan with filter
+                response = table.scan(
+                    FilterExpression='processing_status = :status',
+                    ExpressionAttributeValues={':status': status_filter}
+                )
+                all_activities = response.get('Items', [])
+        else:
+            # Get all activities - try GSI approach first
+            try:
+                # Query each status separately and combine
+                statuses = ['completed', 'failed', 'processing', 'queued']
+                for status in statuses:
+                    try:
+                        response = table.query(
+                            IndexName='ProcessingStatusIndex',
+                            KeyConditionExpression='processing_status = :status',
+                            ExpressionAttributeValues={':status': status},
+                            ScanIndexForward=False
+                        )
+                        all_activities.extend(response.get('Items', []))
+                    except Exception:
+                        # Skip this status if query fails
+                        continue
+                
+                # If no activities found via GSI, fallback to scan
+                if not all_activities:
+                    response = table.scan()
+                    all_activities = response.get('Items', [])
+                    
+            except Exception as gsi_error:
+                logger.warning(f"GSI queries failed, falling back to scan: {str(gsi_error)}")
+                # Fallback to scan
+                response = table.scan()
+                all_activities = response.get('Items', [])
+        
+        # Sort by created_at descending (in case GSI didn't sort properly)
+        all_activities.sort(key=lambda x: x.get('created_at', ''), reverse=True)
         
         # Apply pagination
-        paginated_activities = activities[offset:offset + limit]
+        paginated_activities = all_activities[offset:offset + limit]
         
         # Format activities for display
         formatted_activities = []
@@ -447,6 +740,7 @@ def get_activity_history(query_params: Dict[str, str]) -> Dict[str, Any]:
                 'activity_id': activity.get('activity_id'),
                 'original_name': activity.get('original_name', ''),
                 'enhanced_title': activity.get('enhanced_title', ''),
+                'enhanced_description': activity.get('enhanced_description', ''),
                 'activity_type': activity.get('activity_type', ''),
                 'distance': activity.get('distance', 0),
                 'moving_time': activity.get('moving_time', 0),
@@ -454,17 +748,21 @@ def get_activity_history(query_params: Dict[str, str]) -> Dict[str, Any]:
                 'modules_used': activity.get('modules_used', []),
                 'created_at': activity.get('created_at', ''),
                 'updated_at': activity.get('updated_at', ''),
-                'error_message': activity.get('error_message', '')
+                'error_message': activity.get('error_message', ''),
+                'kudos_count': activity.get('kudos_count', 0),
+                'comment_count': activity.get('comment_count', 0)
             }
             formatted_activities.append(formatted_activity)
         
         return {
             'activities': formatted_activities,
-            'total_count': len(activities),
+            'total_count': len(all_activities),
             'returned_count': len(formatted_activities),
             'offset': offset,
             'limit': limit,
-            'has_more': offset + limit < len(activities)
+            'has_more': offset + limit < len(all_activities),
+            'status_filter': status_filter,
+            'query_method': 'gsi_optimized' if status_filter else 'gsi_combined'
         }
         
     except Exception as e:
@@ -476,5 +774,6 @@ def get_activity_history(query_params: Dict[str, str]) -> Dict[str, Any]:
             'offset': 0,
             'limit': 0,
             'has_more': False,
-            'error': str(e)
+            'error': str(e),
+            'query_method': 'error'
         }

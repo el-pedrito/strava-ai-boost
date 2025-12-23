@@ -86,6 +86,7 @@ class WebhookProcessingStack(Stack):
                 "PROCESSING_QUEUE_URL": self.processing_queue.queue_url,
                 "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
                 "RATE_LIMITS_TABLE": self.core_stack.table_names["rate_limits"],
+                "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
                 "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name
             }
         )
@@ -96,6 +97,7 @@ class WebhookProcessingStack(Stack):
         # Grant DynamoDB permissions to webhook handler
         self.core_stack.activities_table.grant_read_write_data(self.webhook_handler)
         self.core_stack.rate_limits_table.grant_read_write_data(self.webhook_handler)
+        self.core_stack.user_config_table.grant_read_data(self.webhook_handler)
         
         # Grant Secrets Manager permissions to webhook handler
         self.core_stack.strava_oauth_secret.grant_read(self.webhook_handler)

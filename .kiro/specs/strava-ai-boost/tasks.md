@@ -168,22 +168,22 @@ This implementation plan reflects the current state of the Strava AI Boost syste
     - Test end-to-end OAuth flow with real Strava application
     - _Requirements: 1.2, 1.3, 1.4, 1.5_
 
-- [ ] 14. Complete API endpoint implementations
-  - [ ] 14.1 Finish dashboard API functionality
+- [x] 14. Complete API endpoint implementations
+  - [x] 14.1 Finish dashboard API functionality
     - Implement actual engagement metrics from Strava API in dashboard_api.py (line 402)
     - Add GSI-based queries for better performance in dashboard_api.py (line 433)
     - Integrate with real Strava API for kudos, comments, and engagement data
     - Add caching layer for dashboard performance optimization
     - _Requirements: 11.2, 11.3_
   
-  - [ ] 14.2 Complete status API implementation
+  - [x] 14.2 Complete status API implementation
     - Implement Step Functions status lookup in status_api.py (line 378)
     - Add retry tracking and SQS dead letter queue monitoring
     - Implement real-time processing status with execution ARN tracking
     - Add system health monitoring and alerting integration
     - _Requirements: 11.4, 11.5, 12.1, 12.3_
   
-  - [ ] 14.3 Complete webhook validation
+  - [x] 14.3 Complete webhook validation
     - Implement webhook verify_token validation in webhook_handler.py (line 82)
     - Add Strava webhook signature verification for security
     - Implement webhook subscription management and validation

@@ -26,11 +26,15 @@ class ApiGatewayStack(Stack):
         scope: Construct, 
         construct_id: str, 
         core_stack: CoreInfrastructureStack,
+        webhook_stack=None,
+        step_functions_arn: str = None,
         **kwargs
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
         
         self.core_stack = core_stack
+        self.webhook_stack = webhook_stack
+        self.step_functions_arn = step_functions_arn
         
         # Create Lambda functions for API endpoints
         self._create_lambda_functions()
@@ -59,6 +63,10 @@ class ApiGatewayStack(Stack):
                 "CAMPUS_COACH_SECRET": self.core_stack.campus_coach_secret.secret_name
             }
         )
+        
+        # Grant Secrets Manager permissions to config lambda
+        self.core_stack.strava_oauth_secret.grant_read(self.config_lambda)
+        self.core_stack.campus_coach_secret.grant_read(self.config_lambda)
 
         # Dashboard API Lambda
         self.dashboard_lambda = lambda_.Function(
@@ -73,11 +81,28 @@ class ApiGatewayStack(Stack):
             environment={
                 "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
-                "COACHING_SESSIONS_TABLE": self.core_stack.table_names["coaching_sessions"]
+                "COACHING_SESSIONS_TABLE": self.core_stack.table_names["coaching_sessions"],
+                "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name
             }
         )
+        
+        # Grant Secrets Manager permissions to dashboard lambda
+        self.core_stack.strava_oauth_secret.grant_read(self.dashboard_lambda)
 
         # Status API Lambda
+        status_env = {
+            "ACTIVITIES_TABLE": self.core_stack.table_names["activities"]
+        }
+        
+        # Add Step Functions ARN if provided
+        if self.step_functions_arn:
+            status_env["STEP_FUNCTIONS_ARN"] = self.step_functions_arn
+        
+        # Add SQS queue URLs if webhook stack is provided
+        if self.webhook_stack:
+            status_env["PROCESSING_QUEUE_URL"] = self.webhook_stack.processing_queue.queue_url
+            status_env["DLQ_URL"] = self.webhook_stack.dlq.queue_url
+        
         self.status_lambda = lambda_.Function(
             self, "StatusAPI",
             function_name="StravaAIBoost-StatusAPI",
@@ -87,10 +112,27 @@ class ApiGatewayStack(Stack):
             timeout=Duration.seconds(15),
             memory_size=128,
             role=self.core_stack.webhook_lambda_role,
-            environment={
-                "ACTIVITIES_TABLE": self.core_stack.table_names["activities"]
-            }
+            environment=status_env
         )
+        
+        # Grant SQS permissions to status lambda if webhook stack is provided
+        if self.webhook_stack:
+            self.webhook_stack.processing_queue.grant_send_messages(self.status_lambda)
+            self.webhook_stack.dlq.grant_send_messages(self.status_lambda)
+        
+        # Grant Step Functions permissions if ARN is provided
+        if self.step_functions_arn:
+            self.status_lambda.add_to_role_policy(
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=[
+                        "states:ListExecutions",
+                        "states:DescribeExecution",
+                        "states:GetExecutionHistory"
+                    ],
+                    resources=[self.step_functions_arn, f"{self.step_functions_arn}:*"]
+                )
+            )
 
     def _create_api_gateway(self) -> None:
         """Create API Gateway with CORS for local development"""
