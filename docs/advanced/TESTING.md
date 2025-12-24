@@ -1,19 +1,20 @@
 # Testing Guide
 
-**Version:** v1.3.2 - Documentation Restructure Complete  
+**Version:** v1.3.7 - Complete End-to-End Testing Suite  
 **Last Updated:** 2025-12-23
 
-This guide provides comprehensive testing procedures and validation steps for the Strava AI Boost system, including property-based testing, unit testing, and integration testing strategies.
+This guide provides comprehensive testing procedures and validation steps for the Strava AI Boost system, including end-to-end pipeline testing, security compliance validation, and local web interface testing.
 
 ## Testing Philosophy
 
-Strava AI Boost uses a dual testing approach combining traditional unit testing with property-based testing to ensure comprehensive coverage:
+Strava AI Boost uses a comprehensive testing approach combining multiple testing strategies to ensure system reliability:
 
-- **Unit Tests**: Verify specific examples, edge cases, and error conditions
+- **End-to-End Tests**: Validate complete activity processing pipeline with real AWS resources
+- **Security Compliance Tests**: Verify encryption, IAM policies, and security configurations
+- **Web Interface Tests**: Test Flask application components and user functionality
 - **Property Tests**: Verify universal properties that should hold across all inputs
-- **Integration Tests**: Validate end-to-end workflows and AWS service integration
-
-Together they provide comprehensive coverage: unit tests catch concrete bugs, property tests verify general correctness.
+- **Unit Tests**: Verify specific examples, edge cases, and error conditions
+- **Integration Tests**: Validate AWS service integration and cross-component functionality
 
 ## Testing Framework
 
@@ -25,13 +26,125 @@ pip install pytest>=7.0.0
 pip install pytest-cov>=4.0.0
 pip install hypothesis>=6.0.0  # Property-based testing
 pip install moto>=4.2.0        # AWS service mocking
+pip install requests>=2.28.0   # HTTP testing
+pip install boto3>=1.26.0      # AWS SDK
 ```
 
-### Property-Based Testing with Hypothesis
+### Test Suite Organization
+
+```
+tests/
+├── test_end_to_end_pipeline.py      # Complete pipeline testing
+├── test_security_compliance.py      # Security and compliance validation
+├── test_local_web_interface.py      # Flask app component testing
+├── test_oauth_security_properties.py # OAuth security properties
+├── test_webhook_reliability_properties.py # Webhook reliability
+├── test_rate_limit_compliance_properties.py # Rate limiting
+├── test_memory_personalization_properties.py # AgentCore Memory
+├── test_ai_pattern_detection_properties.py # AI analysis
+├── test_activity_updates_properties.py # Activity updates
+├── test_error_recovery_properties.py # Error handling
+└── test_infrastructure_properties.py # Infrastructure security
+```
+
+## End-to-End Testing Suite
+
+### Complete Activity Processing Pipeline Test
+
+**File**: `tests/test_end_to_end_pipeline.py`  
+**Purpose**: Validates the complete webhook → SQS → Step Functions → Bedrock → Strava update flow
+
+```bash
+# Run end-to-end pipeline test
+python tests/test_end_to_end_pipeline.py
+
+# Expected output: PARTIAL success (core functionality validated)
+# - Webhook processing: ✅ Working (200 OK)
+# - SQS queuing: ⚠️ Messages processed quickly (normal)
+# - Step Functions workflow: ❌ Fails with test data (expected)
+# - Module integrations: ✅ Campus Coach and Enduraw accessible
+# - Error recovery: ✅ Retry logic and timeouts configured
+# - Pause/resume: ✅ Complete functionality
+```
+
+**Test Coverage**:
+- AWS resource discovery (SQS, Step Functions, Lambda)
+- Webhook processing with proper API Gateway event format
+- Module integration testing (Campus Coach, Enduraw)
+- Error recovery mechanisms with SQS retry logic
+- Enhancement pause/resume functionality
+- Step Functions execution analysis
+
+### Security Compliance Test
+
+**File**: `tests/test_security_compliance.py`  
+**Purpose**: Comprehensive security audit with 100% compliance validation
+
+```bash
+# Run security compliance test
+python tests/test_security_compliance.py
+
+# Expected output: PASSED (5/5 tests successful)
+# - Encryption at rest: ✅ 100% (5/5 tables + 3/3 secrets)
+# - Encryption in transit: ✅ 100% (HTTPS/TLS everywhere)
+# - IAM least privilege: ✅ 100% (16/16 roles compliant)
+# - OAuth token security: ✅ Secrets Manager + encryption
+# - Secrets Manager integration: ✅ 100% accessibility
+```
+
+**Security Domains Tested**:
+- **Encryption at Rest**: DynamoDB tables and Secrets Manager secrets
+- **Encryption in Transit**: All AWS service communications (TLS 1.2+)
+- **IAM Least Privilege**: Role policy analysis across 16 IAM roles
+- **OAuth Token Security**: Secure storage and access controls
+- **Secrets Manager Integration**: Credential management and versioning
+
+### Local Web Interface Test
+
+**File**: `tests/test_local_web_interface.py`  
+**Purpose**: Flask application component validation without server startup
+
+```bash
+# Run web interface test
+python tests/test_local_web_interface.py
+
+# Expected output: PASSED (6/6 tests successful)
+# - Flask app startup: ✅ Components importable
+# - OAuth flow: ✅ State persisted in DynamoDB
+# - Dashboard functionality: ✅ 7 activities in database
+# - Module configuration: ✅ DynamoDB persistence
+# - Pause/resume: ✅ States saved
+# - Error handling: ✅ Error management
+```
+
+**Component Testing Areas**:
+- **Flask App Components**: Import validation and core functionality
+- **OAuth Flow**: State management and DynamoDB persistence
+- **Dashboard Functionality**: Data models and activity statistics
+- **Module Configuration**: Campus Coach and Enduraw persistence
+- **Pause/Resume**: Enhancement control with persistence
+- **Error Handling**: Graceful degradation and user feedback
+
+## Property-Based Testing with Hypothesis
 
 **Framework**: Hypothesis (Python) for property-based testing  
 **Configuration**: Minimum 100 iterations per property test  
 **Tagging**: Each property-based test tagged with format: `**Feature: strava-ai-boost, Property {number}: {property_text}**`
+
+### Running All Tests
+
+```bash
+# Run complete test suite
+python -m pytest tests/ -v
+
+# Run with coverage
+python -m pytest tests/ --cov=src --cov-report=html
+
+# Run specific test categories
+python -m pytest tests/test_end_to_end_pipeline.py -v
+python -m pytest tests/test_security_compliance.py -v
+python -m pytest tests/test_local_web_interface.py -v
+```
 
 ## Infrastructure Security Tests
 

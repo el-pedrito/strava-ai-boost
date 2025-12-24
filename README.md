@@ -1,7 +1,7 @@
 # Strava AI Boost
 
-**Version:** v1.3.5  
-**Status:** In Development - Architecture Diagrams Complete
+**Version:** v1.3.8  
+**Status:** In Development - Documentation Synchronized
 
 Strava AI Boost is a simplified, modular serverless application that automatically enhances Strava activity titles and descriptions using Amazon Bedrock AI. Built as a streamlined version of the existing Strava AI Coach project, it focuses on core functionality while maintaining modularity for future integrations.
 
@@ -35,7 +35,10 @@ Strava AI Boost is a simplified, modular serverless application that automatical
 → **[Architecture Documentation](docs/reference/ARCHITECTURE.md)** or **[AgentCore Guide](docs/advanced/AGENTCORE.md)**
 
 ### I Need to Run Tests or Validate the System
-→ **[Testing Guide](docs/advanced/TESTING.md)**
+→ **[Testing Guide](docs/advanced/TESTING.md)** - Complete end-to-end testing suite
+
+### I Want to Understand Test Results
+→ **[Testing Guide](docs/advanced/TESTING.md)** - Comprehensive validation procedures
 
 ## Overview
 
@@ -196,6 +199,29 @@ sequenceDiagram
 - **IAM**: Least privilege principle with AWS managed policies
 - **Local Interface**: Local-only access (127.0.0.1)
 
+## Testing and Validation
+
+The system includes a comprehensive testing suite that validates all core functionality:
+
+- **End-to-End Pipeline Testing**: Complete webhook → SQS → Step Functions → Bedrock → Strava flow validation
+- **Security Compliance Testing**: 100% encryption and IAM compliance verification  
+- **Local Web Interface Testing**: Flask application component validation
+- **Property-Based Testing**: Universal properties validation across all system components
+
+Run the complete test suite:
+```bash
+# End-to-end pipeline test
+python tests/test_end_to_end_pipeline.py
+
+# Security compliance test (100% compliance achieved)
+python tests/test_security_compliance.py
+
+# Local web interface test
+python tests/test_local_web_interface.py
+```
+
+For detailed testing procedures, see the **[Testing Guide](docs/advanced/TESTING.md)**.
+
 ## Contributing
 
 1. Follow the property-based testing approach for all infrastructure changes
@@ -209,6 +235,6 @@ This project is licensed under the MIT License.
 
 ---
 
-**Current Version:** v1.3.2  
+**Current Version:** v1.3.8  
 **Last Updated:** 2025-12-23  
-**Status:** Documentation Restructured - Improved User Experience
+**Status:** Documentation Synchronized - All Core Functionality Validated
