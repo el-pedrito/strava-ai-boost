@@ -395,6 +395,7 @@ def generate_enhanced_content_with_agent(
     """
     try:
         logger.info("Generating content with AgentCore Content Generation Agent...")
+        logger.info(f"Content generation mode: AgentCore (primary)")
         
         # Use Bedrock Agent Runtime to invoke AgentCore Content Generation Agent
         bedrock_agent_runtime = boto3.client('bedrock-agent-runtime')
@@ -460,6 +461,7 @@ def generate_enhanced_content_with_agent(
                     }
                     
                     logger.info(f"Content generated with confidence: {enhanced_content.get('confidence', 0.0)}")
+                    logger.info(f"Content generation mode: AgentCore (successful)")
                     return enhanced_content
                 else:
                     logger.warning("Invalid response structure from AgentCore agent")
@@ -480,6 +482,7 @@ def generate_enhanced_content_with_agent(
             
     except Exception as e:
         logger.error(f"AgentCore Content Generation Agent invocation failed: {str(e)}")
+        logger.info(f"Content generation mode: Switching to Bedrock fallback")
         
         # Check if this is a cold start or availability issue
         if "timeout" in str(e).lower() or "unavailable" in str(e).lower():
@@ -504,6 +507,7 @@ def generate_enhanced_content_fallback(
     """
     try:
         logger.info("Using fallback content generation...")
+        logger.info(f"Content generation mode: Bedrock fallback (direct Claude Sonnet 4.5)")
         
         # Analyze streams data for effort patterns
         patterns = analyze_streams_data_fallback(streams_data, activity_data)
@@ -516,10 +520,12 @@ def generate_enhanced_content_fallback(
             activity_data, patterns, module_insights
         )
         
+        logger.info(f"Content generation mode: Bedrock fallback (successful, confidence: {enhanced_content.get('confidence', 0.0)})")
         return enhanced_content
         
     except Exception as e:
         logger.error(f"Fallback content generation failed: {str(e)}")
+        logger.error(f"Content generation mode: All methods failed, using basic fallback")
         # Return basic fallback content
         return {
             'title': f"Enhanced: {activity_data.get('name', 'Activity')}",

@@ -298,10 +298,13 @@ if [ -f "scripts/deploy_agentcore.sh" ]; then
     
     if ./scripts/deploy_agentcore.sh; then
         print_status "✅ AgentCore deployment completed successfully"
+        print_status "Content generation mode: AgentCore + Bedrock fallback (enhanced)"
     else
         print_warning "⚠️  AgentCore deployment failed or partially completed"
         print_warning "This is expected if AgentCore CLI is not available yet"
-        print_warning "You can run ./scripts/deploy_agentcore.sh manually later"
+        print_status "✅ Content generation mode: Bedrock fallback only (fully functional)"
+        print_status "Your system will work perfectly with direct AI generation"
+        print_warning "You can run ./scripts/deploy_agentcore.sh manually later for enhanced features"
     fi
 else
     print_warning "AgentCore deployment script not found, skipping AgentCore deployment"
@@ -394,6 +397,17 @@ print_status "🎉 Strava AI Boost deployment completed!"
 print_status "Environment: $ENVIRONMENT"
 print_status "Region: $REGION"
 print_status "Account: $ACCOUNT_ID"
+
+echo ""
+print_status "🤖 Content Generation System:"
+if [ -f "deployment-info-${ENVIRONMENT}.json" ] && grep -q "agentcore_deployed.*true" "deployment-info-${ENVIRONMENT}.json" 2>/dev/null; then
+    echo "  ✅ Mode: AgentCore + Bedrock fallback (enhanced personalization)"
+    echo "  ✅ Features: Persistent memory, style learning, advanced context"
+else
+    echo "  ✅ Mode: Bedrock fallback (direct Claude Sonnet 4.5)"
+    echo "  ✅ Features: Smart prompts, module insights, reliable performance"
+    echo "  💡 Note: System is fully functional - AgentCore is optional for enhanced features"
+fi
 
 echo ""
 print_status "📋 Deployed Resources:"

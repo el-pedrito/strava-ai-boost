@@ -5,6 +5,41 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.10] - 2025-12-28 - Content Generation Documentation and Logging Enhancement
+
+### Added
+- **Content Generation Architecture Documentation**: Comprehensive documentation of dual-mode system
+  - Added detailed section in `docs/reference/ARCHITECTURE.md` explaining AgentCore vs Bedrock fallback
+  - Documented performance characteristics, deployment considerations, and monitoring
+  - Added Mermaid diagram showing content generation flow and decision logic
+
+### Changed
+- **Quick Start Guide Enhancement**: Clarified content generation capabilities
+  - Updated `docs/getting-started/QUICK-START.md` to explain dual-mode system
+  - Added section explaining AgentCore vs Bedrock fallback modes
+  - Clarified that system works immediately without AgentCore deployment
+
+### Improved
+- **Content Generation Logging**: Enhanced visibility into generation mode selection
+  - Added explicit logging of content generation mode (AgentCore vs Bedrock fallback)
+  - Improved error messages and success confirmations with mode identification
+  - Added confidence score logging for both generation modes
+
+### Enhanced
+- **Deployment Script Messaging**: Better user communication about AgentCore deployment
+  - Improved messaging when AgentCore deployment fails (expected behavior)
+  - Clarified that system is fully functional with Bedrock fallback only
+  - Added content generation mode status in deployment summary
+
+### Technical Details
+- **Files Modified**: 
+  - `docs/reference/ARCHITECTURE.md`: Added comprehensive content generation section
+  - `docs/getting-started/QUICK-START.md`: Added dual-mode explanation
+  - `lambda_functions/content_generator.py`: Enhanced logging throughout generation flow
+  - `scripts/deploy.sh`: Improved AgentCore deployment failure messaging
+- **User Experience**: Users now understand the system works great with or without AgentCore
+- **Monitoring**: Easier to track which generation mode is being used in CloudWatch logs
+
 ## [1.4.9] - 2025-12-28 - Documentation Version Management Simplification
 
 ### Changed
