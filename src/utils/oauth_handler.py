@@ -32,7 +32,7 @@ class StravaOAuthHandler:
     def __init__(self, 
                  client_id: str,
                  client_secret: str,
-                 redirect_uri: str = "http://localhost:8080/auth/callback",
+                 redirect_uri: str = "http://localhost:3000/oauth/callback",
                  secrets_manager_secret_name: str = "strava-ai-boost-oauth-tokens"):
         """
         Initialize OAuth handler.
@@ -256,10 +256,21 @@ class StravaOAuthHandler:
             
             tokens = json.loads(response['SecretString'])
             
-            # Validate user_id matches
-            if tokens.get('user_id') != user_id:
-                logger.warning(f"User ID mismatch in stored tokens: expected {user_id}, got {tokens.get('user_id')}")
-                return None
+            # Handle missing or None user_id in stored tokens
+            stored_user_id = tokens.get('user_id')
+            if stored_user_id is None:
+                logger.info(f"No user_id in stored tokens, setting to default: {user_id}")
+                tokens['user_id'] = user_id
+                # Update the stored tokens with the user_id
+                self.store_tokens_securely(tokens, user_id)
+            elif stored_user_id != user_id:
+                logger.warning(f"User ID mismatch in stored tokens: expected {user_id}, got {stored_user_id}")
+                # For single-user applications, allow fallback to default
+                if user_id == "default" or stored_user_id == "default":
+                    logger.info("Allowing fallback for single-user application")
+                    tokens['user_id'] = user_id
+                else:
+                    return None
             
             return tokens
             
@@ -291,14 +302,30 @@ class StravaOAuthHandler:
             
             # Convert to datetime (handle both timestamp and ISO format)
             if isinstance(expires_at, (int, float)):
-                expiry_time = datetime.fromtimestamp(expires_at)
+                expiry_time = datetime.fromtimestamp(expires_at, tz=UTC)
             else:
-                expiry_time = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                try:
+                    # Try ISO format first
+                    expiry_time = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                    if expiry_time.tzinfo is None:
+                        expiry_time = expiry_time.replace(tzinfo=UTC)
+                except ValueError:
+                    # Fallback to timestamp parsing
+                    try:
+                        expiry_time = datetime.fromtimestamp(float(expires_at), tz=UTC)
+                    except (ValueError, TypeError):
+                        logger.error(f"Unable to parse expires_at: {expires_at}")
+                        return True
             
             # Check if expires within 5 minutes (buffer for safety)
             buffer_time = datetime.now(UTC) + timedelta(minutes=5)
             
-            return expiry_time <= buffer_time
+            is_expired = expiry_time <= buffer_time
+            
+            if is_expired:
+                logger.info(f"Token expires at {expiry_time}, current time + buffer: {buffer_time}")
+            
+            return is_expired
             
         except Exception as e:
             logger.error(f"Error checking token expiry: {e}")
@@ -322,10 +349,23 @@ class StravaOAuthHandler:
                 'refresh_token': refresh_token
             }
             
+            logger.info(f"Attempting to refresh token with client_id: {self.client_id}")
+            
             response = requests.post(self.token_url, data=token_data)
-            response.raise_for_status()
+            
+            # Log response details for debugging
+            logger.info(f"Token refresh response status: {response.status_code}")
+            
+            if response.status_code != 200:
+                logger.error(f"Token refresh failed with status {response.status_code}: {response.text}")
+                return None
             
             new_tokens = response.json()
+            
+            # Validate response
+            if 'access_token' not in new_tokens:
+                logger.error(f"Invalid token refresh response: {new_tokens}")
+                return None
             
             # Add metadata
             new_tokens['obtained_at'] = datetime.now(UTC).isoformat()
@@ -338,6 +378,8 @@ class StravaOAuthHandler:
             
         except requests.RequestException as e:
             logger.error(f"HTTP error during token refresh: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                logger.error(f"Response content: {e.response.text}")
             return None
         except Exception as e:
             logger.error(f"Error refreshing token: {e}")

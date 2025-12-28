@@ -3,7 +3,8 @@
 # Validate Strava AI Boost Setup
 # Checks prerequisites and configuration before deployment
 
-set -e
+# Don't exit on first error - we want to see all validation results
+# set -e
 
 echo "🔍 Validating Strava AI Boost setup..."
 

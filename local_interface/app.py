@@ -16,6 +16,7 @@ import sys
 from typing import Dict, Any, List
 import logging
 import requests
+import requests
 from datetime import datetime, timedelta, UTC
 
 # Add src directory to path for config imports
@@ -51,15 +52,42 @@ app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-producti
 app.config['SESSION_COOKIE_SECURE'] = False  # Set to True in production with HTTPS
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=1)
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=2)  # Extended for OAuth flow
 
 # AWS clients
 dynamodb = boto3.resource('dynamodb', region_name='eu-west-1')
 secretsmanager = boto3.client('secretsmanager', region_name='eu-west-1')
 apigateway = boto3.client('apigateway', region_name='eu-west-1')
 
-# Configuration - All URLs from environment variables
-API_GATEWAY_URL = os.environ.get('API_GATEWAY_URL', 'https://api.strava-ai-boost.local')
+# Configuration - All URLs from environment variables or auto-detected from CloudFormation
+def get_api_gateway_url():
+    """Auto-detect API Gateway URL from CloudFormation if not provided via environment"""
+    env_url = os.environ.get('API_GATEWAY_URL')
+    if env_url:
+        return env_url
+    
+    try:
+        # Try to get API Gateway URL from CloudFormation
+        import boto3
+        cf_client = boto3.client('cloudformation', region_name='eu-west-1')
+        
+        # Get StravaAIBoost-API stack outputs
+        response = cf_client.describe_stacks(StackName='StravaAIBoost-API')
+        outputs = response['Stacks'][0].get('Outputs', [])
+        
+        for output in outputs:
+            if 'APIEndpoint' in output['OutputKey']:
+                url = output['OutputValue'].rstrip('/')
+                logger.info(f"Auto-detected API Gateway URL from CloudFormation: {url}")
+                return url
+                
+    except Exception as e:
+        logger.warning(f"Failed to auto-detect API Gateway URL: {e}")
+    
+    # Fallback to default
+    return 'https://api.strava-ai-boost.local'
+
+API_GATEWAY_URL = get_api_gateway_url()
 STRAVA_OAUTH_URL = os.environ.get('STRAVA_OAUTH_URL', 'https://www.strava.com/oauth/authorize')
 STRAVA_TOKEN_URL = os.environ.get('STRAVA_TOKEN_URL', 'https://www.strava.com/oauth/token')
 CAMPUS_COACH_URL = os.environ.get('CAMPUS_COACH_URL', 'https://campus.coach')
@@ -238,7 +266,63 @@ def oauth_callback():
         
         # Validate state parameter (CSRF protection)
         stored_state = session.get('oauth_state')
-        if not stored_state or stored_state != state:
+        if not stored_state:
+            logger.warning("No stored state in session - attempting to recover from Strava app configuration")
+            
+            # Try to recover OAuth configuration from Strava config
+            try:
+                strava_config = get_strava_config()
+                if strava_config.is_configured():
+                    oauth_config = strava_config.get_oauth_config()
+                    
+                    # Create OAuth handler with recovered config
+                    oauth_handler = StravaOAuthHandler(
+                        client_id=oauth_config['client_id'],
+                        client_secret=oauth_config['client_secret'],
+                        redirect_uri=oauth_config['redirect_uri']
+                    )
+                    
+                    # Exchange code directly without PKCE (fallback mode)
+                    logger.info("Attempting OAuth token exchange without PKCE (fallback mode)")
+                    
+                    # Manual token exchange
+                    token_data = {
+                        'client_id': oauth_config['client_id'],
+                        'client_secret': oauth_config['client_secret'],
+                        'code': code,
+                        'grant_type': 'authorization_code'
+                    }
+                    
+                    response = requests.post('https://www.strava.com/oauth/token', data=token_data)
+                    response.raise_for_status()
+                    
+                    tokens = response.json()
+                    
+                    # Add metadata
+                    tokens['obtained_at'] = datetime.now(UTC).isoformat()
+                    tokens['client_id'] = oauth_config['client_id']
+                    
+                    # Store tokens securely
+                    if oauth_handler.store_tokens_securely(tokens, user_id="default"):
+                        flash('Successfully connected to Strava! Your account is now linked.', 'success')
+                        logger.info("OAuth flow completed successfully (fallback mode)")
+                        return redirect(url_for('config'))
+                    else:
+                        flash('Failed to store OAuth tokens securely. Please try again.', 'error')
+                        logger.error("Failed to store OAuth tokens")
+                        return redirect(url_for('config'))
+                        
+                else:
+                    flash('Strava application not configured. Please configure your Strava app first.', 'error')
+                    return redirect(url_for('config'))
+                    
+            except Exception as e:
+                logger.error(f"Failed to recover OAuth configuration: {e}")
+                flash('OAuth session expired and recovery failed - please try connecting again', 'warning')
+                return redirect(url_for('config'))
+        
+        if stored_state != state:
+            logger.error(f"State mismatch: stored={stored_state[:10] if stored_state else 'None'}..., received={state[:10] if state else 'None'}...")
             flash('Invalid state parameter - possible security issue', 'error')
             return redirect(url_for('config'))
         
@@ -249,7 +333,8 @@ def oauth_callback():
         redirect_uri = session.get('oauth_redirect_uri')
         
         if not all([code_verifier, client_id, client_secret, redirect_uri]):
-            flash('Missing OAuth session data - please try again', 'error')
+            logger.warning("Missing OAuth session data - session may have expired")
+            flash('OAuth session data missing - please try connecting again', 'warning')
             return redirect(url_for('config'))
         
         # Create OAuth handler
@@ -267,8 +352,8 @@ def oauth_callback():
             state=state
         )
         
-        # Store tokens securely in AWS Secrets Manager
-        if oauth_handler.store_tokens_securely(tokens):
+        # Store tokens securely in AWS Secrets Manager with default user_id
+        if oauth_handler.store_tokens_securely(tokens, user_id="default"):
             # Clear OAuth session data
             session.pop('oauth_state', None)
             session.pop('oauth_code_verifier', None)
@@ -287,6 +372,10 @@ def oauth_callback():
     except ValueError as e:
         logger.error(f"OAuth callback validation error: {str(e)}")
         flash(f'OAuth validation error: {str(e)}', 'error')
+        return redirect(url_for('config'))
+    except requests.RequestException as e:
+        logger.error(f"OAuth token exchange error: {str(e)}")
+        flash(f'Failed to exchange authorization code for tokens: {str(e)}', 'error')
         return redirect(url_for('config'))
     except Exception as e:
         logger.error(f"OAuth callback error: {str(e)}")
@@ -752,6 +841,97 @@ def api_toggle_enhancement():
     except Exception as e:
         logger.error(f"Toggle enhancement error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/test-connection')
+def api_test_connection():
+    """API endpoint to test Strava connection"""
+    try:
+        # Check if Strava app is configured
+        strava_config = get_strava_config()
+        if not strava_config.is_configured():
+            return jsonify({
+                'success': False,
+                'error': 'Strava application not configured'
+            }), 400
+        
+        # Get OAuth configuration
+        oauth_config = strava_config.get_oauth_config()
+        oauth_handler = StravaOAuthHandler(
+            client_id=oauth_config['client_id'],
+            client_secret=oauth_config['client_secret'],
+            redirect_uri=oauth_config['redirect_uri']
+        )
+        
+        # Get valid access token (will refresh if needed)
+        access_token = oauth_handler.get_valid_access_token(user_id="default")
+        
+        if not access_token:
+            return jsonify({
+                'success': False,
+                'error': 'No valid access token available. Please reconnect to Strava.'
+            }), 401
+        
+        # Test Strava API call - get athlete profile
+        headers = {
+            'Authorization': f'Bearer {access_token}',
+            'Content-Type': 'application/json'
+        }
+        
+        response = requests.get('https://www.strava.com/api/v3/athlete', headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            athlete_data = response.json()
+            return jsonify({
+                'success': True,
+                'message': 'Connection test successful',
+                'athlete': {
+                    'id': athlete_data.get('id'),
+                    'firstname': athlete_data.get('firstname'),
+                    'lastname': athlete_data.get('lastname'),
+                    'city': athlete_data.get('city'),
+                    'country': athlete_data.get('country')
+                },
+                'api_usage': {
+                    'daily_limit': response.headers.get('X-RateLimit-Limit'),
+                    'daily_usage': response.headers.get('X-RateLimit-Usage'),
+                    'short_term_limit': response.headers.get('X-RateLimit-Limit'),
+                    'short_term_usage': response.headers.get('X-RateLimit-Usage')
+                }
+            })
+        elif response.status_code == 401:
+            return jsonify({
+                'success': False,
+                'error': 'Authentication failed. Please reconnect to Strava.'
+            }), 401
+        elif response.status_code == 403:
+            return jsonify({
+                'success': False,
+                'error': 'Access forbidden. Check your Strava application permissions.'
+            }), 403
+        elif response.status_code == 429:
+            return jsonify({
+                'success': False,
+                'error': 'Rate limit exceeded. Please try again later.'
+            }), 429
+        else:
+            return jsonify({
+                'success': False,
+                'error': f'Strava API returned status {response.status_code}: {response.text}'
+            }), 500
+            
+    except requests.RequestException as e:
+        logger.error(f"Connection test network error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Network error: {str(e)}'
+        }), 500
+    except Exception as e:
+        logger.error(f"Connection test error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Connection test failed: {str(e)}'
+        }), 500
 
 
 def get_system_status() -> Dict[str, Any]:

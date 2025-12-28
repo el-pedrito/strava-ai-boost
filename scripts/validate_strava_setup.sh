@@ -12,7 +12,8 @@
 #   --fix-issues: Attempt to automatically fix common issues
 #   --oauth-test: Test OAuth flow (requires user interaction)
 
-set -e
+# Don't exit on first error - we want to see all validation results
+# set -e
 
 # Configuration
 ENVIRONMENT="${1:-dev}"

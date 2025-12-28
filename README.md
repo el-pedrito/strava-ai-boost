@@ -11,6 +11,39 @@ Strava AI Boost is a simplified, modular serverless application that automatical
 
 👉 **[Quick Start Guide](docs/getting-started/QUICK-START.md)**
 
+### Complete User Workflow
+
+1. **Deploy Infrastructure** (2 min)
+   ```bash
+   cdk deploy --all --profile your-aws-profile
+   ```
+
+2. **Create Strava App** (2 min)
+   - Go to https://www.strava.com/settings/api
+   - Create app with callback domain: `localhost`
+
+3. **Configure Credentials** (1 min)
+   ```bash
+   aws secretsmanager put-secret-value \
+     --secret-id strava-ai-boost-oauth-tokens \
+     --secret-string '{"client_id":"YOUR_ID","client_secret":"YOUR_SECRET"}' \
+     --profile your-aws-profile
+   ```
+
+4. **Setup Webhook** (1 min)
+   ```bash
+   # Script automatically retrieves credentials from Secrets Manager
+   ./scripts/configure_strava_webhook.sh dev --auto-configure
+   ```
+
+5. **Start Interface & Connect** (1 min)
+   ```bash
+   cd local_interface && python app.py
+   # Open http://localhost:3000 → Click "Connect with Strava"
+   ```
+
+**Done!** Upload a Strava activity to see AI enhancement in action.
+
 ## 📚 Documentation
 
 **📖 [Complete Documentation Hub](docs/README.md)** - Single entry point to all documentation

@@ -86,7 +86,7 @@ validate_environment_variables() {
         missing_vars+=("STRAVA_CLIENT_SECRET")
     fi
     
-    if [ ${#missing_vars[@]} -gt 0 ] && [ "$AUTO_CONFIGURE" = false ]; then
+    if [ ${#missing_vars[@]} -gt 0 ]; then
         print_error "Missing required environment variables: ${missing_vars[*]}"
         print_error ""
         print_error "Option 1: Export environment variables:"
@@ -94,7 +94,9 @@ validate_environment_variables() {
             print_error "  export $var=your_value"
         done
         print_error ""
-        print_error "Option 2: Store credentials in AWS Secrets Manager and use --auto-configure"
+        print_error "Option 2: Credentials should be available in AWS Secrets Manager"
+        print_error "  Secret: strava-ai-boost-oauth-tokens"
+        print_error "  If not configured, run:"
         print_error "  aws secretsmanager put-secret-value --secret-id strava-ai-boost-oauth-tokens \\"
         print_error "    --secret-string '{\"client_id\":\"YOUR_ID\",\"client_secret\":\"YOUR_SECRET\"}' \\"
         print_error "    --profile $PROFILE"
@@ -343,28 +345,81 @@ if [ "$VALIDATE_ONLY" = true ]; then
     exit 0
 fi
 
-# Check required environment variables
-validate_environment_variables
-
-# Auto-detect Strava credentials from Secrets Manager if not provided
+# Auto-detect Strava credentials from Secrets Manager first
 if [ -z "$STRAVA_CLIENT_ID" ] || [ -z "$STRAVA_CLIENT_SECRET" ]; then
     print_status "Attempting to retrieve Strava credentials from Secrets Manager..."
     retrieve_strava_credentials_from_secrets
 fi
 
-# Get webhook URL from API Gateway
-print_status "Retrieving webhook URL from API Gateway..."
+# Check required environment variables after attempting to retrieve from Secrets Manager
+validate_environment_variables
 
-API_ID=$(aws apigateway get-rest-apis --profile $PROFILE --region $REGION --query "items[?contains(name, 'StravaAIBoost')].id" --output text | head -1)
+# Get webhook URL from CloudFormation outputs
+print_status "Retrieving webhook URL from CloudFormation outputs..."
 
-if [ -z "$API_ID" ]; then
-    print_error "Could not find StravaAIBoost API Gateway"
-    print_error "Make sure CDK stacks are deployed first"
-    exit 1
+# Try to get webhook URL from multiple possible stacks
+WEBHOOK_BASE_URL=""
+
+# First try StravaAIBoost-Webhook stack (most specific)
+WEBHOOK_BASE_URL=$(aws cloudformation describe-stacks \
+    --stack-name StravaAIBoost-Webhook \
+    --profile $PROFILE \
+    --region $REGION \
+    --query 'Stacks[0].Outputs[?contains(OutputKey, `APIEndpoint`) || contains(OutputKey, `WebhookAPI`) || contains(OutputKey, `Endpoint`)].OutputValue' \
+    --output text 2>/dev/null | head -1)
+
+# If not found, try StravaAIBoost-API stack
+if [ -z "$WEBHOOK_BASE_URL" ] || [ "$WEBHOOK_BASE_URL" = "None" ]; then
+    print_status "Trying StravaAIBoost-API stack..."
+    WEBHOOK_BASE_URL=$(aws cloudformation describe-stacks \
+        --stack-name StravaAIBoost-API \
+        --profile $PROFILE \
+        --region $REGION \
+        --query 'Stacks[0].Outputs[?contains(OutputKey, `APIEndpoint`) || contains(OutputKey, `Endpoint`)].OutputValue' \
+        --output text 2>/dev/null | head -1)
 fi
 
-WEBHOOK_URL="https://${API_ID}.execute-api.${REGION}.amazonaws.com/prod/webhook"
-print_status "Webhook URL: $WEBHOOK_URL"
+# If still not found, search all StravaAIBoost stacks for webhook-specific endpoints
+if [ -z "$WEBHOOK_BASE_URL" ] || [ "$WEBHOOK_BASE_URL" = "None" ]; then
+    print_status "Searching all StravaAIBoost stacks for webhook endpoints..."
+    WEBHOOK_BASE_URL=$(aws cloudformation describe-stacks \
+        --profile $PROFILE \
+        --region $REGION \
+        --query 'Stacks[?contains(StackName, `StravaAIBoost`)].Outputs[?contains(OutputKey, `WebhookAPI`) || contains(OutputKey, `Webhook`)].OutputValue' \
+        --output text 2>/dev/null | head -1)
+fi
+
+# Final fallback: search for any API endpoint in StravaAIBoost stacks
+if [ -z "$WEBHOOK_BASE_URL" ] || [ "$WEBHOOK_BASE_URL" = "None" ]; then
+    print_status "Final fallback: searching for any API endpoint..."
+    WEBHOOK_BASE_URL=$(aws cloudformation describe-stacks \
+        --profile $PROFILE \
+        --region $REGION \
+        --query 'Stacks[?contains(StackName, `StravaAIBoost`)].Outputs[?contains(OutputKey, `APIEndpoint`) || contains(OutputKey, `Endpoint`)].OutputValue' \
+        --output text 2>/dev/null | head -1)
+fi
+
+if [ -n "$WEBHOOK_BASE_URL" ]; then
+    # Remove trailing slash if present and add webhook path
+    WEBHOOK_BASE_URL=$(echo "$WEBHOOK_BASE_URL" | sed 's/\/$//')
+    WEBHOOK_URL="${WEBHOOK_BASE_URL}/webhook"
+    print_status "Found webhook URL from CloudFormation: $WEBHOOK_URL"
+else
+    # Fallback: Try to get API Gateway ID from API Gateway service
+    print_status "CloudFormation output not found, trying API Gateway service..."
+    API_ID=$(aws apigateway get-rest-apis --profile $PROFILE --region $REGION --query "items[?contains(name, 'Webhook')].id" --output text | head -1)
+    
+    if [ -z "$API_ID" ]; then
+        print_error "Could not find StravaAIBoost API Gateway"
+        print_error "Make sure CDK stacks are deployed first"
+        print_error "Available stacks:"
+        aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE --profile $PROFILE --region $REGION --query 'StackSummaries[?contains(StackName, `StravaAIBoost`)].StackName' --output table 2>/dev/null || echo "  No StravaAIBoost stacks found"
+        exit 1
+    fi
+    
+    WEBHOOK_URL="https://${API_ID}.execute-api.${REGION}.amazonaws.com/prod/webhook"
+    print_status "Constructed webhook URL from API Gateway ID: $WEBHOOK_URL"
+fi
 
 # Test webhook endpoint availability
 print_status "Testing webhook endpoint availability..."

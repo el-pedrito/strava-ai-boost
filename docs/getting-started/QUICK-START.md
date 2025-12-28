@@ -37,18 +37,41 @@ python app.py
 
 Open http://localhost:3000 in your browser.
 
-## 3. Connect Strava (2 minutes)
+## 3. Configure Strava Integration (3 minutes)
 
-1. **Create Strava App**: Go to https://www.strava.com/settings/api
-   - Application Name: "My Strava AI Boost"
-   - Website: http://localhost:3000
-   - Authorization Callback Domain: localhost
+### Step 3a: Create Strava App
+1. Go to https://www.strava.com/settings/api
+2. Click "Create App" and fill:
+   - **Application Name**: "My Strava AI Boost"
+   - **Website**: http://localhost:3000
+   - **Authorization Callback Domain**: localhost
+3. **Save your Client ID and Client Secret** (you'll need them next)
 
-2. **Configure in Interface**:
-   - Click "Configure Strava App" in the web interface
-   - Enter your Client ID and Client Secret
-   - Click "Connect with Strava"
-   - Authorize the application
+### Step 3b: Store Credentials in AWS
+```bash
+# Replace YOUR_CLIENT_ID and YOUR_CLIENT_SECRET with actual values
+aws secretsmanager put-secret-value \
+  --secret-id strava-ai-boost-oauth-tokens \
+  --secret-string '{"client_id":"YOUR_CLIENT_ID","client_secret":"YOUR_CLIENT_SECRET"}' \
+  --profile your-aws-profile
+```
+
+### Step 3c: Configure Webhook
+```bash
+# Configure webhook subscription (tells Strava to notify us of new activities)
+# Script automatically retrieves credentials from Secrets Manager
+./scripts/configure_strava_webhook.sh dev --auto-configure
+```
+
+### Step 3d: Connect via Web Interface
+```bash
+# OAuth flow (gives us permission to read/modify your activities)
+```
+1. Open http://localhost:3000
+2. Click "Connect with Strava"
+3. Authorize the application
+
+> **💡 Why Both?** Webhook = "Tell me when activities happen", OAuth = "Let me access the activity data"
 
 ## 4. Test (30 seconds)
 

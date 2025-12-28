@@ -148,18 +148,31 @@ def check_rate_limits() -> bool:
 
 
 def get_access_token(user_id: str) -> str:
-    """Get Strava access token from Secrets Manager"""
+    """Get Strava access token from Secrets Manager with automatic refresh"""
     try:
-        response = secretsmanager.get_secret_value(SecretId=STRAVA_OAUTH_SECRET)
-        secrets = json.loads(response['SecretString'])
+        # Import here to avoid circular imports
+        from src.utils.oauth_handler import StravaOAuthHandler
+        from src.config.strava_config import get_strava_config
         
-        # For now, use a single token - in production, this would be user-specific
-        access_token = secrets.get('access_token')
+        # Get Strava configuration
+        strava_config = get_strava_config()
+        if not strava_config.is_configured():
+            raise ValueError("Strava application not configured")
+        
+        oauth_config = strava_config.get_oauth_config()
+        
+        # Create OAuth handler
+        oauth_handler = StravaOAuthHandler(
+            client_id=oauth_config['client_id'],
+            client_secret=oauth_config['client_secret'],
+            redirect_uri=oauth_config['redirect_uri']
+        )
+        
+        # Get valid access token (with automatic refresh)
+        access_token = oauth_handler.get_valid_access_token(user_id)
         
         if not access_token:
-            raise ValueError("No access token found in secrets")
-        
-        # TODO: Check token expiry and refresh if needed
+            raise ValueError("No valid access token available - user needs to reconnect")
         
         return access_token
         

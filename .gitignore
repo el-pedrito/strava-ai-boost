@@ -25,6 +25,11 @@ ENV/
 env/
 .venv
 
+# Lambda Layer build artifacts
+lambda_layer/python/
+lambda_layer/*.zip
+python/
+
 # CDK
 cdk.out/
 .cdk.staging/

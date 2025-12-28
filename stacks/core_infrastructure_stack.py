@@ -14,6 +14,7 @@ from aws_cdk import (
     aws_iam as iam,
     aws_secretsmanager as secretsmanager,
     aws_kms as kms,
+    aws_lambda as _lambda,
     RemovalPolicy,
     Duration
 )
@@ -44,6 +45,9 @@ class CoreInfrastructureStack(Stack):
 
         # Create DynamoDB tables
         self._create_dynamodb_tables()
+        
+        # Create Lambda Layer for dependencies
+        self._create_lambda_layer()
         
         # Create IAM roles
         self._create_iam_roles()
@@ -146,6 +150,19 @@ class CoreInfrastructureStack(Stack):
                 name="session_date",
                 type=dynamodb.AttributeType.STRING
             )
+        )
+
+    def _create_lambda_layer(self) -> None:
+        """Create Lambda Layer for shared dependencies"""
+        
+        # Create Lambda Layer with all dependencies
+        self.dependencies_layer = _lambda.LayerVersion(
+            self, "StravaAIBoostDependenciesLayer",
+            layer_version_name="strava-ai-boost-dependencies",
+            code=_lambda.Code.from_asset("lambda_layer"),
+            compatible_runtimes=[_lambda.Runtime.PYTHON_3_12],
+            description="Shared dependencies for Strava AI Boost Lambda functions",
+            removal_policy=RemovalPolicy.DESTROY
         )
 
     def _create_iam_roles(self) -> None:

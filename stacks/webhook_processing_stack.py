@@ -79,6 +79,7 @@ class WebhookProcessingStack(Stack):
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="webhook_handler.handler",
             code=lambda_.Code.from_asset("lambda_functions"),
+            layers=[self.core_stack.dependencies_layer],
             timeout=Duration.seconds(30),
             memory_size=256,
             # Create role locally instead of using core stack role
@@ -119,6 +120,7 @@ class WebhookProcessingStack(Stack):
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="activity_processor.handler",
             code=lambda_.Code.from_asset("lambda_functions"),
+            layers=[self.core_stack.dependencies_layer],
             timeout=Duration.seconds(300),  # 5 minutes for Strava API calls
             memory_size=512,
             # Create role locally instead of using core stack role
@@ -161,6 +163,7 @@ class WebhookProcessingStack(Stack):
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="rate_limiter.handler",
             code=lambda_.Code.from_asset("lambda_functions"),
+            layers=[self.core_stack.dependencies_layer],
             timeout=Duration.seconds(60),
             memory_size=128,
             # Create role locally instead of using core stack role

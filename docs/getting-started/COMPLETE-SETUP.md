@@ -206,31 +206,60 @@ python app.py
 
 ## Strava Integration
 
-### 1. Configure OAuth via Web Interface
+### 1. Store Strava Credentials in AWS Secrets Manager
+
+**First, store your Strava app credentials securely:**
+
+```bash
+# Replace with your actual Strava app credentials
+export STRAVA_CLIENT_ID=your_client_id
+export STRAVA_CLIENT_SECRET=your_client_secret
+
+# Store in AWS Secrets Manager
+aws secretsmanager put-secret-value \
+  --secret-id strava-ai-boost-oauth-tokens \
+  --secret-string "{\"client_id\":\"$STRAVA_CLIENT_ID\",\"client_secret\":\"$STRAVA_CLIENT_SECRET\"}" \
+  --profile your-aws-profile
+
+# Verify storage
+aws secretsmanager get-secret-value \
+  --secret-id strava-ai-boost-oauth-tokens \
+  --profile your-aws-profile \
+  --query SecretString --output text | jq '.'
+```
+
+### 2. Configure Webhook Subscription
+
+**Set up Strava webhook to receive activity notifications:**
+
+> **💡 Webhook Purpose:** Tells Strava "notify my system when activities are created/updated"
+
+```bash
+# Configure webhook with automatic setup
+./scripts/configure_strava_webhook.sh dev --auto-configure
+
+# Or configure manually (interactive)
+./scripts/configure_strava_webhook.sh dev
+
+# Verify webhook is active
+./scripts/configure_strava_webhook.sh dev --validate-only
+```
+
+### 3. Configure OAuth via Web Interface
+
+> **💡 OAuth Purpose:** Gives your system permission to read and modify your Strava activity data
 
 1. **Open Dashboard**: http://localhost:3000
 2. **Go to Configuration**: Click Configuration tab
-3. **Configure Strava App**:
-   - Enter Client ID from Strava
-   - Enter Client Secret from Strava
-   - Click "Save Configuration"
+3. **Verify Strava App Status**: Should show "Configured" (credentials from Secrets Manager)
 4. **Connect Account**:
    - Click "Connect with Strava"
    - Authorize on Strava
    - Verify successful connection
 
-### 2. Webhook Subscription
+> **🔄 How They Work Together:** Webhook receives "new activity" notifications → OAuth tokens allow fetching/updating that activity's data
 
-```bash
-# Set environment variables
-export STRAVA_CLIENT_ID=your_client_id
-export STRAVA_CLIENT_SECRET=your_client_secret
-
-# Configure webhook
-./scripts/configure_strava_webhook.sh
-```
-
-### 3. Test Integration
+### 4. Test Integration
 
 1. Upload a test activity to Strava
 2. Monitor processing in dashboard
