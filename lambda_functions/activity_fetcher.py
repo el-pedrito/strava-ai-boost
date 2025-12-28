@@ -150,35 +150,142 @@ def check_rate_limits() -> bool:
 def get_access_token(user_id: str) -> str:
     """Get Strava access token from Secrets Manager with automatic refresh"""
     try:
-        # Import here to avoid circular imports
-        from src.utils.oauth_handler import StravaOAuthHandler
-        from src.config.strava_config import get_strava_config
+        # Get OAuth tokens directly from Secrets Manager
+        response = secretsmanager.get_secret_value(SecretId=STRAVA_OAUTH_SECRET)
+        tokens = json.loads(response['SecretString'])
         
-        # Get Strava configuration
-        strava_config = get_strava_config()
-        if not strava_config.is_configured():
-            raise ValueError("Strava application not configured")
+        # Handle missing or None user_id in stored tokens
+        stored_user_id = tokens.get('user_id')
+        if stored_user_id is None:
+            logger.info(f"No user_id in stored tokens, using default: {user_id}")
+            tokens['user_id'] = user_id
+        elif stored_user_id != user_id:
+            logger.warning(f"User ID mismatch: expected {user_id}, got {stored_user_id}")
+            # For single-user applications, allow fallback to default
+            if user_id == "default" or stored_user_id == "default":
+                logger.info("Allowing fallback for single-user application")
+            else:
+                raise ValueError(f"User ID mismatch: expected {user_id}, got {stored_user_id}")
         
-        oauth_config = strava_config.get_oauth_config()
+        # Check if token needs refresh
+        if is_token_expired(tokens):
+            logger.info("Access token expired, attempting refresh")
+            
+            # Refresh token
+            new_tokens = refresh_access_token(tokens['refresh_token'])
+            if not new_tokens:
+                raise ValueError("Failed to refresh access token - user needs to reconnect")
+            
+            # Store refreshed tokens
+            new_tokens['user_id'] = user_id
+            secretsmanager.update_secret(
+                SecretId=STRAVA_OAUTH_SECRET,
+                SecretString=json.dumps(new_tokens)
+            )
+            
+            return new_tokens['access_token']
         
-        # Create OAuth handler
-        oauth_handler = StravaOAuthHandler(
-            client_id=oauth_config['client_id'],
-            client_secret=oauth_config['client_secret'],
-            redirect_uri=oauth_config['redirect_uri']
-        )
-        
-        # Get valid access token (with automatic refresh)
-        access_token = oauth_handler.get_valid_access_token(user_id)
-        
-        if not access_token:
-            raise ValueError("No valid access token available - user needs to reconnect")
-        
-        return access_token
+        return tokens['access_token']
         
     except Exception as e:
         logger.error(f"Failed to get access token: {str(e)}")
         raise
+
+
+def is_token_expired(tokens: Dict[str, Any]) -> bool:
+    """Check if access token is expired or will expire soon"""
+    try:
+        expires_at = tokens.get('expires_at')
+        if not expires_at:
+            return True
+        
+        # Convert to datetime (handle both timestamp and ISO format)
+        if isinstance(expires_at, (int, float)):
+            expiry_time = datetime.fromtimestamp(expires_at)
+        else:
+            try:
+                # Try ISO format first
+                expiry_time = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                if expiry_time.tzinfo is None:
+                    expiry_time = expiry_time.replace(tzinfo=datetime.now().astimezone().tzinfo)
+            except ValueError:
+                # Fallback to timestamp parsing
+                try:
+                    expiry_time = datetime.fromtimestamp(float(expires_at))
+                except (ValueError, TypeError):
+                    logger.error(f"Unable to parse expires_at: {expires_at}")
+                    return True
+        
+        # Check if expires within 5 minutes (buffer for safety)
+        buffer_time = datetime.now() + timedelta(minutes=5)
+        
+        is_expired = expiry_time <= buffer_time
+        
+        if is_expired:
+            logger.info(f"Token expires at {expiry_time}, current time + buffer: {buffer_time}")
+        
+        return is_expired
+        
+    except Exception as e:
+        logger.error(f"Error checking token expiry: {e}")
+        return True  # Assume expired on error
+
+
+def refresh_access_token(refresh_token: str) -> Optional[Dict[str, Any]]:
+    """Refresh access token using refresh token"""
+    try:
+        # Get client_id from the existing OAuth tokens (it's stored there)
+        try:
+            response = secretsmanager.get_secret_value(SecretId=STRAVA_OAUTH_SECRET)
+            oauth_data = json.loads(response['SecretString'])
+            client_id = oauth_data.get('client_id')
+        except Exception as e:
+            logger.error(f"Failed to get client_id from OAuth tokens: {e}")
+            client_id = None
+        
+        # Get client_secret from environment variable (must be set in Lambda config)
+        client_secret = os.environ.get('STRAVA_CLIENT_SECRET')
+        
+        if not client_id or not client_secret:
+            logger.error("Missing client_id or STRAVA_CLIENT_SECRET for token refresh")
+            return None
+        
+        token_data = {
+            'client_id': client_id,
+            'client_secret': client_secret,
+            'grant_type': 'refresh_token',
+            'refresh_token': refresh_token
+        }
+        
+        logger.info(f"Attempting to refresh token with client_id: {client_id}")
+        
+        response = requests.post("https://www.strava.com/oauth/token", data=token_data, timeout=30)
+        
+        if response.status_code != 200:
+            logger.error(f"Token refresh failed with status {response.status_code}: {response.text}")
+            return None
+        
+        new_tokens = response.json()
+        
+        # Validate response
+        if 'access_token' not in new_tokens:
+            logger.error(f"Invalid token refresh response: {new_tokens}")
+            return None
+        
+        # Add metadata
+        new_tokens['obtained_at'] = datetime.utcnow().isoformat()
+        new_tokens['last_refreshed'] = datetime.utcnow().isoformat()
+        
+        logger.info("Successfully refreshed access token")
+        
+        return new_tokens
+        
+    except requests.RequestException as e:
+        logger.error(f"HTTP error during token refresh: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Error refreshing token: {e}")
+        return None
 
 
 def fetch_activity_data(activity_id: str, access_token: str) -> Dict[str, Any]:

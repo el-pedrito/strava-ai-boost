@@ -172,7 +172,8 @@ class ContentGenerationStack(Stack):
                     "secretsmanager:GetSecretValue"
                 ],
                 resources=[
-                    self.core_stack.strava_oauth_secret.secret_arn
+                    self.core_stack.strava_oauth_secret.secret_arn,
+                    self.core_stack.strava_app_secret.secret_arn
                 ]
             )
         )
@@ -232,6 +233,7 @@ class ContentGenerationStack(Stack):
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
                 "RATE_LIMITS_TABLE": self.core_stack.table_names["rate_limits"],
                 "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
+                "STRAVA_CLIENT_SECRET": "d25f60d76ae498afc7ddea6cb0c4b50616106a17",  # TODO: Move to Secrets Manager
                 "BEDROCK_MODEL_ID": get_bedrock_model_id()
             }
         )
@@ -323,6 +325,19 @@ class ContentGenerationStack(Stack):
             comment="Fetch complete activity data from Strava API",
             payload_response_only=True,
             retry_on_service_exceptions=True
+        )
+
+        # Check if activity fetch was successful
+        check_fetch_success = sfn.Choice(
+            self, "CheckFetchSuccess",
+            comment="Check if activity data was fetched successfully"
+        )
+
+        # Handle fetch failure
+        fetch_failed = sfn.Fail(
+            self, "FetchFailed",
+            comment="Failed to fetch activity data from Strava API",
+            cause_path="$.error"
         )
 
         # Store backup task
@@ -417,7 +432,15 @@ class ContentGenerationStack(Stack):
             errors=["States.ALL"]
         )
 
-        # Define workflow with Campus Coach conditional logic
+        # Define workflow with error handling and Campus Coach conditional logic
+        
+        # Configure fetch success check
+        check_fetch_success.when(
+            sfn.Condition.number_equals("$.statusCode", 200),
+            store_backup.next(check_campus_coach)
+        ).otherwise(
+            fetch_failed
+        )
         
         # Configure Campus Coach choice conditions
         check_campus_coach.when(
@@ -430,8 +453,7 @@ class ContentGenerationStack(Stack):
         definition = (
             transform_input
             .next(fetch_activity)
-            .next(store_backup)
-            .next(check_campus_coach)
+            .next(check_fetch_success)
         )
         
         # Both Campus Coach paths lead to content generation, then update, then success

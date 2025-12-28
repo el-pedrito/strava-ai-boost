@@ -32,7 +32,7 @@ cdk deploy --profile your-aws-profile
 
 ```bash
 cd local_interface
-python app.py
+AWS_PROFILE=your-aws-profile python app.py
 ```
 
 Open http://localhost:3000 in your browser.
@@ -51,7 +51,7 @@ Open http://localhost:3000 in your browser.
 ```bash
 # Replace YOUR_CLIENT_ID and YOUR_CLIENT_SECRET with actual values
 aws secretsmanager put-secret-value \
-  --secret-id strava-ai-boost-oauth-tokens \
+  --secret-id strava-ai-boost-app-config \
   --secret-string '{"client_id":"YOUR_CLIENT_ID","client_secret":"YOUR_CLIENT_SECRET"}' \
   --profile your-aws-profile
 ```

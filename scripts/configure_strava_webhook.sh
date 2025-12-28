@@ -106,7 +106,7 @@ validate_environment_variables() {
 
 retrieve_strava_credentials_from_secrets() {
     # Retrieve Strava credentials from AWS Secrets Manager
-    local secret_name="strava-ai-boost-oauth-tokens"
+    local secret_name="strava-ai-boost-app-config"
     
     print_status "Retrieving Strava credentials from Secrets Manager..."
     
@@ -127,9 +127,9 @@ retrieve_strava_credentials_from_secrets() {
         exit 1
     fi
     
-    # Parse JSON and extract credentials
-    STRAVA_CLIENT_ID=$(echo "$secret_value" | jq -r '.client_id // empty')
-    STRAVA_CLIENT_SECRET=$(echo "$secret_value" | jq -r '.client_secret // empty')
+    # Parse JSON and extract credentials (trim whitespace/newlines)
+    STRAVA_CLIENT_ID=$(echo "$secret_value" | tr -d '\n\r' | jq -r '.client_id // empty')
+    STRAVA_CLIENT_SECRET=$(echo "$secret_value" | tr -d '\n\r' | jq -r '.client_secret // empty')
     
     if [ -z "$STRAVA_CLIENT_ID" ] || [ -z "$STRAVA_CLIENT_SECRET" ]; then
         print_error "Invalid credentials in Secrets Manager"
@@ -146,8 +146,7 @@ cleanup_webhook_subscriptions() {
     
     local subscriptions
     subscriptions=$(curl -s -X GET \
-        "https://www.strava.com/api/v3/push_subscriptions" \
-        -H "Authorization: Bearer $STRAVA_CLIENT_SECRET" \
+        "https://www.strava.com/api/v3/push_subscriptions?client_id=$STRAVA_CLIENT_ID&client_secret=$STRAVA_CLIENT_SECRET" \
         -H "Content-Type: application/json" || echo "[]")
     
     local subscription_count
@@ -170,8 +169,7 @@ cleanup_webhook_subscriptions() {
             
             local delete_response
             delete_response=$(curl -s -X DELETE \
-                "https://www.strava.com/api/v3/push_subscriptions/$subscription_id" \
-                -H "Authorization: Bearer $STRAVA_CLIENT_SECRET" \
+                "https://www.strava.com/api/v3/push_subscriptions/$subscription_id?client_id=$STRAVA_CLIENT_ID&client_secret=$STRAVA_CLIENT_SECRET" \
                 -H "Content-Type: application/json")
             
             if echo "$delete_response" | jq -e '.errors' > /dev/null 2>&1; then
@@ -219,7 +217,7 @@ validate_webhook_configuration() {
     
     # Check 2: Secrets Manager configuration
     print_status "Checking Secrets Manager configuration..."
-    local secret_name="strava-ai-boost-oauth-tokens"
+    local secret_name="strava-ai-boost-app-config"
     
     if aws secretsmanager describe-secret --secret-id "$secret_name" --profile "$PROFILE" --region "$REGION" > /dev/null 2>&1; then
         local secret_value
@@ -258,8 +256,7 @@ validate_webhook_configuration() {
     if [ -n "$STRAVA_CLIENT_SECRET" ] || retrieve_strava_credentials_from_secrets 2>/dev/null; then
         local subscriptions
         subscriptions=$(curl -s -X GET \
-            "https://www.strava.com/api/v3/push_subscriptions" \
-            -H "Authorization: Bearer $STRAVA_CLIENT_SECRET" \
+            "https://www.strava.com/api/v3/push_subscriptions?client_id=$STRAVA_CLIENT_ID&client_secret=$STRAVA_CLIENT_SECRET" \
             -H "Content-Type: application/json" 2>/dev/null || echo "[]")
         
         local subscription_count
@@ -441,8 +438,7 @@ print_status "Checking existing webhook subscriptions..."
 
 # Get existing subscriptions
 EXISTING_SUBSCRIPTIONS=$(curl -s -X GET \
-    "https://www.strava.com/api/v3/push_subscriptions" \
-    -H "Authorization: Bearer $STRAVA_CLIENT_SECRET" \
+    "https://www.strava.com/api/v3/push_subscriptions?client_id=$STRAVA_CLIENT_ID&client_secret=$STRAVA_CLIENT_SECRET" \
     -H "Content-Type: application/json" || echo "[]")
 
 # Parse response to check for existing subscription
@@ -462,8 +458,7 @@ if [ "$SUBSCRIPTION_COUNT" -gt 0 ]; then
         # Verify subscription is active
         print_status "Verifying subscription status..."
         SUBSCRIPTION_DETAILS=$(curl -s -X GET \
-            "https://www.strava.com/api/v3/push_subscriptions/$SUBSCRIPTION_ID" \
-            -H "Authorization: Bearer $STRAVA_CLIENT_SECRET" \
+            "https://www.strava.com/api/v3/push_subscriptions/$SUBSCRIPTION_ID?client_id=$STRAVA_CLIENT_ID&client_secret=$STRAVA_CLIENT_SECRET" \
             -H "Content-Type: application/json" || echo "{}")
         
         echo "$SUBSCRIPTION_DETAILS" | jq '.' 2>/dev/null || echo "Could not parse subscription details"
@@ -489,8 +484,7 @@ if [ "$SUBSCRIPTION_COUNT" -gt 0 ]; then
                 print_status "Deleting existing subscription: $SUBSCRIPTION_ID"
                 
                 DELETE_RESPONSE=$(curl -s -X DELETE \
-                    "https://www.strava.com/api/v3/push_subscriptions/$SUBSCRIPTION_ID" \
-                    -H "Authorization: Bearer $STRAVA_CLIENT_SECRET" \
+                    "https://www.strava.com/api/v3/push_subscriptions/$SUBSCRIPTION_ID?client_id=$STRAVA_CLIENT_ID&client_secret=$STRAVA_CLIENT_SECRET" \
                     -H "Content-Type: application/json")
                 
                 print_status "Delete response: $DELETE_RESPONSE"

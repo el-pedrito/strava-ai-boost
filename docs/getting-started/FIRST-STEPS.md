@@ -2,23 +2,49 @@
 
 **Complete your first activity enhancement after deployment**
 
+## ✅ Deployment Status: SUCCESSFUL
+
+**System is fully operational and ready for activity processing!**
+
+- ✅ **AWS Infrastructure**: All 5 stacks deployed successfully
+- ✅ **Strava Webhook**: Active (ID: 322419) and receiving events
+- ✅ **Local Interface**: Running on http://localhost:3000
+- ✅ **Processing Pipeline**: Ready for automatic enhancement
+
 After completing the [Quick Start Guide](QUICK-START.md), follow these steps to enhance your first Strava activity.
 
-## 1. Verify System Status
+## 1. Complete OAuth Connection
 
-Open http://localhost:3000 and check:
+**IMPORTANT**: You must complete the OAuth flow first:
+
+1. Open http://localhost:3000 in your browser
+2. Click **"Connect with Strava"**
+3. Authorize the application when prompted by Strava
+4. Verify you see "Connected" status in the dashboard
+
+## 2. Verify System Status
+
+In the dashboard, check:
 
 - ✅ **Strava Connected**: Green status indicator
 - ✅ **System Health**: All services running
 - ✅ **Enhancement Status**: Active (not paused)
+- ✅ **Webhook Status**: Receiving Strava events
 
-## 2. Upload a Test Activity
+## 3. Test with Activity Modification
 
-1. Go to Strava mobile app or website
-2. Upload a new activity (or edit an existing one)
-3. Keep the title and description simple initially
+**Method 1: Edit Existing Activity**
+1. Go to Strava website/app
+2. Edit any existing activity (change title or description)
+3. Save changes
+4. Watch the dashboard for processing
 
-## 3. Monitor Processing
+**Method 2: Upload New Activity**
+1. Upload a new activity to Strava
+2. Keep the title and description simple initially
+3. Monitor the dashboard for automatic processing
+
+## 4. Monitor Processing
 
 In the Strava AI Boost dashboard:
 

@@ -264,7 +264,15 @@ class CoreInfrastructureStack(Stack):
         self.strava_oauth_secret = secretsmanager.Secret(
             self, "StravaOAuthSecret",
             secret_name="strava-ai-boost-oauth-tokens",
-            description="Strava OAuth access and refresh tokens",
+            description="Strava OAuth access and refresh tokens for AI Boost",
+            removal_policy=RemovalPolicy.DESTROY
+        )
+
+        # Strava App credentials (client_id and client_secret)
+        self.strava_app_secret = secretsmanager.Secret(
+            self, "StravaAppSecret",
+            secret_name="strava-ai-boost-app-config",
+            description="Strava application client ID and secret",
             removal_policy=RemovalPolicy.DESTROY
         )
 

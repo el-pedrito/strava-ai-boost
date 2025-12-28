@@ -56,7 +56,7 @@ class StravaOAuthHandler:
         self.secrets_client = boto3.client('secretsmanager')
         
         # OAuth scopes for Strava API
-        self.scopes = ["read,activity:write"]
+        self.scopes = ["read,activity:read_all,activity:write"]
     
     def generate_pkce_pair(self) -> Tuple[str, str]:
         """
