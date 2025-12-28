@@ -1198,6 +1198,74 @@ class EndurawModule(BaseModule):
             logger.error(f"Recommendation generation failed: {str(e)}")
             return ["Enhanced analytics available via Enduraw integration"]
     
+    def get_weather_impact(self, weather_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Get weather impact analysis for activity performance
+        
+        Analyzes how weather conditions affected the activity performance
+        """
+        try:
+            if not weather_data:
+                return {"impact": "unknown", "factors": []}
+            
+            impact_factors = []
+            overall_impact = "neutral"
+            
+            # Analyze temperature impact
+            temp = weather_data.get('temp', 20)
+            if temp > 25:
+                impact_factors.append("high_temperature")
+                overall_impact = "challenging"
+            elif temp < 5:
+                impact_factors.append("low_temperature") 
+                overall_impact = "challenging"
+            
+            # Analyze wind impact
+            wind_speed = weather_data.get('wind_speed', 0)
+            if wind_speed > 15:
+                impact_factors.append("strong_wind")
+                overall_impact = "challenging"
+            elif wind_speed > 8:
+                impact_factors.append("moderate_wind")
+                if overall_impact == "neutral":
+                    overall_impact = "moderate"
+            
+            # Analyze humidity impact
+            humidity = weather_data.get('humidity', 50)
+            if humidity > 80:
+                impact_factors.append("high_humidity")
+                if overall_impact == "neutral":
+                    overall_impact = "moderate"
+            
+            # Analyze precipitation
+            if weather_data.get('precipitation', 0) > 0:
+                impact_factors.append("precipitation")
+                overall_impact = "challenging"
+            
+            return {
+                "impact": overall_impact,
+                "factors": impact_factors,
+                "temperature_celsius": temp,
+                "wind_speed_kmh": wind_speed,
+                "humidity_percent": humidity,
+                "analysis": self.generate_weather_impact_summary(overall_impact, impact_factors)
+            }
+            
+        except Exception as e:
+            logger.error(f"Weather impact analysis failed: {str(e)}")
+            return {"impact": "unknown", "error": str(e)}
+    
+    def generate_weather_impact_summary(self, impact: str, factors: List[str]) -> str:
+        """Generate a summary of weather impact"""
+        if impact == "challenging":
+            return f"Challenging conditions due to: {', '.join(factors)}"
+        elif impact == "moderate":
+            return f"Moderate impact from: {', '.join(factors)}"
+        elif impact == "neutral":
+            return "Favorable weather conditions"
+        else:
+            return "Weather impact unknown"
+
     def get_required_credentials(self) -> List[str]:
         """Get list of required credential fields"""
         return []  # Enduraw uses Strava OAuth, no separate credentials needed

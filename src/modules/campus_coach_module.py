@@ -774,9 +774,64 @@ Return your analysis in JSON format:
     
     def calculate_pace_accuracy(self, planned_intervals: List[Dict], velocity_data: List[float]) -> float:
         """Calculate pace accuracy for interval sessions"""
-        # Simplified implementation - would need more sophisticated analysis
-        # This is a placeholder for the actual pace analysis logic
-        return 0.85  # Mock 85% accuracy
+        try:
+            if not planned_intervals or not velocity_data:
+                return 0.0
+            
+            # Convert velocity data to pace (min/km)
+            paces = []
+            for velocity in velocity_data:
+                if velocity > 0:
+                    pace_per_km = (1000 / velocity) / 60  # Convert m/s to min/km
+                    paces.append(pace_per_km)
+            
+            if not paces:
+                return 0.0
+            
+            # Calculate target pace from planned intervals
+            total_target_pace = 0.0
+            total_weight = 0.0
+            
+            for interval in planned_intervals:
+                target_pace_str = interval.get('pace', '4:30')  # Default pace
+                distance = interval.get('distance', 1000)  # Default distance
+                
+                # Parse pace string (e.g., "4:30" -> 4.5 min/km)
+                try:
+                    if ':' in target_pace_str:
+                        minutes, seconds = target_pace_str.split(':')
+                        target_pace = float(minutes) + float(seconds) / 60
+                    else:
+                        target_pace = float(target_pace_str)
+                    
+                    # Weight by distance
+                    weight = distance / 1000  # Convert to km
+                    total_target_pace += target_pace * weight
+                    total_weight += weight
+                    
+                except (ValueError, AttributeError):
+                    # Fallback to average pace if parsing fails
+                    target_pace = sum(paces) / len(paces)
+                    weight = 1.0
+                    total_target_pace += target_pace * weight
+                    total_weight += weight
+            
+            if total_weight == 0:
+                return 0.0
+            
+            avg_target_pace = total_target_pace / total_weight
+            avg_actual_pace = sum(paces) / len(paces)
+            
+            # Calculate accuracy as inverse of relative error
+            pace_error = abs(avg_actual_pace - avg_target_pace) / avg_target_pace
+            accuracy = max(0.0, 1.0 - pace_error)
+            
+            # Cap accuracy at 1.0 and apply reasonable bounds
+            return min(1.0, max(0.0, accuracy))
+            
+        except Exception as e:
+            logger.error(f"Pace accuracy calculation failed: {str(e)}")
+            return 0.0
     
     def analyze_effort_distribution(self, target_zones: List[str], heartrate_data: List[int]) -> str:
         """Analyze effort distribution vs target zones"""
