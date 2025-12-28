@@ -37,11 +37,15 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     Updates activity title and description with AI-generated content
     """
     try:
+        # Log the incoming event for debugging
+        logger.info(f"Strava updater received event: {json.dumps(event, default=str)}")
+        
         activity_id = event.get('activity_id')
         user_id = event.get('user_id')
         enhanced_content = event.get('enhanced_content', {})
         
         if not activity_id or not user_id:
+            logger.error(f"Missing parameters - activity_id: {activity_id}, user_id: {user_id}")
             raise ValueError("Missing required parameters: activity_id, user_id")
         
         if not enhanced_content:

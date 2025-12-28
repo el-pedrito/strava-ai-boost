@@ -1,8 +1,4 @@
 # ⚡ Performance Optimization
-
-**Version:** v1.3.7 - Complete End-to-End Testing Suite  
-**Last Updated:** 2025-12-23
-
 This guide provides comprehensive instructions for optimizing the performance of your Strava AI Boost system, including AgentCore Memory tuning, Browser Tool optimization, and overall system performance improvements.
 
 ## Table of Contents

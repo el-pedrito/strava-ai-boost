@@ -1,8 +1,5 @@
 # 🏗️ Technical Architecture
 
-**Version:** v1.3.7 - Complete End-to-End Testing Suite  
-**Last Updated:** 2025-12-23
-
 This document provides detailed technical implementation information for the Strava AI Boost system, including AWS services configuration, data models, and integration patterns.
 
 ## System Architecture Overview

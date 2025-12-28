@@ -93,7 +93,7 @@ class ContentGenerationStack(Stack):
             )
         )
 
-        # Add permissions for Bedrock access
+        # Add permissions for Bedrock access (foundation models and inference profiles across all regions)
         content_lambda_role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
@@ -102,7 +102,10 @@ class ContentGenerationStack(Stack):
                     "bedrock:InvokeModelWithResponseStream"
                 ],
                 resources=[
-                    get_model_arn(self.region)
+                    # Foundation models in all regions
+                    "arn:aws:bedrock:*::foundation-model/*",
+                    # Inference profiles in current account and region
+                    f"arn:aws:bedrock:{self.region}:{self.account}:inference-profile/*"
                 ]
             )
         )
@@ -112,9 +115,9 @@ class ContentGenerationStack(Stack):
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=[
-                    "bedrock-agentcore:InvokeAgent",
-                    "bedrock-agentcore:GetAgent",
-                    "bedrock-agentcore:ListAgents"
+                    "bedrock:InvokeAgent",
+                    "bedrock:GetAgent",
+                    "bedrock:ListAgents"
                 ],
                 resources=["*"]  # AgentCore resources are dynamic
             )
@@ -344,6 +347,7 @@ class ContentGenerationStack(Stack):
         store_backup = sfn.Pass(
             self, "StoreBackup",
             comment="Store original activity description in DynamoDB",
+            result_path="$.backup_info",
             parameters={
                 "activity_id.$": "$.activity_id",
                 "original_description.$": "$.activity_data.description",
@@ -444,7 +448,10 @@ class ContentGenerationStack(Stack):
         
         # Configure Campus Coach choice conditions
         check_campus_coach.when(
-            sfn.Condition.boolean_equals("$.user_config.modules_config.campus_coach.enabled", True),
+            sfn.Condition.and_(
+                sfn.Condition.is_present("$.user_config.modules_config.campus_coach.enabled"),
+                sfn.Condition.boolean_equals("$.user_config.modules_config.campus_coach.enabled", True)
+            ),
             extract_campus_sessions.next(generate_content)
         ).otherwise(
             skip_campus_coach.next(generate_content)

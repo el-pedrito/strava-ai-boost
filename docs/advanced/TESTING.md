@@ -1,8 +1,5 @@
 # Testing Guide
 
-**Version:** v1.3.7 - Complete End-to-End Testing Suite  
-**Last Updated:** 2025-12-23
-
 This guide provides comprehensive testing procedures and validation steps for the Strava AI Boost system, including end-to-end pipeline testing, security compliance validation, and local web interface testing.
 
 ## Testing Philosophy

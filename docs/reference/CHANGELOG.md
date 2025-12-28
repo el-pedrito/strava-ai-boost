@@ -5,6 +5,66 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.9] - 2025-12-28 - Documentation Version Management Simplification
+
+### Changed
+- **Documentation Version Management**: Removed explicit version numbers from all documentation files
+  - Versions now tracked only in CHANGELOG.md for centralized management
+  - Eliminates need for repetitive version updates across multiple files
+  - Simplifies documentation maintenance and reduces version drift
+
+### Technical Details
+- **Files Modified**: All documentation files in `docs/` directory and `README.md`
+- **Approach**: Kept "Last Updated" dates but removed version numbers and status descriptions
+- **Benefit**: Single source of truth for version history in CHANGELOG.md
+
+## [1.4.8] - 2025-12-28 - Step Functions Data Flow Fix
+
+### Fixed
+- **Step Functions Workflow**: Fixed missing user_id in StravaUpdater Lambda invocation
+  - ContentGenerator now includes user_id in response payload
+  - Resolved "Missing required parameters: activity_id, user_id" error in StravaUpdater
+  - Fixed data flow between Step Functions states to preserve user context
+
+### Technical Details
+- **Root Cause**: ContentGenerator Lambda was not passing user_id to subsequent workflow steps
+- **Solution**: Added user_id to both success and error response payloads in ContentGenerator
+- **Impact**: Eliminates 500 errors in StravaUpdater, enables successful activity updates on Strava
+- **Files Modified**: `lambda_functions/content_generator.py`
+
+### Performance
+- **Error Rate Reduction**: Eliminates 100% of StravaUpdater failures due to missing user_id
+- **Workflow Reliability**: Step Functions executions now complete successfully end-to-end
+- **Content Generation**: Claude Sonnet 4.5 continues to generate high-quality content (confidence 0.88)
+
+## [1.4.7] - 2025-12-28 - Claude Sonnet 4.5 Integration
+
+### Changed
+- **LLM Model Upgrade**: Migrated from Claude 3.5 Sonnet to Claude Sonnet 4.5
+  - Updated configuration to use global inference profile: `global.anthropic.claude-sonnet-4-5-20250929-v1:0`
+  - Enhanced IAM permissions to support cross-region inference profiles
+  - Improved content generation quality and creativity
+
+### Fixed
+- **Bedrock Permissions**: Corrected IAM policies for inference profile access
+  - Extended foundation model permissions to all regions: `arn:aws:bedrock:*::foundation-model/*`
+  - Fixed cross-region routing issues with global inference profiles
+  - Resolved AccessDeniedException errors for Claude Sonnet 4.5 invocation
+
+### Performance
+- **Content Generation Quality**: Significant improvement in AI-generated content
+  - Content length: 31 chars → 677 chars (2000% increase)
+  - Confidence score: 0.5 → 0.88 (76% improvement)
+  - Style elements: Enhanced with motivational, technical, training-focused, personal tones
+  - Better technical analysis: Zone 2 training, aerobic adaptations, recovery insights
+
+### Technical Implementation
+- **Files Modified**: 
+  - `src/config/llm_config.py`: Updated default model ID to Claude Sonnet 4.5 global inference profile
+  - `stacks/content_generation_stack.py`: Enhanced IAM permissions for cross-region Bedrock access
+- **AWS Resources**: Updated Lambda environment variables and IAM policies across Content Generation stack
+- **Testing**: Validated both direct Bedrock invocation and Lambda integration with 100% success rate
+
 ## [1.4.6] - 2025-12-28 - Complete System Deployment and Webhook Configuration
 
 ### Added

@@ -73,11 +73,15 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     Uses Strands Agent with AgentCore Memory for personalized content generation
     """
     try:
+        # Log the incoming event for debugging
+        logger.info(f"Content generator received event: {json.dumps(event, default=str)}")
+        
         activity_id = event.get('activity_id')
         user_id = event.get('user_id')
         activity_data = event.get('activity_data', {})
         
         if not activity_id or not user_id:
+            logger.error(f"Missing parameters - activity_id: {activity_id}, user_id: {user_id}")
             raise ValueError("Missing required parameters: activity_id, user_id")
         
         logger.info(f"Generating content for activity {activity_id}, user {user_id}")
@@ -108,6 +112,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         return {
             'statusCode': 200,
             'activity_id': activity_id,
+            'user_id': user_id,
             'enhanced_content': enhanced_content,
             'modules_applied': [m['name'] for m in enhanced_modules]
         }
@@ -117,7 +122,8 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         return {
             'statusCode': 500,
             'error': str(e),
-            'activity_id': event.get('activity_id')
+            'activity_id': event.get('activity_id'),
+            'user_id': event.get('user_id')
         }
 
 
@@ -806,14 +812,26 @@ PERFORMANCE ANALYSIS:
                 metrics = enduraw_insights.get('enhanced_metrics', {})
                 if metrics.get('pace_without_wind'):
                     pace_data = metrics['pace_without_wind']
-                    if isinstance(pace_data, dict) and pace_data.get('wind_adjustment_seconds', 0) > 2:
-                        prompt += f"  Wind adjustment: +{pace_data['wind_adjustment_seconds']:.0f}s/km\n"
+                    if isinstance(pace_data, dict):
+                        wind_adjustment = pace_data.get('wind_adjustment_seconds', 0)
+                        try:
+                            wind_adjustment_num = float(wind_adjustment) if wind_adjustment else 0
+                            if wind_adjustment_num > 2:
+                                prompt += f"  Wind adjustment: +{wind_adjustment_num:.0f}s/km\n"
+                        except (ValueError, TypeError):
+                            # Skip if conversion fails
+                            pass
                 
                 if metrics.get('elevation_cost'):
                     elev_data = metrics['elevation_cost']
                     if isinstance(elev_data, dict):
                         efficiency = elev_data.get('elevation_efficiency', 0)
-                        prompt += f"  Elevation efficiency: {efficiency:.1%}\n"
+                        try:
+                            efficiency_num = float(efficiency) if efficiency else 0
+                            prompt += f"  Elevation efficiency: {efficiency_num:.1%}\n"
+                        except (ValueError, TypeError):
+                            # Skip if conversion fails
+                            pass
                 
                 # Recommendations
                 recommendations = enduraw_insights.get('recommendations', [])

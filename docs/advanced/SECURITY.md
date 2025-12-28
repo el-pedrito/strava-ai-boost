@@ -1,8 +1,5 @@
 # 🔒 Security Guide
 
-**Version:** v1.3.7 - Complete End-to-End Testing Suite  
-**Last Updated:** 2025-12-23
-
 This document outlines the security practices, policies, and configurations implemented in the Strava AI Boost system to ensure data protection, secure communication, and compliance with security best practices.
 
 ## Security Overview
