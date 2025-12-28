@@ -24,8 +24,9 @@ flake8>=6.0.0
 mypy>=1.0.0
 typing-extensions>=4.0.0
 
-# Strands Agents framework (placeholder - will be configured during agent setup)
-# strands-agents>=1.0.0
+# Strands Agents framework for AI agent development
+strands-agents>=1.0.0
+strands-agents-tools>=0.2.0
 
-# AgentCore client (placeholder - will be configured during AgentCore setup)
-# agentcore-client>=1.0.0
+# AgentCore starter toolkit for enhanced AI agent capabilities
+bedrock-agentcore-starter-toolkit>=0.1.21

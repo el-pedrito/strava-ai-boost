@@ -409,7 +409,7 @@ Strava AI Boost implements a robust dual-mode content generation system that ens
 - **Agent**: Custom AgentCore agent with persistent memory
 - **Memory**: Personalized style learning and expression tracking
 - **Capabilities**: Advanced pattern recognition, context awareness
-- **Deployment**: Optional via `scripts/deploy_agentcore.sh`
+- **Deployment**: Optional via `scripts/deploy_agentcore_agents.sh`
 
 #### Mode 2: Direct Bedrock Fallback (Automatic)
 - **Model**: Claude Sonnet 4.5 via direct Bedrock invocation

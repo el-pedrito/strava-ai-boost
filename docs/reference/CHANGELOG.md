@@ -5,6 +5,108 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.12] - 2025-12-28 - AgentCore Deployment Optimization and Documentation Update
+
+### Changed
+- **AgentCore Agent Files Renamed**: Simplified naming convention for better clarity
+  - Renamed `src/agents/agentcore_content_agent.py` → `src/agents/content_agent.py`
+  - Renamed `src/agents/agentcore_campus_coach_agent.py` → `src/agents/campus_coach_agent.py`
+  - Updated all documentation references to use new file names
+  - Maintained full backward compatibility in functionality
+
+### Enhanced
+- **AgentCore Deployment Script**: Consolidated and improved deployment automation
+  - Replaced `scripts/deploy_agentcore.sh` with enhanced `scripts/deploy_agentcore_agents.sh`
+  - Added comprehensive IAM permissions management for AgentCore agents
+  - Automatic creation of `StravaAIBoost-AgentCoreExecutionRole` with required policies
+  - Enhanced validation and testing of deployed agents
+  - Added AgentCore Memory setup and configuration
+  - Improved error handling and retry logic for cold start issues
+
+### Enhanced
+- **CDK Stack Dynamic Configuration**: Improved AgentCore integration in infrastructure
+  - Added `_get_agentcore_environment_variables()` method for dynamic agent ARN detection
+  - CDK context integration for automatic agent discovery via `cdk.context.json`
+  - Environment variables automatically populated from detected agent ARNs
+  - Fallback mechanisms for development and production environments
+  - Fixed syntax errors in `stacks/content_generation_stack.py`
+
+### Enhanced
+- **Documentation Updates**: Comprehensive documentation refresh
+  - Updated `docs/getting-started/QUICK-START.md` with simplified deployment workflow
+  - Updated all references from `deploy_agentcore.sh` to `deploy_agentcore_agents.sh`
+  - Updated `scripts/deploy.sh` to use new AgentCore deployment script
+  - Corrected file references in `docs/reference/ARCHITECTURE.md`, `docs/getting-started/COMPLETE-SETUP.md`, and `docs/advanced/AGENTCORE.md`
+
+### Added
+- **IAM Permissions Automation**: Comprehensive permission management for AgentCore
+  - Automatic IAM role creation with trust policies for Bedrock and Lambda services
+  - Attached policies: `AWSLambdaBasicExecutionRole`, `AmazonBedrockFullAccess`
+  - Custom policy for DynamoDB and Secrets Manager access to `strava-ai-boost-*` resources
+  - Agent-specific permission configuration after deployment
+  - AWS identity verification and account validation
+
+### Performance
+- **Deployment Efficiency**: Streamlined deployment process
+  - Single script deployment: `./scripts/deploy.sh dev` deploys everything
+  - Reduced manual configuration steps from 8 to 4
+  - Automatic permission setup eliminates manual IAM configuration
+  - Enhanced error recovery and fallback mechanisms
+
+### Technical Details
+- **Files Modified**:
+  - `src/agents/content_agent.py` (renamed from `agentcore_content_agent.py`)
+  - `src/agents/campus_coach_agent.py` (renamed from `agentcore_campus_coach_agent.py`)
+  - `scripts/deploy_agentcore_agents.sh` (enhanced version replacing `deploy_agentcore.sh`)
+  - `stacks/content_generation_stack.py` (added dynamic AgentCore configuration)
+  - `scripts/deploy.sh` (updated to use new AgentCore script)
+  - All documentation files updated with new references
+- **IAM Resources**: Automatic creation of `StravaAIBoost-AgentCoreExecutionRole`
+- **CDK Context**: Dynamic agent ARN detection via `cdk.context.json`
+- **Environment Variables**: Automatic population of AgentCore configuration in Lambda functions
+
+## [1.4.11] - 2025-12-28 - AgentCore Integration Enhancement and Dynamic Configuration
+
+### Enhanced
+- **AgentCore Content Generation Agent**: Improved fidelity to original agent prompts and logic
+  - Enhanced `src/agents/content_agent.py` to stay faithful to original ContentGenerationAgent prompts
+  - Added comprehensive system prompt that preserves original agent's content generation approach
+  - Integrated dynamic LLM configuration using `DEFAULT_BEDROCK_MODEL_ID` from `src/config/llm_config.py`
+  - Enhanced tool descriptions to reference original agent methods and analysis patterns
+  - Added model_id to response payload for better tracking and debugging
+
+### Enhanced
+- **AgentCore Campus Coach Agent**: Improved fidelity to original agent prompts and logic
+  - Enhanced `src/agents/campus_coach_agent.py` to stay faithful to original CampusCoachAgent prompts
+  - Added comprehensive system prompt that preserves original agent's session extraction and matching approach
+  - Integrated dynamic LLM configuration using `DEFAULT_BEDROCK_MODEL_ID` from `src/config/llm_config.py`
+  - Added new `analyze_session_compliance` tool for detailed compliance analysis using original methods
+  - Enhanced tool descriptions to reference original agent's retry logic and matching algorithms
+  - Added model_id to response payload for better tracking and debugging
+
+### Added
+- **Dynamic LLM Configuration Integration**: Centralized model configuration across AgentCore agents
+  - Both AgentCore agents now use `get_bedrock_model_id()` from `src/config/llm_config.py`
+  - Eliminates hardcoded model IDs in favor of dynamic configuration
+  - Supports environment variable overrides while maintaining consistent defaults
+  - Enhanced fallback mechanisms for development environments
+
+### Added
+- **Enhanced AgentCore Temporary Files Management**: Comprehensive .gitignore patterns
+  - Added extensive AgentCore temporary file patterns to `.gitignore`
+  - Covers all AgentCore deployment artifacts: `.bedrock_agentcore/`, `agentcore_temp/`, build directories
+  - Prevents accidental commit of AgentCore configuration and deployment files
+  - Includes YAML configuration files and deployment artifacts
+
+### Technical Details
+- **Files Modified**: 
+  - `src/agents/content_agent.py`: Enhanced with original prompts and dynamic LLM config
+  - `src/agents/campus_coach_agent.py`: Enhanced with original prompts and dynamic LLM config
+  - `.gitignore`: Added comprehensive AgentCore temporary file patterns
+- **Configuration**: Both agents now use centralized LLM configuration from `src/config/llm_config.py`
+- **Fidelity**: Agents now preserve original ContentGenerationAgent and CampusCoachAgent prompts and logic
+- **Monitoring**: Enhanced response payloads include model_id for better debugging and tracking
+
 ## [1.4.10] - 2025-12-28 - Content Generation Documentation and Logging Enhancement
 
 ### Added

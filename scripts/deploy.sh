@@ -288,26 +288,26 @@ fi
 # Step 8: Deploy AgentCore Infrastructure
 print_section "🤖 Step 8: Deploying AgentCore infrastructure"
 
-if [ -f "scripts/deploy_agentcore.sh" ]; then
-    print_status "Running AgentCore deployment..."
-    chmod +x scripts/deploy_agentcore.sh
+if [ -f "scripts/deploy_agentcore_agents.sh" ]; then
+    print_status "Running AgentCore agents deployment..."
+    chmod +x scripts/deploy_agentcore_agents.sh
     
     # Set environment variables for AgentCore deployment
     export AWS_PROFILE=$PROFILE
     export AWS_REGION=$REGION
     
-    if ./scripts/deploy_agentcore.sh; then
-        print_status "✅ AgentCore deployment completed successfully"
+    if ./scripts/deploy_agentcore_agents.sh; then
+        print_status "✅ AgentCore agents deployment completed successfully"
         print_status "Content generation mode: AgentCore + Bedrock fallback (enhanced)"
     else
-        print_warning "⚠️  AgentCore deployment failed or partially completed"
+        print_warning "⚠️  AgentCore agents deployment failed or partially completed"
         print_warning "This is expected if AgentCore CLI is not available yet"
         print_status "✅ Content generation mode: Bedrock fallback only (fully functional)"
         print_status "Your system will work perfectly with direct AI generation"
-        print_warning "You can run ./scripts/deploy_agentcore.sh manually later for enhanced features"
+        print_warning "You can run ./scripts/deploy_agentcore_agents.sh manually later for enhanced features"
     fi
 else
-    print_warning "AgentCore deployment script not found, skipping AgentCore deployment"
+    print_warning "AgentCore agents deployment script not found, skipping AgentCore deployment"
 fi
 
 # Step 9: Configure Strava Webhook Subscription

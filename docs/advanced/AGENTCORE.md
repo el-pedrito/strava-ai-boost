@@ -208,10 +208,8 @@ async def extract_with_retry(max_retries=3):
 AgentCore agents are deployed using CLI scripts:
 
 ```bash
-# Deploy Content Generation Agent
-./scripts/deploy_agentcore.sh
-
-# Deploy Campus Coach Browser Agent
+# Deploy AgentCore Agents (Content Generation + Campus Coach)
+./scripts/deploy_agentcore_agents.sh
 ./scripts/deploy_campus_coach_agent.sh
 
 # Setup AgentCore Memory
@@ -318,7 +316,7 @@ browser_config:
 agentcore agent list --profile your-aws-profile
 
 # Redeploy if missing
-./scripts/deploy_agentcore.sh
+./scripts/deploy_agentcore_agents.sh
 ```
 
 **"Memory service unavailable"**

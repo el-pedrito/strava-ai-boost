@@ -154,10 +154,8 @@ agentcore status
 # Deploy AgentCore Memory
 ./scripts/setup_memory.sh
 
-# Deploy Content Generation Agent
-./scripts/deploy_agentcore.sh
-
-# Deploy Campus Coach Agent (optional)
+# Deploy AgentCore Agents
+./scripts/deploy_agentcore_agents.sh
 ./scripts/deploy_campus_coach_agent.sh
 ```
 

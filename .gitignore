@@ -77,3 +77,20 @@ credentials.json
 tmp/
 temp/
 *.tmp
+
+# AgentCore temporary files
+.bedrock_agentcore/
+*.bedrock_agentcore.yaml
+agentcore_temp/
+.agentcore/
+bedrock_agentcore_temp/
+agentcore_*/
+.agentcore_*/
+*.agentcore
+agentcore.yaml
+.bedrock_agentcore.yml
+bedrock_agentcore.yml
+agentcore_deployment/
+.agentcore_deployment/
+agentcore_build/
+.agentcore_build/
