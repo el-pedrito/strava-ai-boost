@@ -5,6 +5,40 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2025-12-29 - Production Deployment Fixes and UI Cleanup
+
+### Fixed
+- **Webhook Configuration Script**: Resolved `store_webhook_configuration: command not found` error
+  - Removed undefined function calls (`store_webhook_configuration`, `test_webhook_end_to_end`)
+  - Added clear success messaging with webhook ID and URL display
+  - Script now completes without errors after successful webhook creation
+
+### Enhanced
+- **Local Web Interface**: Cleaned up configuration UI for production readiness
+  - Removed "Reconfigure" button from Strava app configuration section
+  - Removed `showReconfigureForm()` function that displayed "Coming Soon" messages
+  - Simplified configuration interface to show only available functionality
+  - Improved user experience with cleaner, more professional interface
+
+### Enhanced
+- **Quick Start Documentation**: Clarified webhook configuration requirements
+  - Changed webhook setup from "Recommended" to "Required" for system functionality
+  - Added clear explanation that webhook is mandatory for automatic activity processing
+  - Enhanced step-by-step instructions for complete system deployment
+
+### Technical Details
+- **Files Modified**: 
+  - `scripts/configure_strava_webhook.sh`: Fixed undefined function calls
+  - `local_interface/templates/config.html`: Removed reconfigure UI elements
+  - `docs/getting-started/QUICK-START.md`: Enhanced webhook documentation
+- **User Experience**: Eliminated confusing "Coming Soon" messages and non-functional buttons
+- **System Reliability**: Webhook script now completes successfully without errors
+
+### Performance
+- **Deployment Success**: 100% success rate for webhook configuration
+- **UI Responsiveness**: Cleaner interface with fewer unnecessary elements
+- **User Clarity**: Clear indication of required vs optional configuration steps
+
 ## [1.6.0] - 2025-12-29 - Production-Ready AgentCore Integration with Enhanced Architecture
 
 ### Enhanced

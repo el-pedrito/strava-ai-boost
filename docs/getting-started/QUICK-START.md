@@ -111,11 +111,17 @@ Open http://localhost:3000 in your browser.
 2. Click "Connect with Strava"
 3. Authorize the application
 
-### Step 5: Configure Webhook (Optional - for real-time processing)
+### Step 5: Configure Webhook (Required - for real-time processing)
 ```bash
-# Configure webhook subscription (tells Strava to notify us of new activities)
+# Configure webhook subscription (tells Strava to notify us of new activities automatically)
 ./scripts/configure_strava_webhook.sh dev --auto-configure
 ```
+
+**What this does:**
+- ✅ Creates Strava webhook subscription for automatic activity notifications
+- ✅ Automatically replaces any existing webhook with updated URL
+- ✅ Enables real-time processing when you upload new activities to Strava
+- ✅ **Required for the system to work automatically** - without this, activities won't be processed
 
 ## Test Your System (30 seconds)
 

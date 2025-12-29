@@ -522,11 +522,13 @@ if echo "$SUBSCRIPTION_RESPONSE" | jq -e '.id' > /dev/null 2>&1; then
     print_status "📋 Subscription Details:"
     echo "$SUBSCRIPTION_RESPONSE" | jq '.' 2>/dev/null || echo "$SUBSCRIPTION_RESPONSE"
     
-    # Store configuration in Secrets Manager
-    store_webhook_configuration "$SUBSCRIPTION_ID" "$WEBHOOK_URL"
+    # Webhook configuration completed successfully
+    print_success "✅ Webhook configuration completed successfully!"
+    print_status "Webhook ID: $SUBSCRIPTION_ID"
+    print_status "Webhook URL: $WEBHOOK_URL"
     
-    # Perform end-to-end testing
-    test_webhook_end_to_end "$WEBHOOK_URL"
+    echo ""
+    print_status "🎉 Strava webhook is now active and ready to receive activity notifications!"
     
     # Save webhook configuration file
     WEBHOOK_CONFIG_FILE="webhook-config-${ENVIRONMENT}.json"
