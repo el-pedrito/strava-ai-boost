@@ -106,8 +106,8 @@ update_lambda_iam_permissions() {
             local role_name=$(echo "$role_arn" | awk -F'/' '{print $NF}')
             print_status "Found Lambda role: $role_name"
             
-            # Create AgentCore invocation policy for Lambda role (no memory permissions needed)
-            local policy_name="StravaAIBoostAgentCoreInvocation-${role_name}-$(date +%s)"
+            # Create AgentCore invocation policy for Lambda role (with clean, fixed name)
+            local policy_name="StravaAIBoost-AgentCore-Lambda"
             local policy_file="/tmp/lambda_agentcore_policy_${role_name}_$.json"
             
             cat > "$policy_file" << EOF
@@ -130,36 +130,86 @@ update_lambda_iam_permissions() {
 }
 EOF
             
-            # Create the policy
-            local policy_arn
-            policy_arn=$(aws iam create-policy \
-                --policy-name "$policy_name" \
-                --policy-document "file://$policy_file" \
-                --description "AgentCore invocation permissions for Lambda: $function_name" \
+            # Check if policy already exists
+            local existing_policy_arn
+            existing_policy_arn=$(aws iam list-policies \
+                --scope Local \
                 --profile "$AWS_PROFILE" \
-                --region "$AWS_REGION" \
-                --query 'Policy.Arn' \
+                --query "Policies[?PolicyName=='$policy_name'].Arn" \
                 --output text 2>/dev/null)
+            
+            local policy_arn=""
+            
+            if [ -n "$existing_policy_arn" ] && [ "$existing_policy_arn" != "None" ]; then
+                # Update existing policy
+                print_status "Updating existing policy: $policy_name"
+                
+                # Create new policy version
+                local version_id
+                version_id=$(aws iam create-policy-version \
+                    --policy-arn "$existing_policy_arn" \
+                    --policy-document "file://$policy_file" \
+                    --set-as-default \
+                    --profile "$AWS_PROFILE" \
+                    --query 'PolicyVersion.VersionId' \
+                    --output text 2>/dev/null)
+                
+                if [ $? -eq 0 ] && [ -n "$version_id" ]; then
+                    print_success "✅ Updated policy version: $version_id"
+                    policy_arn="$existing_policy_arn"
+                else
+                    print_warning "Failed to update existing policy, will create new one"
+                fi
+            fi
+            
+            # Create new policy if update failed or policy doesn't exist
+            if [ -z "$policy_arn" ]; then
+                print_status "Creating new policy: $policy_name"
+                
+                policy_arn=$(aws iam create-policy \
+                    --policy-name "$policy_name" \
+                    --policy-document "file://$policy_file" \
+                    --description "Clean AgentCore invocation permissions for Strava AI Boost Lambda" \
+                    --profile "$AWS_PROFILE" \
+                    --region "$AWS_REGION" \
+                    --query 'Policy.Arn' \
+                    --output text 2>/dev/null)
+                
+                if [ $? -eq 0 ] && [ -n "$policy_arn" ] && [[ "$policy_arn" == arn:* ]]; then
+                    print_success "✅ Created clean AgentCore policy: $policy_arn"
+                else
+                    print_warning "⚠️  Failed to create AgentCore policy for Lambda role: $role_name"
+                    rm -f "$policy_file"
+                    continue
+                fi
+            fi
             
             # Clean up temporary file
             rm -f "$policy_file"
             
-            if [ $? -eq 0 ] && [ -n "$policy_arn" ] && [[ "$policy_arn" == arn:* ]]; then
-                print_success "Created AgentCore policy: $policy_arn"
-                
+            # Check if policy is already attached to avoid duplicate attachment
+            local is_attached
+            is_attached=$(aws iam list-attached-role-policies \
+                --role-name "$role_name" \
+                --profile "$AWS_PROFILE" \
+                --query "AttachedPolicies[?PolicyArn=='$policy_arn'].PolicyArn" \
+                --output text 2>/dev/null)
+            
+            if [ -z "$is_attached" ] || [ "$is_attached" = "None" ]; then
                 # Attach policy to Lambda role
                 if aws iam attach-role-policy \
                     --role-name "$role_name" \
                     --policy-arn "$policy_arn" \
                     --profile "$AWS_PROFILE" \
                     --region "$AWS_REGION" > /dev/null 2>&1; then
-                    print_success "✅ Attached AgentCore policy to Lambda role: $role_name"
+                    print_success "✅ Attached clean AgentCore policy to Lambda role: $role_name"
                     ((updated_roles++))
                 else
                     print_warning "⚠️  Failed to attach policy to Lambda role: $role_name"
                 fi
             else
-                print_warning "⚠️  Failed to create AgentCore policy for Lambda role: $role_name"
+                print_success "✅ Clean policy already attached to Lambda role: $role_name"
+                ((updated_roles++))
             fi
         else
             print_warning "⚠️  Lambda function $function_name not found or no role"

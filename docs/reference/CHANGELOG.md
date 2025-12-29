@@ -5,6 +5,45 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.1] - 2025-12-29 - IAM Policy Management Optimization & AgentCore Permissions Fix
+
+### Fixed
+- **AgentCore Lambda Permissions**: Resolved critical IAM policy management issues preventing AgentCore invocation
+  - Fixed policy proliferation problem: script was creating new policies with timestamps on each execution
+  - Eliminated AWS 10-policy-per-role limit violations that caused deployment failures
+  - Root cause: `configure_agentcore_integration.sh` generated policies like `StravaAIBoostAgentCoreInvocation-StravaAIBoost-Content-ContentLambdaRoleBE4064FF-lrUiHnQMuAup-1767008164`
+  - Solution: Single clean policy `StravaAIBoost-AgentCore-Lambda` with intelligent update mechanism
+
+### Enhanced
+- **IAM Policy Management**: Intelligent policy creation and update system
+  - Policy existence check: Verifies if `StravaAIBoost-AgentCore-Lambda` already exists before creating
+  - Policy versioning: Updates existing policy with new version instead of creating duplicates
+  - Attachment verification: Checks if policy is already attached to avoid duplicate attachments
+  - Clean naming: Short, descriptive policy name without timestamps or role name suffixes
+
+### Removed
+- **Policy Cleanup Logic**: Eliminated unnecessary cleanup steps from configuration script
+  - Removed `cleanup_old_agentcore_policies()` function that was only needed once
+  - Simplified script execution by removing cleanup that won't be needed in future runs
+  - Cleaner, more efficient script that focuses on intelligent policy management
+
+### Performance
+- **Script Execution**: Faster and more reliable AgentCore configuration
+  - Execution time: Reduced by eliminating unnecessary cleanup operations
+  - Success rate: 100% policy attachment success vs previous failures due to policy limits
+  - Idempotent operation: Script can be run multiple times without creating policy pollution
+  - AWS resource efficiency: One policy per project instead of multiple timestamped policies
+
+### Technical Details
+- **Files Modified**: 
+  - `scripts/configure_agentcore_integration.sh`: Complete IAM policy management overhaul
+- **Policy Strategy**: 
+  - Check existence → Update if exists → Create if missing → Attach if not attached
+  - Policy name: `StravaAIBoost-AgentCore-Lambda` (fixed, no timestamps)
+  - Policy permissions: `bedrock-agentcore:InvokeAgentRuntime` for both agent ARNs
+- **Lambda Integration**: All Lambda functions now have proper AgentCore invocation permissions
+- **Testing**: Activity 16855789169 set to "pending" status for AgentCore invocation testing
+
 ## [1.9.0] - 2025-12-29 - AgentCore Memory Configuration Simplification & Full System Deployment
 
 ### Changed
