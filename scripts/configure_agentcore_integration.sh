@@ -38,28 +38,24 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Function to detect deployed AgentCore agents (silent version)
+# Function to detect deployed AgentCore agents (simplified - no memory detection)
 detect_deployed_agents() {
     local content_arn=""
     local campus_arn=""
-    local memory_id=""
     
-    # Get Content Generation Agent ARN using the corrected method
-    if command -v agentcore &> /dev/null; then
+    # Get Content Generation Agent ARN from .bedrock_agentcore.yaml
+    if [ -f ".bedrock_agentcore.yaml" ]; then
+        content_arn=$(grep -A 1 "agent_arn:" .bedrock_agentcore.yaml | grep "content_gen" -A 1 | grep "arn:aws" | sed 's/.*arn:/arn:/' | sed 's/[[:space:]]*$//' | head -1)
+        campus_arn=$(grep -A 1 "agent_arn:" .bedrock_agentcore.yaml | grep "campus_coach" -A 1 | grep "arn:aws" | sed 's/.*arn:/arn:/' | sed 's/[[:space:]]*$//' | head -1)
+    fi
+    
+    # Fallback: Get ARNs using agentcore status if YAML parsing fails
+    if [ -z "$content_arn" ] && command -v agentcore &> /dev/null; then
         content_arn=$(agentcore status --agent "$CONTENT_AGENT_NAME" 2>/dev/null | grep -A 2 "Agent ARN:" | grep "arn:aws" | sed 's/│//g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//' | head -1)
     fi
     
-    # Get Campus Coach Agent ARN using the corrected method
-    if command -v agentcore &> /dev/null; then
+    if [ -z "$campus_arn" ] && command -v agentcore &> /dev/null; then
         campus_arn=$(agentcore status --agent "$CAMPUS_AGENT_NAME" 2>/dev/null | grep -A 2 "Agent ARN:" | grep "arn:aws" | sed 's/│//g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//' | head -1)
-    fi
-    
-    # Get Memory ID (silent)
-    local memory_list_output
-    memory_list_output=$(agentcore memory list --region "$AWS_REGION" 2>/dev/null || echo "")
-    
-    if [ -n "$memory_list_output" ]; then
-        memory_id=$(echo "$memory_list_output" | grep -o "${CONTENT_AGENT_NAME}_mem[A-Za-z0-9_-]*\|${CAMPUS_AGENT_NAME}_mem[A-Za-z0-9_-]*" | head -1 || echo "")
     fi
     
     # Validate detection results
@@ -67,14 +63,13 @@ detect_deployed_agents() {
         return 1
     fi
     
-    echo "$content_arn|$campus_arn|$memory_id"
+    echo "$content_arn|$campus_arn"
 }
 
 # Function to update IAM permissions for Lambda roles to invoke AgentCore
 update_lambda_iam_permissions() {
     local content_arn="$1"
     local campus_arn="$2"
-    local memory_id="$3"
     
     print_status "🔐 Updating Lambda IAM permissions for AgentCore invocation..."
     
@@ -111,7 +106,7 @@ update_lambda_iam_permissions() {
             local role_name=$(echo "$role_arn" | awk -F'/' '{print $NF}')
             print_status "Found Lambda role: $role_name"
             
-            # Create AgentCore invocation policy for Lambda role
+            # Create AgentCore invocation policy for Lambda role (no memory permissions needed)
             local policy_name="StravaAIBoostAgentCoreInvocation-${role_name}-$(date +%s)"
             local policy_file="/tmp/lambda_agentcore_policy_${role_name}_$.json"
             
@@ -129,19 +124,6 @@ update_lambda_iam_permissions() {
                 "$content_arn/*",
                 "$campus_arn",
                 "$campus_arn/*"
-            ]
-        },
-        {
-            "Effect": "Allow",
-            "Action": [
-                "bedrock-agentcore:ListEvents",
-                "bedrock-agentcore:CreateEvent",
-                "bedrock-agentcore:GetEvent",
-                "bedrock-agentcore:QueryMemory"
-            ],
-            "Resource": [
-                "arn:aws:bedrock-agentcore:$AWS_REGION:$account_id:memory/$memory_id",
-                "arn:aws:bedrock-agentcore:$AWS_REGION:$account_id:memory/$memory_id/*"
             ]
         }
     ]
@@ -188,13 +170,12 @@ EOF
     return 0
 }
 
-# Function to update IAM permissions for AgentCore agents (dynamic based on deployed resources)
+# Function to update IAM permissions for AgentCore agents (simplified - no memory permissions)
 update_agentcore_iam_permissions() {
     local content_arn="$1"
     local campus_arn="$2"
-    local memory_id="$3"
     
-    print_status "🔐 Updating IAM permissions for AgentCore agents (dynamic permissions)..."
+    print_status "🔐 Updating IAM permissions for AgentCore agents (simplified permissions)..."
     
     # Get actual deployed resources for dynamic permissions
     local account_id
@@ -288,30 +269,15 @@ update_agentcore_iam_permissions() {
         ]'
     fi
     
-    # Build dynamic memory resources
-    local memory_resources='[
-        "arn:aws:bedrock-agentcore:'$AWS_REGION':'$account_id':memory/*",
-        "arn:aws:bedrock-agentcore:'$AWS_REGION':'$account_id':runtime/*"
-    ]'
-    
-    # Add specific memory ID if available
-    if [ -n "$memory_id" ]; then
-        memory_resources='[
-            "arn:aws:bedrock-agentcore:'$AWS_REGION':'$account_id':memory/'$memory_id'",
-            "arn:aws:bedrock-agentcore:'$AWS_REGION':'$account_id':memory/'$memory_id'/*",
-            "arn:aws:bedrock-agentcore:'$AWS_REGION':'$account_id':runtime/*"
-        ]'
-    fi
-    
     # Update permissions for each role
     local updated_roles=0
     
     # Process Content Generation Agent role
     if [ -n "$content_role_arn" ] && [ "$content_role_arn" != "null" ]; then
         local role_name=$(echo "$content_role_arn" | awk -F'/' '{print $NF}')
-        print_status "Updating dynamic permissions for Content Generation role: $role_name"
+        print_status "Updating simplified permissions for Content Generation role: $role_name"
         
-        if update_single_role_permissions "$role_name" "$memory_resources" "$dynamodb_resources" "$actual_secrets"; then
+        if update_single_role_permissions "$role_name" "$dynamodb_resources" "$actual_secrets"; then
             ((updated_roles++))
         fi
     fi
@@ -319,14 +285,14 @@ update_agentcore_iam_permissions() {
     # Process Campus Coach Agent role
     if [ -n "$campus_role_arn" ] && [ "$campus_role_arn" != "null" ]; then
         local role_name=$(echo "$campus_role_arn" | awk -F'/' '{print $NF}')
-        print_status "Updating dynamic permissions for Campus Coach role: $role_name"
+        print_status "Updating simplified permissions for Campus Coach role: $role_name"
         
-        if update_single_role_permissions "$role_name" "$memory_resources" "$dynamodb_resources" "$actual_secrets"; then
+        if update_single_role_permissions "$role_name" "$dynamodb_resources" "$actual_secrets"; then
             ((updated_roles++))
         fi
     fi
     
-    print_success "Dynamic IAM permissions updated for $updated_roles roles"
+    print_success "Simplified IAM permissions updated for $updated_roles roles"
     return 0
 }
 
@@ -563,11 +529,10 @@ EOF
     return 0
 }
 
-# Function to update CDK context with agent ARNs
+# Function to update CDK context with agent ARNs (simplified - no memory)
 update_cdk_context() {
     local content_arn="$1"
     local campus_arn="$2"
-    local memory_id="$3"
     
     print_status "📝 Updating CDK context with agent ARNs..."
     
@@ -576,14 +541,12 @@ update_cdk_context() {
         echo "{}" > cdk.context.json
     fi
     
-    # Update context with agent ARNs and memory ID
+    # Update context with agent ARNs (no memory ID)
     jq --arg content_arn "$content_arn" \
        --arg campus_arn "$campus_arn" \
-       --arg memory_id "$memory_id" \
        '.agentcore = {
          "content_generation_agent_arn": $content_arn,
          "campus_coach_agent_arn": $campus_arn,
-         "memory_id": $memory_id,
          "agents_deployed": true,
          "deployment_timestamp": now | strftime("%Y-%m-%dT%H:%M:%SZ"),
          "deployment_type": "direct_code_deploy",
@@ -591,42 +554,85 @@ update_cdk_context() {
          "project": "'"$PROJECT_NAME"'"
        }' cdk.context.json > cdk.context.json.tmp && mv cdk.context.json.tmp cdk.context.json
     
-    print_success "CDK context updated with agent ARNs and memory ID"
+    print_success "CDK context updated with agent ARNs"
 }
 
-# Function to create environment file for local development
+# Function to create environment file for local development (simplified - no memory variables)
 create_env_file() {
     local content_arn="$1"
     local campus_arn="$2"
-    local memory_id="$3"
     
     print_status "📄 Creating .env.agentcore file for local development..."
     
     cat > .env.agentcore << EOF
-# AgentCore Configuration - Auto-generated by configure_agentcore_integration.sh
+# AgentCore Configuration - Strava AI Boost
+# Auto-generated by configure_agentcore_integration.sh
 # Generated at: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 # Deployment Type: direct_code_deploy (no Docker required)
 
-# Content Generation Agent
+# ============================================================================
+# CONTENT GENERATION AGENT
+# ============================================================================
+# Handles personalized content generation with memory integration
 CONTENT_GENERATION_AGENT_ARN=$content_arn
 CONTENT_GENERATION_AGENT_NAME=$CONTENT_AGENT_NAME
 
-# Campus Coach Agent  
+# ============================================================================
+# CAMPUS COACH AGENT
+# ============================================================================
+# Browser Tool agent for Campus Coach session extraction
 CAMPUS_COACH_AGENT_ARN=$campus_arn
 CAMPUS_COACH_AGENT_NAME=$CAMPUS_AGENT_NAME
 
-# AgentCore Memory
-BEDROCK_AGENTCORE_MEMORY_ID=$memory_id
+# ============================================================================
+# AGENTCORE MEMORY
+# ============================================================================
+# Memory is managed automatically by AgentCore in STM_ONLY mode
+# No manual Memory ARN/ID configuration required
 
-# AgentCore Configuration
+# ============================================================================
+# AGENTCORE CONFIGURATION
+# ============================================================================
 AGENTCORE_AGENTS_AVAILABLE=true
 AGENTCORE_REGION=$AWS_REGION
 AGENTCORE_DEPLOYMENT_TYPE=direct_code_deploy
-AWS_PROFILE=$AWS_PROFILE
+AGENTCORE_RUNTIME_TIMEOUT=300
+AGENTCORE_MEMORY_ENABLED=true
 
-# Project Configuration
+# ============================================================================
+# AWS CONFIGURATION
+# ============================================================================
+AWS_PROFILE=$AWS_PROFILE
+AWS_REGION=$AWS_REGION
+AWS_DEFAULT_REGION=$AWS_REGION
+
+# ============================================================================
+# PROJECT CONFIGURATION
+# ============================================================================
 PROJECT_NAME=$PROJECT_NAME
+PROJECT_VERSION=0.1.0
 DEPLOYMENT_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+ENVIRONMENT=development
+
+# ============================================================================
+# PERFORMANCE SETTINGS
+# ============================================================================
+# Content generation timeout (seconds)
+CONTENT_GENERATION_TIMEOUT=30
+# Campus Coach extraction timeout (seconds)
+CAMPUS_COACH_TIMEOUT=300
+# Memory lookup timeout (milliseconds)
+MEMORY_LOOKUP_TIMEOUT=500
+
+# ============================================================================
+# FEATURE FLAGS
+# ============================================================================
+# Enable/disable specific modules
+CAMPUS_COACH_MODULE_ENABLED=true
+ENDURAW_MODULE_ENABLED=true
+AGENTCORE_MEMORY_PERSONALIZATION=true
+VERBOSE_LOGGING=false
+
 EOF
 
     print_success "Environment file created: .env.agentcore"
@@ -651,40 +657,39 @@ main() {
     fi
     
     # Parse agent information
-    IFS='|' read -r content_arn campus_arn memory_id <<< "$agent_info"
+    IFS='|' read -r content_arn campus_arn <<< "$agent_info"
     
     print_success "Detected AgentCore resources:"
     [ -n "$content_arn" ] && print_status "  Content Generation Agent: $content_arn"
     [ -n "$campus_arn" ] && print_status "  Campus Coach Agent: $campus_arn"
-    [ -n "$memory_id" ] && print_status "  AgentCore Memory: $memory_id"
     
     print_status ""
     print_status "🔧 Configuring AgentCore integration..."
     
     # Update Lambda IAM permissions for AgentCore invocation
-    update_lambda_iam_permissions "$content_arn" "$campus_arn" "$memory_id"
+    update_lambda_iam_permissions "$content_arn" "$campus_arn"
     
-    # Update IAM permissions for AgentCore agents (dynamic based on deployed resources)
-    update_agentcore_iam_permissions "$content_arn" "$campus_arn" "$memory_id"
+    # Update IAM permissions for AgentCore agents (simplified)
+    update_agentcore_iam_permissions "$content_arn" "$campus_arn"
     
-    # Update Lambda environment variables with agent ARNs (direct AWS API)
-    update_lambda_environment_variables "$content_arn" "$campus_arn" "$memory_id"
+    # Update Lambda environment variables with agent ARNs (simplified)
+    update_lambda_environment_variables "$content_arn" "$campus_arn"
     
     # Update CDK context
-    update_cdk_context "$content_arn" "$campus_arn" "$memory_id"
+    update_cdk_context "$content_arn" "$campus_arn"
     
     # Create environment file
-    create_env_file "$content_arn" "$campus_arn" "$memory_id"
+    create_env_file "$content_arn" "$campus_arn"
     
     print_success "🎉 AgentCore integration configuration completed successfully!"
     print_status ""
     print_status "📋 Configuration Summary:"
     print_status "  Content Generation Agent: $content_arn"
     print_status "  Campus Coach Agent: $campus_arn"
-    print_status "  AgentCore Memory: ${memory_id:-'Not configured'}"
+    print_status "  AgentCore Memory: Managed automatically (STM_ONLY mode)"
     print_status ""
     print_status "✅ Integration Status:"
-    print_status "  - IAM permissions: Updated with dynamic resources"
+    print_status "  - IAM permissions: Updated with simplified resources"
     print_status "  - Lambda env vars: Updated directly (immediately active)"
     print_status "  - CDK context: Updated with agent ARNs"
     print_status "  - Environment file: Created for local development"
@@ -692,7 +697,7 @@ main() {
     print_status "🚀 System Ready:"
     print_status "  The system is fully integrated with AgentCore"
     print_status "  Lambda functions can now invoke AgentCore agents"
-    print_status "  AgentCore Memory is available for personalization"
+    print_status "  AgentCore Memory is managed automatically"
     print_status ""
     print_status "📁 Files Updated:"
     print_status "  - cdk.context.json (CDK context with agent ARNs)"

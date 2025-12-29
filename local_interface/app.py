@@ -190,15 +190,19 @@ def load_agentcore_env():
 
 
 def get_agentcore_status() -> str:
-    """Get AgentCore status by checking memory ID and accessibility"""
+    """Get AgentCore status by checking agent ARNs and accessibility"""
     try:
-        memory_id = os.environ.get('BEDROCK_AGENTCORE_MEMORY_ID')
-        if not memory_id:
+        # Check if agents are configured
+        content_arn = os.environ.get('CONTENT_GENERATION_AGENT_ARN')
+        campus_arn = os.environ.get('CAMPUS_COACH_AGENT_ARN')
+        agents_available = os.environ.get('AGENTCORE_AGENTS_AVAILABLE', 'false').lower() == 'true'
+        
+        if not agents_available or (not content_arn and not campus_arn):
             return 'not_configured'
         
-        # If memory ID exists, consider AgentCore as healthy
-        # (We could add more sophisticated checks later)
-        logger.info(f"AgentCore Memory ID found: {memory_id}")
+        # If we have agent ARNs, consider AgentCore as healthy
+        # Memory is managed automatically in STM mode, no need to check
+        logger.info(f"AgentCore agents found - Content: {bool(content_arn)}, Campus: {bool(campus_arn)}")
         return 'healthy'
             
     except Exception as e:

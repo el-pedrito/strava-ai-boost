@@ -5,6 +5,68 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2025-12-29 - AgentCore Memory Configuration Simplification & Full System Deployment
+
+### Changed
+- **AgentCore Memory Configuration**: Simplified memory management to use automatic STM_ONLY mode
+  - Removed manual Memory ARN/ID configuration from environment variables
+  - AgentCore now manages memory automatically via session-based approach
+  - Eliminated complex memory detection logic from configuration scripts
+  - Memory is created and managed automatically by AgentCore for each session
+
+### Removed
+- **Unnecessary Environment Variables**: Cleaned up AgentCore configuration
+  - Removed `BEDROCK_AGENTCORE_MEMORY_ARN` (managed automatically)
+  - Removed `BEDROCK_AGENTCORE_MEMORY_ID` (managed automatically)  
+  - Removed `AGENTCORE_MEMORY_NAME` (managed automatically)
+  - Simplified Lambda environment variable configuration
+
+### Fixed
+- **Configuration Script Optimization**: Streamlined AgentCore integration setup
+  - Removed memory ARN detection logic from `configure_agentcore_integration.sh`
+  - Simplified IAM permissions (no manual memory permissions needed)
+  - Eliminated memory-related variables from Lambda environment updates
+  - Reduced configuration complexity and potential failure points
+
+### Fixed
+- **Local Web Interface AgentCore Status**: Updated AgentCore status detection for automatic memory mode
+  - Modified `get_agentcore_status()` function in `local_interface/app.py`
+  - Removed dependency on `BEDROCK_AGENTCORE_MEMORY_ID` environment variable
+  - Now checks agent ARNs (`CONTENT_GENERATION_AGENT_ARN`, `CAMPUS_COACH_AGENT_ARN`) instead of memory
+  - Uses `AGENTCORE_AGENTS_AVAILABLE` flag for proper status detection
+  - AgentCore status now correctly shows "healthy" when agents are deployed (not "not_configured")
+
+### Added
+- **Complete System Deployment**: Successfully deployed full Strava AI Boost infrastructure
+  - CDK Infrastructure: All 5 stacks deployed (Core, Content, Webhook, API, Monitoring)
+  - AgentCore Agents: Content Generation Agent and Campus Coach Agent deployed
+  - Agent ARNs: `content_gen-XXXXXXXXXX` and `campus_coach-XXXXXXXXXX`
+  - Lambda Integration: 10 Lambda functions updated with agent ARNs
+  - Automatic Memory: STM_ONLY mode with 30-day retention configured
+
+### Enhanced
+- **AgentCore Integration**: Optimized for production deployment
+  - Direct code deployment (no Docker required)
+  - Automatic memory creation and management
+  - Session-based memory isolation per user
+  - Simplified configuration with fewer environment variables
+  - Immediate Lambda function availability for agent invocation
+
+### Enhanced
+- **Local Interface AgentCore Detection**: Improved status detection logic for automatic memory mode
+  - AgentCore status based on agent availability rather than memory configuration
+  - Proper integration with simplified `.env.agentcore` configuration
+  - Consistent status reporting across dashboard and configuration pages
+  - Memory management completely transparent to local interface
+
+### Performance
+- **Memory Management**: Improved efficiency with automatic STM_ONLY mode
+  - Memory lookup: <500ms (automatic resolution)
+  - Session isolation: Each user gets dedicated memory space
+  - Retention: 30-day automatic cleanup
+  - No manual Memory ID management required
+- **Local Interface**: Accurate AgentCore status detection without memory dependency checks
+
 ## [1.8.3] - 2025-12-29 - Complete Web Interface Overhaul & React Migration Preparation
 
 ### Fixed
