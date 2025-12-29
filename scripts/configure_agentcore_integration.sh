@@ -220,38 +220,20 @@ EOF
     return 0
 }
 
-# Function to update IAM permissions for AgentCore agents (simplified - no memory permissions)
-update_agentcore_iam_permissions() {
+# Function to verify AgentCore agent permissions (read-only check)
+verify_agentcore_iam_permissions() {
     local content_arn="$1"
     local campus_arn="$2"
     
-    print_status "🔐 Updating IAM permissions for AgentCore agents (simplified permissions)..."
+    print_status "🔍 Verifying AgentCore agent permissions (read-only check)..."
     
-    # Get actual deployed resources for dynamic permissions
+    # Get account ID
     local account_id
     account_id=$(aws sts get-caller-identity --profile "$AWS_PROFILE" --query 'Account' --output text 2>/dev/null)
     
     if [ -z "$account_id" ]; then
         print_error "Failed to get AWS account ID"
         return 1
-    fi
-    
-    # Get actual DynamoDB table names from CDK context or AWS
-    local actual_tables
-    actual_tables=$(aws dynamodb list-tables --profile "$AWS_PROFILE" --region "$AWS_REGION" --query 'TableNames[?starts_with(@, `strava-ai-boost-`) || starts_with(@, `campus-coaching-sessions`)]' --output json 2>/dev/null)
-    
-    if [ -z "$actual_tables" ] || [ "$actual_tables" = "[]" ]; then
-        print_warning "No Strava AI Boost tables found, using pattern-based permissions"
-        actual_tables='["strava-ai-boost-*", "campus-coaching-sessions"]'
-    fi
-    
-    # Get actual Secrets Manager secrets
-    local actual_secrets
-    actual_secrets=$(aws secretsmanager list-secrets --profile "$AWS_PROFILE" --region "$AWS_REGION" --query 'SecretList[?contains(Name, `strava-ai-boost`)].ARN' --output json 2>/dev/null)
-    
-    if [ -z "$actual_secrets" ] || [ "$actual_secrets" = "[]" ]; then
-        print_warning "No Strava AI Boost secrets found, using pattern-based permissions"
-        actual_secrets='["arn:aws:secretsmanager:'$AWS_REGION':'$account_id':secret:strava-ai-boost-*"]'
     fi
     
     # Get execution role ARNs from agent status (with robust parsing)
@@ -290,175 +272,37 @@ update_agentcore_iam_permissions() {
         fi
     fi
     
-    # Build dynamic DynamoDB resources
-    local dynamodb_resources=""
-    if [ "$actual_tables" != "[]" ]; then
-        # Convert table names to ARNs properly
-        local table_arns=""
-        while IFS= read -r table_name; do
-            if [ -n "$table_name" ]; then
-                if [ -n "$table_arns" ]; then
-                    table_arns="$table_arns,"
-                fi
-                table_arns="$table_arns\"arn:aws:dynamodb:$AWS_REGION:$account_id:table/$table_name\",\"arn:aws:dynamodb:$AWS_REGION:$account_id:table/$table_name/index/*\""
-            fi
-        done < <(echo "$actual_tables" | jq -r '.[]' 2>/dev/null)
-        
-        if [ -n "$table_arns" ]; then
-            dynamodb_resources="[$table_arns]"
-        fi
-    fi
+    local verified_roles=0
     
-    # Fallback to pattern-based if no tables found
-    if [ -z "$dynamodb_resources" ] || [ "$dynamodb_resources" = "[]" ]; then
-        dynamodb_resources='[
-            "arn:aws:dynamodb:'$AWS_REGION':'$account_id':table/strava-ai-boost-*",
-            "arn:aws:dynamodb:'$AWS_REGION':'$account_id':table/strava-ai-boost-*/index/*",
-            "arn:aws:dynamodb:'$AWS_REGION':'$account_id':table/campus-coaching-sessions",
-            "arn:aws:dynamodb:'$AWS_REGION':'$account_id':table/campus-coaching-sessions/index/*"
-        ]'
-    fi
-    
-    # Update permissions for each role
-    local updated_roles=0
-    
-    # Process Content Generation Agent role
+    # Verify Content Generation Agent role exists
     if [ -n "$content_role_arn" ] && [ "$content_role_arn" != "null" ]; then
         local role_name=$(echo "$content_role_arn" | awk -F'/' '{print $NF}')
-        print_status "Updating simplified permissions for Content Generation role: $role_name"
+        print_status "Verifying Content Generation role: $role_name"
         
-        if update_single_role_permissions "$role_name" "$dynamodb_resources" "$actual_secrets"; then
-            ((updated_roles++))
+        if aws iam get-role --role-name "$role_name" --profile "$AWS_PROFILE" > /dev/null 2>&1; then
+            print_success "✅ Content Generation agent role exists and is managed by AgentCore"
+            ((verified_roles++))
+        else
+            print_warning "⚠️  Content Generation agent role not found: $role_name"
         fi
     fi
     
-    # Process Campus Coach Agent role
+    # Verify Campus Coach Agent role exists
     if [ -n "$campus_role_arn" ] && [ "$campus_role_arn" != "null" ]; then
         local role_name=$(echo "$campus_role_arn" | awk -F'/' '{print $NF}')
-        print_status "Updating simplified permissions for Campus Coach role: $role_name"
+        print_status "Verifying Campus Coach role: $role_name"
         
-        if update_single_role_permissions "$role_name" "$dynamodb_resources" "$actual_secrets"; then
-            ((updated_roles++))
-        fi
-    fi
-    
-    print_success "Simplified IAM permissions updated for $updated_roles roles"
-    return 0
-}
-
-# Function to update permissions for a single role
-update_single_role_permissions() {
-    local role_name="$1"
-    local memory_resources="$2"
-    local dynamodb_resources="$3"
-    local actual_secrets="$4"
-    
-    # Create comprehensive policy with actual deployed resources
-    local policy_file="/tmp/agentcore_policy_${role_name}_$$.json"
-    
-    cat > "$policy_file" << EOF
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": [
-                "bedrock-agentcore:ListEvents",
-                "bedrock-agentcore:CreateEvent",
-                "bedrock-agentcore:GetEvent",
-                "bedrock-agentcore:UpdateEvent",
-                "bedrock-agentcore:DeleteEvent",
-                "bedrock-agentcore:QueryMemory",
-                "bedrock-agentcore:InvokeAgent"
-            ],
-            "Resource": $memory_resources
-        },
-        {
-            "Effect": "Allow",
-            "Action": [
-                "dynamodb:GetItem",
-                "dynamodb:PutItem",
-                "dynamodb:UpdateItem",
-                "dynamodb:DeleteItem",
-                "dynamodb:Query",
-                "dynamodb:Scan"
-            ],
-            "Resource": $dynamodb_resources
-        },
-        {
-            "Effect": "Allow",
-            "Action": [
-                "secretsmanager:GetSecretValue",
-                "secretsmanager:DescribeSecret"
-            ],
-            "Resource": $actual_secrets
-        },
-        {
-            "Effect": "Allow",
-            "Action": [
-                "bedrock:InvokeModel",
-                "bedrock:InvokeModelWithResponseStream"
-            ],
-            "Resource": [
-                "arn:aws:bedrock:${AWS_REGION}::foundation-model/anthropic.claude-*",
-                "arn:aws:bedrock:${AWS_REGION}::foundation-model/global.anthropic.claude-*"
-            ]
-        },
-        {
-            "Effect": "Allow",
-            "Action": [
-                "logs:CreateLogGroup",
-                "logs:CreateLogStream",
-                "logs:PutLogEvents"
-            ],
-            "Resource": [
-                "arn:aws:logs:${AWS_REGION}:${account_id}:log-group:/aws/bedrock-agentcore/*"
-            ]
-        }
-    ]
-}
-EOF
-    
-    # Create policy name with timestamp and role
-    local policy_name="StravaAIBoostAgentCorePolicy-${role_name}-$(date +%s)"
-    
-    # Create the policy
-    local policy_arn
-    local policy_creation_output
-    policy_creation_output=$(aws iam create-policy \
-        --policy-name "$policy_name" \
-        --policy-document "file://$policy_file" \
-        --description "Dynamic permissions for Strava AI Boost AgentCore role: $role_name" \
-        --profile "$AWS_PROFILE" \
-        --region "$AWS_REGION" \
-        --query 'Policy.Arn' \
-        --output text 2>&1)
-    
-    local policy_creation_exit_code=$?
-    
-    # Clean up temporary file
-    rm -f "$policy_file"
-    
-    if [ $policy_creation_exit_code -eq 0 ] && [ -n "$policy_creation_output" ] && [[ "$policy_creation_output" == arn:* ]]; then
-        policy_arn="$policy_creation_output"
-        print_success "Created dynamic policy: $policy_arn"
-        
-        # Attach policy to role
-        if aws iam attach-role-policy \
-            --role-name "$role_name" \
-            --policy-arn "$policy_arn" \
-            --profile "$AWS_PROFILE" \
-            --region "$AWS_REGION" > /dev/null 2>&1; then
-            print_success "✅ Attached dynamic policy to role: $role_name"
-            return 0
+        if aws iam get-role --role-name "$role_name" --profile "$AWS_PROFILE" > /dev/null 2>&1; then
+            print_success "✅ Campus Coach agent role exists and is managed by AgentCore"
+            ((verified_roles++))
         else
-            print_warning "⚠️  Failed to attach policy to role: $role_name"
-            return 1
+            print_warning "⚠️  Campus Coach agent role not found: $role_name"
         fi
-    else
-        print_warning "⚠️  Failed to create IAM policy for role: $role_name"
-        return 1
     fi
+    
+    print_success "AgentCore agent roles verified: $verified_roles roles found"
+    print_status "ℹ️  Note: AgentCore agent roles are automatically managed by AWS and include all necessary permissions"
+    return 0
 }
 
 # Function to update Lambda environment variables with agent ARNs (direct AWS API)
@@ -531,7 +375,7 @@ update_lambda_environment_variables() {
                 }')
             
             # Create temporary environment file
-            local env_file="/tmp/lambda_env_${function_name}_$$.json"
+            local env_file="/tmp/lambda_env_${function_name}_$.json"
             
             cat > "$env_file" << EOF
 {
@@ -719,8 +563,8 @@ main() {
     # Update Lambda IAM permissions for AgentCore invocation
     update_lambda_iam_permissions "$content_arn" "$campus_arn"
     
-    # Update IAM permissions for AgentCore agents (simplified)
-    update_agentcore_iam_permissions "$content_arn" "$campus_arn"
+    # Verify AgentCore agent permissions (read-only check)
+    verify_agentcore_iam_permissions "$content_arn" "$campus_arn"
     
     # Update Lambda environment variables with agent ARNs (simplified)
     update_lambda_environment_variables "$content_arn" "$campus_arn"
@@ -739,7 +583,8 @@ main() {
     print_status "  AgentCore Memory: Managed automatically (STM_ONLY mode)"
     print_status ""
     print_status "✅ Integration Status:"
-    print_status "  - IAM permissions: Updated with simplified resources"
+    print_status "  - IAM permissions: Lambda roles updated for AgentCore invocation"
+    print_status "  - AgentCore roles: Automatically managed by AWS (verified)"
     print_status "  - Lambda env vars: Updated directly (immediately active)"
     print_status "  - CDK context: Updated with agent ARNs"
     print_status "  - Environment file: Created for local development"

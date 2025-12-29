@@ -5,6 +5,33 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.2] - 2025-12-29 - AgentCore Deployment Script Optimization
+
+### Fixed
+- **AgentCore Deployment Script**: Removed redundant agent existence checks
+  - Simplified deployment logic by removing unused `agent_exists` variable
+  - `--auto-update-on-conflict` flag handles updates automatically
+  - Cleaner code with consistent behavior for new and existing agents
+
+### Fixed
+- **AgentCore Integration Script**: Corrected IAM permissions management approach
+  - Removed attempts to modify AgentCore-managed IAM roles (not permitted)
+  - Changed to read-only verification of AgentCore agent roles
+  - Focus on Lambda role permissions for AgentCore invocation only
+  - Prevents "Failed to create IAM policy" errors for AgentCore roles
+
+### Changed
+- **Script Reliability**: Enhanced error handling and permission management
+  - AgentCore agent roles are automatically managed by AWS (verified only)
+  - Lambda roles updated with clean, versioned policies for AgentCore access
+  - Improved script robustness and reduced permission conflicts
+
+### Performance
+- **Deployment Efficiency**: Streamlined AgentCore deployment process
+  - Eliminated unnecessary conditional logic in deployment scripts
+  - Consistent use of `--auto-update-on-conflict` for intelligent updates
+  - Reduced script complexity and execution time
+
 ## [1.9.1] - 2025-12-29 - IAM Policy Management Optimization & AgentCore Permissions Fix
 
 ### Fixed

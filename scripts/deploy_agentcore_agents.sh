@@ -63,14 +63,9 @@ deploy_content_agent() {
         return 1
     fi
     
-    # Check if agent already exists and destroy it if needed
-    if agentcore configure list 2>/dev/null | grep -q "$agent_name"; then
-        print_status "Existing agent found, destroying it first..."
-        agentcore destroy --agent "$agent_name" --force &> /dev/null || true
-    fi
-    
-    # Configure agent with direct_code_deploy and auto memory creation
+    # Configure agent (always run to ensure latest configuration)
     print_status "Configuring agent: $agent_name (direct_code_deploy + auto memory)"
+    
     agentcore configure \
         --entrypoint "$agent_path" \
         --name "$agent_name" \
@@ -83,7 +78,7 @@ deploy_content_agent() {
         return 1
     }
     
-    # Deploy agent using new deploy command
+    # Deploy agent using auto-update-on-conflict for intelligent updates
     print_status "Deploying agent: $agent_name"
     local deploy_output
     deploy_output=$(agentcore deploy \
@@ -138,14 +133,9 @@ deploy_campus_coach_agent() {
         return 1
     fi
     
-    # Check if agent already exists and destroy it if needed
-    if agentcore configure list 2>/dev/null | grep -q "$agent_name"; then
-        print_status "Existing agent found, destroying it first..."
-        agentcore destroy --agent "$agent_name" --force &> /dev/null || true
-    fi
-    
-    # Configure agent with direct_code_deploy and auto memory creation
+    # Configure agent (always run to ensure latest configuration)
     print_status "Configuring agent: $agent_name (direct_code_deploy + auto memory)"
+    
     agentcore configure \
         --entrypoint "$agent_path" \
         --name "$agent_name" \
@@ -158,7 +148,7 @@ deploy_campus_coach_agent() {
         return 1
     }
     
-    # Deploy agent (memory will be auto-created during deployment)
+    # Deploy agent using auto-update-on-conflict for intelligent updates
     print_status "Deploying agent: $agent_name (memory auto-creation enabled)"
     local deploy_output
     deploy_output=$(agentcore deploy \
