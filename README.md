@@ -1,53 +1,50 @@
 # Strava AI Boost
 
-**Status:** Production Ready - Step Functions Data Flow Fixed
+**Status:** Production Ready - Complete AgentCore Integration
 
-Strava AI Boost is a simplified, modular serverless application that automatically enhances Strava activity titles and descriptions using Amazon Bedrock AI. Built as a streamlined version of the existing Strava AI Coach project, it focuses on core functionality while maintaining modularity for future integrations.
+Strava AI Boost is a production-ready, modular serverless application that automatically enhances Strava activity titles and descriptions using Amazon Bedrock AI and AgentCore Memory. Built with a clean 2-phase deployment architecture, it provides immediate functionality with optional AI enhancement capabilities.
 
 ## ✅ System Status
 
-**🎉 DEPLOYMENT SUCCESSFUL** - All components operational:
-- ✅ **AWS Infrastructure**: 5 CDK stacks deployed (Core, Content, API, Webhook, Monitoring)
-- ✅ **Strava Integration**: Webhook active (ID: 322419) with Client ID 175573
-- ✅ **Local Interface**: Running on http://localhost:3000 with AWS integration
-- ✅ **Processing Pipeline**: Ready for automatic activity enhancement
+**🎉 FULLY OPERATIONAL** - Complete AgentCore integration deployed:
+- ✅ **Phase 1 (Infrastructure)**: 5 CDK stacks deployed (Core, Content, API, Webhook, Monitoring)
+- ✅ **Phase 2 (AgentCore)**: 2 AI agents + memory deployed (`content_gen`, `campus_coach`)
+- ✅ **Integration**: All 10 Lambda functions configured with agent ARNs
+- ✅ **Strava Integration**: Webhook active with complete OAuth flow
+- ✅ **Local Interface**: Running with real-time dashboard and configuration
+- ✅ **AI Memory**: Personalized content generation with expression tracking
 
 ## 🚀 Quick Start
 
-**New to Strava AI Boost?** Get started in 5 minutes:
+**New to Strava AI Boost?** Get started in 5 minutes with 2-phase deployment:
 
 👉 **[Quick Start Guide](docs/getting-started/QUICK-START.md)**
 
-### Complete User Workflow
+### Complete Deployment Workflow
 
-1. **Deploy Infrastructure** (2 min) ✅ COMPLETED
-   ```bash
-   cdk deploy --all --profile your-aws-profile
-   ```
+**Step 1: Infrastructure (2 min)** ✅ COMPLETED
+```bash
+./scripts/deploy.sh dev
+# Deploys: CDK stacks + Lambda functions + DynamoDB + API Gateway
+```
 
-2. **Create Strava App** (2 min) ✅ COMPLETED
-   - Go to https://www.strava.com/settings/api
-   - Create app with callback domain: `localhost`
+**Step 2: AgentCore Agents (2 min)** ✅ COMPLETED
+```bash
+./scripts/deploy_agentcore_agents.sh
+# Deploys: AI agents + memory using direct_code_deploy
+```
 
-3. **Configure Credentials** (1 min) ✅ COMPLETED
-   ```bash
-   aws secretsmanager put-secret-value \
-     --secret-id strava-ai-boost-app-config \
-     --secret-string '{"client_id":"YOUR_ID","client_secret":"YOUR_SECRET"}' \
-     --profile your-aws-profile
-   ```
+**Step 3: AgentCore Integration (1 min)** ✅ COMPLETED
+```bash
+./scripts/configure_agentcore_integration.sh
+# Configures: IAM permissions + Lambda env vars + CDK context
+```
 
-4. **Setup Webhook** (1 min) ✅ COMPLETED
-   ```bash
-   # Script automatically retrieves credentials from Secrets Manager
-   ./scripts/configure_strava_webhook.sh dev --auto-configure
-   ```
-
-5. **Start Interface & Connect** (1 min) ✅ RUNNING
-   ```bash
-   cd local_interface && AWS_PROFILE=your-aws-profile python app.py
-   # Open http://localhost:3000 → Click "Connect with Strava"
-   ```
+**Ready to Use** ✅ OPERATIONAL
+```bash
+cd local_interface && AWS_PROFILE=your-aws-profile python app.py
+# Open http://localhost:3000 → Connect with Strava → Process activities
+```
 
 **🎯 Next Step:** Connect via OAuth at http://localhost:3000 and test with a Strava activity!
 

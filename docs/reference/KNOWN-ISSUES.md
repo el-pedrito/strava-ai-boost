@@ -485,7 +485,3 @@ AgentCoreError: Agent invocation timeout after 30 seconds
 ```
 
 ---
-
-**Version:** v1.3.0 - AgentCore Integration Complete  
-**Last Updated:** 2025-12-23  
-**Next Review:** 2025-12-30 (Weekly review cycle)

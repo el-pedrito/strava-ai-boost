@@ -4,6 +4,74 @@
 
 This guide covers the complete setup process including advanced configurations, security hardening, and production considerations.
 
+## Deployment Architecture
+
+Strava AI Boost uses a **3-step deployment strategy** to avoid circular dependencies between AWS infrastructure and AgentCore agents:
+
+### **Step 1: AWS Infrastructure**
+- Deploys CDK stacks with empty AgentCore environment variables
+- Creates DynamoDB tables, Lambda functions, Step Functions, etc.
+- System works immediately with Bedrock fallback mode
+- No dependencies on AgentCore agents
+
+### **Step 2: AgentCore Agents**
+- Deploys AgentCore agents and memory using `direct_code_deploy`
+- Creates AI agents for enhanced content generation
+- Sets up AgentCore Memory for personalization
+- Independent of Lambda environment configuration
+
+### **Step 3: AgentCore Integration**
+- Configures dynamic IAM permissions for AgentCore agents
+- **Updates Lambda environment variables** with agent ARNs via AWS API
+- Enables seamless integration between infrastructure and AI agents
+- No CDK redeploy required - changes are immediately active
+
+This approach ensures:
+- ✅ **No circular dependencies**
+- ✅ **System always functional** (even if AgentCore fails)
+- ✅ **Clean separation of concerns**
+- ✅ **Easy troubleshooting and maintenance**
+
+## Complete Deployment Process
+
+### Option 1: Automated 3-Step Deployment (Recommended)
+
+```bash
+# Step 1: Deploy AWS Infrastructure
+./scripts/deploy.sh dev
+
+# Step 2: Deploy AgentCore Agents
+./scripts/deploy_agentcore_agents.sh
+
+# Step 3: Configure AgentCore Integration
+./scripts/configure_agentcore_integration.sh
+```
+
+### Option 2: Manual Step-by-Step Deployment
+
+If you prefer manual control or need to troubleshoot:
+
+#### Step 1: Deploy AWS Infrastructure
+```bash
+# Bootstrap CDK (first time only)
+cdk bootstrap --profile your-aws-profile
+
+# Deploy all CDK stacks
+cdk deploy --all --profile your-aws-profile --require-approval never
+```
+
+#### Step 2: Deploy AgentCore Agents
+```bash
+# Deploy AgentCore agents with memory
+./scripts/deploy_agentcore_agents.sh
+```
+
+#### Step 3: Configure AgentCore Integration
+```bash
+# Configure IAM permissions and Lambda integration
+./scripts/configure_agentcore_integration.sh
+```
+
 ## Prerequisites
 
 ### Required Software
@@ -101,16 +169,27 @@ aws cloudformation describe-stacks --stack-name CDKToolkit --profile your-aws-pr
 
 ### 4. Deploy Infrastructure
 
-```bash
-# Deploy all stacks
-cdk deploy --all --profile your-aws-profile
+Choose your deployment method:
 
-# Or deploy individually
-cdk deploy StravaAIBoostCoreStack --profile your-aws-profile
-cdk deploy StravaAIBoostWebhookStack --profile your-aws-profile
-cdk deploy StravaAIBoostContentStack --profile your-aws-profile
-cdk deploy StravaAIBoostAPIStack --profile your-aws-profile
-cdk deploy StravaAIBoostMonitoringStack --profile your-aws-profile
+#### Option A: Automated Deployment (Recommended)
+```bash
+# Single command deploys everything
+./scripts/deploy.sh dev
+
+# This automatically handles:
+# - CDK infrastructure deployment (Phase 1)
+# - AgentCore agents deployment (Phase 2)  
+# - Lambda environment variable updates
+# - Secrets Manager configuration
+```
+
+#### Option B: Manual Phase-by-Phase Deployment
+```bash
+# Phase 1: Deploy CDK infrastructure
+cdk deploy --all --profile your-aws-profile --require-approval never
+
+# Phase 2: Deploy AgentCore agents and update Lambda environment variables
+./scripts/deploy_agentcore_agents.sh
 ```
 
 ### 5. Verify Deployment
@@ -150,13 +229,20 @@ agentcore status
 
 ### 3. Deploy AgentCore Components
 
-```bash
-# Deploy AgentCore Memory
-./scripts/setup_memory.sh
+**If you used automated deployment (`./scripts/deploy.sh`), this is already done!**
 
-# Deploy AgentCore Agents
+For manual deployment:
+
+```bash
+# Deploy AgentCore agents and update Lambda environment variables
 ./scripts/deploy_agentcore_agents.sh
-./scripts/deploy_campus_coach_agent.sh
+
+# This script automatically:
+# 1. Deploys content generation agent
+# 2. Deploys campus coach agent  
+# 3. Sets up AgentCore Memory
+# 4. Updates Lambda environment variables with agent ARNs
+# 5. Updates CDK context for future deployments
 ```
 
 ### 4. Verify AgentCore Deployment

@@ -208,12 +208,14 @@ async def extract_with_retry(max_retries=3):
 AgentCore agents are deployed using CLI scripts:
 
 ```bash
-# Deploy AgentCore Agents (Content Generation + Campus Coach)
+# Deploy AgentCore Agents (Content Generation + Campus Coach + Memory)
 ./scripts/deploy_agentcore_agents.sh
-./scripts/deploy_campus_coach_agent.sh
 
-# Setup AgentCore Memory
-./scripts/setup_memory.sh
+# This single script now handles:
+# - Content generation agent deployment
+# - Campus coach agent deployment  
+# - AgentCore Memory setup
+# - Lambda environment variable updates
 ```
 
 ### Agent Invocation
@@ -324,8 +326,8 @@ agentcore agent list --profile your-aws-profile
 # Check memory status
 agentcore memory list --profile your-aws-profile
 
-# Recreate memory if needed
-./scripts/setup_memory.sh
+# Recreate memory if needed (handled by deploy_agentcore_agents.sh)
+./scripts/deploy_agentcore_agents.sh
 ```
 
 **"Browser Tool timeout"**

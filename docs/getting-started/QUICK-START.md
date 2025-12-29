@@ -1,16 +1,34 @@
 # 🚀 Quick Start Guide
 
-**Get Strava AI Boost running in 5 minutes!**
+**Get Strava AI Boost running in 5 minutes with clear 3-step deployment!**
 
-This guide gets you up and running quickly with the **complete system** including AgentCore agents for enhanced personalization.
+This guide uses a **3-step deployment approach** that eliminates circular dependencies and ensures your system is always functional.
+
+## 📋 3-Step Deployment Strategy
+
+### **Step 1: AWS Infrastructure (Required)**
+- Deploys CDK stacks with Bedrock fallback mode
+- System works immediately with Claude Sonnet 4.5
+- No AgentCore dependencies
+
+### **Step 2: AgentCore Agents (Optional)**
+- Deploys AgentCore agents with persistent memory
+- Creates AI agents for enhanced content generation
+- Enables personalization capabilities
+
+### **Step 3: AgentCore Integration (Optional)**
+- Configures IAM permissions for AgentCore agents
+- Updates Lambda environment variables with agent ARNs
+- Enables seamless integration between infrastructure and AI agents
 
 ## Prerequisites
 
 - AWS Account with CLI configured
 - Python 3.12+
 - Node.js (for CDK)
+- AgentCore CLI (for Steps 2-3)
 
-## 1. Deploy Complete System (3 minutes)
+## Step 1: Deploy AWS Infrastructure (3 minutes)
 
 ```bash
 # Clone and setup
@@ -23,29 +41,47 @@ pip install -r requirements.txt
 # Set AWS profile
 export AWS_PROFILE=your-aws-profile
 
-# Deploy everything (CDK + AgentCore agents)
+# Deploy AWS infrastructure (Step 1 ONLY)
 ./scripts/deploy.sh dev
 ```
 
 **What this does:**
-- ✅ Deploys AWS infrastructure (CDK stacks)
-- ✅ Creates AgentCore agents with memory for personalization
-- ✅ Sets up all permissions and configurations
-- ✅ Creates secrets placeholders
-- ✅ Configures dual-mode content generation
+- ✅ Deploys AWS infrastructure (5 CDK stacks)
+- ✅ Creates DynamoDB tables, Lambda functions, Step Functions
+- ✅ Sets up secrets placeholders and IAM roles
+- ✅ Configures system to work with Bedrock fallback mode
+- ✅ **System is immediately functional!**
 
-## 2. Start Local Interface (30 seconds)
+## Step 2: Deploy AgentCore Agents (2 minutes) - Optional
 
 ```bash
-cd local_interface
-AWS_PROFILE=your-aws-profile python app.py
+# Deploy AgentCore agents with memory
+./scripts/deploy_agentcore_agents.sh
 ```
 
-Open http://localhost:3000 in your browser.
+**What this does:**
+- ✅ Creates 2 AgentCore agents (`content_gen`, `campus_coach`)
+- ✅ Sets up AgentCore Memory for personalization (`campus_coach_mem-Ns`)
+- ✅ Uses `direct_code_deploy` (no Docker containers required)
+- ✅ Validates agent deployment and memory creation
 
-## 3. Configure Strava Integration (2 minutes)
+## Step 3: Configure AgentCore Integration (1 minute) - Optional
 
-### Step 3a: Create Strava App
+```bash
+# Configure IAM permissions and Lambda integration
+./scripts/configure_agentcore_integration.sh
+```
+
+**What this does:**
+- ✅ Creates dynamic IAM permissions for AgentCore agents
+- ✅ **Updates all 10 Lambda functions** with agent ARNs via AWS API
+- ✅ Updates CDK context with agent information
+- ✅ Creates `.env.agentcore` file for local development
+- ✅ **No CDK redeploy needed - changes are immediately active**
+
+## Configure Strava Integration (2 minutes)
+
+### Step 1: Create Strava App
 1. Go to https://www.strava.com/settings/api
 2. Click "Create App" and fill:
    - **Application Name**: "My Strava AI Boost"
@@ -53,7 +89,7 @@ Open http://localhost:3000 in your browser.
    - **Authorization Callback Domain**: localhost
 3. **Save your Client ID and Client Secret** (you'll need them next)
 
-### Step 3b: Store Credentials in AWS
+### Step 2: Store Credentials in AWS
 ```bash
 # Replace YOUR_CLIENT_ID and YOUR_CLIENT_SECRET with actual values
 aws secretsmanager put-secret-value \
@@ -62,18 +98,26 @@ aws secretsmanager put-secret-value \
   --profile your-aws-profile
 ```
 
-### Step 3c: Connect via Web Interface
+### Step 3: Start Local Interface
+```bash
+cd local_interface
+AWS_PROFILE=your-aws-profile python app.py
+```
+
+Open http://localhost:3000 in your browser.
+
+### Step 4: Connect via Web Interface
 1. Open http://localhost:3000
 2. Click "Connect with Strava"
 3. Authorize the application
 
-### Step 3d: Configure Webhook (Optional - for real-time processing)
+### Step 5: Configure Webhook (Optional - for real-time processing)
 ```bash
 # Configure webhook subscription (tells Strava to notify us of new activities)
 ./scripts/configure_strava_webhook.sh dev --auto-configure
 ```
 
-## 4. Test Your System (30 seconds)
+## Test Your System (30 seconds)
 
 Upload a new activity to Strava and watch it get enhanced automatically!
 
@@ -81,25 +125,49 @@ Upload a new activity to Strava and watch it get enhanced automatically!
 
 Your deployed system includes:
 
-### 🤖 AgentCore Integration (Enhanced Mode)
+### 🤖 Phase 1: Bedrock Fallback (Always Available)
+- **Direct AI**: Claude Sonnet 4.5 integration
+- **Smart Prompts**: Enhanced prompts with module insights
+- **Reliability**: 99.9% availability, automatic operation
+- **Performance**: 0.75-0.90 confidence scores
+
+### ⚡ Phase 2: AgentCore Enhancement (Optional)
 - **Content Generation Agent**: Personalized AI with persistent memory
 - **Campus Coach Agent**: Automated session extraction (optional module)
 - **AgentCore Memory**: Learns your writing style and avoids repetition
 - **Performance**: 95% availability, 0.85-0.95 confidence scores
 
-### ⚡ Bedrock Fallback (Always Available)
-- **Direct AI**: Claude Sonnet 4.5 integration
-- **Smart Prompts**: Enhanced prompts with module insights
-- **Reliability**: 99.9% availability, automatic fallback
-- **Performance**: 0.75-0.90 confidence scores
+> **💡 How it works**: Phase 1 gives you a fully functional system immediately. Phase 2 adds enhanced personalization while maintaining the same reliability through automatic fallback.
 
-> **💡 How it works**: The system automatically uses AgentCore agents when available, with seamless fallback to direct AI. You get personalized, high-quality content either way!
+## Deployment Architecture Benefits
+
+### **✅ No Circular Dependencies**
+- CDK deploys independently of AgentCore
+- Lambda functions work with empty AgentCore variables
+- Clean separation of infrastructure and AI agents
+
+### **✅ Always Functional**
+- System works immediately after Phase 1
+- Phase 2 failure doesn't break the system
+- Automatic fallback ensures reliability
+
+### **✅ Easy Troubleshooting**
+- Clear separation between infrastructure and enhancement
+- Independent deployment phases
+- Isolated failure domains
 
 ## Quick Troubleshooting
 
-### If AgentCore deployment fails:
+### If Phase 1 (CDK) deployment fails:
 ```bash
-# System still works with direct AI - no problem!
+# Check CloudFormation console for detailed errors
+# Ensure no resource conflicts exist
+# Verify AWS credentials and permissions
+```
+
+### If Phase 2 (AgentCore) deployment fails:
+```bash
+# System still works with Bedrock fallback - no problem!
 # You can retry AgentCore deployment later:
 ./scripts/deploy_agentcore_agents.sh
 ```
@@ -117,6 +185,25 @@ Your deployed system includes:
 ```bash
 # Validate everything is working
 ./scripts/validate_strava_setup.sh dev --detailed
+```
+
+## Alternative: Manual Phase-by-Phase Deployment
+
+For more control, you can run each phase manually:
+
+### Phase 1: CDK Infrastructure Only
+```bash
+# Bootstrap CDK (first time only)
+cdk bootstrap --profile your-aws-profile
+
+# Deploy CDK infrastructure
+cdk deploy --all --profile your-aws-profile --require-approval never
+```
+
+### Phase 2: AgentCore Enhancement Only
+```bash
+# Deploy AgentCore agents and update Lambda environment variables
+./scripts/deploy_agentcore_agents.sh
 ```
 
 ## Next Steps

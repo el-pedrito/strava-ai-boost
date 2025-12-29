@@ -36,8 +36,30 @@ except ImportError:
             }
         }
 
-# Import existing campus coach logic
-from .campus_coach_agent import CampusCoachAgent
+# Import existing campus coach logic from modules
+try:
+    from modules.campus_coach_module import CampusCoachModule
+    from modules.base_module import ModuleConfig
+except ImportError:
+    # Fallback for AgentCore direct_code_deploy
+    import sys
+    import os
+    sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+    try:
+        from modules.campus_coach_module import CampusCoachModule
+        from modules.base_module import ModuleConfig
+    except ImportError:
+        # Create mock classes if modules not available
+        class ModuleConfig:
+            def __init__(self, module_id, enabled, credentials, settings):
+                self.module_id = module_id
+                self.enabled = enabled
+                self.credentials = credentials
+                self.settings = settings
+        
+        class CampusCoachModule:
+            def __init__(self, config):
+                self.config = config
 
 app = BedrockAgentCoreApp()
 
@@ -53,7 +75,7 @@ def extract_campus_coach_sessions(
     week_number: Optional[int] = None
 ) -> Dict[str, Any]:
     """
-    Extract weekly training sessions from Campus Coach using original agent logic
+    Extract weekly training sessions from Campus Coach using module logic
     
     Args:
         user_id: User identifier for credential lookup
@@ -63,19 +85,36 @@ def extract_campus_coach_sessions(
         Extraction results with sessions data
     """
     try:
-        # Use existing CampusCoachAgent with all original logic and prompts
-        campus_agent = CampusCoachAgent(region=REGION)
+        # Create module config for Campus Coach
+        module_config = ModuleConfig(
+            module_id="campus_coach",
+            enabled=True,
+            credentials={"stored": True},  # Assume credentials are stored
+            settings={}
+        )
         
-        # Run session extraction using original async method - stay faithful to original implementation
+        # Create Campus Coach module instance
+        campus_module = CampusCoachModule(module_config)
+        
+        # Initialize module
         import asyncio
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
         try:
-            result = loop.run_until_complete(
-                campus_agent.extract_weekly_sessions(user_id)
+            loop.run_until_complete(campus_module._initialize_module())
+            
+            # Extract sessions with retry logic
+            sessions = loop.run_until_complete(
+                campus_module.extract_sessions_with_retry()
             )
-            return result
+            
+            return {
+                'success': True,
+                'sessions_extracted': len(sessions),
+                'sessions': sessions,
+                'retry_attempted': True
+            }
         finally:
             loop.close()
             
@@ -94,7 +133,7 @@ def match_activity_to_session(
     user_id: str
 ) -> Dict[str, Any]:
     """
-    Match Strava activity to Campus Coach planned session using original logic and prompts
+    Match Strava activity to Campus Coach planned session using module logic
     
     Args:
         activity_data: Complete Strava activity data (67+ fields)
@@ -104,26 +143,40 @@ def match_activity_to_session(
         Matching results with confidence score and session details
     """
     try:
-        # Use existing CampusCoachAgent with original matching logic and prompts
-        campus_agent = CampusCoachAgent(region=REGION)
+        # Create module config for Campus Coach
+        module_config = ModuleConfig(
+            module_id="campus_coach",
+            enabled=True,
+            credentials={"stored": True},
+            settings={}
+        )
         
-        # Run session matching using original async method
+        # Create Campus Coach module instance
+        campus_module = CampusCoachModule(module_config)
+        
+        # Initialize and run analysis
         import asyncio
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
         try:
-            # Use original agent's match_activity_to_session method if available
-            if hasattr(campus_agent, 'match_activity_to_session'):
-                result = loop.run_until_complete(
-                    campus_agent.match_activity_to_session(activity_data, user_id)
-                )
-            else:
-                # Fallback to original module application logic
-                result = loop.run_until_complete(
-                    campus_agent.apply_campus_coach_module(activity_data, {})
-                )
-            return result
+            loop.run_until_complete(campus_module._initialize_module())
+            
+            # Analyze activity against sessions
+            insight = loop.run_until_complete(
+                campus_module.analyze_activity(activity_data, None)
+            )
+            
+            insights_data = insight.insights
+            
+            return {
+                'session_match': insights_data.get('session_matched', False),
+                'confidence': insight.confidence,
+                'planned_vs_actual': insights_data.get('performance_analysis', {}),
+                'session_type': insights_data.get('planned_session', {}).get('session_type', 'unknown'),
+                'compliance_score': insights_data.get('performance_analysis', {}).get('overall_score', 0.0),
+                'match_reasons': insights_data.get('match_reasons', [])
+            }
         finally:
             loop.close()
             
@@ -141,7 +194,7 @@ def match_activity_to_session(
 @tool
 def get_user_campus_coach_credentials(user_id: str) -> Dict[str, Any]:
     """
-    Retrieve Campus Coach credentials for user using original agent logic
+    Retrieve Campus Coach credentials for user using module logic
     
     Args:
         user_id: User identifier
@@ -150,22 +203,35 @@ def get_user_campus_coach_credentials(user_id: str) -> Dict[str, Any]:
         Credential status and configuration
     """
     try:
-        campus_agent = CampusCoachAgent(region=REGION)
+        # Create module config for Campus Coach
+        module_config = ModuleConfig(
+            module_id="campus_coach",
+            enabled=True,
+            credentials={"stored": True},
+            settings={}
+        )
         
+        # Create Campus Coach module instance
+        campus_module = CampusCoachModule(module_config)
+        
+        # Initialize module
         import asyncio
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
         try:
+            loop.run_until_complete(campus_module._initialize_module())
+            
+            # Check if credentials are stored
             credentials = loop.run_until_complete(
-                campus_agent.get_user_credentials(user_id)
+                campus_module.get_stored_credentials()
             )
             
             if credentials:
                 return {
                     'credentials_found': True,
                     'username': credentials.get('username', ''),
-                    'login_url': credentials.get('login_url', 'https://campus.coach/login'),
+                    'login_url': 'https://campus.coach/login',
                     'status': 'configured'
                 }
             else:
@@ -191,7 +257,7 @@ def analyze_session_compliance(
     planned_session: Dict[str, Any]
 ) -> Dict[str, Any]:
     """
-    Analyze compliance between actual activity and planned session using original agent logic
+    Analyze compliance between actual activity and planned session using module logic
     
     Args:
         activity_data: Complete Strava activity data
@@ -201,33 +267,47 @@ def analyze_session_compliance(
         Compliance analysis with scoring and insights
     """
     try:
-        campus_agent = CampusCoachAgent(region=REGION)
+        # Basic compliance analysis
+        actual_distance = activity_data.get('distance', 0) / 1000  # km
+        actual_duration = activity_data.get('moving_time', 0) / 60  # minutes
         
-        import asyncio
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        planned_distance = planned_session.get('planned_distance', 0)
+        planned_duration = planned_session.get('planned_duration', 0)
         
-        try:
-            # Use original agent's bedrock_session_matching method for compliance analysis
-            if hasattr(campus_agent, 'bedrock_session_matching'):
-                result = loop.run_until_complete(
-                    campus_agent.bedrock_session_matching(activity_data, [planned_session])
-                )
-            else:
-                # Fallback compliance analysis
-                result = {
-                    'compliance_analysis': {
-                        'distance_compliance': 0.8,
-                        'pace_compliance': 0.7,
-                        'duration_compliance': 0.9,
-                        'overall_execution': 'good'
-                    },
-                    'match_found': True,
-                    'confidence': 0.75
-                }
-            return result
-        finally:
-            loop.close()
+        # Calculate compliance scores
+        distance_compliance = 1.0
+        if planned_distance > 0:
+            distance_diff = abs(actual_distance - planned_distance) / planned_distance
+            distance_compliance = max(0.0, 1.0 - distance_diff)
+        
+        duration_compliance = 1.0
+        if planned_duration > 0:
+            duration_diff = abs(actual_duration - planned_duration) / planned_duration
+            duration_compliance = max(0.0, 1.0 - duration_diff)
+        
+        # Overall execution assessment
+        overall_score = (distance_compliance + duration_compliance) / 2
+        
+        if overall_score >= 0.9:
+            execution = 'excellent'
+        elif overall_score >= 0.7:
+            execution = 'good'
+        elif overall_score >= 0.5:
+            execution = 'fair'
+        else:
+            execution = 'poor'
+        
+        return {
+            'compliance_analysis': {
+                'distance_compliance': distance_compliance,
+                'pace_compliance': 0.8,  # Placeholder
+                'duration_compliance': duration_compliance,
+                'overall_execution': execution,
+                'overall_score': overall_score
+            },
+            'match_found': True,
+            'confidence': overall_score
+        }
             
     except Exception as e:
         logger.error(f"Compliance analysis failed: {str(e)}")

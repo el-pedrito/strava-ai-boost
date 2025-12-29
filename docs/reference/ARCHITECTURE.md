@@ -1012,6 +1012,84 @@ typing-extensions>=4.0.0
 - **Region**: eu-west-1 (Ireland)
 - **Bedrock Model**: global.anthropic.claude-sonnet-4-5-20250929-v1:0
 
+## Deployment Architecture
+
+### 2-Phase Deployment Strategy
+
+Strava AI Boost uses a **2-phase deployment strategy** to avoid circular dependencies between AWS infrastructure and AgentCore agents:
+
+#### **Phase 1: AWS Infrastructure Deployment**
+```bash
+# Deploy CDK stacks with empty AgentCore environment variables
+cdk deploy --all --profile your-aws-profile --require-approval never
+```
+
+**Characteristics:**
+- Deploys all CDK stacks with empty AgentCore environment variables
+- Creates DynamoDB tables, Lambda functions, Step Functions, etc.
+- System works immediately with **Bedrock fallback mode**
+- No dependencies on AgentCore agents
+- Lambda functions have empty AgentCore ARNs but functional fallback logic
+
+#### **Phase 2: AgentCore Enhancement Deployment**
+```bash
+# Deploy AgentCore agents and automatically update Lambda environment variables
+./scripts/deploy_agentcore_agents.sh
+```
+
+**Characteristics:**
+- Deploys AgentCore agents and memory to AWS
+- **Automatically updates Lambda environment variables** with agent ARNs
+- Enables enhanced personalization mode
+- Seamless transition from fallback to enhanced mode
+- Updates CDK context for future deployments
+
+### Deployment Benefits
+
+This approach ensures:
+- ✅ **No circular dependencies** between CDK and AgentCore
+- ✅ **System always functional** (even if AgentCore deployment fails)
+- ✅ **Clean separation of concerns** between infrastructure and AI agents
+- ✅ **Easy troubleshooting and maintenance**
+- ✅ **Automatic environment variable updates** via CLI
+
+### Lambda Environment Variable Updates
+
+The deployment script automatically updates Lambda environment variables after AgentCore deployment:
+
+```bash
+# Function: update_lambda_environment_variables()
+# Updates these Lambda functions:
+- StravaAIBoost-ContentGenerator
+- StravaAIBoost-CampusCoachInvoker
+
+# Environment variables updated:
+- CONTENT_GENERATION_AGENT_ARN
+- CAMPUS_COACH_AGENT_ARN  
+- BEDROCK_AGENTCORE_MEMORY_ID
+- AGENTCORE_AGENTS_AVAILABLE
+- CONTENT_GENERATION_AGENT_NAME
+- CAMPUS_COACH_AGENT_NAME
+```
+
+### CDK Context Integration
+
+AgentCore deployment updates CDK context for future deployments:
+
+```json
+{
+  "agentcore": {
+    "content_generation_agent_arn": "arn:aws:bedrock-agentcore:...",
+    "campus_coach_agent_arn": "arn:aws:bedrock-agentcore:...",
+    "memory_id": "memory-id-12345",
+    "agents_deployed": true,
+    "deployment_timestamp": "2025-12-29T10:30:00Z",
+    "region": "eu-west-1",
+    "project": "strava-ai-boost"
+  }
+}
+```
+
 ## Deployment Configuration
 
 ### Environment Variables
@@ -1031,7 +1109,3 @@ CDK_DEFAULT_REGION=eu-west-1
 ```
 
 ---
-
-**Version:** v1.3.0 - AgentCore Integration Complete  
-**Last Updated:** 2025-12-23  
-**Next Version:** v1.4.0 - Local Web Interface Enhancement

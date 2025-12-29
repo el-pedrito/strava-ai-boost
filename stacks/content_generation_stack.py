@@ -14,10 +14,12 @@ from aws_cdk import (
     aws_stepfunctions_tasks as sfn_tasks,
     aws_iam as iam,
     Duration,
-    aws_logs as logs
+    aws_logs as logs,
+    Aws
 )
 from constructs import Construct
 from .core_infrastructure_stack import CoreInfrastructureStack
+from typing import Dict
 import os
 import sys
 
@@ -58,52 +60,23 @@ class ContentGenerationStack(Stack):
         # Create Step Functions workflow
         self._create_step_functions_workflow()
 
-    def _get_agentcore_environment_variables(self) -> Dict[str, str]:
+    def _get_base_environment_variables(self) -> Dict[str, str]:
         """
-        Dynamically detect and configure AgentCore agent environment variables
+        Get base environment variables for Lambda functions (no AgentCore logic)
         
         Returns:
-            Dictionary of environment variables for AgentCore agents
+            Dictionary of base environment variables
         """
-        env_vars = {}
-        
-        # Try to get agent ARNs from CDK context (set by detect_agentcore_agents.sh)
-        agentcore_context = self.node.try_get_context("agentcore") or {}
-        
-        # Content Generation Agent
-        content_agent_arn = agentcore_context.get("content_generation_agent_arn")
-        if content_agent_arn:
-            env_vars["CONTENT_GENERATION_AGENT_ARN"] = content_agent_arn
-            # Extract agent name from ARN for backward compatibility
-            agent_name = content_agent_arn.split("/")[-1].split("-")[0] if "/" in content_agent_arn else "contentgen-fallback"
-            env_vars["CONTENT_GENERATION_AGENT_NAME"] = agent_name
-        else:
-            # Fallback to environment variables or defaults
-            env_vars["CONTENT_GENERATION_AGENT_ARN"] = os.environ.get("CONTENT_GENERATION_AGENT_ARN", "")
-            env_vars["CONTENT_GENERATION_AGENT_NAME"] = os.environ.get("CONTENT_GENERATION_AGENT_NAME", "contentgen-fallback")
-        
-        # Campus Coach Agent
-        campus_agent_arn = agentcore_context.get("campus_coach_agent_arn")
-        if campus_agent_arn:
-            env_vars["CAMPUS_COACH_AGENT_ARN"] = campus_agent_arn
-            # Extract agent name from ARN for backward compatibility
-            agent_name = campus_agent_arn.split("/")[-1].split("-")[0] if "/" in campus_agent_arn else "campuscoach-fallback"
-            env_vars["CAMPUS_COACH_AGENT_NAME"] = agent_name
-        else:
-            # Fallback to environment variables or defaults
-            env_vars["CAMPUS_COACH_AGENT_ARN"] = os.environ.get("CAMPUS_COACH_AGENT_ARN", "")
-            env_vars["CAMPUS_COACH_AGENT_NAME"] = os.environ.get("CAMPUS_COACH_AGENT_NAME", "campuscoach-fallback")
-        
-        # AgentCore configuration
-        env_vars["AGENTCORE_AGENTS_AVAILABLE"] = str(bool(content_agent_arn or campus_agent_arn)).lower()
-        env_vars["AGENTCORE_REGION"] = self.region
-        
-        # AgentCore Memory configuration (if available)
-        memory_id = agentcore_context.get("memory_id") or os.environ.get("BEDROCK_AGENTCORE_MEMORY_ID")
-        if memory_id:
-            env_vars["BEDROCK_AGENTCORE_MEMORY_ID"] = memory_id
-        
-        return env_vars
+        return {
+            # AgentCore variables (empty - will be populated by Phase 2 deployment)
+            "CONTENT_GENERATION_AGENT_ARN": "",
+            "CAMPUS_COACH_AGENT_ARN": "",
+            "BEDROCK_AGENTCORE_MEMORY_ID": "",
+            "AGENTCORE_AGENTS_AVAILABLE": "false",
+            "AGENTCORE_REGION": Aws.REGION,
+            "CONTENT_GENERATION_AGENT_NAME": "",
+            "CAMPUS_COACH_AGENT_NAME": ""
+        }
 
     def _create_lambda_functions(self) -> None:
         """Create Lambda functions for content generation pipeline"""
@@ -152,7 +125,7 @@ class ContentGenerationStack(Stack):
                     # Foundation models in all regions
                     "arn:aws:bedrock:*::foundation-model/*",
                     # Inference profiles in current account and region
-                    f"arn:aws:bedrock:{self.region}:{self.account}:inference-profile/*"
+                    f"arn:aws:bedrock:{Aws.REGION}:{Aws.ACCOUNT_ID}:inference-profile/*"
                 ]
             )
         )
@@ -246,8 +219,8 @@ class ContentGenerationStack(Stack):
                 "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
                 "CAMPUS_COACH_SECRET": self.core_stack.campus_coach_secret.secret_name,
                 "BEDROCK_MODEL_ID": get_bedrock_model_id(),
-                # AgentCore agent configuration - dynamically detected
-                **self._get_agentcore_environment_variables()
+                # Base environment variables (AgentCore will be populated in Phase 2)
+                **self._get_base_environment_variables()
             }
         )
 
@@ -266,8 +239,8 @@ class ContentGenerationStack(Stack):
                 "COACHING_SESSIONS_TABLE": self.core_stack.table_names["coaching_sessions"],
                 "CAMPUS_COACH_SECRET": self.core_stack.campus_coach_secret.secret_name,
                 "BEDROCK_MODEL_ID": get_bedrock_model_id(),
-                # AgentCore agent configuration - dynamically detected
-                **self._get_agentcore_environment_variables()
+                # Base environment variables (AgentCore will be populated in Phase 2)
+                **self._get_base_environment_variables()
             }
         )
 
@@ -287,7 +260,7 @@ class ContentGenerationStack(Stack):
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
                 "RATE_LIMITS_TABLE": self.core_stack.table_names["rate_limits"],
                 "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
-                "STRAVA_CLIENT_SECRET": "d25f60d76ae498afc7ddea6cb0c4b50616106a17",  # TODO: Move to Secrets Manager
+                "STRAVA_APP_SECRET": self.core_stack.strava_app_secret.secret_name,
                 "BEDROCK_MODEL_ID": get_bedrock_model_id()
             }
         )

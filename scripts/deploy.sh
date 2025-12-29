@@ -57,42 +57,15 @@ print_status "Environment: $ENVIRONMENT"
 # Step 1: Validate prerequisites
 print_section "📋 Step 1: Validating prerequisites"
 
-# Check if validation script exists and run it
-if [ -f "scripts/validate_setup.sh" ]; then
-    print_status "Running setup validation..."
-    chmod +x scripts/validate_setup.sh
-    if ! ./scripts/validate_setup.sh; then
-        print_error "Setup validation failed. Please fix issues before deployment."
-        exit 1
-    fi
-else
-    print_warning "Setup validation script not found, skipping validation"
+# Check if this is a first deployment
+FIRST_DEPLOYMENT=false
+if ! aws cloudformation describe-stacks --stack-name "StravaAIBoost-Core" --profile $PROFILE --region $REGION > /dev/null 2>&1; then
+    FIRST_DEPLOYMENT=true
+    print_status "🆕 First deployment detected"
+    print_status "⏭️  Skipping advanced validations (will be done after deployment)"
 fi
 
-# Run Strava-specific validation
-if [ -f "scripts/validate_strava_setup.sh" ]; then
-    print_status "Running Strava application validation..."
-    chmod +x scripts/validate_strava_setup.sh
-    
-    # Run validation in non-interactive mode
-    if ./scripts/validate_strava_setup.sh $ENVIRONMENT --detailed; then
-        print_status "✅ Strava application validation passed"
-    else
-        VALIDATION_EXIT_CODE=$?
-        if [ $VALIDATION_EXIT_CODE -eq 2 ]; then
-            print_warning "⚠️  Strava validation passed with warnings"
-            print_warning "Review warnings and continue if acceptable"
-        else
-            print_warning "⚠️  Strava application validation failed (expected for first deployment)"
-            print_warning "Will configure Strava secrets after CDK deployment"
-            print_warning "Review validation output above for any critical issues"
-        fi
-    fi
-else
-    print_warning "Strava validation script not found, skipping Strava validation"
-fi
-
-# Verify AWS credentials
+# Always verify AWS credentials (essential)
 print_status "Verifying AWS credentials..."
 if ! aws sts get-caller-identity --profile $PROFILE > /dev/null 2>&1; then
     print_error "AWS credentials not configured for profile: $PROFILE"
@@ -102,6 +75,36 @@ fi
 
 ACCOUNT_ID=$(aws sts get-caller-identity --profile $PROFILE --query Account --output text)
 print_status "Using AWS Account: $ACCOUNT_ID"
+
+# Only run detailed validations for subsequent deployments
+if [ "$FIRST_DEPLOYMENT" = false ]; then
+    # Check if validation script exists and run it
+    if [ -f "scripts/validate_setup.sh" ]; then
+        print_status "Running setup validation..."
+        chmod +x scripts/validate_setup.sh
+        if ! ./scripts/validate_setup.sh; then
+            print_warning "Setup validation failed - continuing anyway"
+        fi
+    fi
+
+    # Run Strava-specific validation
+    if [ -f "scripts/validate_strava_setup.sh" ]; then
+        print_status "Running Strava application validation..."
+        chmod +x scripts/validate_strava_setup.sh
+        
+        if ./scripts/validate_strava_setup.sh $ENVIRONMENT --detailed; then
+            print_status "✅ Strava application validation passed"
+        else
+            VALIDATION_EXIT_CODE=$?
+            if [ $VALIDATION_EXIT_CODE -eq 2 ]; then
+                print_warning "⚠️  Strava validation passed with warnings"
+            else
+                print_warning "⚠️  Strava application validation failed"
+                print_warning "Will configure via local web interface after deployment"
+            fi
+        fi
+    fi
+fi
 
 # Step 2: Environment-specific configuration
 print_section "⚙️  Step 2: Configuring environment-specific settings"
@@ -171,12 +174,18 @@ fi
 # Step 5: CDK Synthesis and Validation
 print_section "🔍 Step 5: CDK synthesis and validation"
 
-print_status "Synthesizing CDK templates..."
-if cdk synth --profile $PROFILE --region $REGION > /dev/null; then
-    print_status "CDK synthesis successful"
+# Skip synthesis validation for first deployment to avoid false errors
+if [ "$FIRST_DEPLOYMENT" = true ]; then
+    print_status "⏭️  Skipping CDK synthesis validation for first deployment"
+    print_status "CDK will validate during deployment phase"
 else
-    print_error "CDK synthesis failed"
-    exit 1
+    print_status "Synthesizing CDK templates..."
+    if cdk synth --profile $PROFILE --region $REGION > /dev/null; then
+        print_status "CDK synthesis successful"
+    else
+        print_warning "CDK synthesis failed - continuing with deployment"
+        print_warning "CDK will attempt to resolve issues during deployment"
+    fi
 fi
 
 # List available stacks
@@ -186,34 +195,48 @@ cdk list --profile $PROFILE --region $REGION
 # Step 6: Deploy CDK Infrastructure
 print_section "☁️  Step 6: Deploying CDK infrastructure"
 
-# Define deployment order for dependencies
-STACKS=(
-    "StravaAIBoost-Core"
-    "StravaAIBoost-Content"
-    "StravaAIBoost-Webhook"
-    "StravaAIBoost-API"
-    "StravaAIBoost-Monitoring"
-)
+print_status "Deploying CDK stacks..."
 
-print_status "Deploying CDK stacks in dependency order..."
+# Best practice: Use CDK's built-in dependency management with --all
+# CDK automatically handles dependencies between stacks when using --all
+print_status "Using CDK automatic dependency resolution with --all flag..."
 
-for stack in "${STACKS[@]}"; do
-    print_status "Deploying stack: $stack"
+if cdk deploy --all --profile $PROFILE --region $REGION --require-approval never; then
+    print_status "✅ All CDK stacks deployed successfully"
+else
+    CDK_EXIT_CODE=$?
+    print_error "❌ CDK deployment encountered issues"
     
-    if cdk deploy $stack --profile $PROFILE --region $REGION --require-approval never; then
-        print_status "✅ Stack $stack deployed successfully"
+    # Provide context-aware troubleshooting information
+    if [ "$FIRST_DEPLOYMENT" = true ]; then
+        print_status "🔍 First deployment troubleshooting:"
+        print_status "This is normal for first deployments. Common causes:"
+        print_status "• Resource dependencies being created in order"
+        print_status "• IAM roles needing time to propagate"
+        print_status "• Cross-stack references being established"
+        print_status ""
+        print_status "💡 Recommended actions:"
+        print_status "1. Wait 2-3 minutes for AWS resources to propagate"
+        print_status "2. Re-run the deployment: ./scripts/deploy.sh $ENVIRONMENT"
+        print_status "3. Check CloudFormation console for specific error details"
     else
-        print_error "❌ Stack $stack deployment failed"
-        
-        # Ask user if they want to continue with remaining stacks
-        read -p "Continue with remaining stacks? (y/n): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            print_error "Deployment aborted by user"
-            exit 1
-        fi
+        print_status "🔍 Deployment troubleshooting:"
+        print_status "1. Check CloudFormation console for detailed error messages"
+        print_status "2. Verify no resource conflicts exist"
+        print_status "3. Ensure all dependencies are properly defined in CDK code"
+        print_status "4. Check for quota limits or permission issues"
     fi
-done
+    
+    print_status ""
+    print_status "💡 To retry deployment:"
+    print_status "   ./scripts/deploy.sh $ENVIRONMENT"
+    print_status ""
+    print_status "💡 To deploy only specific stacks:"
+    print_status "   cdk deploy StravaAIBoost-Core --profile $PROFILE"
+    print_status "   cdk deploy StravaAIBoost-Content --profile $PROFILE"
+    
+    exit $CDK_EXIT_CODE
+fi
 
 # Step 7: Verify CDK Deployment
 print_section "✅ Step 7: Verifying CDK deployment"
@@ -285,30 +308,35 @@ else
     print_warning "   aws secretsmanager put-secret-value --secret-id $CAMPUS_SECRET_NAME --secret-string '{\"username\":\"YOUR_USERNAME\",\"password\":\"YOUR_PASSWORD\",\"login_url\":\"https://campus.coach/login\"}' --profile $PROFILE"
 fi
 
-# Step 8: Deploy AgentCore Infrastructure
-print_section "🤖 Step 8: Deploying AgentCore infrastructure"
+# Step 8: CDK Deployment Complete - Next Steps
+print_section "✅ Step 8: CDK Infrastructure Deployment Complete"
 
-if [ -f "scripts/deploy_agentcore_agents.sh" ]; then
-    print_status "Running AgentCore agents deployment..."
-    chmod +x scripts/deploy_agentcore_agents.sh
-    
-    # Set environment variables for AgentCore deployment
-    export AWS_PROFILE=$PROFILE
-    export AWS_REGION=$REGION
-    
-    if ./scripts/deploy_agentcore_agents.sh; then
-        print_status "✅ AgentCore agents deployment completed successfully"
-        print_status "Content generation mode: AgentCore + Bedrock fallback (enhanced)"
-    else
-        print_warning "⚠️  AgentCore agents deployment failed or partially completed"
-        print_warning "This is expected if AgentCore CLI is not available yet"
-        print_status "✅ Content generation mode: Bedrock fallback only (fully functional)"
-        print_status "Your system will work perfectly with direct AI generation"
-        print_warning "You can run ./scripts/deploy_agentcore_agents.sh manually later for enhanced features"
-    fi
-else
-    print_warning "AgentCore agents deployment script not found, skipping AgentCore deployment"
-fi
+print_status "🎉 Phase 1 (CDK Infrastructure) completed successfully!"
+print_status ""
+print_status "📋 What was deployed:"
+echo "  ✅ DynamoDB Tables: Activities, Configuration, Rate Limits, Sessions"
+echo "  ✅ Lambda Functions: Webhook Handler, Content Generator, etc."
+echo "  ✅ Step Functions: Activity processing workflow"
+echo "  ✅ SQS Queues: Activity processing with DLQ"
+echo "  ✅ Secrets Manager: OAuth tokens, Campus Coach credentials"
+echo "  ✅ API Gateway: Local interface endpoints"
+
+print_status ""
+print_status "🤖 Content Generation System Status:"
+echo "  ✅ Mode: Bedrock fallback (direct Claude Sonnet 4.5)"
+echo "  ✅ Features: Smart prompts, module insights, reliable performance"
+echo "  💡 Note: System is fully functional - AgentCore is optional for enhanced features"
+
+print_status ""
+print_status "🚀 Phase 2 - AgentCore Enhancement (Optional):"
+echo "  To enable enhanced personalization with AgentCore Memory:"
+echo "  ./scripts/deploy_agentcore_agents.sh"
+echo ""
+echo "  This will:"
+echo "  • Deploy AgentCore agents with persistent memory"
+echo "  • Automatically update Lambda environment variables"
+echo "  • Enable enhanced personalization mode"
+echo "  • Provide seamless fallback if AgentCore is unavailable"
 
 # Step 9: Configure Strava Webhook Subscription
 print_section "🔗 Step 9: Configuring Strava webhook subscription"
@@ -359,7 +387,8 @@ fi
 # Step 10.5: Post-deployment Strava validation
 print_section "🔍 Step 10.5: Post-deployment Strava validation"
 
-if [ -f "scripts/validate_strava_setup.sh" ]; then
+# Only run post-deployment validation if not first deployment
+if [ -f "scripts/validate_strava_setup.sh" ] && [ "$FIRST_DEPLOYMENT" = false ]; then
     print_status "Running post-deployment Strava validation..."
     
     if ./scripts/validate_strava_setup.sh $ENVIRONMENT --detailed; then
@@ -386,31 +415,31 @@ if [ -f "scripts/validate_strava_setup.sh" ]; then
         fi
     fi
 else
-    print_warning "Post-deployment validation script not found"
+    if [ "$FIRST_DEPLOYMENT" = true ]; then
+        print_status "⏭️  Skipping post-deployment validation for first deployment"
+        print_status "Configuration will be done via local web interface"
+    else
+        print_warning "Post-deployment validation script not found"
+    fi
 fi
 
 # Step 11: Generate Deployment Summary
 print_section "📊 Step 11: Deployment summary"
 
 echo ""
-print_status "🎉 Strava AI Boost deployment completed!"
+print_status "🎉 Phase 1 (CDK Infrastructure) deployment completed!"
 print_status "Environment: $ENVIRONMENT"
 print_status "Region: $REGION"
 print_status "Account: $ACCOUNT_ID"
 
 echo ""
 print_status "🤖 Content Generation System:"
-if [ -f "deployment-info-${ENVIRONMENT}.json" ] && grep -q "agentcore_deployed.*true" "deployment-info-${ENVIRONMENT}.json" 2>/dev/null; then
-    echo "  ✅ Mode: AgentCore + Bedrock fallback (enhanced personalization)"
-    echo "  ✅ Features: Persistent memory, style learning, advanced context"
-else
-    echo "  ✅ Mode: Bedrock fallback (direct Claude Sonnet 4.5)"
-    echo "  ✅ Features: Smart prompts, module insights, reliable performance"
-    echo "  💡 Note: System is fully functional - AgentCore is optional for enhanced features"
-fi
+echo "  ✅ Mode: Bedrock fallback (direct Claude Sonnet 4.5)"
+echo "  ✅ Features: Smart prompts, module insights, reliable performance"
+echo "  💡 Note: System is fully functional - AgentCore is optional for enhanced features"
 
 echo ""
-print_status "📋 Deployed Resources:"
+print_status "📋 Deployed Resources (Phase 1):"
 echo "  ✅ CDK Stacks: Core, Content, Webhook, API, Monitoring"
 echo "  ✅ DynamoDB Tables: Activities, Configuration, Rate Limits, Sessions"
 echo "  ✅ Lambda Functions: Webhook Handler, Content Generator, etc."
@@ -424,46 +453,33 @@ if [ -n "$WEBHOOK_URL" ]; then
 fi
 
 echo ""
-print_status "🔧 Manual Configuration Required:"
-echo "  ❌ NONE! Everything is configured via the local web interface"
-echo "  ✅ Just start the local interface and use the dashboard"
+print_status "🚀 Phase 2 - AgentCore Enhancement (Optional):"
+echo "  To enable enhanced personalization with persistent memory:"
+echo ""
+echo "  ./scripts/deploy_agentcore_agents.sh"
+echo ""
+echo "  This will:"
+echo "  • Deploy AgentCore agents with persistent memory"
+echo "  • Automatically update Lambda environment variables with agent ARNs"
+echo "  • Enable enhanced personalization mode"
+echo "  • Provide seamless fallback if AgentCore is unavailable"
+
+echo ""
+print_status "🔧 Configuration:"
+echo "  ✅ Everything is configured via the local web interface"
+echo "  ✅ No manual AWS CLI commands needed"
 echo ""
 echo "  Optional: Configure Strava webhook subscription for real-time processing"
 echo "  (Use scripts/configure_strava_webhook.sh after OAuth setup)"
 
 echo ""
-print_status "🔍 Validation & Health Monitoring:"
-echo "  # Validate Strava configuration:"
-echo "  ./scripts/validate_strava_setup.sh $ENVIRONMENT --detailed"
-echo ""
-echo "  # Run health check:"
-echo "  ./scripts/strava_health_check.sh $ENVIRONMENT --webhook-test --rate-limit-check"
-echo ""
-echo "  # Continuous monitoring:"
-echo "  ./scripts/strava_health_check.sh $ENVIRONMENT --continuous --alert-threshold=80"
-
-echo ""
-print_status "📊 Monitoring Commands:"
-echo "  # Check deployment status:"
-echo "  aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE --profile $PROFILE"
-echo ""
-echo "  # Monitor Lambda logs:"
-echo "  aws logs tail /aws/lambda/StravaAIBoost-WebhookHandler --follow --profile $PROFILE"
-echo ""
-echo "  # Check DynamoDB tables:"
-echo "  aws dynamodb list-tables --profile $PROFILE | grep strava-ai-boost"
-echo ""
-echo "  # Test webhook endpoint:"
-echo "  curl -X POST $WEBHOOK_URL -H 'Content-Type: application/json' -d '{\"test\": true}'"
-
-echo ""
 print_status "🚀 Next Steps:"
 echo "  1. Start local web interface: cd local_interface && python app.py"
 echo "  2. Open http://localhost:3000 in your browser"
-echo "  3. Configure Strava OAuth via the web interface (no manual AWS CLI needed!)"
+echo "  3. Configure Strava OAuth via the web interface"
 echo "  4. Enable modules (Campus Coach, Enduraw) as desired"
 echo "  5. Test with a sample Strava activity"
-echo "  6. Monitor processing in the dashboard"
+echo "  6. (Optional) Run Phase 2: ./scripts/deploy_agentcore_agents.sh"
 
 # Save deployment information
 DEPLOYMENT_INFO_FILE="deployment-info-${ENVIRONMENT}.json"

@@ -37,6 +37,8 @@ content_stack = ContentGenerationStack(
     env=env,
     description="Content generation infrastructure with Step Functions and Bedrock"
 )
+# Explicit dependency on core stack
+content_stack.add_dependency(core_stack)
 
 # Webhook processing stack - Strava webhooks, SQS
 webhook_stack = WebhookProcessingStack(
@@ -47,6 +49,9 @@ webhook_stack = WebhookProcessingStack(
     env=env,
     description="Webhook processing infrastructure for Strava AI Boost"
 )
+# Explicit dependencies
+webhook_stack.add_dependency(core_stack)
+webhook_stack.add_dependency(content_stack)
 
 # API Gateway stack - Local interface endpoints
 api_stack = ApiGatewayStack(
@@ -56,6 +61,8 @@ api_stack = ApiGatewayStack(
     env=env,
     description="API Gateway for local web interface"
 )
+# Explicit dependency on core stack
+api_stack.add_dependency(core_stack)
 
 # Monitoring stack - CloudWatch alarms and dashboards
 monitoring_stack = MonitoringStack(
@@ -67,6 +74,11 @@ monitoring_stack = MonitoringStack(
     env=env,
     description="Monitoring and observability infrastructure"
 )
+# Explicit dependencies on all other stacks
+monitoring_stack.add_dependency(core_stack)
+monitoring_stack.add_dependency(content_stack)
+monitoring_stack.add_dependency(webhook_stack)
+monitoring_stack.add_dependency(api_stack)
 
 # Synthesize the CDK app
 app.synth()
