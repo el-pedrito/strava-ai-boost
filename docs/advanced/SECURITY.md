@@ -674,7 +674,3 @@ class AuditLogger:
 - [ ] Regular security reviews are scheduled
 
 ---
-
-**Version:** v1.3.0 - AgentCore Integration Complete  
-**Last Updated:** 2025-12-23  
-**Security Review:** Required before production deployment

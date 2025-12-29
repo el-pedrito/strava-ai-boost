@@ -1,7 +1,5 @@
 # Strava AI Boost Documentation
 
-**Status:** Production Ready - Step Functions Data Flow Fixed
-
 Welcome to Strava AI Boost! This is your single entry point to all documentation.
 
 ## 🚀 Quick Start (5 minutes)
@@ -25,6 +23,7 @@ Welcome to Strava AI Boost! This is your single entry point to all documentation
 
 ### 🔧 Advanced Topics
 - **[AgentCore Guide](advanced/AGENTCORE.md)** - AI agents and memory system
+- **[Prompt Management](advanced/PROMPT-MANAGEMENT.md)** - Centralized prompt system for agents and fallbacks
 - **[Performance Optimization](advanced/PERFORMANCE.md)** - Monitoring, tuning, and cost optimization
 - **[Security Configuration](advanced/SECURITY.md)** - IAM, encryption, and security best practices
 - **[Testing Guide](advanced/TESTING.md)** - Property-based testing, unit tests, and validation procedures

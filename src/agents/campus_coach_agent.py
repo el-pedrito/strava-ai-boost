@@ -17,6 +17,8 @@ import sys
 
 # Add config directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+# Add agentcore prompts directory to path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'agentcore', 'prompts'))
 
 # Import LLM configuration dynamically
 try:
@@ -35,6 +37,38 @@ except ImportError:
                 'temperature': 0.7
             }
         }
+
+# Import prompt management system
+try:
+    from system_prompts import get_campus_coach_prompt
+except ImportError:
+    # Fallback if prompt system not available
+    def get_campus_coach_prompt():
+        return """You are a specialized Campus Coach integration assistant for Strava AI Boost.
+
+Your role is to extract training sessions from Campus Coach and match them with Strava activities.
+
+Key capabilities:
+1. Extract weekly sessions from Campus Coach with retry logic for cold start issues
+2. Match Strava activities to planned sessions with confidence scoring
+3. Handle authentication and credential management securely
+4. Provide detailed session analysis and compliance scoring
+5. Use AgentCore Browser Tool for secure web scraping
+
+Available actions:
+- extract_sessions: Get weekly training plan from Campus Coach
+- match_activity: Match Strava activity to planned session
+- check_credentials: Verify Campus Coach credentials for user
+- analyze_compliance: Analyze session compliance
+
+Guidelines:
+- Always provide confidence scores for matches (0.0 to 1.0)
+- Handle Browser Tool cold start issues with automatic retry logic
+- Return structured data compatible with Lambda function integration
+- Use sport-specific terminology for session types
+- Include compliance scoring for planned vs actual execution
+
+The system uses AgentCore Browser Tool for secure web scraping with credential management via AWS Secrets Manager."""
 
 # Import existing campus coach logic from modules
 try:
@@ -339,35 +373,12 @@ def invoke(payload, context):
         # Get runtime session ID for isolation
         session_id = getattr(context, 'session_id', 'default')
         
-        # Create Strands agent with Campus Coach tools and ORIGINAL prompts from CampusCoachAgent
+        # Create Strands agent with Campus Coach tools and EXTERNAL prompts
+        system_prompt = get_campus_coach_prompt()
+        
         agent = Agent(
             model=MODEL_ID,  # Use dynamic LLM configuration
-            system_prompt="""You are a specialized Campus Coach integration assistant for Strava AI Boost.
-
-Your role is to extract training sessions from Campus Coach and match them with Strava activities using the original CampusCoachAgent logic and prompts.
-
-Key capabilities:
-1. Extract weekly sessions from Campus Coach with retry logic for cold start issues using original extraction methods
-2. Match Strava activities to planned sessions with confidence scoring using original matching algorithms
-3. Handle authentication and credential management securely using original credential handling
-4. Provide detailed session analysis and compliance scoring using original analysis prompts
-5. Use AgentCore Browser Tool for secure web scraping with original scraping logic
-
-Available actions:
-- extract_sessions: Get weekly training plan from Campus Coach using original extraction logic
-- match_activity: Match Strava activity to planned session using original matching prompts
-- check_credentials: Verify Campus Coach credentials for user using original credential methods
-- analyze_compliance: Analyze session compliance using original compliance analysis
-
-Guidelines (from original CampusCoachAgent):
-- Always provide confidence scores for matches (0.0 to 1.0) using original scoring methods
-- Handle Browser Tool cold start issues with automatic retry logic (original retry patterns)
-- Return structured data compatible with Lambda function integration
-- Use sport-specific terminology for session types from original agent
-- Include compliance scoring for planned vs actual execution using original analysis
-- Use original prompts for Bedrock AI session matching and analysis
-
-The system uses AgentCore Browser Tool for secure web scraping with credential management via AWS Secrets Manager, maintaining the original agent's approach to Campus Coach integration.""",
+            system_prompt=system_prompt,
             tools=[extract_campus_coach_sessions, match_activity_to_session, get_user_campus_coach_credentials, analyze_session_compliance, browser_tool]
         )
         

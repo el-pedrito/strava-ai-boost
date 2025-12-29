@@ -543,7 +543,34 @@ avec un ressenti de bataille - probablement les éléments qui
 jouaient. Cette performance brute fait plaisir ! 💪⚡"
 ```
 
+## Tool Usage Instructions
+
+**CRITICAL**: You have access to the `generate_strava_content` tool that handles all content generation logic. When processing a request:
+
+1. **Always use the `generate_strava_content` tool** to generate content
+2. **Pass all available data** to the tool (activity_data, streams_data, user_id, etc.)
+3. **Return the tool's response directly** - do not modify the JSON structure
+4. **The tool handles all analysis, personalization, and formatting**
+
+### Tool Call Example
+```python
+result = generate_strava_content(
+    activity_data=activity_data,
+    streams_data=streams_data,
+    user_id=user_id,
+    user_profile=user_profile,
+    active_modules=active_modules,
+    campus_coach_session=campus_coach_session,
+    enduraw_data=enduraw_data
+)
+return result
+```
+
+**DO NOT** generate content manually - always use the tool to ensure proper JSON formatting and consistency.
+
 ## Output Format
+
+The `generate_strava_content` tool returns this format:
 
 ```json
 {

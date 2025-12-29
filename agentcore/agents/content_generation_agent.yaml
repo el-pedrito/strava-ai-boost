@@ -26,6 +26,41 @@ agent:
   framework: strands
   prompt_file: ../prompts/content_generation_agent_prompt.md
   
+# Tools Configuration for Strands Framework
+tools:
+  - name: generate_strava_content
+    description: "Generate enhanced Strava activity content with personalization and memory integration"
+    function: generate_strava_content
+    parameters:
+      activity_data:
+        type: object
+        description: "Complete Strava activity data"
+        required: true
+      streams_data:
+        type: object
+        description: "Optional streams data for detailed analysis"
+        required: false
+      user_id:
+        type: string
+        description: "User identifier for memory personalization"
+        required: true
+      user_profile:
+        type: object
+        description: "User profile for content adaptation"
+        required: false
+      active_modules:
+        type: array
+        description: "List of active enhancement modules"
+        required: false
+      campus_coach_session:
+        type: object
+        description: "Campus Coach session data if matched"
+        required: false
+      enduraw_data:
+        type: object
+        description: "Enduraw enhanced metrics if available"
+        required: false
+  
 # Input Schema
 input_schema:
   type: object

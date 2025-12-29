@@ -9,6 +9,7 @@ AgentCore provides the AI agent runtime and memory system for Strava AI Boost, e
 - **Persistent Memory**: Learns your writing style and avoids repetition
 - **Browser Tool**: Automated Campus Coach session extraction
 - **Agent Runtime**: Scalable, serverless AI agent execution
+- **Strands Framework**: Modern agent architecture with structured tools
 
 ## Architecture
 
@@ -18,22 +19,89 @@ AgentCore provides the AI agent runtime and memory system for Strava AI Boost, e
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │   AgentCore     │    │   AgentCore      │    │   AgentCore     │
 │    Memory       │◄──►│    Runtime       │◄──►│  Browser Tool   │
-│                 │    │                  │    │                 │
+│                 │    │  (Strands)       │    │                 │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
          │                       │                       │
          ▼                       ▼                       ▼
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │  Personalized   │    │  Content Gen     │    │  Campus Coach   │
-│  Content Gen    │    │     Agent        │    │   Extraction    │
+│  Content Gen    │    │     Tool         │    │   Extraction    │
+│   (JSON API)    │    │  (Structured)    │    │                 │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
 ```
 
 ### Integration Points
 
-1. **Content Generation Agent**: Uses AgentCore Memory for personalization
+1. **Content Generation Agent**: Uses structured tools with JSON responses
 2. **Campus Coach Agent**: Uses AgentCore Browser Tool for web scraping
-3. **Lambda Functions**: Invoke agents via Bedrock Agent Runtime
-4. **Step Functions**: Orchestrate agent workflows
+3. **Lambda Functions**: Handle both old and new JSON formats for compatibility
+4. **Step Functions**: Orchestrate agent workflows with error handling
+
+## Content Generation Tool (NEW v1.8.0)
+
+### Structured Tool Implementation
+
+The content generation now uses a structured tool approach:
+
+```python
+# src/agents/content_agent.py
+def generate_strava_content(
+    activity_data: Dict[str, Any],
+    streams_data: Optional[Dict[str, Any]] = None,
+    user_id: str = "",
+    user_profile: Optional[Dict[str, Any]] = None,
+    active_modules: Optional[List[Dict[str, Any]]] = None,
+    campus_coach_session: Optional[Dict[str, Any]] = None,
+    enduraw_data: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Generate enhanced Strava activity content with structured JSON response
+    """
+```
+
+### JSON Response Format
+
+```json
+{
+  "success": true,
+  "generated_content": {
+    "title": "Enhanced activity title",
+    "description": "Enhanced activity description"
+  },
+  "content_metadata": {
+    "length": "medium",
+    "tone_used": "motivational",
+    "fun_elements_included": ["performance_focus"],
+    "metrics_highlighted": ["distance", "pace", "elevation"],
+    "modules_integrated": ["campus_coach"],
+    "confidence": 0.85,
+    "user_profile_applied": true,
+    "enduraw_detected": false
+  },
+  "memory_operations": {
+    "retrieved": true,
+    "stored": true,
+    "expressions_avoided": ["previous_phrases"],
+    "style_elements_learned": ["technical", "encouraging"],
+    "profile_adaptations": ["sport_specific"]
+  }
+}
+```
+
+### Lambda Compatibility
+
+The Lambda function now handles both formats:
+
+```python
+# lambda_functions/content_generator.py
+if isinstance(result, dict) and 'generated_content' in result:
+    # New structured format from AgentCore tool
+    title = result['generated_content']['title']
+    description = result['generated_content']['description']
+else:
+    # Legacy format fallback
+    title, description = parse_legacy_format(result)
+```
 
 ## AgentCore Memory
 
