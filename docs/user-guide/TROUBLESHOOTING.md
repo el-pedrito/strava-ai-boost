@@ -204,6 +204,42 @@ aws dynamodb describe-table --table-name strava-ai-boost-activities --profile yo
 
 ### Step Functions Issues
 
+#### Infinite Executions (Webhook Update Loops)
+
+**Symptoms**:
+- Hundreds of Step Functions executions for the same activity
+- High AWS costs from excessive Lambda invocations
+- Same activity being processed repeatedly
+- SQS messages stuck "in flight" for extended periods
+
+**Root Cause**:
+Strava sends `update` webhooks when activities are modified. Our system updating an activity triggers a new webhook, creating an infinite loop:
+```
+Activity Update → Webhook 'update' → Processing → Strava Update → Webhook 'update' → ∞
+```
+
+**Solution** (Fixed in v1.6.4):
+The system now checks activity processing status before launching Step Functions:
+- ✅ Skip if activity status is `completed` or `processing`
+- ✅ Skip `update` webhooks for already-processed activities  
+- ✅ 1-hour cooldown for failed activities on update webhooks
+- ✅ Allow `create` webhooks and legitimate retries
+
+**Verification**:
+```bash
+# Check if protection is working
+aws logs filter-log-events \
+  --log-group-name "/aws/lambda/StravaAIBoost-ActivityProcessor" \
+  --filter-pattern "Skipping activity" \
+  --profile your-aws-profile
+
+# Monitor Step Functions executions
+aws stepfunctions list-executions \
+  --state-machine-arn YOUR_STATE_MACHINE_ARN \
+  --status-filter RUNNING \
+  --profile your-aws-profile
+```
+
 **Check Executions**:
 ```bash
 # List recent executions

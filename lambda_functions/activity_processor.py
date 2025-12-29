@@ -12,6 +12,8 @@ from typing import Dict, Any, List
 import boto3
 from botocore.exceptions import ClientError
 from datetime import datetime, UTC
+import time
+import random
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -19,12 +21,17 @@ logger.setLevel(logging.INFO)
 # Initialize AWS clients
 stepfunctions = boto3.client('stepfunctions')
 dynamodb = boto3.resource('dynamodb')
+sqs = boto3.client('sqs')
 
 # Environment variables
 ACTIVITIES_TABLE = os.environ['ACTIVITIES_TABLE']
 RATE_LIMITS_TABLE = os.environ['RATE_LIMITS_TABLE']
 STRAVA_OAUTH_SECRET = os.environ['STRAVA_OAUTH_SECRET']
 STEP_FUNCTIONS_ARN = os.environ['STEP_FUNCTIONS_ARN']
+
+# Get SQS queue URL from environment or construct it
+PROCESSING_QUEUE_URL = os.environ.get('PROCESSING_QUEUE_URL', 
+    f"https://sqs.{os.environ.get('AWS_REGION', 'eu-west-1')}.amazonaws.com/{os.environ.get('AWS_ACCOUNT_ID', '')}/strava-ai-boost-activity-processing")
 
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -56,10 +63,20 @@ def process_activity_record(record: Dict[str, Any]) -> None:
         
         logger.info(f"Processing activity {activity_id} for user {user_id}")
         
-        # Check rate limits before processing
+        # Check if activity is already processed or being processed (prevent webhook update loops)
+        if should_skip_processing(activity_id, message_body):
+            logger.info(f"Skipping activity {activity_id} - already processed or processing")
+            return  # Exit successfully so SQS deletes the message
+        
+        # Check rate limits BEFORE processing
         if not check_rate_limits():
-            logger.warning("Rate limits exceeded, requeueing message")
-            raise Exception("Rate limits exceeded")
+            logger.warning(f"Rate limits exceeded for activity {activity_id}, delaying processing")
+            # Update activity status to indicate rate limit delay
+            update_activity_status(activity_id, 'rate_limited', 'Waiting for rate limits to reset', critical=False)
+            
+            # Use SQS delay to retry later instead of throwing exception
+            delay_message_processing(record, activity_id, user_id, message_body)
+            return  # Exit successfully so SQS deletes the original message
         
         # Update activity status to processing
         update_activity_status(activity_id, 'processing', critical=True)
@@ -109,6 +126,71 @@ def check_rate_limits() -> bool:
     except Exception as e:
         logger.error(f"Rate limit check error: {str(e)}")
         # Assume we're at limit if we can't check
+        return False
+
+
+def should_skip_processing(activity_id: str, message_body: Dict[str, Any]) -> bool:
+    """
+    Check if activity should be skipped to prevent webhook update loops
+    
+    Returns True if:
+    - Activity is already completed
+    - Activity is currently processing 
+    - Activity failed recently (within 1 hour) to avoid rapid retries
+    - Webhook is an 'update' event and activity was already processed
+    """
+    try:
+        table = dynamodb.Table(ACTIVITIES_TABLE)
+        
+        # Check if activity exists in DynamoDB
+        response = table.get_item(Key={'activity_id': activity_id})
+        
+        if 'Item' not in response:
+            # New activity, should process
+            logger.info(f"New activity {activity_id}, proceeding with processing")
+            return False
+        
+        activity = response['Item']
+        processing_status = activity.get('processing_status', 'unknown')
+        webhook_data = message_body.get('webhook_data', {})
+        aspect_type = webhook_data.get('aspect_type', 'unknown')
+        
+        # Skip if already completed
+        if processing_status == 'completed':
+            logger.info(f"Activity {activity_id} already completed, skipping")
+            return True
+        
+        # Skip if currently processing (avoid concurrent processing)
+        if processing_status == 'processing':
+            logger.info(f"Activity {activity_id} currently processing, skipping")
+            return True
+        
+        # For update webhooks, be more restrictive
+        if aspect_type == 'update':
+            # Skip if we've ever processed this activity successfully
+            if processing_status in ['completed', 'processing']:
+                logger.info(f"Activity {activity_id} update webhook but already processed, skipping")
+                return True
+            
+            # Skip if failed recently (within 1 hour) to avoid rapid retries from updates
+            updated_at = activity.get('updated_at')
+            if processing_status == 'failed' and updated_at:
+                try:
+                    from datetime import datetime, timedelta
+                    last_update = datetime.fromisoformat(updated_at.replace('Z', '+00:00'))
+                    if datetime.utcnow().replace(tzinfo=last_update.tzinfo) - last_update < timedelta(hours=1):
+                        logger.info(f"Activity {activity_id} failed recently, skipping update webhook")
+                        return True
+                except Exception as e:
+                    logger.warning(f"Error parsing updated_at timestamp: {e}")
+        
+        # For create webhooks or failed activities (older than 1 hour), allow processing
+        logger.info(f"Activity {activity_id} status: {processing_status}, aspect: {aspect_type}, proceeding")
+        return False
+        
+    except Exception as e:
+        logger.error(f"Error checking processing status for activity {activity_id}: {str(e)}")
+        # On error, allow processing to avoid blocking legitimate requests
         return False
 
 
@@ -201,3 +283,93 @@ def update_activity_execution_arn(activity_id: str, execution_arn: str) -> None:
         
     except Exception as e:
         logger.error(f"Failed to update execution ARN: {str(e)}")
+
+
+def delay_message_processing(
+    record: Dict[str, Any], 
+    activity_id: str, 
+    user_id: str, 
+    message_body: Dict[str, Any]
+) -> None:
+    """
+    Delay message processing by sending it back to SQS with a delay
+    
+    This allows rate-limited messages to be processed later without losing them
+    """
+    try:
+        # Calculate intelligent delay based on rate limit type
+        delay_seconds = calculate_rate_limit_delay()
+        
+        # Add retry count to prevent infinite loops
+        retry_count = message_body.get('rate_limit_retry_count', 0)
+        max_retries = 5  # Maximum retries for rate limiting
+        
+        if retry_count >= max_retries:
+            logger.error(f"Activity {activity_id} exceeded max rate limit retries ({max_retries})")
+            update_activity_status(activity_id, 'failed', f'Exceeded max rate limit retries ({max_retries})', critical=False)
+            return  # Don't requeue, let it be processed normally (will likely fail but won't loop)
+        
+        # Increment retry count
+        message_body['rate_limit_retry_count'] = retry_count + 1
+        message_body['rate_limit_delayed_at'] = datetime.now(UTC).isoformat()
+        
+        # Send delayed message back to SQS
+        sqs.send_message(
+            QueueUrl=PROCESSING_QUEUE_URL,
+            MessageBody=json.dumps(message_body),
+            DelaySeconds=min(delay_seconds, 900)  # SQS max delay is 15 minutes
+        )
+        
+        logger.info(f"Delayed activity {activity_id} processing by {delay_seconds} seconds (retry {retry_count + 1}/{max_retries})")
+        
+    except Exception as e:
+        logger.error(f"Failed to delay message processing for activity {activity_id}: {str(e)}")
+        # If we can't delay, let the original processing continue (will likely hit rate limits but won't loop)
+
+
+def calculate_rate_limit_delay() -> int:
+    """
+    Calculate intelligent delay based on current rate limit status
+    
+    Returns delay in seconds
+    """
+    try:
+        table = dynamodb.Table(RATE_LIMITS_TABLE)
+        
+        # Check which limit is exceeded
+        short_term_exceeded = False
+        daily_exceeded = False
+        
+        # Check short-term limit
+        response = table.get_item(Key={'limit_type': 'short_term'})
+        if 'Item' in response:
+            usage = response['Item'].get('current_usage', 0)
+            if usage >= 90:
+                short_term_exceeded = True
+        
+        # Check daily limit  
+        response = table.get_item(Key={'limit_type': 'daily'})
+        if 'Item' in response:
+            usage = response['Item'].get('current_usage', 0)
+            if usage >= 950:
+                daily_exceeded = True
+        
+        # Calculate delay based on which limit is exceeded
+        if daily_exceeded:
+            # Daily limit exceeded - wait longer (1-2 hours with jitter)
+            base_delay = 3600  # 1 hour
+            jitter = random.randint(0, 3600)  # Up to 1 hour additional
+            return base_delay + jitter
+        elif short_term_exceeded:
+            # Short-term limit exceeded - wait for 15-minute window to reset
+            base_delay = 900  # 15 minutes
+            jitter = random.randint(0, 300)  # Up to 5 minutes additional
+            return base_delay + jitter
+        else:
+            # Default delay if we can't determine the specific limit
+            return 600 + random.randint(0, 300)  # 10-15 minutes
+            
+    except Exception as e:
+        logger.error(f"Failed to calculate rate limit delay: {str(e)}")
+        # Default delay with jitter
+        return 900 + random.randint(0, 300)  # 15-20 minutes

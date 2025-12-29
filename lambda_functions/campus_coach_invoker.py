@@ -167,38 +167,61 @@ def invoke_agentcore_agent(agent_input: Dict[str, Any]) -> Optional[List[Dict[st
     Integrates with actual AgentCore Browser Tool for Campus Coach session extraction
     """
     try:
-        # Get agent configuration from environment
-        agent_name = os.environ.get('CAMPUS_COACH_AGENT_NAME', 'campuscoach')
+        # Get agent ARN from environment
+        agent_arn = os.environ.get('CAMPUS_COACH_AGENT_ARN', '')
+        agent_name = os.environ.get('CAMPUS_COACH_AGENT_NAME', 'campus_coach')
         
-        # Create session ID for this invocation
-        session_id = f"campus-coach-{datetime.utcnow().timestamp()}"
+        if not agent_arn:
+            logger.error("CAMPUS_COACH_AGENT_ARN environment variable not set")
+            raise ValueError("AgentCore Campus Coach Agent ARN not configured")
         
-        logger.info(f"Invoking AgentCore agent: {agent_name} with session: {session_id}")
+        # Create session ID for this invocation (minimum 33 characters required)
+        import uuid
+        session_id = f"campus-coach-{uuid.uuid4().hex}"  # UUID hex is 32 chars + prefix = 44 chars total
+        
+        logger.info(f"Invoking AgentCore agent: {agent_name} (ARN: {agent_arn}) with session: {session_id}")
         
         # Prepare input for AgentCore Browser Tool agent
-        agent_prompt = json.dumps({
+        agentcore_input = {
             'action': 'extract_sessions',
             'credentials': agent_input.get('credentials', {}),
             'user_id': agent_input.get('user_id', 'default_user'),
             'target_weeks': 2,  # Extract current and next week
             'retry_on_failure': True
-        })
+        }
         
-        # Invoke AgentCore agent via Bedrock Agent Runtime
-        response = bedrock_agent_runtime.invoke_agent(
-            agentId=agent_name,
-            agentAliasId='TSTALIASID',  # Test alias ID for AgentCore
-            sessionId=session_id,
-            inputText=agent_prompt
+        # Prepare payload for AgentCore
+        payload = json.dumps(agentcore_input).encode('utf-8')
+        
+        # Use Bedrock AgentCore Runtime to invoke Campus Coach Agent
+        bedrock_agentcore_client = boto3.client('bedrock-agentcore', region_name=AWS_REGION)
+        
+        # Invoke AgentCore agent via Bedrock AgentCore Runtime using correct API
+        response = bedrock_agentcore_client.invoke_agent_runtime(
+            agentRuntimeArn=agent_arn,  # Use full ARN with correct parameter name
+            runtimeSessionId=session_id,
+            payload=payload
         )
         
-        # Process streaming response
+        # Process streaming response from AgentCore
         completion = ""
-        for event in response.get('completion', []):
-            if 'chunk' in event:
-                chunk = event['chunk']
-                if 'bytes' in chunk:
-                    completion += chunk['bytes'].decode('utf-8')
+        if "text/event-stream" in response.get("contentType", ""):
+            # Handle streaming response
+            for line in response["response"].iter_lines(chunk_size=10):
+                if line:
+                    line = line.decode("utf-8")
+                    if line.startswith("data: "):
+                        line = line[6:]
+                        completion += line
+        elif response.get("contentType") == "application/json":
+            # Handle standard JSON response
+            content = []
+            for chunk in response.get("response", []):
+                content.append(chunk.decode('utf-8'))
+            completion = ''.join(content)
+        else:
+            # Handle other content types
+            completion = str(response.get("response", ""))
         
         logger.info(f"AgentCore agent response length: {len(completion)}")
         

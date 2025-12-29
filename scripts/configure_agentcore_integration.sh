@@ -44,30 +44,14 @@ detect_deployed_agents() {
     local campus_arn=""
     local memory_id=""
     
-    # Get Content Generation Agent ARN (silent)
-    local content_status
-    content_status=$(agentcore status --agent "$CONTENT_AGENT_NAME" --verbose 2>/dev/null | grep -v "MemoryManager\|Retrieving\|Found memory" || echo "")
-    
-    if [ -n "$content_status" ]; then
-        # Try jq first, fallback to grep
-        content_arn=$(echo "$content_status" | jq -r '.agent.arn // empty' 2>/dev/null || echo "")
-        
-        if [ -z "$content_arn" ] || [ "$content_arn" = "null" ]; then
-            content_arn=$(echo "$content_status" | grep -o 'arn:aws:bedrock-agentcore:[^"]*' | head -1 || echo "")
-        fi
+    # Get Content Generation Agent ARN using the corrected method
+    if command -v agentcore &> /dev/null; then
+        content_arn=$(agentcore status --agent "$CONTENT_AGENT_NAME" 2>/dev/null | grep -A 2 "Agent ARN:" | grep "arn:aws" | sed 's/│//g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//' | head -1)
     fi
     
-    # Get Campus Coach Agent ARN (silent)
-    local campus_status
-    campus_status=$(agentcore status --agent "$CAMPUS_AGENT_NAME" --verbose 2>/dev/null | grep -v "MemoryManager\|Retrieving\|Found memory" || echo "")
-    
-    if [ -n "$campus_status" ]; then
-        # Try jq first, fallback to grep
-        campus_arn=$(echo "$campus_status" | jq -r '.agent.arn // empty' 2>/dev/null || echo "")
-        
-        if [ -z "$campus_arn" ] || [ "$campus_arn" = "null" ]; then
-            campus_arn=$(echo "$campus_status" | grep -o 'arn:aws:bedrock-agentcore:[^"]*' | head -1 || echo "")
-        fi
+    # Get Campus Coach Agent ARN using the corrected method
+    if command -v agentcore &> /dev/null; then
+        campus_arn=$(agentcore status --agent "$CAMPUS_AGENT_NAME" 2>/dev/null | grep -A 2 "Agent ARN:" | grep "arn:aws" | sed 's/│//g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//' | head -1)
     fi
     
     # Get Memory ID (silent)
@@ -84,6 +68,124 @@ detect_deployed_agents() {
     fi
     
     echo "$content_arn|$campus_arn|$memory_id"
+}
+
+# Function to update IAM permissions for Lambda roles to invoke AgentCore
+update_lambda_iam_permissions() {
+    local content_arn="$1"
+    local campus_arn="$2"
+    local memory_id="$3"
+    
+    print_status "🔐 Updating Lambda IAM permissions for AgentCore invocation..."
+    
+    # Get account ID
+    local account_id
+    account_id=$(aws sts get-caller-identity --profile "$AWS_PROFILE" --query 'Account' --output text 2>/dev/null)
+    
+    if [ -z "$account_id" ]; then
+        print_error "Failed to get AWS account ID"
+        return 1
+    fi
+    
+    # Get Lambda function roles that need AgentCore permissions
+    local lambda_functions=(
+        "StravaAIBoost-ContentGenerator"
+        "StravaAIBoost-CampusCoachInvoker"
+    )
+    
+    local updated_roles=0
+    
+    for function_name in "${lambda_functions[@]}"; do
+        print_status "Updating AgentCore permissions for Lambda function: $function_name"
+        
+        # Get the Lambda function's role ARN
+        local role_arn
+        role_arn=$(aws lambda get-function-configuration \
+            --function-name "$function_name" \
+            --profile "$AWS_PROFILE" \
+            --region "$AWS_REGION" \
+            --query 'Role' \
+            --output text 2>/dev/null)
+        
+        if [ $? -eq 0 ] && [ -n "$role_arn" ] && [ "$role_arn" != "None" ]; then
+            local role_name=$(echo "$role_arn" | awk -F'/' '{print $NF}')
+            print_status "Found Lambda role: $role_name"
+            
+            # Create AgentCore invocation policy for Lambda role
+            local policy_name="StravaAIBoostAgentCoreInvocation-${role_name}-$(date +%s)"
+            local policy_file="/tmp/lambda_agentcore_policy_${role_name}_$.json"
+            
+            cat > "$policy_file" << EOF
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "bedrock-agentcore:InvokeAgentRuntime"
+            ],
+            "Resource": [
+                "$content_arn",
+                "$content_arn/*",
+                "$campus_arn",
+                "$campus_arn/*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "bedrock-agentcore:ListEvents",
+                "bedrock-agentcore:CreateEvent",
+                "bedrock-agentcore:GetEvent",
+                "bedrock-agentcore:QueryMemory"
+            ],
+            "Resource": [
+                "arn:aws:bedrock-agentcore:$AWS_REGION:$account_id:memory/$memory_id",
+                "arn:aws:bedrock-agentcore:$AWS_REGION:$account_id:memory/$memory_id/*"
+            ]
+        }
+    ]
+}
+EOF
+            
+            # Create the policy
+            local policy_arn
+            policy_arn=$(aws iam create-policy \
+                --policy-name "$policy_name" \
+                --policy-document "file://$policy_file" \
+                --description "AgentCore invocation permissions for Lambda: $function_name" \
+                --profile "$AWS_PROFILE" \
+                --region "$AWS_REGION" \
+                --query 'Policy.Arn' \
+                --output text 2>/dev/null)
+            
+            # Clean up temporary file
+            rm -f "$policy_file"
+            
+            if [ $? -eq 0 ] && [ -n "$policy_arn" ] && [[ "$policy_arn" == arn:* ]]; then
+                print_success "Created AgentCore policy: $policy_arn"
+                
+                # Attach policy to Lambda role
+                if aws iam attach-role-policy \
+                    --role-name "$role_name" \
+                    --policy-arn "$policy_arn" \
+                    --profile "$AWS_PROFILE" \
+                    --region "$AWS_REGION" > /dev/null 2>&1; then
+                    print_success "✅ Attached AgentCore policy to Lambda role: $role_name"
+                    ((updated_roles++))
+                else
+                    print_warning "⚠️  Failed to attach policy to Lambda role: $role_name"
+                fi
+            else
+                print_warning "⚠️  Failed to create AgentCore policy for Lambda role: $role_name"
+            fi
+        else
+            print_warning "⚠️  Lambda function $function_name not found or no role"
+        fi
+    done
+    
+    print_success "Lambda IAM permissions updated for $updated_roles roles"
+    return 0
 }
 
 # Function to update IAM permissions for AgentCore agents (dynamic based on deployed resources)
@@ -558,6 +660,9 @@ main() {
     
     print_status ""
     print_status "🔧 Configuring AgentCore integration..."
+    
+    # Update Lambda IAM permissions for AgentCore invocation
+    update_lambda_iam_permissions "$content_arn" "$campus_arn" "$memory_id"
     
     # Update IAM permissions for AgentCore agents (dynamic based on deployed resources)
     update_agentcore_iam_permissions "$content_arn" "$campus_arn" "$memory_id"

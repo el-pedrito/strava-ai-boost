@@ -107,7 +107,8 @@ class WebhookProcessingStack(Stack):
         activity_processor_env = {
             "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
             "RATE_LIMITS_TABLE": self.core_stack.table_names["rate_limits"],
-            "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name
+            "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
+            "PROCESSING_QUEUE_URL": self.processing_queue.queue_url
         }
         
         # Add Step Functions ARN if provided
@@ -146,6 +147,15 @@ class WebhookProcessingStack(Stack):
                     resources=[self.step_functions_arn]
                 )
             )
+        
+        # Grant SQS send permissions for rate limit delays
+        self.activity_processor.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["sqs:SendMessage"],
+                resources=[self.processing_queue.queue_arn]
+            )
+        )
         
         # Add SQS event source to activity processor
         self.activity_processor.add_event_source(
