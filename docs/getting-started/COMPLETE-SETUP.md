@@ -278,9 +278,15 @@ SECRET_KEY=your-secure-secret-key
 # Install local dependencies
 pip install -r requirements.txt
 
-# Start Flask application
-python app.py
+# Start Flask application with proper AWS configuration
+./start_dashboard.sh
 ```
+
+**Benefits of using `start_dashboard.sh`:**
+- Automatic AWS profile configuration
+- Credential verification before startup
+- Proper environment variable setup
+- Clear error messages if AWS setup is incorrect
 
 ### 3. Verify Local Interface
 

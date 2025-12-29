@@ -146,9 +146,10 @@ lsof -i :3000
 ```
 
 **Solutions**:
-1. **Restart Interface**: `cd local_interface && python app.py`
+1. **Restart Interface**: `cd local_interface && ./start_dashboard.sh`
 2. **Check Port**: Ensure port 3000 is available
 3. **Check Dependencies**: `pip install -r requirements.txt`
+4. **Verify AWS Profile**: Ensure `your-aws-profile` profile is configured
 
 ### "API Gateway connection failed"
 

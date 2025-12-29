@@ -13,7 +13,39 @@
 
 After completing the [Quick Start Guide](QUICK-START.md), follow these steps to enhance your first Strava activity.
 
-## 1. Complete OAuth Connection
+## 1. Start Local Dashboard
+
+**IMPORTANT**: Use the provided startup script for reliable AWS configuration:
+
+```bash
+cd local_interface
+./start_dashboard.sh
+```
+
+**What this script does:**
+- ✅ **Configures AWS Profile**: Sets `your-aws-profile` profile automatically
+- ✅ **Verifies Credentials**: Checks AWS access before starting Flask
+- ✅ **Sets Environment**: Configures Flask development mode and debugging
+- ✅ **Starts Server**: Launches dashboard on http://localhost:3000
+
+**Alternative Manual Method** (not recommended):
+```bash
+cd local_interface
+export AWS_PROFILE=your-aws-profile
+python3 app.py
+```
+
+**Why use the script?**
+- Prevents AWS credential errors (`UnrecognizedClientException`)
+- Ensures proper access to DynamoDB, Secrets Manager, and SQS
+- Provides clear error messages if AWS setup is incorrect
+- Simplifies development workflow with one command
+
+**Dashboard URLs:**
+- **Main Dashboard**: http://localhost:3000
+- **Configuration**: http://localhost:3000/config
+
+## 2. Complete OAuth Connection
 
 **IMPORTANT**: You must complete the OAuth flow first:
 

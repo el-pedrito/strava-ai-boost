@@ -101,8 +101,14 @@ aws secretsmanager put-secret-value \
 ### Step 3: Start Local Interface
 ```bash
 cd local_interface
-AWS_PROFILE=your-aws-profile python app.py
+./start_dashboard.sh
 ```
+
+**What this script does:**
+- ✅ Configures AWS profile (`your-aws-profile`) automatically
+- ✅ Verifies AWS credentials before starting
+- ✅ Sets Flask development environment
+- ✅ Starts dashboard on http://localhost:3000
 
 Open http://localhost:3000 in your browser.
 

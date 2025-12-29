@@ -323,46 +323,134 @@ This implementation plan reflects the current state of the Strava AI Boost syste
 
 ## Future Enhancements 🚀
 
-- [ ] 18. Migrate local web interface to React with native Cloudscape components
-  - [ ] 18.1 Set up React application with TypeScript
-    - Initialize React project with TypeScript and modern build tools (Vite/Create React App)
-    - Install @cloudscape-design/components and @cloudscape-design/global-styles
-    - Configure TypeScript for strict type checking and AWS SDK integration
-    - Set up development environment with hot reload and debugging
-    - _Requirements: Enhanced user experience and maintainability_
+- [ ] 18. Migrate local web interface from Flask server-side to React client-side with API Gateway
+  - [ ] 18.1 Set up React application with TypeScript and modern tooling
+    - Initialize React project with Vite for fast development and optimized builds
+    - Install @cloudscape-design/components, @cloudscape-design/global-styles, and design tokens
+    - Configure TypeScript with strict type checking and AWS SDK v3 integration
+    - Set up React Query/TanStack Query for efficient API state management and caching
+    - Configure ESLint, Prettier, and development environment with hot reload
+    - Create project structure: components/, hooks/, services/, types/, utils/
+    - _Requirements: Modern development experience, type safety, performance optimization_
   
-  - [ ] 18.2 Migrate Flask templates to React components
-    - Convert dashboard.html to React Dashboard component with native Cloudscape components
-    - Migrate config.html to React Configuration component using Cloudscape forms and containers
-    - Replace custom CSS with native Cloudscape component props and styling
-    - Implement proper component composition and reusable UI patterns
-    - Add TypeScript interfaces for all data models and API responses
+  - [ ] 18.2 Convert Flask server-side routes to pure REST API endpoints
+    - **Remove Jinja2 Templates**: Delete all .html template files and server-side rendering logic
+    - **Convert Dashboard Route**: Transform `/dashboard` from render_template to JSON API endpoint
+      - Return dashboard data as JSON: `{status: {...}, activities: [...], processing: {...}}`
+      - Remove HTML rendering, keep only data fetching and business logic
+      - Maintain existing AWS service integrations (DynamoDB, SQS, Secrets Manager)
+    - **Convert Configuration Route**: Transform `/config` from render_template to JSON API endpoint
+      - Return configuration data as JSON: `{modules: {...}, oauth: {...}, strava: {...}}`
+      - Keep OAuth flow logic but return JSON responses instead of HTML redirects
+      - Maintain module enable/disable functionality via POST endpoints
+    - **Standardize API Responses**: Ensure all endpoints return consistent JSON format
+      - Success: `{success: true, data: {...}, message?: string}`
+      - Error: `{success: false, error: string, details?: {...}}`
+    - _Requirements: Clean API separation, maintain existing functionality, JSON-first architecture_
+  
+  - [ ] 18.3 Build React components consuming API endpoints with client-side data fetching
+    - **Dashboard Component**: Replace dashboard.html with React component
+      - Use React Query to fetch `/api/dashboard/stats`, `/api/activities`, `/api/processing/status`
+      - Implement real-time polling (30-60 seconds) for live updates
+      - Use native Cloudscape components: Container, KeyValuePairs, StatusIndicator, Button
+      - Add loading states, error boundaries, and retry mechanisms
+      - Implement enhancement pause/resume via client-side API calls
+    - **Configuration Component**: Replace config.html with React component
+      - Fetch module configuration via `/api/modules` and `/api/oauth/status`
+      - Use Cloudscape Form, FormField, Input, Toggle, and Button components
+      - Handle OAuth flow with client-side redirects and token management
+      - Implement module enable/disable with optimistic updates and error handling
+    - **Activity List Component**: Create new component for activity management
+      - Use Cloudscape Table with sorting, filtering, and pagination
+      - Fetch activity data via `/api/activities` with query parameters
+      - Add activity details modal with Cloudscape Modal component
+    - **Navigation and Layout**: Create app shell with Cloudscape AppLayout
+      - Implement side navigation, breadcrumbs, and responsive design
+      - Add global error handling with Cloudscape Flashbar notifications
     - _Requirements: 11.1, 11.2, 12.1, 12.2, 12.3, 12.4, 12.5_
   
-  - [ ] 18.3 Implement React state management and API integration
-    - Set up React Query/SWR for efficient API state management and caching
-    - Create custom hooks for Strava OAuth flow and token management
-    - Implement real-time updates using WebSocket or polling with React hooks
-    - Add proper error boundaries and loading states with Cloudscape components
-    - Integrate with existing Flask API endpoints for seamless backend communication
-    - _Requirements: 1.1, 4.1, 11.1, 12.1, 13.1_
+  - [ ] 18.4 Implement advanced React patterns and state management
+    - **Custom Hooks**: Create reusable hooks for common patterns
+      - `useStravaAuth()`: Handle OAuth flow, token refresh, and authentication state
+      - `useDashboardData()`: Manage dashboard data fetching with real-time updates
+      - `useModuleConfig()`: Handle module configuration with optimistic updates
+      - `useEnhancementControl()`: Manage enhancement pause/resume functionality
+    - **Context Providers**: Set up global state management
+      - AuthContext: User authentication state and Strava connection status
+      - ConfigContext: Module configuration and system settings
+      - NotificationContext: Global error handling and user feedback
+    - **Error Boundaries**: Implement comprehensive error handling
+      - Component-level error boundaries with fallback UI
+      - API error handling with retry logic and user-friendly messages
+      - Network error detection and offline state management
+    - **Performance Optimization**: Implement React best practices
+      - Code splitting with React.lazy() and Suspense
+      - Memoization with useMemo() and useCallback() for expensive operations
+      - Virtual scrolling for large activity lists
+      - Image lazy loading and caching for activity photos
+    - _Requirements: 1.1, 4.1, 11.1, 12.1, 13.1, Enhanced UX and performance_
   
-  - [ ] 18.4 Enhance user experience with native Cloudscape features
-    - Implement native Cloudscape Table component for activity lists with sorting/filtering
-    - Add Cloudscape Modal and Drawer components for better module configuration UX
-    - Use native Cloudscape Form validation and error handling
-    - Implement Cloudscape Notifications and Flash messages for better user feedback
-    - Add Cloudscape Charts integration for activity statistics and performance metrics
-    - Implement responsive design with Cloudscape Grid and responsive utilities
-    - _Requirements: Enhanced UX, better accessibility, professional AWS-standard interface_
-  
-  - [ ] 18.5 Deploy React application with optimized build
-    - Configure production build with code splitting and optimization
-    - Set up static hosting (S3 + CloudFront) or integrate with existing Flask app
-    - Implement proper CORS configuration for API communication
-    - Add environment-specific configuration for development and production
-    - Create deployment scripts and CI/CD integration for React application
-    - _Requirements: Production-ready deployment and performance optimization_
+  - [ ] 18.5 Deploy React application with API Gateway backend architecture
+    - **API Gateway Integration**: Create dedicated CDK stack for API Gateway
+      - Deploy Lambda functions behind API Gateway with proper CORS configuration
+      - Implement API Gateway authorizers for secure endpoint access
+      - Add rate limiting, request validation, and monitoring
+      - Create separate API Gateway stages (dev, staging, prod)
+    - **React Production Build**: Configure optimized production deployment
+      - Build React app with Vite for optimal bundle size and performance
+      - Configure environment variables for different deployment stages
+      - Implement service worker for offline functionality and caching
+      - Add build-time optimization: tree shaking, minification, compression
+    - **Static Hosting Architecture**: Deploy React app to AWS infrastructure
+      - **Option A - S3 + CloudFront**: Static hosting with CDN for global performance
+        - S3 bucket for static assets with proper security policies
+        - CloudFront distribution with custom domain and SSL certificate
+        - Route 53 DNS configuration for custom domain
+      - **Option B - Amplify Hosting**: Managed hosting with CI/CD integration
+        - AWS Amplify for automated builds and deployments
+        - Git-based deployments with branch-specific environments
+        - Built-in SSL, CDN, and custom domain management
+    - **Production Configuration**: Set up production-ready infrastructure
+      - Environment-specific API endpoints and configuration
+      - CloudWatch monitoring for React app performance and API usage
+      - AWS WAF for security protection against common web attacks
+      - Backup and disaster recovery procedures for static assets
+    - **CI/CD Pipeline**: Automate build and deployment process
+      - GitHub Actions or AWS CodePipeline for automated deployments
+      - Automated testing pipeline with unit tests and e2e tests
+      - Staging environment for testing before production deployment
+      - Rollback procedures and blue-green deployment strategies
+    - _Requirements: Production-ready deployment, scalable architecture, complete client-server separation_
+
+  **✅ CURRENT IMPLEMENTATION STATUS (December 2025)**:
+  - **Flask Server-Side Implementation**: ✅ COMPLETED
+    - Dashboard and configuration pages work 100% server-side with Jinja2 templates
+    - All data loaded via Flask routes with proper AWS profile configuration
+    - Enhancement pause/resume functionality working via form POST
+    - Real-time data from DynamoDB, SQS, and Secrets Manager integration
+    - Module status correctly displayed with enable/disable functionality
+    - Processing status with queue monitoring and system health checks
+    - Clean server-side rendering with AWS Cloudscape CSS styling
+    - Auto-refresh mechanism via simple page reload (60 seconds)
+  - **API Endpoints Ready for Migration**: ✅ ESTABLISHED
+    - All dashboard data available via REST API: `/api/dashboard/stats`, `/api/activities`, `/api/processing/status`
+    - Configuration APIs: `/api/modules`, `/api/oauth/status`, `/api/enhancement`
+    - Module management: `/api/modules/<module_id>` with POST/GET support
+    - Enhancement control: `/api/enhancement` with JSON and form data support
+    - Error handling and fallback mechanisms implemented
+    - Consistent JSON response formats ready for client-side consumption
+  - **Migration Strategy Benefits**: 
+    - **Clean Separation**: Backend API and frontend logic already separated in Flask routes
+    - **Proven Data Models**: All data models and API endpoints functional and tested with real AWS services
+    - **Server-Side Logic**: Business logic can be easily converted to pure REST API responses
+    - **Real AWS Integration**: DynamoDB, SQS, Secrets Manager patterns established and working
+    - **Enhancement Control**: State management mechanism ready for client-side implementation
+    - **Security Patterns**: OAuth flow and credential management already implemented
+  - **React Migration Phases**:
+    - **Phase 1**: Convert Flask routes from render_template() to jsonify() responses (remove Jinja2)
+    - **Phase 2**: Build React components consuming existing API endpoints with React Query
+    - **Phase 3**: Deploy React app to S3/CloudFront with API Gateway backend architecture
+    - **Phase 4**: Add advanced features (real-time WebSocket, advanced Cloudscape components, PWA)
 
 ## Notes
 
