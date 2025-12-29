@@ -71,9 +71,10 @@ The dashboard at http://localhost:3000 provides real-time monitoring and control
 
 **Campus Coach Module**
 - **Enable/Disable**: Toggle module activation
-- **Credentials**: Username and password for Campus Coach
+- **Credentials**: Username and password for Campus Coach (encrypted storage)
 - **Last Extraction**: When sessions were last fetched
 - **Status**: Module health and connectivity
+- **Session Count**: Number of active training sessions available
 
 **Enduraw Module**
 - **Enable/Disable**: Toggle integration

@@ -74,8 +74,11 @@ If you have a Campus Coach subscription:
 
 1. Go to Configuration → Modules
 2. Enable "Campus Coach"
-3. Enter your credentials
-4. Upload a training activity to see session matching
+3. Enter your Campus Coach username and password
+4. Click "Save Configuration"
+5. Upload a training activity to see session matching
+
+**Security Note**: Your credentials are encrypted and stored securely in AWS Secrets Manager. They are validated during the first session extraction attempt.
 
 ### Enduraw Module
 

@@ -46,10 +46,22 @@ Complete guide to configuring Strava AI Boost via the local web interface.
 3. Enter your Campus Coach username and password
 4. Click "Save Configuration"
 
+**Security**:
+- Credentials are encrypted and stored in AWS Secrets Manager
+- Connection is validated during first session extraction
+- Invalid credentials will cause extraction failures (check logs)
+
 **Features**:
-- Automatic session extraction (daily)
-- Intelligent activity matching
-- Performance comparison analysis
+- Automatic session extraction (daily at 8:00 AM Paris time)
+- Intelligent activity matching with confidence scoring
+- Performance comparison analysis (actual vs planned)
+- Flexible week number format support
+
+**Troubleshooting**:
+- **"Invalid credentials"**: Verify login works on campus.coach website
+- **"No sessions found"**: Check if you have active training plans
+- **"Connection timeout"**: Campus Coach website may be temporarily unavailable
+- **"Extraction failed"**: Check CloudWatch logs for detailed error messages
 
 ### Enduraw Module
 

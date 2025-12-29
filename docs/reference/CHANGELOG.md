@@ -5,6 +5,73 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.1] - 2025-12-29 - Documentation Accuracy Correction
+
+### Fixed
+- **Campus Coach Module Documentation**: Corrected user documentation to match actual implementation
+  - Removed references to non-existent "Test Connection" button in configuration interface
+  - Updated `docs/user-guide/CONFIGURATION.md` to reflect real validation process (during first extraction)
+  - Updated `docs/user-guide/DASHBOARD.md` to remove test connection references
+  - Updated `docs/getting-started/FIRST-STEPS.md` with accurate setup steps
+  - Added proper troubleshooting guidance using CloudWatch logs for credential validation failures
+
+### Technical Details
+- **Issue**: Documentation described UI features that were not implemented in the local interface
+- **Root Cause**: Documentation was written based on planned features rather than actual implementation
+- **Solution**: Aligned documentation with real implementation where credentials are validated during first AgentCore extraction attempt
+- **Impact**: Users now have accurate expectations and proper troubleshooting guidance
+
+## [1.7.0] - 2025-12-29 - Externalized Prompt System + Bedrock Fallback Enhancement
+
+### Added
+- **Externalized Prompt Management System**: Centralized prompt management for AgentCore agents and Bedrock fallbacks
+  - Created `agentcore/prompts/system_prompts.py` with `PromptManager` class for dynamic prompt loading
+  - Externalized prompts in `agentcore/prompts/` directory for better maintainability
+  - Support for both AgentCore agent prompts and Bedrock-optimized fallback prompts
+  - Automatic caching and validation of prompt files
+  - Simple deployment with existing CDK workflow
+
+### Changed
+- **AgentCore Agent Prompt Loading**: Updated agents to use externalized prompt system
+  - Modified `src/agents/content_agent.py` to load prompts from external files via `get_content_generation_prompt()`
+  - Modified `src/agents/campus_coach_agent.py` to load prompts from external files via `get_campus_coach_prompt()`
+  - Added fallback mechanisms when prompt system is unavailable
+  - Maintained backward compatibility with hardcoded prompts
+
+### Enhanced
+- **Bedrock Fallback Prompt Integration**: Lambda content generator now uses externalized prompts for fallbacks
+  - Updated `lambda_functions/content_generator.py` to use `get_bedrock_content_generation_prompt()`
+  - Enhanced `build_enhanced_content_prompt()` function to load base prompts from external system
+  - Added "BEDROCK DIRECT MODE" markers for fallback-specific optimizations
+  - Improved prompt consistency between AgentCore and Bedrock modes
+
+### Added
+- **Prompt Validation System**: Comprehensive validation script for prompt system integrity
+  - Created `scripts/validate_prompts.py` for automated prompt validation
+  - Validates prompt file existence, content quality, and integration compatibility
+  - Tests AgentCore agent integration and Lambda fallback integration
+  - Checks for required keywords and proper formatting
+
+### Technical Details
+- **Architecture**: Centralized prompt management with dynamic loading and caching
+- **Files Added**:
+  - `agentcore/prompts/system_prompts.py`: Core prompt management system
+  - `scripts/validate_prompts.py`: Validation and testing script
+- **Files Modified**:
+  - `src/agents/content_agent.py`: Externalized prompt loading
+  - `src/agents/campus_coach_agent.py`: Externalized prompt loading  
+  - `lambda_functions/content_generator.py`: Bedrock fallback prompt integration
+- **Benefits**: 
+  - Easier prompt maintenance and updates without code changes
+  - Consistent prompts between AgentCore and Bedrock fallback modes
+  - Better version control and collaboration on prompt improvements
+  - Reduced code duplication and improved maintainability
+
+### Performance Impact
+- **Prompt Loading**: Minimal overhead with caching system
+- **Fallback Reliability**: Enhanced Bedrock fallback with optimized prompts
+- **Maintenance**: Significantly reduced effort for prompt updates and improvements
+
 ## [1.6.5] - 2025-12-29 - AgentCore ARN Truncation Fix + Script Consolidation
 
 ### Fixed
