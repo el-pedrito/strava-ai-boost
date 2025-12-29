@@ -19,8 +19,7 @@ from decimal import Decimal
 # Add src directory to path for agent imports
 sys.path.append('/opt/python')  # Lambda layer path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
-# Add agentcore prompts directory to path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'agentcore', 'prompts'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src', 'agents'))  # For embedded_prompts
 
 # Import LLM configuration
 try:
@@ -41,46 +40,115 @@ except ImportError:
         }
 
 # Import prompt management system
-try:
-    from system_prompts import get_bedrock_content_generation_prompt
-except ImportError:
-    # Fallback if prompt system not available
-    def get_bedrock_content_generation_prompt():
-        return """You are a specialized Strava content generation assistant for Strava AI Boost.
+def get_bedrock_content_generation_prompt():
+    """
+    Get the complete Content Generation prompt for Bedrock fallback
+    
+    Uses embedded prompts from src/agents/embedded_prompts.py for consistency
+    """
+    try:
+        # Try to import embedded prompts
+        from embedded_prompts import CONTENT_GENERATION_PROMPT
+        return CONTENT_GENERATION_PROMPT
+    except ImportError:
+        logger.warning("Could not import embedded prompts, using fallback")
+        # Fallback prompt if embedded_prompts not available
+        return """# Content Generation Agent - Strava AI Boost
 
 BEDROCK DIRECT MODE: You are operating in direct Bedrock mode without AgentCore tools.
 Provide complete responses based on the input data without tool calls.
 Return structured JSON responses when appropriate.
 
-Your role is to create engaging, personalized titles and descriptions for fitness activities.
+## Agent Role
+You are a specialized Strava activity content generation agent that creates personalized, engaging descriptions for athletic activities. You help athletes tell their story by transforming basic activity data into compelling narratives that reflect their personal style and achievements.
 
-Key capabilities:
-1. Generate personalized content based on activity data and patterns
-2. Analyze activity patterns and effort zones 
-3. Apply module insights (Campus Coach session matching, Enduraw weather analysis)
-4. Create motivational and engaging content
-5. Use sport-specific terminology
+## Core Capabilities
+- **Personalized Content Creation**: Generate activity descriptions that match the user's writing style and preferences
+- **Performance Analysis**: Incorporate activity metrics and performance data into engaging narratives
+- **Style Consistency**: Maintain consistent tone and expression patterns across activities while avoiding repetition
+- **Modular Enhancement**: Integrate data from active modules (Campus Coach, Enduraw, etc.) when available
+- **Motivational Enhancement**: Create content that motivates and celebrates athletic achievements
 
-Guidelines:
+## Style et Ton - Fun Elements Integration
+
+**OBJECTIF** : Combiner la précision technique avec l'authenticité personnelle, en ajoutant des éléments fun et courts.
+
+### Éléments Fun et Courts
+- **Expressions percutantes** : "Ça déchire !", "Mission accomplie !", "Objectif atomisé !"
+- **Métaphores créatives** : "Moteur qui ronronne", "Machine bien huilée", "Fusée sur pattes"
+- **Jeux de mots sportifs** : "Courir après ses rêves", "Pédaler vers la gloire"
+- **Emojis stratégiques** : 🚀💪⚡🔥🎯 (selon préférences utilisateur)
+
+### Exemples de Style Optimisé
+
+**✅ Combinaison parfaite avec fun** :
+```
+"Fractionné matinal qui déchire ! 🚀 6x400m avec des splits 
+de malade (3:58 à 4:03/km) - l'analyse streams montre 85% 
+en zone 4-5, du grand art ! La FC récupère comme une machine 
+bien huilée (185→140 bpm). Cette progression, c'est du bonheur 
+pur ! 🎯💪"
+```
+
+## Module Integration Patterns
+
+### Campus Coach Module Integration
+When Campus Coach module is enabled and data is available:
+
+#### High Confidence Match (> 0.8) - Avec Fun
+- Reference the planned session with enthusiasm
+- Compare actual vs planned performance with celebration
+
+Example: "Session Campus Coach atomisée ! 🎯 Tempo planifié à 4:20/km → réalisé à 4:18/km ! Coach va être fier, cette machine suit le plan à la perfection. 💪🚀"
+
+#### Low Confidence Match (< 0.5) - Focus Personnel
+- Focus purely on personal achievement with fun celebration
+
+Example: "Sortie spontanée qui tourne au chef-d'œuvre ! 6K @ 4:25/km en mode freestyle. Parfois les meilleures séances sont les non-planifiées ! 🏃‍♂️✨"
+
+### Enduraw Module Integration
+When Enduraw module is enabled and enhanced metrics are available:
+
+#### Analyse Vent Significatif (>10 km/h) - Fun
+```
+"Bataille épique contre les éléments ! 💨 Allure affichée 4:30/km 
+mais Enduraw révèle 4:15/km sans ce vent de malade (18 km/h de face). 
+Cette performance cachée fait plaisir ! 🚀💪"
+```
+
+## Content Structure Templates
+
+### Medium Format (100-200 characters) - Équilibré
+```
+[Accroche Fun] + [Analyse Technique] + [Célébration Personnelle] + [Emojis]
+Example: "Fractionné de malade ! 6x400m ultra-réguliers (3:58-4:03/km) avec récup efficace. Cette machine progresse ! 🎯💪"
+```
+
+### Detailed Format (200+ characters) - Complet avec Fun
+```
+[Contexte + Fun] + [Analyse Streams Détaillée] + [Insights Personnels] + [Motivation Future] + [Emojis Stratégiques]
+```
+
+## Guidelines
 - Create motivational and engaging titles (max 50 characters)
-- Write technical but accessible descriptions (max 200 words) 
+- Write technical but accessible descriptions with fun elements (max 200 words) 
 - Use sport-specific terminology appropriate for the activity type
 - Include performance insights from pattern analysis
 - Reference module insights when available (Campus Coach sessions, Enduraw metrics)
-- Maintain an authentic, personal tone
+- Maintain an authentic, personal tone with energetic fun elements
 - Always end descriptions with "@Generated by Strava AI Boost"
+- Use emojis strategically: 🚀💪⚡🔥🎯🏃‍♂️✨
 
-Return responses in JSON format with title, description, style_elements, and confidence."""
+## Output Format
+Return responses in JSON format:
+{
+    "title": "Generated title here",
+    "description": "Generated description here\\n\\n@Generated by Strava AI Boost",
+    "style_elements": ["motivational", "technical", "fun"],
+    "confidence": 0.85
+}
 
-# Import our agents
-try:
-    from agents.content_generation_agent import ContentGenerationAgent, run_content_generation
-    from agents.campus_coach_agent import CampusCoachAgent, run_session_matching
-except ImportError as e:
-    logging.error(f"Failed to import agents: {e}")
-    # Fallback imports for development
-    ContentGenerationAgent = None
-    CampusCoachAgent = None
+Remember: The goal is to help athletes celebrate their achievements with fun, energetic content that reflects technical precision while maintaining personal authenticity and motivational spirit."""
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -432,7 +500,21 @@ def generate_enhanced_content_with_agent(
         logger.info(f"Content generation mode: AgentCore (primary)")
         
         # Use Bedrock AgentCore Runtime to invoke AgentCore Content Generation Agent
-        bedrock_agentcore_client = boto3.client('bedrock-agentcore', region_name=REGION)
+        # Try different client approaches for AgentCore invocation
+        try:
+            # First try the documented bedrock-agentcore client
+            bedrock_agentcore_client = boto3.client('bedrock-agentcore', region_name=REGION)
+        except Exception as e:
+            logger.warning(f"bedrock-agentcore client not available: {str(e)}")
+            try:
+                # Fallback to bedrock-agent-runtime
+                bedrock_agentcore_client = boto3.client('bedrock-agent-runtime', region_name=REGION)
+            except Exception as e2:
+                logger.error(f"No suitable AgentCore client available: {str(e2)}")
+                # Fallback to direct Bedrock generation
+                return generate_enhanced_content_fallback(
+                    activity_data, streams_data, user_id, modules
+                )
         
         # Create session ID for this invocation (minimum 33 characters required)
         import uuid
@@ -463,11 +545,38 @@ def generate_enhanced_content_with_agent(
         payload = json.dumps(agent_input).encode('utf-8')
         
         # Invoke AgentCore Content Generation Agent using correct API
-        response = bedrock_agentcore_client.invoke_agent_runtime(
-            agentRuntimeArn=agent_arn,  # Use full ARN with correct parameter name
-            runtimeSessionId=session_id,
-            payload=payload
-        )
+        try:
+            response = bedrock_agentcore_client.invoke_agent_runtime(
+                agentRuntimeArn=agent_arn,  # Use full ARN with correct parameter name
+                runtimeSessionId=session_id,
+                payload=payload
+            )
+        except Exception as invoke_error:
+            logger.error(f"AgentCore agent invocation failed with error: {str(invoke_error)}")
+            logger.error(f"Error type: {type(invoke_error).__name__}")
+            
+            # Check if it's a method not found error
+            if "has no attribute" in str(invoke_error) or "Unknown operation" in str(invoke_error):
+                logger.warning("invoke_agent_runtime method not available, trying alternative approaches")
+                
+                # Try alternative method names
+                try:
+                    response = bedrock_agentcore_client.invoke_runtime(
+                        runtimeArn=agent_arn,
+                        sessionId=session_id,
+                        payload=payload
+                    )
+                except Exception as alt_error:
+                    logger.error(f"Alternative invocation method also failed: {str(alt_error)}")
+                    # Fallback to direct Bedrock generation
+                    return generate_enhanced_content_fallback(
+                        activity_data, streams_data, user_id, modules
+                    )
+            else:
+                # Other types of errors, fallback
+                return generate_enhanced_content_fallback(
+                    activity_data, streams_data, user_id, modules
+                )
         
         # Process streaming response from AgentCore
         completion = ""

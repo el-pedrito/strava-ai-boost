@@ -24,7 +24,8 @@ model:
 # Agent Configuration
 agent:
   framework: strands
-  prompt_file: ../prompts/content_generation_agent_prompt.md
+  # Prompt is now embedded in content_agent.py via embedded_prompts.CONTENT_GENERATION_PROMPT
+  # No external prompt file needed - eliminates import failures during AgentCore deployment
   
 # Tools Configuration for Strands Framework
 tools:

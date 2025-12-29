@@ -1,6 +1,6 @@
-# AgentCore Requirements for Strava AI Boost Agents
+# Required AgentCore dependencies
 bedrock-agentcore
 strands-agents
-strands-agents-tools
+
+# Additional dependencies for content generation
 boto3
-requests

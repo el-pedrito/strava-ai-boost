@@ -78,10 +78,10 @@ deploy_content_agent() {
         return 1
     }
     
-    # Deploy agent using auto-update-on-conflict for intelligent updates
-    print_status "Deploying agent: $agent_name"
+    # Launch agent using agentcore launch for proper runtime initialization
+    print_status "Launching agent: $agent_name"
     local deploy_output
-    deploy_output=$(agentcore deploy \
+    deploy_output=$(agentcore launch \
         --agent "$agent_name" \
         --auto-update-on-conflict 2>&1)
     
@@ -148,10 +148,10 @@ deploy_campus_coach_agent() {
         return 1
     }
     
-    # Deploy agent using auto-update-on-conflict for intelligent updates
-    print_status "Deploying agent: $agent_name (memory auto-creation enabled)"
+    # Launch agent using agentcore launch for proper runtime initialization
+    print_status "Launching agent: $agent_name (memory auto-creation enabled)"
     local deploy_output
-    deploy_output=$(agentcore deploy \
+    deploy_output=$(agentcore launch \
         --agent "$agent_name" \
         --auto-update-on-conflict 2>&1)
     

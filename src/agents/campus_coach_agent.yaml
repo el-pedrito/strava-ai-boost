@@ -27,7 +27,8 @@ model:
 # Agent Configuration
 agent:
   framework: strands
-  prompt_file: ../prompts/campus_coach_agent_prompt.md
+  # Prompt is now embedded in campus_coach_agent.py via embedded_prompts.CAMPUS_COACH_PROMPT
+  # No external prompt file needed - eliminates import failures during AgentCore deployment
   
 # Retry Configuration (CRITICAL - Cold Start Issue)
 retry:
