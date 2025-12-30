@@ -112,64 +112,103 @@ AgentCore Memory provides persistent, intelligent memory for AI agents:
 - **Style Learning**: Remembers your preferred writing style
 - **Expression Tracking**: Avoids repetitive phrases across activities
 - **Context Retention**: Maintains conversation history and preferences
-- **Semantic Search**: Finds relevant past interactions
+- **Semantic Search**: Finds relevant past interactions using vector embeddings
+
+### Memory Architecture: Long-Term Memory (LTM)
+
+Strava AI Boost uses **Long-Term Memory (LTM)** with semantic search strategy:
+
+**Memory Configuration**:
+- **Type**: LTM with semantic search (ComprehensiveLearning strategy)
+- **Retention**: 365 days for persistent learning
+- **Strategy**: Semantic memory with vector embeddings
+- **Search**: Vector-based similarity search for style patterns
+
+**Benefits over Short-Term Memory (STM)**:
+- ✅ Persistent learning across months of activities
+- ✅ Better style pattern recognition with semantic search
+- ✅ More effective repetition avoidance
+- ✅ Long-term preference adaptation
 
 ### Memory Types
 
-**Event Memory**:
+**Event Memory (Short-Term)**:
 - Stores specific activity enhancements
 - Tracks successful content patterns
 - Records user feedback and preferences
+- Automatic expiry after 365 days
 
-**Semantic Memory**:
-- Learns writing style patterns
-- Identifies preferred vocabulary
+**Semantic Memory (Long-Term)**:
+- Learns writing style patterns using vector embeddings
+- Identifies preferred vocabulary and expressions
 - Understands tone preferences
 - Recognizes content structure preferences
+- Enables similarity search for relevant past content
+
+### Deployment Process
+
+#### Step 1: Create LTM Memories
+
+```bash
+# Create LTM memories with semantic search (~6 minutes total)
+./scripts/create_agentcore_memories.sh
+```
+
+This creates two LTM memories:
+- `content_gen_mem`: For content generation agent
+- `campus_coach_mem`: For campus coach agent
+
+Each memory is configured with:
+- Semantic search strategy (ComprehensiveLearning)
+- 365-day retention
+- Vector embeddings for similarity search
+
+#### Step 2: Verify Memory Status
+
+```bash
+# Check that memories are ACTIVE
+agentcore memory list --region eu-west-1
+
+# Get detailed memory information
+agentcore memory get content_gen_mem-<ID> --region eu-west-1
+```
+
+Wait until both memories show `Status: ACTIVE` before deploying agents.
 
 ### Configuration
 
 ```yaml
-# AgentCore Memory Configuration
+# AgentCore Memory Configuration (.bedrock_agentcore.yaml)
 memory:
-  name: "strava-ai-boost-memory"
-  type: "hybrid"  # Event + Semantic
-  retention_policy:
-    event_memory: "90_days"
-    semantic_memory: "permanent"
-  indexing:
-    embedding_model: "amazon.titan-embed-text-v1"
-    dimensions: 1536
+  mode: STM_AND_LTM  # Hybrid mode with both short and long-term
+  memory_id: content_gen_mem-<ID>
+  memory_name: content_gen_mem
+  event_expiry_days: 365
+  was_created_by_toolkit: false  # Pre-created, not auto-generated
 ```
 
 ### Usage in Content Generation
 
+The content generation agent automatically uses LTM for:
+
+1. **Style Pattern Recognition**: Semantic search finds similar past activities
+2. **Expression Avoidance**: Tracks and avoids recently used phrases
+3. **Preference Learning**: Adapts to user's tone and technical level preferences
+4. **Context Retention**: Remembers performance history and training patterns
+
 ```python
-# Example: Content generation with memory
-from agentcore import Memory
+# Example: Agent automatically uses memory
+# No explicit memory calls needed - AgentCore handles it
 
-memory = Memory("strava-ai-boost-memory")
-
-# Store successful content
-memory.store_event({
-    "activity_id": "12345",
-    "generated_content": "Epic trail run through...",
-    "user_feedback": "positive",
-    "style_elements": ["technical", "motivational", "detailed"]
-})
-
-# Retrieve style preferences
-style_context = memory.semantic_search(
-    query="user writing style preferences",
-    limit=5
-)
-
-# Generate personalized content
-content = generate_content(
-    activity_data=activity,
-    style_context=style_context,
-    avoid_phrases=memory.get_recent_phrases(days=30)
-)
+@app.entrypoint
+def invoke(payload, context=None):
+    # AgentCore automatically:
+    # 1. Retrieves relevant memories via semantic search
+    # 2. Includes memory context in agent prompt
+    # 3. Stores new content patterns after generation
+    
+    result = agent(prompt)
+    return result
 ```
 
 ## AgentCore Browser Tool

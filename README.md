@@ -4,15 +4,16 @@ Strava AI Boost is a production-ready, modular serverless application that autom
 
 ## ✅ System Status
 
-**🎉 FULLY OPERATIONAL** - AgentCore content generation fixed and enhanced:
+**🎉 FULLY OPERATIONAL** - AgentCore content generation with Long-Term Memory:
 - ✅ **Phase 1 (Infrastructure)**: 5 CDK stacks deployed (Core, Content, API, Webhook, Monitoring)
-- ✅ **Phase 2 (AgentCore)**: 2 AI agents + memory deployed (`content_gen`, `campus_coach`)
+- ✅ **Phase 2 (LTM Memory)**: 2 LTM memories with semantic search (365-day retention)
+- ✅ **Phase 3 (AgentCore)**: 2 AI agents deployed (`content_gen`, `campus_coach`)
 - ✅ **Integration**: All 10 Lambda functions configured with agent ARNs
-- ✅ **Content Generation**: Fixed JSON format compatibility between AgentCore and Lambda
-- ✅ **Structured Tools**: Implemented proper tool architecture for Strands framework
+- ✅ **Content Generation**: Enhanced with semantic memory for style learning
+- ✅ **Structured Tools**: Proper tool architecture for Strands framework
 - ✅ **Strava Integration**: Webhook active with complete OAuth flow
 - ✅ **Local Interface**: Running with real-time dashboard and configuration
-- ✅ **AI Memory**: Personalized content generation with expression tracking
+- ✅ **AI Memory**: Long-term personalization with semantic search
 
 ## 🚀 Quick Start
 
@@ -28,19 +29,25 @@ Strava AI Boost is a production-ready, modular serverless application that autom
 # Deploys: CDK stacks + Lambda functions + DynamoDB + API Gateway
 ```
 
-**Step 2: AgentCore Agents (2 min)** ✅ COMPLETED
+**Step 2: AgentCore Long-Term Memory (3 min)** ✅ COMPLETED
 ```bash
-./scripts/deploy_agentcore_agents.sh
-# Deploys: AI agents + memory using direct_code_deploy
+./scripts/create_agentcore_memories.sh
+# Creates: LTM memories with semantic search (~3 min per memory)
 ```
 
-**Step 3: AgentCore Integration (1 min)** ✅ COMPLETED
+**Step 3: AgentCore Agents (2 min)** ✅ COMPLETED
+```bash
+./scripts/deploy_agentcore_agents.sh
+# Deploys: AI agents with LTM using direct_code_deploy
+```
+
+**Step 4: AgentCore Integration (1 min)** ✅ COMPLETED
 ```bash
 ./scripts/configure_agentcore_integration.sh
 # Configures: IAM permissions + Lambda env vars + CDK context
 ```
 
-**Step 4: Local Environment Setup (30 sec)** ✅ NEW
+**Step 5: Local Environment Setup (30 sec)** ✅ NEW
 ```bash
 ./scripts/setup_local_env.sh
 # Generates: .env file with API Gateway URL + API Key
@@ -53,10 +60,10 @@ cd local_interface && python app.py
 # No AWS_PROFILE needed - all configuration in .env file
 ```
 
-**Step 4: Configure Your Preferences (Optional, 1 min)** 🎨 RECOMMENDED
+**Step 6: Configure Your Preferences (Optional, 1 min)** 🎨 RECOMMENDED
 ```bash
 # Open http://localhost:3000/preferences
-# Configure: Age, sport approach, content style, interests
+# Configure: Age, sport approach, content style, interests, language
 # AI will adapt content to your personality and preferences
 ```
 

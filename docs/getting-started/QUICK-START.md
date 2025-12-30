@@ -1,22 +1,27 @@
 # 🚀 Quick Start Guide
 
-**Get Strava AI Boost running in 5 minutes with clear 3-step deployment!**
+**Get Strava AI Boost running in 5 minutes with clear 4-step deployment!**
 
-This guide uses a **3-step deployment approach** that eliminates circular dependencies and ensures your system is always functional.
+This guide uses a **4-step deployment approach** that eliminates circular dependencies and ensures your system is always functional.
 
-## 📋 3-Step Deployment Strategy
+## 📋 4-Step Deployment Strategy
 
 ### **Step 1: AWS Infrastructure (Required)**
 - Deploys CDK stacks with Bedrock fallback mode
 - System works immediately with Claude Sonnet 4.5
 - No AgentCore dependencies
 
-### **Step 2: AgentCore Agents (Optional)**
-- Deploys AgentCore agents with persistent memory
+### **Step 2: AgentCore Long-Term Memory (Optional)**
+- Creates LTM memories with semantic search
+- 365-day retention for persistent learning
+- Takes ~3 minutes per memory
+
+### **Step 3: AgentCore Agents (Optional)**
+- Deploys AgentCore agents with LTM
 - Creates AI agents for enhanced content generation
 - Enables personalization capabilities
 
-### **Step 3: AgentCore Integration (Optional)**
+### **Step 4: AgentCore Integration (Optional)**
 - Configures IAM permissions for AgentCore agents
 - Updates Lambda environment variables with agent ARNs
 - Enables seamless integration between infrastructure and AI agents
@@ -52,20 +57,39 @@ export AWS_PROFILE=your-aws-profile
 - ✅ Configures system to work with Bedrock fallback mode
 - ✅ **System is immediately functional!**
 
-## Step 2: Deploy AgentCore Agents (2 minutes) - Optional
+## Step 2: Create AgentCore Long-Term Memories (3 minutes) - Optional
 
 ```bash
-# Deploy AgentCore agents with memory
+# Create LTM memories with semantic search
+./scripts/create_agentcore_memories.sh
+```
+
+**What this does:**
+- ✅ Creates 2 LTM memories with semantic search strategy
+- ✅ 365-day retention for persistent style learning
+- ✅ Enables semantic search for pattern recognition
+- ✅ Takes ~3 minutes per memory to provision
+
+**Wait for memories to become ACTIVE:**
+```bash
+# Check memory status
+agentcore memory list --region eu-west-1
+```
+
+## Step 3: Deploy AgentCore Agents (2 minutes) - Optional
+
+```bash
+# Deploy AgentCore agents with LTM
 ./scripts/deploy_agentcore_agents.sh
 ```
 
 **What this does:**
 - ✅ Creates 2 AgentCore agents (`content_gen`, `campus_coach`)
-- ✅ Sets up AgentCore Memory for personalization (`campus_coach_mem-Ns`)
+- ✅ Configures agents to use pre-created LTM memories
 - ✅ Uses `direct_code_deploy` (no Docker containers required)
-- ✅ Validates agent deployment and memory creation
+- ✅ Validates agent deployment and memory configuration
 
-## Step 3: Configure AgentCore Integration (1 minute) - Optional
+## Step 4: Configure AgentCore Integration (1 minute) - Optional
 
 ```bash
 # Configure IAM permissions and Lambda integration
@@ -174,10 +198,11 @@ Your deployed system includes:
 - **Reliability**: 99.9% availability, automatic operation
 - **Performance**: 0.75-0.90 confidence scores
 
-### ⚡ Phase 2: AgentCore Enhancement (Optional)
-- **Content Generation Agent**: Personalized AI with persistent memory
+### ⚡ Phase 2: AgentCore Enhancement with LTM (Optional)
+- **Content Generation Agent**: Personalized AI with Long-Term Memory
 - **Campus Coach Agent**: Automated session extraction (optional module)
-- **AgentCore Memory**: Learns your writing style and avoids repetition
+- **AgentCore LTM**: Learns your writing style with semantic search (365-day retention)
+- **Semantic Memory**: Pattern recognition and style adaptation
 - **Performance**: 95% availability, 0.85-0.95 confidence scores
 
 > **💡 How it works**: Phase 1 gives you a fully functional system immediately. Phase 2 adds enhanced personalization while maintaining the same reliability through automatic fallback.
@@ -208,10 +233,13 @@ Your deployed system includes:
 # Verify AWS credentials and permissions
 ```
 
-### If Phase 2 (AgentCore) deployment fails:
+### If Phase 2 (AgentCore LTM) deployment fails:
 ```bash
 # System still works with Bedrock fallback - no problem!
-# You can retry AgentCore deployment later:
+# You can retry LTM memory creation:
+./scripts/create_agentcore_memories.sh
+
+# Then retry agent deployment:
 ./scripts/deploy_agentcore_agents.sh
 ```
 

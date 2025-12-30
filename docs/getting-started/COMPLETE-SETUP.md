@@ -6,7 +6,7 @@ This guide covers the complete setup process including advanced configurations, 
 
 ## Deployment Architecture
 
-Strava AI Boost uses a **3-step deployment strategy** to avoid circular dependencies between AWS infrastructure and AgentCore agents:
+Strava AI Boost uses a **4-step deployment strategy** to avoid circular dependencies between AWS infrastructure and AgentCore agents:
 
 ### **Step 1: AWS Infrastructure**
 - Deploys CDK stacks with empty AgentCore environment variables
@@ -14,13 +14,19 @@ Strava AI Boost uses a **3-step deployment strategy** to avoid circular dependen
 - System works immediately with Bedrock fallback mode
 - No dependencies on AgentCore agents
 
-### **Step 2: AgentCore Agents**
-- Deploys AgentCore agents and memory using `direct_code_deploy`
+### **Step 2: AgentCore Long-Term Memory**
+- Creates LTM memories with semantic search strategy
+- 365-day retention for persistent learning
+- Semantic search enables style pattern recognition
+- Takes ~3 minutes per memory to provision
+
+### **Step 3: AgentCore Agents**
+- Deploys AgentCore agents using `direct_code_deploy`
+- Configures agents to use pre-created LTM memories
 - Creates AI agents for enhanced content generation
-- Sets up AgentCore Memory for personalization
 - Independent of Lambda environment configuration
 
-### **Step 3: AgentCore Integration**
+### **Step 4: AgentCore Integration**
 - Configures dynamic IAM permissions for AgentCore agents
 - **Updates Lambda environment variables** with agent ARNs via AWS API
 - Enables seamless integration between infrastructure and AI agents
@@ -31,19 +37,23 @@ This approach ensures:
 - ✅ **System always functional** (even if AgentCore fails)
 - ✅ **Clean separation of concerns**
 - ✅ **Easy troubleshooting and maintenance**
+- ✅ **Long-term learning** with semantic memory
 
 ## Complete Deployment Process
 
-### Option 1: Automated 3-Step Deployment (Recommended)
+### Option 1: Automated 4-Step Deployment (Recommended)
 
 ```bash
 # Step 1: Deploy AWS Infrastructure
 ./scripts/deploy.sh dev
 
-# Step 2: Deploy AgentCore Agents
+# Step 2: Create AgentCore Long-Term Memories (~6 minutes)
+./scripts/create_agentcore_memories.sh
+
+# Step 3: Deploy AgentCore Agents with LTM
 ./scripts/deploy_agentcore_agents.sh
 
-# Step 3: Configure AgentCore Integration
+# Step 4: Configure AgentCore Integration
 ./scripts/configure_agentcore_integration.sh
 ```
 
@@ -60,13 +70,22 @@ cdk bootstrap --profile your-aws-profile
 cdk deploy --all --profile your-aws-profile --require-approval never
 ```
 
-#### Step 2: Deploy AgentCore Agents
+#### Step 2: Create AgentCore Long-Term Memories
 ```bash
-# Deploy AgentCore agents with memory
+# Create LTM memories with semantic search (~6 minutes total)
+./scripts/create_agentcore_memories.sh
+
+# Verify memories are ACTIVE
+agentcore memory list --region eu-west-1
+```
+
+#### Step 3: Deploy AgentCore Agents
+```bash
+# Deploy agents with pre-created LTM memories
 ./scripts/deploy_agentcore_agents.sh
 ```
 
-#### Step 3: Configure AgentCore Integration
+#### Step 4: Configure AgentCore Integration
 ```bash
 # Configure IAM permissions and Lambda integration
 ./scripts/configure_agentcore_integration.sh

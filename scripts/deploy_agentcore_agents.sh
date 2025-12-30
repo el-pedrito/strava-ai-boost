@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Deploy AgentCore Agents for Strava AI Boost - Infrastructure as Code
-# Uses direct_code_deploy (no Docker required) - AWS 2025 best practices
-# Fully automated deployment with no manual configuration required
+# Deploy AgentCore Agents for Strava AI Boost with Long-Term Memory
+# Prerequisites: Run scripts/create_agentcore_memories.sh first
+# Uses direct_code_deploy (no Docker required)
 
 set -e
 
@@ -16,11 +16,12 @@ NC='\033[0m' # No Color
 # Configuration
 AWS_PROFILE="your-aws-profile"
 AWS_REGION="eu-west-1"
-PROJECT_NAME="strava-ai-boost"
 
-# Short agent names to avoid ARN truncation issues
+# Agent and memory names
 CONTENT_AGENT_NAME="content_gen"
 CAMPUS_AGENT_NAME="campus_coach"
+CONTENT_MEMORY_NAME="content_gen_mem"
+CAMPUS_MEMORY_NAME="campus_coach_mem"
 
 print_status() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -38,6 +39,264 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Function to get memory ID from AWS
+get_memory_id() {
+    local memory_name="$1"
+    
+    # Use AgentCore Python toolkit to list memories and match by name
+    local memory_id=$(python3 << EOF
+from bedrock_agentcore_starter_toolkit.operations.memory.manager import MemoryManager
+
+try:
+    manager = MemoryManager(region_name='$AWS_REGION')
+    memories = manager.list_memories()
+    
+    # List returns IDs, we need to check each one
+    for memory in memories:
+        mem_id = memory.get('id')
+        if mem_id:
+            # Get full memory details to check name
+            try:
+                mem_details = manager.get_memory(mem_id)
+                if mem_details.get('name') == '$memory_name':
+                    print(mem_id)
+                    break
+            except:
+                continue
+except Exception:
+    pass
+EOF
+)
+    
+    # If toolkit doesn't work, try from YAML
+    if [ -z "$memory_id" ] && [ -f ".bedrock_agentcore.yaml" ]; then
+        memory_id=$(grep -B 2 "memory_name: ${memory_name}" .bedrock_agentcore.yaml | grep "memory_id:" | awk '{print $2}' | tr -d "'" || echo "")
+        if [ "$memory_id" = "null" ]; then
+            memory_id=""
+        fi
+    fi
+    
+    echo "$memory_id"
+}
+
+# Function to update YAML with LTM memory configuration
+update_agent_memory_config() {
+    local agent_name="$1"
+    local memory_id="$2"
+    local memory_name="$3"
+    
+    if [ -z "$memory_id" ]; then
+        print_error "No memory ID provided for $agent_name"
+        return 1
+    fi
+    
+    print_status "📝 Configuring $agent_name to use LTM memory: $memory_id..."
+    
+    if [ ! -f ".bedrock_agentcore.yaml" ]; then
+        print_error ".bedrock_agentcore.yaml not found!"
+        return 1
+    fi
+    
+    # Get memory ARN
+    local memory_arn="arn:aws:bedrock-agentcore:${AWS_REGION}:*:memory/${memory_id}"
+    
+    # Update YAML using Python
+    AGENT_NAME="$agent_name" MEMORY_ID="$memory_id" MEMORY_ARN="$memory_arn" MEMORY_NAME="$memory_name" python3 << 'EOF'
+import yaml
+import sys
+import os
+
+try:
+    agent_name = os.environ['AGENT_NAME']
+    memory_id = os.environ['MEMORY_ID']
+    memory_arn = os.environ['MEMORY_ARN']
+    memory_name = os.environ['MEMORY_NAME']
+    
+    with open('.bedrock_agentcore.yaml', 'r') as f:
+        config = yaml.safe_load(f) or {}
+    
+    if 'agents' not in config or agent_name not in config['agents']:
+        print(f"✗ Agent {agent_name} not found in YAML", file=sys.stderr)
+        sys.exit(1)
+    
+    if 'memory' not in config['agents'][agent_name]:
+        config['agents'][agent_name]['memory'] = {}
+    
+    # Set LTM configuration - use STM_AND_LTM mode (required by AgentCore)
+    config['agents'][agent_name]['memory']['mode'] = 'STM_AND_LTM'
+    config['agents'][agent_name]['memory']['memory_id'] = memory_id
+    config['agents'][agent_name]['memory']['memory_arn'] = memory_arn
+    config['agents'][agent_name]['memory']['memory_name'] = memory_name
+    config['agents'][agent_name]['memory']['event_expiry_days'] = 365
+    config['agents'][agent_name]['memory']['was_created_by_toolkit'] = False
+    
+    with open('.bedrock_agentcore.yaml', 'w') as f:
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+    
+    print(f"✓ Updated {agent_name} to use LTM memory")
+    sys.exit(0)
+except Exception as e:
+    print(f"✗ Failed to update YAML: {e}", file=sys.stderr)
+    sys.exit(1)
+EOF
+    
+    if [ $? -eq 0 ]; then
+        print_success "Memory configuration updated for $agent_name"
+    else
+        print_error "Failed to update memory configuration"
+        return 1
+    fi
+}
+
+# Function to deploy an agent with LTM
+deploy_agent_with_ltm() {
+    local agent_name="$1"
+    local agent_path="$2"
+    local memory_name="$3"
+    
+    print_status "🚀 Deploying $agent_name with LTM..."
+    
+    if [ ! -f "$agent_path" ]; then
+        print_error "Agent file not found: $agent_path"
+        return 1
+    fi
+    
+    # Get memory ID from AWS
+    print_status "Looking up LTM memory: $memory_name..."
+    local memory_id
+    memory_id=$(get_memory_id "$memory_name")
+    
+    if [ -z "$memory_id" ]; then
+        print_error "Memory $memory_name not found!"
+        print_status "Please run: ./scripts/create_agentcore_memories.sh first"
+        return 1
+    fi
+    
+    print_success "Found LTM memory: $memory_id"
+    
+    # Configure agent WITHOUT auto-creating memory
+    print_status "Configuring agent: $agent_name (with --disable-memory)"
+    
+    agentcore configure \
+        --entrypoint "$agent_path" \
+        --name "$agent_name" \
+        --region "$AWS_REGION" \
+        --requirements-file "src/agents/requirements.txt" \
+        --deployment-type direct_code_deploy \
+        --runtime PYTHON_3_12 \
+        --disable-memory \
+        --non-interactive || {
+        print_error "Failed to configure $agent_name"
+        return 1
+    }
+    
+    # Update YAML to use LTM memory
+    update_agent_memory_config "$agent_name" "$memory_id" "$memory_name" || {
+        print_error "Failed to configure memory for $agent_name"
+        return 1
+    }
+    
+    # Launch agent
+    print_status "Launching agent: $agent_name..."
+    
+    agentcore launch \
+        --agent "$agent_name" \
+        --auto-update-on-conflict || {
+        print_error "Failed to launch $agent_name"
+        return 1
+    }
+    
+    print_success "$agent_name deployed successfully"
+    
+    # Get agent ARN
+    local agent_arn=$(agentcore status --agent "$agent_name" --verbose 2>/dev/null | jq -r '.agent.arn // empty' 2>/dev/null || echo "")
+    
+    if [ -z "$agent_arn" ]; then
+        agent_arn=$(grep "agent_arn:" .bedrock_agentcore.yaml | grep "$agent_name" -A 20 | grep "agent_arn:" | head -1 | awk '{print $2}' || echo "")
+    fi
+    
+    if [ -n "$agent_arn" ]; then
+        print_success "Agent ARN: $agent_arn"
+        echo "$agent_arn"
+    else
+        print_warning "Could not determine agent ARN"
+        echo ""
+    fi
+}
+
+# Main execution
+main() {
+    print_status "🚀 Starting AgentCore agent deployment with LTM..."
+    
+    # Set AWS profile
+    export AWS_PROFILE="$AWS_PROFILE"
+    export AWS_DEFAULT_REGION="$AWS_REGION"
+    
+    # Check prerequisites
+    check_agentcore_cli
+    
+    # Verify memories exist
+    print_status "🔍 Verifying LTM memories exist..."
+    
+    local content_mem_id=$(get_memory_id "$CONTENT_MEMORY_NAME")
+    local campus_mem_id=$(get_memory_id "$CAMPUS_MEMORY_NAME")
+    
+    if [ -z "$content_mem_id" ] || [ -z "$campus_mem_id" ]; then
+        print_error "LTM memories not found!"
+        print_status "Please run: ./scripts/create_agentcore_memories.sh first"
+        print_status ""
+        print_status "Then wait ~2 minutes for memories to become ACTIVE"
+        print_status "Check status with: agentcore memory list --region $AWS_REGION"
+        exit 1
+    fi
+    
+    print_success "Found LTM memories:"
+    print_status "  - $CONTENT_MEMORY_NAME: $content_mem_id"
+    print_status "  - $CAMPUS_MEMORY_NAME: $campus_mem_id"
+    
+    # Deploy agents
+    print_status ""
+    print_status "📦 Deploying agents with LTM..."
+    
+    local content_arn=""
+    local campus_arn=""
+    
+    # Deploy content generation agent
+    if content_arn=$(deploy_agent_with_ltm "$CONTENT_AGENT_NAME" "src/agents/content_agent.py" "$CONTENT_MEMORY_NAME"); then
+        print_success "✅ Content Generation Agent deployed"
+    else
+        print_error "❌ Content Generation Agent deployment failed"
+        exit 1
+    fi
+    
+    # Deploy campus coach agent
+    if campus_arn=$(deploy_agent_with_ltm "$CAMPUS_AGENT_NAME" "src/agents/campus_coach_agent.py" "$CAMPUS_MEMORY_NAME"); then
+        print_success "✅ Campus Coach Agent deployed"
+    else
+        print_error "❌ Campus Coach Agent deployment failed"
+        exit 1
+    fi
+    
+    # Summary
+    print_success ""
+    print_success "🎉 AgentCore agents deployed successfully with LTM!"
+    print_status ""
+    print_status "📋 Deployment Summary:"
+    print_status "  Memory Type: Long-Term Memory (LTM) with semantic search"
+    print_status "  Memory Retention: 365 days"
+    print_status "  Content Agent: $content_arn"
+    print_status "  Campus Agent: $campus_arn"
+    print_status ""
+    print_status "🧠 Memory Features:"
+    print_status "  - Semantic search for style patterns"
+    print_status "  - Long-term learning across activities"
+    print_status "  - Persistent user personalization"
+    print_status ""
+    print_status "🔧 Next Step:"
+    print_status "  Configure Lambda integration:"
+    print_status "  ./scripts/configure_agentcore_integration.sh"
+}
+
 # Function to check AgentCore CLI availability
 check_agentcore_cli() {
     print_status "🔍 Checking AgentCore CLI availability..."
@@ -50,218 +309,6 @@ check_agentcore_cli() {
     
     print_success "AgentCore CLI is available"
 }
-
-# Function to configure and deploy content generation agent
-deploy_content_agent() {
-    print_status "🚀 Configuring and deploying Content Generation Agent (direct_code_deploy + auto memory)..."
-    
-    local agent_path="src/agents/content_agent.py"
-    local agent_name="$CONTENT_AGENT_NAME"
-    
-    if [ ! -f "$agent_path" ]; then
-        print_error "Content agent file not found: $agent_path"
-        return 1
-    fi
-    
-    # Configure agent (always run to ensure latest configuration)
-    print_status "Configuring agent: $agent_name (direct_code_deploy + auto memory)"
-    
-    agentcore configure \
-        --entrypoint "$agent_path" \
-        --name "$agent_name" \
-        --region "$AWS_REGION" \
-        --requirements-file "src/agents/requirements.txt" \
-        --deployment-type direct_code_deploy \
-        --runtime PYTHON_3_12 \
-        --non-interactive || {
-        print_error "Failed to configure Content Generation Agent"
-        return 1
-    }
-    
-    # Launch agent using agentcore launch for proper runtime initialization
-    print_status "Launching agent: $agent_name"
-    local deploy_output
-    deploy_output=$(agentcore launch \
-        --agent "$agent_name" \
-        --auto-update-on-conflict 2>&1)
-    
-    local deploy_exit_code=$?
-    
-    if [ $deploy_exit_code -eq 0 ]; then
-        print_success "Content Generation Agent deployed successfully"
-        
-        # Get agent ARN from status (with robust JSON parsing)
-        local agent_arn=""
-        local status_output
-        status_output=$(agentcore status --agent "$agent_name" --verbose 2>/dev/null || echo "")
-        
-        if [ -n "$status_output" ]; then
-            # Try to extract ARN with jq, handle JSON parsing errors
-            agent_arn=$(echo "$status_output" | jq -r '.agent.arn // empty' 2>/dev/null || echo "")
-            
-            # Fallback: extract ARN with grep if jq fails
-            if [ -z "$agent_arn" ] || [ "$agent_arn" = "null" ]; then
-                agent_arn=$(echo "$status_output" | grep -o 'arn:aws:bedrock-agentcore:[^"]*' | head -1 || echo "")
-            fi
-        fi
-        
-        if [ -n "$agent_arn" ] && [ "$agent_arn" != "null" ]; then
-            print_success "Content Generation Agent ARN: $agent_arn"
-            echo "$agent_arn"
-        else
-            print_error "Could not determine agent ARN from status output"
-            print_status "Status output (first 200 chars): ${status_output:0:200}"
-            return 1
-        fi
-    else
-        print_error "Failed to deploy Content Generation Agent (exit code: $deploy_exit_code)"
-        print_error "Deploy output:"
-        echo "$deploy_output"
-        return 1
-    fi
-}
-
-# Function to configure and deploy campus coach agent
-deploy_campus_coach_agent() {
-    print_status "🚀 Configuring and deploying Campus Coach Agent (direct_code_deploy + auto memory)..."
-    
-    local agent_path="src/agents/campus_coach_agent.py"
-    local agent_name="$CAMPUS_AGENT_NAME"
-    
-    if [ ! -f "$agent_path" ]; then
-        print_error "Campus Coach agent file not found: $agent_path"
-        return 1
-    fi
-    
-    # Configure agent (always run to ensure latest configuration)
-    print_status "Configuring agent: $agent_name (direct_code_deploy + auto memory)"
-    
-    agentcore configure \
-        --entrypoint "$agent_path" \
-        --name "$agent_name" \
-        --region "$AWS_REGION" \
-        --requirements-file "src/agents/requirements.txt" \
-        --deployment-type direct_code_deploy \
-        --runtime PYTHON_3_12 \
-        --non-interactive || {
-        print_error "Failed to configure Campus Coach Agent"
-        return 1
-    }
-    
-    # Launch agent using agentcore launch for proper runtime initialization
-    print_status "Launching agent: $agent_name (memory auto-creation enabled)"
-    local deploy_output
-    deploy_output=$(agentcore launch \
-        --agent "$agent_name" \
-        --auto-update-on-conflict 2>&1)
-    
-    local deploy_exit_code=$?
-    
-    if [ $deploy_exit_code -eq 0 ]; then
-        print_success "Campus Coach Agent deployed successfully"
-        
-        # Get agent ARN from status (with robust JSON parsing)
-        local agent_arn=""
-        local status_output
-        status_output=$(agentcore status --agent "$agent_name" --verbose 2>/dev/null || echo "")
-        
-        if [ -n "$status_output" ]; then
-            # Try to extract ARN with jq, handle JSON parsing errors
-            agent_arn=$(echo "$status_output" | jq -r '.agent.arn // empty' 2>/dev/null || echo "")
-            
-            # Fallback: extract ARN with grep if jq fails
-            if [ -z "$agent_arn" ] || [ "$agent_arn" = "null" ]; then
-                agent_arn=$(echo "$status_output" | grep -o 'arn:aws:bedrock-agentcore:[^"]*' | head -1 || echo "")
-            fi
-        fi
-        
-        if [ -n "$agent_arn" ] && [ "$agent_arn" != "null" ]; then
-            print_success "Campus Coach Agent ARN: $agent_arn"
-            echo "$agent_arn"
-        else
-            print_error "Could not determine agent ARN from status output"
-            print_status "Status output (first 200 chars): ${status_output:0:200}"
-            return 1
-        fi
-    else
-        print_error "Failed to deploy Campus Coach Agent (exit code: $deploy_exit_code)"
-        print_error "Deploy output:"
-        echo "$deploy_output"
-        return 1
-    fi
-}
-
-# Main execution
-main() {
-    print_status "🚀 Starting AgentCore agent deployment for Strava AI Boost (direct_code_deploy)..."
-    
-    # Set AWS profile for all operations
-    export AWS_PROFILE="$AWS_PROFILE"
-    export AWS_DEFAULT_REGION="$AWS_REGION"
-    
-    # Check prerequisites
-    check_agentcore_cli
-    
-    # Deploy agents using IaC approach with direct_code_deploy
-    print_status "📦 Deploying AgentCore agents with direct_code_deploy (no Docker required)..."
-    
-    local content_arn=""
-    local campus_arn=""
-    
-    # Deploy content generation agent (memory auto-created)
-    if content_arn=$(deploy_content_agent); then
-        print_success "Content Generation Agent deployment completed"
-    else
-        print_error "Content Generation Agent deployment failed"
-        exit 1
-    fi
-    
-    # Deploy campus coach agent (memory auto-created)
-    if campus_arn=$(deploy_campus_coach_agent); then
-        print_success "Campus Coach Agent deployment completed"
-    else
-        print_error "Campus Coach Agent deployment failed"
-        exit 1
-    fi
-    
-    # Basic validation - agents deployed successfully
-    if [ -n "$content_arn" ] && [ -n "$campus_arn" ]; then
-        print_success "✅ Both agents deployed successfully"
-    else
-        print_warning "⚠️  Some agents may not have deployed correctly"
-    fi
-    
-    print_success "🎉 AgentCore agent deployment completed successfully!"
-    print_status ""
-    print_status "📋 Deployment Summary:"
-    print_status "  Deployment Type: direct_code_deploy (no Docker required)"
-    print_status "  Content Generation Agent: $content_arn"
-    print_status "  Campus Coach Agent: $campus_arn"
-    print_status "  AgentCore Memory: Auto-created during deployment"
-    print_status ""
-    print_status "✅ Agents Status:"
-    print_status "  - AgentCore agents: Deployed and functional"
-    print_status "  - AgentCore Memory: Auto-created during deployment"
-    print_status "  - Agents ready for invocation"
-    print_status ""
-    print_status "🔧 Next Step - Configure Integration:"
-    print_status "  Run the integration configuration script to complete setup:"
-    print_status "  ./scripts/configure_agentcore_integration.sh"
-    print_status ""
-    print_status "  This will configure:"
-    print_status "  - IAM permissions for agents to access AWS resources"
-    print_status "  - Lambda environment variables with agent ARNs"
-    print_status "  - CDK context and local development files"
-    print_status ""
-    print_status "📁 Files Created:"
-    print_status "  - .bedrock_agentcore.yaml (AgentCore configuration)"
-    print_status ""
-    print_status "🧹 Clean Deployment:"
-    print_status "  - No Docker required (direct_code_deploy)"
-    print_status "  - No circular dependencies"
-    print_status "  - Fully reproducible Infrastructure as Code"
-}
-
 
 # Run main function
 main "$@"

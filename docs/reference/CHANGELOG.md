@@ -15,13 +15,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Memory persists user's writing style, expression preferences, and performance history
   - Avoids repetitive phrases more effectively with semantic search
 
+### Added
+- **Memory Creation Script**: New `scripts/create_agentcore_memories.sh`
+  - Standalone script to create LTM memories before agent deployment
+  - Creates memories with semantic search strategy (ComprehensiveLearning)
+  - Handles existing memories gracefully
+  - Clear status messages and next-step instructions
+
 ### Changed
-- **Agent Deployment Script**: Enhanced `scripts/deploy_agentcore_agents.sh` for LTM
-  - Creates LTM memory resources BEFORE agent configuration
-  - Modifies `.bedrock_agentcore.yaml` after `configure` but before `launch`
-  - Agents now use pre-created LTM memories instead of auto-created STM
-  - Memory mode changed from `STM_ONLY` to `LTM` in agent configuration
-  - Improved memory ID extraction and ARN resolution
+- **Agent Deployment Script**: Refactored `scripts/deploy_agentcore_agents.sh` for LTM
+  - Simplified to use pre-created LTM memories
+  - Uses `--disable-memory` flag during configure to prevent auto-creation
+  - Updates `.bedrock_agentcore.yaml` with `mode: STM_AND_LTM`
+  - Verifies LTM memories exist before deployment
+  - Memory mode changed from `STM_ONLY` to `STM_AND_LTM` in agent configuration
+  - Improved memory ID extraction using AgentCore Python toolkit
+
+### Changed
+- **Deployment Process**: Two-step deployment for better control
+  - Step 1: Create LTM memories (~3 minutes per memory)
+  - Step 2: Deploy agents with existing LTM memories
+  - Clearer separation of concerns and error handling
+  - Easier to troubleshoot and retry individual steps
 
 ### Performance
 - **Content Personalization**: Enhanced with long-term semantic memory
@@ -35,7 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Python-based YAML updates for reliability
   - Memory ARN resolution from memory ID
   - Proper error handling for memory creation conflicts
-  - Graceful fallback if memory already exists
+  - Uses AgentCore MemoryManager for reliable memory lookup
 
 ## [1.9.14] - 2025-12-30 - Complete API Gateway Migration & Security
 
