@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Strava AI Boost{% endblock %}</title>
+    
+    <!-- AWS Cloudscape Design System -->
+    <link rel="stylesheet" href="https://unpkg.com/@cloudscape-design/components/styles.css">
+    <link rel="stylesheet" href="https://unpkg.com/@cloudscape-design/global-styles/index.css">
+    
+    <!-- AWS Cloudscape Design System CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/@cloudscape-design/global-styles/index.css">
+    
+    <!-- Custom Cloudscape-inspired styles for Flask app -->
+    <style>
+        /* Import Cloudscape design tokens and base styles */
+        @import url('https://unpkg.com/@cloudscape-design/design-tokens/index.css');
+        
+        /* Base application styles following Cloudscape patterns */
+        body {
+            margin: 0;
+            font-family: var(--awsui-font-family-base, "Amazon Ember", "Helvetica Neue", Roboto, Arial, sans-serif);
+            background-color: var(--awsui-color-background-layout-main, #f2f3f3);
+            color: var(--awsui-color-text-body-default, #16191f);
+            line-height: var(--awsui-line-height-body-m, 1.5);
+        }
+        
+        /* App Layout following Cloudscape App Layout pattern */
+        .awsui-app-layout {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* Top Navigation following Cloudscape Top Navigation pattern */
+        .awsui-top-navigation {
+            background: var(--awsui-color-background-container-content, #ffffff);
+            border-bottom: var(--awsui-border-divider-section-width, 1px) solid var(--awsui-color-border-divider-default, #d5dbdb);
+            padding: var(--awsui-space-scaled-s, 12px) var(--awsui-space-scaled-m, 16px);
+        }
+        
+        .awsui-top-navigation-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .awsui-top-navigation-title {
+            margin: 0;
+            font-size: var(--awsui-font-heading-m-size, 20px);
+            font-weight: var(--awsui-font-heading-m-weight, 700);
+            color: var(--awsui-color-text-heading-default, #0d1117);
+        }
+        
+        .awsui-top-navigation-subtitle {
+            margin: var(--awsui-space-scaled-xxs, 4px) 0 0 0;
+            font-size: var(--awsui-font-body-s-size, 12px);
+            color: var(--awsui-color-text-body-secondary, #5f6b7a);
+        }
+        
+        /* Tabs following Cloudscape Tabs pattern */
+        .awsui-tabs-container {
+            background: var(--awsui-color-background-container-content, #ffffff);
+            border-bottom: var(--awsui-border-divider-section-width, 1px) solid var(--awsui-color-border-divider-default, #d5dbdb);
+        }
+        
+        .awsui-tabs-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 var(--awsui-space-scaled-m, 16px);
+        }
+        
+        .awsui-tabs {
+            display: flex;
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+        
+        .awsui-tab {
+            margin-right: var(--awsui-space-scaled-l, 24px);
+        }
+        
+        .awsui-tab-link {
+            display: block;
+            padding: var(--awsui-space-scaled-s, 12px) 0;
+            color: var(--awsui-color-text-body-secondary, #5f6b7a);
+            text-decoration: none;
+            font-size: var(--awsui-font-body-m-size, 14px);
+            font-weight: var(--awsui-font-body-m-weight, 400);
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s ease;
+        }
+        
+        .awsui-tab-link:hover {
+            color: var(--awsui-color-text-accent, #0972d3);
+            border-bottom-color: var(--awsui-color-border-accent-default, #0972d3);
+        }
+        
+        .awsui-tab-link.active {
+            color: var(--awsui-color-text-accent, #0972d3);
+            border-bottom-color: var(--awsui-color-border-accent-default, #0972d3);
+            font-weight: var(--awsui-font-body-m-weight-bold, 700);
+        }
+        
+        /* Main Content */
+        .awsui-main-content {
+            flex: 1;
+            padding: var(--awsui-space-scaled-m, 16px);
+            max-width: 1200px;
+            margin: 0 auto;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        
+        /* Container following Cloudscape Container pattern */
+        .awsui-container {
+            background: var(--awsui-color-background-container-content, #ffffff);
+            border: var(--awsui-border-container-width, 1px) solid var(--awsui-color-border-container-default, #d5dbdb);
+            border-radius: var(--awsui-border-radius-container, 8px);
+            margin-bottom: var(--awsui-space-scaled-m, 16px);
+        }
+        
+        .awsui-container-header {
+            padding: var(--awsui-space-scaled-m, 16px) var(--awsui-space-scaled-m, 16px) var(--awsui-space-scaled-s, 12px);
+            border-bottom: var(--awsui-border-divider-section-width, 1px) solid var(--awsui-color-border-divider-default, #d5dbdb);
+        }
+        
+        .awsui-container-header-title {
+            margin: 0;
+            font-size: var(--awsui-font-heading-s-size, 18px);
+            font-weight: var(--awsui-font-heading-s-weight, 700);
+            color: var(--awsui-color-text-heading-default, #0d1117);
+        }
+        
+        .awsui-container-content {
+            padding: var(--awsui-space-scaled-m, 16px);
+        }
+        
+        /* Header following Cloudscape Header pattern */
+        .awsui-header {
+            margin-bottom: var(--awsui-space-scaled-l, 24px);
+        }
+        
+        .awsui-header-title {
+            margin: 0 0 var(--awsui-space-scaled-xxs, 4px) 0;
+            font-size: var(--awsui-font-heading-l-size, 28px);
+            font-weight: var(--awsui-font-heading-l-weight, 700);
+            color: var(--awsui-color-text-heading-default, #0d1117);
+        }
+        
+        .awsui-header-description {
+            margin: 0;
+            color: var(--awsui-color-text-body-secondary, #5f6b7a);
+            font-size: var(--awsui-font-body-m-size, 14px);
+        }
+        
+        /* Status Indicator following Cloudscape Status Indicator pattern */
+        .awsui-status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--awsui-space-scaled-xs, 8px);
+            font-size: var(--awsui-font-body-s-size, 12px);
+            font-weight: var(--awsui-font-body-s-weight, 400);
+        }
+        
+        .awsui-status-indicator::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        
+        .awsui-status-indicator.success {
+            color: var(--awsui-color-text-status-success, #037f0c);
+        }
+        
+        .awsui-status-indicator.success::before {
+            background-color: var(--awsui-color-background-status-success, #037f0c);
+        }
+        
+        .awsui-status-indicator.error {
+            color: var(--awsui-color-text-status-error, #d13212);
+        }
+        
+        .awsui-status-indicator.error::before {
+            background-color: var(--awsui-color-background-status-error, #d13212);
+        }
+        
+        .awsui-status-indicator.warning {
+            color: var(--awsui-color-text-status-warning, #8d6605);
+        }
+        
+        .awsui-status-indicator.warning::before {
+            background-color: var(--awsui-color-background-status-warning, #8d6605);
+        }
+        
+        .awsui-status-indicator.info {
+            color: var(--awsui-color-text-status-info, #0972d3);
+        }
+        
+        .awsui-status-indicator.info::before {
+            background-color: var(--awsui-color-background-status-info, #0972d3);
+        }
+        
+        .awsui-status-indicator.stopped {
+            color: var(--awsui-color-text-body-secondary, #5f6b7a);
+        }
+        
+        .awsui-status-indicator.stopped::before {
+            background-color: var(--awsui-color-text-body-secondary, #5f6b7a);
+        }
+        
+        /* Column Layout following Cloudscape Column Layout pattern */
+        .awsui-column-layout {
+            display: grid;
+            gap: var(--awsui-space-scaled-m, 16px);
+        }
+        
+        .awsui-column-layout.columns-2 {
+            grid-template-columns: repeat(2, 1fr);
+        }
+        
+        .awsui-column-layout.columns-3 {
+            grid-template-columns: repeat(3, 1fr);
+        }
+        
+        .awsui-column-layout.columns-4 {
+            grid-template-columns: repeat(4, 1fr);
+        }
+        
+        /* Key-Value Pairs following Cloudscape pattern */
+        .awsui-key-value-pair {
+            display: flex;
+            flex-direction: column;
+            gap: var(--awsui-space-scaled-xxs, 4px);
+        }
+        
+        .awsui-key-value-pair-label {
+            font-size: var(--awsui-font-body-s-size, 12px);
+            color: var(--awsui-color-text-body-secondary, #5f6b7a);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: var(--awsui-font-body-s-weight-bold, 700);
+        }
+        
+        .awsui-key-value-pair-value {
+            font-size: var(--awsui-font-display-l-size, 42px);
+            font-weight: var(--awsui-font-display-l-weight, 300);
+            color: var(--awsui-color-text-heading-default, #0d1117);
+            line-height: 1.2;
+        }
+        
+        /* Button following Cloudscape Button pattern */
+        .awsui-button {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--awsui-space-scaled-xs, 8px);
+            padding: var(--awsui-space-button-vertical, 8px) var(--awsui-space-button-horizontal, 16px);
+            border-radius: var(--awsui-border-radius-button, 4px);
+            font-size: var(--awsui-font-button-size, 14px);
+            font-weight: var(--awsui-font-button-weight, 700);
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: var(--awsui-border-button-width, 1px) solid;
+        }
+        
+        .awsui-button.primary {
+            background-color: var(--awsui-color-background-button-primary-default, #0972d3);
+            border-color: var(--awsui-color-border-button-primary-default, #0972d3);
+            color: var(--awsui-color-text-button-primary-default, #ffffff);
+        }
+        
+        .awsui-button.primary:hover {
+            background-color: var(--awsui-color-background-button-primary-hover, #0962c7);
+            border-color: var(--awsui-color-border-button-primary-hover, #0962c7);
+        }
+        
+        .awsui-button.normal {
+            background-color: var(--awsui-color-background-button-normal-default, #ffffff);
+            border-color: var(--awsui-color-border-button-normal-default, #d5dbdb);
+            color: var(--awsui-color-text-button-normal-default, #16191f);
+        }
+        
+        .awsui-button.normal:hover {
+            background-color: var(--awsui-color-background-button-normal-hover, #f2f3f3);
+        }
+        
+        /* Flash Messages following Cloudscape Flashbar pattern */
+        .awsui-flashbar {
+            margin-bottom: var(--awsui-space-scaled-m, 16px);
+        }
+        
+        .awsui-flash {
+            display: flex;
+            align-items: flex-start;
+            gap: var(--awsui-space-scaled-s, 12px);
+            padding: var(--awsui-space-scaled-s, 12px) var(--awsui-space-scaled-m, 16px);
+            border-radius: var(--awsui-border-radius-flashbar, 4px);
+            margin-bottom: var(--awsui-space-scaled-xs, 8px);
+            border-left: 4px solid;
+        }
+        
+        .awsui-flash.success {
+            background-color: var(--awsui-color-background-notification-success, #d5f2d5);
+            border-left-color: var(--awsui-color-border-status-success, #037f0c);
+            color: var(--awsui-color-text-notification-success, #037f0c);
+        }
+        
+        .awsui-flash.error {
+            background-color: var(--awsui-color-background-notification-error, #ffeaea);
+            border-left-color: var(--awsui-color-border-status-error, #d13212);
+            color: var(--awsui-color-text-notification-error, #d13212);
+        }
+        
+        .awsui-flash.info {
+            background-color: var(--awsui-color-background-notification-info, #e6f3ff);
+            border-left-color: var(--awsui-color-border-status-info, #0972d3);
+            color: var(--awsui-color-text-notification-info, #0972d3);
+        }
+        
+        .awsui-flash.warning {
+            background-color: var(--awsui-color-background-notification-warning, #fff4e6);
+            border-left-color: var(--awsui-color-border-status-warning, #8d6605);
+            color: var(--awsui-color-text-notification-warning, #8d6605);
+        }
+        
+        /* Footer */
+        .awsui-app-footer {
+            background: var(--awsui-color-background-container-content, #ffffff);
+            border-top: var(--awsui-border-divider-section-width, 1px) solid var(--awsui-color-border-divider-default, #d5dbdb);
+            padding: var(--awsui-space-scaled-s, 12px) var(--awsui-space-scaled-m, 16px);
+            margin-top: auto;
+        }
+        
+        .awsui-footer-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            text-align: center;
+            font-size: var(--awsui-font-body-s-size, 12px);
+            color: var(--awsui-color-text-body-secondary, #5f6b7a);
+        }
+        
+        .awsui-footer-content p {
+            margin: 0;
+        }
+        
+        .awsui-footer-content a {
+            color: var(--awsui-color-text-accent, #0972d3);
+            text-decoration: none;
+        }
+        
+        .awsui-footer-content a:hover {
+            text-decoration: underline;
+        }
+        
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .awsui-main-content {
+                padding: var(--awsui-space-scaled-s, 12px);
+            }
+            
+            .awsui-column-layout.columns-2,
+            .awsui-column-layout.columns-3,
+            .awsui-column-layout.columns-4 {
+                grid-template-columns: 1fr;
+            }
+            
+            .awsui-top-navigation-content {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: var(--awsui-space-scaled-s, 12px);
+            }
+            
+            .awsui-tabs {
+                flex-wrap: wrap;
+            }
+            
+            .awsui-tab {
+                margin-right: var(--awsui-space-scaled-m, 16px);
+                margin-bottom: var(--awsui-space-scaled-xs, 8px);
+            }
+        }
+        
+        /* Loading Spinner */
+        .awsui-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--awsui-color-border-control-default, #d5dbdb);
+            border-top: 2px solid var(--awsui-color-border-accent-default, #0972d3);
+            border-radius: 50%;
+            animation: awsui-spin 1s linear infinite;
+        }
+        
+        @keyframes awsui-spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* Empty State */
+        .awsui-empty-state {
+            text-align: center;
+            padding: var(--awsui-space-scaled-xl, 40px) var(--awsui-space-scaled-m, 16px);
+            color: var(--awsui-color-text-body-secondary, #5f6b7a);
+        }
+        
+        .awsui-empty-state-title {
+            font-weight: var(--awsui-font-body-m-weight-bold, 700);
+            margin-bottom: var(--awsui-space-scaled-xs, 8px);
+        }
+        
+        .awsui-empty-state-description {
+            font-size: var(--awsui-font-body-s-size, 12px);
+        }
+        
+        /* Toggle Switch following Cloudscape Toggle pattern */
+        .awsui-toggle {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 24px;
+        }
+        
+        .awsui-toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .awsui-toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: var(--awsui-color-background-toggle-default, #d5dbdb);
+            transition: .4s;
+            border-radius: 24px;
+        }
+        
+        .awsui-toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: var(--awsui-color-background-toggle-handle-default, #ffffff);
+            transition: .4s;
+            border-radius: 50%;
+        }
+        
+        .awsui-toggle input:checked + .awsui-toggle-slider {
+            background-color: var(--awsui-color-background-toggle-checked, #0972d3);
+        }
+        
+        .awsui-toggle input:focus + .awsui-toggle-slider {
+            box-shadow: 0 0 0 2px var(--awsui-color-border-control-focus, #0972d3);
+        }
+        
+        .awsui-toggle input:checked + .awsui-toggle-slider:before {
+            transform: translateX(20px);
+        }
+    </style>
+    
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <div class="awsui-app-layout">
+        <!-- Top Navigation -->
+        <header class="awsui-top-navigation">
+            <div class="awsui-top-navigation-content">
+                <div>
+                    <h1 class="awsui-top-navigation-title">Strava AI Boost</h1>
+                    <p class="awsui-top-navigation-subtitle">Automated activity enhancement with AI</p>
+                </div>
+                
+                <div style="display: flex; align-items: center; gap: var(--awsui-space-scaled-s, 8px);">
+                    {% block header_actions %}{% endblock %}
+                </div>
+            </div>
+        </header>
+        
+        <!-- Navigation Tabs -->
+        <nav class="awsui-tabs-container">
+            <div class="awsui-tabs-content">
+                <ul class="awsui-tabs">
+                    <li class="awsui-tab">
+                        <a href="{{ url_for('index') }}" 
+                           class="awsui-tab-link {% if request.endpoint == 'index' %}active{% endif %}">
+                            Dashboard
+                        </a>
+                    </li>
+                    <li class="awsui-tab">
+                        <a href="{{ url_for('config') }}" 
+                           class="awsui-tab-link {% if request.endpoint == 'config' %}active{% endif %}">
+                            Configuration
+                        </a>
+                    </li>
+                    <li class="awsui-tab">
+                        <a href="{{ url_for('preferences') }}" 
+                           class="awsui-tab-link {% if request.endpoint == 'preferences' %}active{% endif %}">
+                            Preferences
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </nav>
+        
+        <!-- Main Content -->
+        <main class="awsui-main-content">
+            <!-- Flash Messages -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    <div class="awsui-flashbar">
+                        {% for category, message in messages %}
+                            <div class="awsui-flash {% if category == 'error' %}error{% elif category == 'warning' %}warning{% elif category == 'success' %}success{% else %}info{% endif %}">
+                                {{ message }}
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            {% endwith %}
+            
+            <!-- Page Header -->
+            <div class="page-header">
+                {% block page_header %}{% endblock %}
+            </div>
+            
+            <!-- Page Content -->
+            {% block content %}{% endblock %}
+        </main>
+        
+        <!-- Footer -->
+        <footer class="awsui-app-footer">
+            <div class="awsui-footer-content">
+                <p>
+                    Strava AI Boost - Powered by AWS Bedrock and AgentCore
+                    <span style="margin: 0 var(--awsui-space-scaled-xs, 8px);">•</span>
+                    <a href="https://github.com/your-repo/strava-ai-boost">Documentation</a>
+                </p>
+            </div>
+        </footer>
+    </div>
+    
+    <!-- JavaScript -->
+    <script>
+        // Global JavaScript utilities
+        window.StravaAIBoost = {
+            // Show loading state
+            showLoading: function(element) {
+                if (element) {
+                    element.disabled = true;
+                    element.innerHTML = '<span class="loading-spinner"></span> Loading...';
+                }
+            },
+            
+            // Hide loading state
+            hideLoading: function(element, originalText) {
+                if (element) {
+                    element.disabled = false;
+                    element.innerHTML = originalText || 'Submit';
+                }
+            },
+            
+            // Show flash message
+            showFlash: function(message, category = 'info') {
+                // Find or create flashbar container
+                let flashContainer = document.querySelector('.awsui-flashbar');
+                
+                if (!flashContainer) {
+                    // Create flashbar container if it doesn't exist
+                    flashContainer = document.createElement('div');
+                    flashContainer.className = 'awsui-flashbar';
+                    
+                    // Insert at the top of main content
+                    const mainContent = document.querySelector('.awsui-main-content');
+                    const pageHeader = document.querySelector('.page-header');
+                    
+                    if (pageHeader) {
+                        mainContent.insertBefore(flashContainer, pageHeader.nextSibling);
+                    } else {
+                        mainContent.insertBefore(flashContainer, mainContent.firstChild);
+                    }
+                }
+                
+                // Create flash message element
+                const flashDiv = document.createElement('div');
+                flashDiv.className = `awsui-flash ${category}`;
+                flashDiv.innerHTML = `
+                    <div style="flex: 1;">
+                        ${message}
+                    </div>
+                    <button onclick="this.parentElement.remove()" style="background: none; border: none; color: inherit; cursor: pointer; font-size: 16px; padding: 0; margin-left: 8px;">×</button>
+                `;
+                
+                // Add to container
+                flashContainer.appendChild(flashDiv);
+                
+                // Auto-remove after 5 seconds
+                setTimeout(() => {
+                    if (flashDiv.parentElement) {
+                        flashDiv.remove();
+                        
+                        // Remove container if empty
+                        if (flashContainer.children.length === 0) {
+                            flashContainer.remove();
+                        }
+                    }
+                }, 5000);
+            },
+            
+            // Format date
+            formatDate: function(dateString) {
+                if (!dateString) return 'Unknown';
+                const date = new Date(dateString);
+                return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+            },
+            
+            // Format duration
+            formatDuration: function(seconds) {
+                if (!seconds) return '0s';
+                const hours = Math.floor(seconds / 3600);
+                const minutes = Math.floor((seconds % 3600) / 60);
+                const secs = seconds % 60;
+                
+                if (hours > 0) {
+                    return `${hours}h ${minutes}m`;
+                } else if (minutes > 0) {
+                    return `${minutes}m ${secs}s`;
+                } else {
+                    return `${secs}s`;
+                }
+            }
+        };
+        
+        // Auto-refresh functionality for real-time updates
+        let autoRefreshInterval;
+        
+        function startAutoRefresh(callback, interval = 30000) {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+            }
+            
+            autoRefreshInterval = setInterval(callback, interval);
+        }
+        
+        function stopAutoRefresh() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+            }
+        }
+        
+        // Page visibility API to pause/resume auto-refresh
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                stopAutoRefresh();
+            } else if (typeof refreshData === 'function') {
+                startAutoRefresh(refreshData);
+            }
+        });
+    </script>
+    
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>

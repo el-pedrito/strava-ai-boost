@@ -63,10 +63,6 @@ htmlcov/
 .tox/
 .hypothesis/
 
-# Local development
-local_interface/static/
-local_interface/templates/
-
 # Secrets (should never be committed)
 secrets.json
 credentials.json

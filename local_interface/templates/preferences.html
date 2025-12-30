@@ -1,0 +1,258 @@
+{% extends "base.html" %}
+
+{% block title %}User Preferences - Strava AI Boost{% endblock %}
+
+{% block page_header %}
+<div class="awsui-header">
+    <h2 class="awsui-header-title">Content Personalization Preferences</h2>
+    <p class="awsui-header-description">Configure how AI generates your activity descriptions</p>
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- User Profile Section -->
+<div class="awsui-container">
+    <div class="awsui-container-header">
+        <h3 class="awsui-container-header-title">Personal Profile</h3>
+        <p style="font-size: 12px; color: #5f6b7a; margin-top: 4px;">Help AI adapt content to your style and preferences</p>
+    </div>
+    <div class="awsui-container-content">
+        <form id="preferencesForm" onsubmit="savePreferences(event)" style="display: flex; flex-direction: column; gap: 20px;">
+            
+            <!-- Age Range -->
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+                <label style="font-size: 14px; font-weight: 700; color: #16191f;" for="ageRange">Age Range</label>
+                <select id="ageRange" name="age_range" 
+                        style="padding: 8px 12px; border: 1px solid #d5dbdb; border-radius: 4px; font-size: 14px;">
+                    <option value="18-25">18-25</option>
+                    <option value="26-35" selected>26-35</option>
+                    <option value="36-45">36-45</option>
+                    <option value="46-55">46-55</option>
+                    <option value="55+">55+</option>
+                </select>
+                <div style="font-size: 12px; color: #5f6b7a;">Helps adapt references and tone to your generation</div>
+            </div>
+            
+            <!-- Sport Approach -->
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+                <label style="font-size: 14px; font-weight: 700; color: #16191f;" for="sportApproach">Sport Approach</label>
+                <select id="sportApproach" name="sport_approach" 
+                        style="padding: 8px 12px; border: 1px solid #d5dbdb; border-radius: 4px; font-size: 14px;">
+                    <option value="health & wellness" selected>Health & Wellness</option>
+                    <option value="performance & competition">Performance & Competition</option>
+                    <option value="social & fun">Social & Fun</option>
+                    <option value="personal challenge">Personal Challenge</option>
+                    <option value="stress relief">Stress Relief</option>
+                    <option value="weight management">Weight Management</option>
+                </select>
+                <div style="font-size: 12px; color: #5f6b7a;">Your main motivation for training</div>
+            </div>
+            
+            <!-- Content Length -->
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+                <label style="font-size: 14px; font-weight: 700; color: #16191f;" for="contentLength">Description Length</label>
+                <select id="contentLength" name="content_length" 
+                        style="padding: 8px 12px; border: 1px solid #d5dbdb; border-radius: 4px; font-size: 14px;">
+                    <option value="short">Short (< 100 characters)</option>
+                    <option value="medium" selected>Medium (100-200 characters)</option>
+                    <option value="detailed">Detailed (200+ characters)</option>
+                    <option value="adaptive">Adaptive (varies by activity)</option>
+                </select>
+                <div style="font-size: 12px; color: #5f6b7a;">Preferred length for activity descriptions</div>
+            </div>
+
+            
+            <!-- Content Tone -->
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+                <label style="font-size: 14px; font-weight: 700; color: #16191f;" for="contentTone">Content Tone</label>
+                <select id="contentTone" name="content_tone" 
+                        style="padding: 8px 12px; border: 1px solid #d5dbdb; border-radius: 4px; font-size: 14px;">
+                    <option value="technical & analytical">Technical & Analytical</option>
+                    <option value="motivational & energetic" selected>Motivational & Energetic</option>
+                    <option value="casual & friendly">Casual & Friendly</option>
+                    <option value="humorous & fun">Humorous & Fun</option>
+                    <option value="authentic & personal">Authentic & Personal</option>
+                </select>
+                <div style="font-size: 12px; color: #5f6b7a;">Communication style for descriptions</div>
+            </div>
+            
+            <!-- Emoji Usage -->
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+                <label style="font-size: 14px; font-weight: 700; color: #16191f;" for="emojiUsage">Emoji Usage</label>
+                <select id="emojiUsage" name="emoji_usage" 
+                        style="padding: 8px 12px; border: 1px solid #d5dbdb; border-radius: 4px; font-size: 14px;">
+                    <option value="none">None</option>
+                    <option value="minimal">Minimal (1-2 emojis)</option>
+                    <option value="moderate" selected>Moderate (3-5 emojis)</option>
+                    <option value="enthusiastic">Enthusiastic (5+ emojis)</option>
+                </select>
+                <div style="font-size: 12px; color: #5f6b7a;">How many emojis to include</div>
+            </div>
+            
+            <!-- Technical Detail -->
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+                <label style="font-size: 14px; font-weight: 700; color: #16191f;" for="technicalDetail">Technical Detail Level</label>
+                <select id="technicalDetail" name="technical_detail" 
+                        style="padding: 8px 12px; border: 1px solid #d5dbdb; border-radius: 4px; font-size: 14px;">
+                    <option value="basic">Basic (simple metrics)</option>
+                    <option value="intermediate" selected>Intermediate (zones, pace analysis)</option>
+                    <option value="advanced">Advanced (streams, detailed analysis)</option>
+                </select>
+                <div style="font-size: 12px; color: #5f6b7a;">Level of technical detail in descriptions</div>
+            </div>
+            
+            <!-- Interests (Multi-select) -->
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+                <label style="font-size: 14px; font-weight: 700; color: #16191f;">Interests (Optional)</label>
+                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                    <label style="display: flex; align-items: center; gap: 8px; font-size: 14px;">
+                        <input type="checkbox" name="interests" value="technology"> Technology
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; font-size: 14px;">
+                        <input type="checkbox" name="interests" value="music"> Music
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; font-size: 14px;">
+                        <input type="checkbox" name="interests" value="travel"> Travel
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; font-size: 14px;">
+                        <input type="checkbox" name="interests" value="food"> Food
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; font-size: 14px;">
+                        <input type="checkbox" name="interests" value="nature"> Nature
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; font-size: 14px;">
+                        <input type="checkbox" name="interests" value="photography"> Photography
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; font-size: 14px;">
+                        <input type="checkbox" name="interests" value="family"> Family
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; font-size: 14px;">
+                        <input type="checkbox" name="interests" value="competition"> Competition
+                    </label>
+                </div>
+                <div style="font-size: 12px; color: #5f6b7a;">AI will use these to add relevant references in content</div>
+            </div>
+            
+            <!-- Save Button -->
+            <div style="display: flex; gap: 12px; margin-top: 8px;">
+                <button type="submit" class="awsui-button primary">
+                    Save Preferences
+                </button>
+                <button type="button" class="awsui-button" onclick="loadCurrentPreferences()">
+                    Reset to Current
+                </button>
+            </div>
+        </form>
+        
+        <div id="preferencesMessage" style="margin-top: 16px; display: none;"></div>
+    </div>
+</div>
+
+<script>
+// Load current preferences on page load
+window.addEventListener('DOMContentLoaded', loadCurrentPreferences);
+
+function loadCurrentPreferences() {
+    fetch('/api/user-preferences')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.preferences) {
+                const prefs = data.preferences;
+                
+                // Set form values
+                document.getElementById('ageRange').value = prefs.age_range || '26-35';
+                document.getElementById('sportApproach').value = prefs.sport_approach || 'health & wellness';
+                document.getElementById('contentLength').value = prefs.content_length || 'medium';
+                document.getElementById('contentTone').value = prefs.content_tone || 'motivational & energetic';
+                document.getElementById('emojiUsage').value = prefs.emoji_usage || 'moderate';
+                document.getElementById('technicalDetail').value = prefs.technical_detail || 'intermediate';
+                
+                // Set interests checkboxes
+                const interests = prefs.interests || [];
+                document.querySelectorAll('input[name="interests"]').forEach(checkbox => {
+                    checkbox.checked = interests.includes(checkbox.value);
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Failed to load preferences:', error);
+        });
+}
+
+function savePreferences(event) {
+    event.preventDefault();
+    
+    const form = event.target;
+    const formData = new FormData(form);
+    
+    // Get selected interests
+    const interests = [];
+    document.querySelectorAll('input[name="interests"]:checked').forEach(checkbox => {
+        interests.push(checkbox.value);
+    });
+    
+    const preferences = {
+        age_range: formData.get('age_range'),
+        sport_approach: formData.get('sport_approach'),
+        content_length: formData.get('content_length'),
+        content_tone: formData.get('content_tone'),
+        emoji_usage: formData.get('emoji_usage'),
+        technical_detail: formData.get('technical_detail'),
+        interests: interests
+    };
+    
+    // Show loading state
+    const btn = document.getElementById('configureBtn') || event.target.querySelector('button[type="submit"]');
+    const originalText = btn.textContent;
+    btn.textContent = 'Saving...';
+    btn.disabled = true;
+    
+    fetch('/api/user-preferences', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(preferences)
+    })
+    .then(response => response.json())
+    .then(data => {
+        const messageDiv = document.getElementById('preferencesMessage');
+        
+        if (data.success) {
+            messageDiv.innerHTML = `
+                <div style="padding: 12px; background: #d5f2d5; border: 1px solid #1d8102; border-radius: 4px; color: #1d8102;">
+                    ✅ Preferences saved successfully! Future activities will use these settings.
+                </div>
+            `;
+        } else {
+            messageDiv.innerHTML = `
+                <div style="padding: 12px; background: #fef6f6; border: 1px solid #d91515; border-radius: 4px; color: #d91515;">
+                    ❌ Failed to save preferences: ${data.error || 'Unknown error'}
+                </div>
+            `;
+        }
+        
+        messageDiv.style.display = 'block';
+        setTimeout(() => {
+            messageDiv.style.display = 'none';
+        }, 5000);
+        
+        btn.textContent = originalText;
+        btn.disabled = false;
+    })
+    .catch(error => {
+        const messageDiv = document.getElementById('preferencesMessage');
+        messageDiv.innerHTML = `
+            <div style="padding: 12px; background: #fef6f6; border: 1px solid #d91515; border-radius: 4px; color: #d91515;">
+                ❌ Error: ${error.message}
+            </div>
+        `;
+        messageDiv.style.display = 'block';
+        
+        btn.textContent = originalText;
+        btn.disabled = false;
+    });
+}
+</script>
+
+{% endblock %}

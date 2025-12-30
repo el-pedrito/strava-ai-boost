@@ -117,7 +117,27 @@ Open http://localhost:3000 in your browser.
 2. Click "Connect with Strava"
 3. Authorize the application
 
-### Step 5: Configure Webhook (Required - for real-time processing)
+### Step 5: Configure Your Preferences (Optional but Recommended) 🎨
+1. Go to http://localhost:3000/preferences
+2. Configure your personal profile:
+   - **Age Range**: Adapts tone and cultural references
+   - **Sport Approach**: health & wellness, performance & competition, social & fun, etc.
+   - **Content Length**: short, medium, detailed, or adaptive
+   - **Content Tone**: technical, motivational, casual, humorous, or authentic
+   - **Emoji Usage**: none, minimal, moderate, or enthusiastic
+   - **Technical Detail**: basic, intermediate, or advanced
+   - **Interests**: Select from technology, music, travel, food, nature, photography, family, competition
+3. Click "Save Preferences"
+4. AI will now generate content tailored to your personality and preferences!
+
+**Why configure preferences?**
+- ✅ Content adapts to your age and life context
+- ✅ Tone matches your personality (fun, technical, motivational, etc.)
+- ✅ Subtle cultural references based on your interests
+- ✅ Technical detail level matches your preference
+- ✅ Emoji usage respects your style
+
+### Step 6: Configure Webhook (Required - for real-time processing)
 ```bash
 # Configure webhook subscription (tells Strava to notify us of new activities automatically)
 ./scripts/configure_strava_webhook.sh dev --auto-configure

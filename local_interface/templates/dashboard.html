@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Strava AI Boost{% endblock %}
+
+{% block page_header %}
+<div class="awsui-header">
+    <h2 class="awsui-header-title">Dashboard</h2>
+    <p class="awsui-header-description">Monitor your activity processing and system performance</p>
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- System Status Overview -->
+<div class="awsui-container">
+    <div class="awsui-container-header">
+        <h3 class="awsui-container-header-title">System Overview</h3>
+    </div>
+    <div class="awsui-container-content">
+        <div class="awsui-column-layout columns-4">
+            <div class="awsui-key-value-pair">
+                <div class="awsui-key-value-pair-label">Total Activities</div>
+                <div class="awsui-key-value-pair-value">{{ status.get('total_activities', 0) }}</div>
+            </div>
+            <div class="awsui-key-value-pair">
+                <div class="awsui-key-value-pair-label">Success Rate (24h)</div>
+                <div class="awsui-key-value-pair-value">{{ "%.1f"|format(status.get('success_rate_24h', 0)) }}%</div>
+            </div>
+            <div class="awsui-key-value-pair">
+                <div class="awsui-key-value-pair-label">Queue Depth</div>
+                <div class="awsui-key-value-pair-value">{{ status.get('processing_queue_depth', 0) }}</div>
+            </div>
+            <div class="awsui-key-value-pair">
+                <div class="awsui-key-value-pair-label">System Health</div>
+                <div class="awsui-key-value-pair-value">
+                    <span class="awsui-status-indicator {% if status.get('system_health') == 'healthy' %}success{% elif status.get('system_health') == 'degraded' %}warning{% else %}error{% endif %}">
+                        {{ status.get('system_health', 'Unknown')|title }}
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Connection Status -->
+<div class="awsui-container">
+    <div class="awsui-container-header">
+        <h3 class="awsui-container-header-title">Connection Status</h3>
+    </div>
+    <div class="awsui-container-content">
+        <div class="awsui-column-layout columns-3">
+            <!-- Strava Connection -->
+            <div class="awsui-key-value-pair">
+                <div>
+                    <div style="font-weight: 700; margin-bottom: 4px;">Strava API</div>
+                    <div style="font-size: 12px; color: var(--awsui-color-text-body-secondary, #5f6b7a); margin-bottom: 8px;">OAuth connection status</div>
+                </div>
+                <span class="awsui-status-indicator {% if status.get('strava_connected') %}success{% else %}error{% endif %}">
+                    {% if status.get('strava_connected') %}Connected{% else %}Disconnected{% endif %}
+                </span>
+            </div>
+            
+            <!-- AgentCore Status -->
+            <div class="awsui-key-value-pair">
+                <div>
+                    <div style="font-weight: 700; margin-bottom: 4px;">AgentCore</div>
+                    <div style="font-size: 12px; color: var(--awsui-color-text-body-secondary, #5f6b7a); margin-bottom: 8px;">AI agents and memory</div>
+                </div>
+                <span class="awsui-status-indicator {% if status.get('agentcore_status') == 'healthy' %}success{% elif status.get('agentcore_status') == 'not_configured' %}warning{% else %}error{% endif %}">
+                    {{ status.get('agentcore_status', 'Unknown')|replace('_', ' ')|title }}
+                </span>
+            </div>
+            
+            <!-- Enhancement Status -->
+            <div class="awsui-key-value-pair">
+                <div>
+                    <div style="font-weight: 700; margin-bottom: 4px;">Enhancement</div>
+                    <div style="font-size: 12px; color: var(--awsui-color-text-body-secondary, #5f6b7a); margin-bottom: 8px;">Activity processing</div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span class="awsui-status-indicator {% if status.get('enhancement_enabled') %}success{% else %}error{% endif %}">
+                        {{ status.get('enhancement_status', 'Unknown')|title }}
+                    </span>
+                    <form method="post" action="/api/enhancement" style="display: inline;">
+                        <input type="hidden" name="action" value="{% if status.get('enhancement_enabled') %}pause{% else %}resume{% endif %}">
+                        <button type="submit" class="awsui-button normal" style="font-size: 12px; padding: 2px 8px;">
+                            {% if status.get('enhancement_enabled') %}Pause{% else %}Resume{% endif %}
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Module Status -->
+<div class="awsui-container">
+    <div class="awsui-container-header">
+        <h3 class="awsui-container-header-title">Module Status</h3>
+        <a href="{{ url_for('config') }}" class="awsui-button normal">Configure Modules</a>
+    </div>
+    <div class="awsui-container-content">
+        <div class="awsui-column-layout columns-2">
+            <!-- Campus Coach Module -->
+            <div style="padding: 16px; border: 1px solid var(--awsui-color-border-divider-default, #d5dbdb); border-radius: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h4 style="margin: 0; font-size: 16px; font-weight: 700;">Campus Coach</h4>
+                    <span class="awsui-status-indicator {% if modules.get('campus_coach', {}).get('enabled') %}success{% else %}stopped{% endif %}">
+                        {% if modules.get('campus_coach', {}).get('enabled') %}Enabled{% else %}Disabled{% endif %}
+                    </span>
+                </div>
+                <p style="margin: 0 0 8px 0; font-size: 14px; color: var(--awsui-color-text-body-secondary, #5f6b7a);">
+                    Training session matching and performance analysis
+                </p>
+                <div style="font-size: 12px; color: var(--awsui-color-text-body-secondary, #5f6b7a);">
+                    {% if modules.get('campus_coach', {}).get('last_extraction') %}
+                        Last extraction: {{ modules.campus_coach.last_extraction }}
+                    {% else %}
+                        No recent extractions
+                    {% endif %}
+                </div>
+            </div>
+            
+            <!-- Enduraw Module -->
+            <div style="padding: 16px; border: 1px solid var(--awsui-color-border-divider-default, #d5dbdb); border-radius: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h4 style="margin: 0; font-size: 16px; font-weight: 700;">Enduraw</h4>
+                    <span class="awsui-status-indicator {% if modules.get('enduraw', {}).get('enabled') %}success{% else %}stopped{% endif %}">
+                        {% if modules.get('enduraw', {}).get('enabled') %}Enabled{% else %}Disabled{% endif %}
+                    </span>
+                </div>
+                <p style="margin: 0 0 8px 0; font-size: 14px; color: var(--awsui-color-text-body-secondary, #5f6b7a);">
+                    Enhanced analytics with weather and wind impact
+                </p>
+                <div style="font-size: 12px; color: var(--awsui-color-text-body-secondary, #5f6b7a);">
+                    Wait time: {{ modules.get('enduraw', {}).get('wait_time', '2-7 minutes') }}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Activities -->
+<div class="awsui-container">
+    <div class="awsui-container-header">
+        <h3 class="awsui-container-header-title">Recent Activities</h3>
+        <form method="get" action="/" style="display: inline;">
+            <button type="submit" class="awsui-button normal">Refresh</button>
+        </form>
+    </div>
+    <div class="awsui-container-content">
+        {% if activities %}
+            <div style="display: flex; flex-direction: column; gap: 12px;">
+                {% for activity in activities %}
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--awsui-color-border-divider-default, #d5dbdb);">
+                    <div style="flex: 1;">
+                        <div style="font-weight: 500; margin-bottom: 4px;">{{ activity.name }}</div>
+                        <div style="font-size: 12px; color: var(--awsui-color-text-body-secondary, #5f6b7a);">
+                            {{ activity.date }} • Processing time: {{ activity.processing_time }}
+                            {% if activity.modules_used %}
+                                • Modules: {{ activity.modules_used|join(', ') }}
+                            {% endif %}
+                        </div>
+                    </div>
+                    <span class="awsui-status-indicator {% if activity.status == 'completed' %}success{% elif activity.status == 'processing' %}info{% else %}error{% endif %}">
+                        {{ activity.status|title }}
+                    </span>
+                </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="awsui-empty-state">
+                <div class="awsui-empty-state-title">No recent activities found</div>
+                <div class="awsui-empty-state-description">Activities will appear here after they are processed.</div>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Processing Status -->
+<div class="awsui-container">
+    <div class="awsui-container-header">
+        <h3 class="awsui-container-header-title">Processing Status</h3>
+        <div style="font-size: 12px; color: var(--awsui-color-text-body-secondary, #5f6b7a);">
+            Real-time view of activities being processed
+        </div>
+    </div>
+    <div class="awsui-container-content">
+        {% if processing_status.get('processing_activities') %}
+            <div style="margin-bottom: 16px;">
+                <h4 style="margin: 0 0 8px 0; font-size: 14px; color: #232f3e;">Currently Processing</h4>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                    {% for activity in processing_status.processing_activities %}
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border: 1px solid #e9ebed; border-radius: 4px;">
+                        <div>
+                            <div style="font-weight: 500;">{{ activity.name }}</div>
+                            <div style="font-size: 12px; color: #5f6b7a;">
+                                {{ activity.type }} • Started: {{ activity.started_at }}
+                            </div>
+                        </div>
+                        <span class="awsui-status-indicator info">Processing</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        {% endif %}
+        
+        <!-- Queue Status -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+            <div style="padding: 12px; border: 1px solid #e9ebed; border-radius: 4px;">
+                <div style="font-weight: 500; color: #232f3e;">Processing Queue</div>
+                <div style="font-size: 20px; font-weight: 600; color: #0972d3; margin: 4px 0;">
+                    {{ processing_status.get('queue_status', {}).get('processing_queue', {}).get('approximate_messages', 0) }}
+                </div>
+                <div style="font-size: 12px; color: #5f6b7a;">Messages waiting</div>
+            </div>
+            
+            <div style="padding: 12px; border: 1px solid #e9ebed; border-radius: 4px;">
+                <div style="font-weight: 500; color: #232f3e;">Dead Letter Queue</div>
+                {% set dlq_count = processing_status.get('queue_status', {}).get('dead_letter_queue', {}).get('approximate_messages', 0) %}
+                <div style="font-size: 20px; font-weight: 600; color: {% if dlq_count > 0 %}#d13212{% else %}#0d7d0d{% endif %}; margin: 4px 0;">
+                    {{ dlq_count }}
+                </div>
+                <div style="font-size: 12px; color: #5f6b7a;">Failed messages</div>
+            </div>
+        </div>
+        
+        {% if not processing_status.get('processing_activities') and processing_status.get('queue_status', {}).get('processing_queue', {}).get('approximate_messages', 0) == 0 %}
+            <div style="text-align: center; padding: 20px; color: #5f6b7a; margin-top: 16px;">
+                <p>No activities currently processing</p>
+                <p style="font-size: 12px;">Processing status will appear here when activities are being enhanced.</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Auto-refresh notice -->
+<div style="text-align: center; margin-top: 20px; padding: 12px; background-color: #f2f3f3; border-radius: 4px;">
+    <p style="margin: 0; font-size: 12px; color: #5f6b7a;">
+        Dashboard data is loaded server-side. Refresh the page to see the latest information.
+        <a href="/" style="margin-left: 8px;">Refresh Now</a>
+    </p>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    // Simple client-side enhancements (no AJAX calls)
+    document.addEventListener('DOMContentLoaded', function() {
+        // Add timestamp to show when page was loaded
+        const timestamp = new Date().toLocaleString();
+        console.log('Dashboard loaded at:', timestamp);
+        
+        // Auto-refresh every 60 seconds (simple page reload)
+        setTimeout(function() {
+            window.location.reload();
+        }, 60000); // 60 seconds
+    });
+</script>
+{% endblock %}

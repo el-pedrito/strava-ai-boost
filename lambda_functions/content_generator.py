@@ -108,6 +108,13 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         user_config = get_user_configuration(user_id)
         active_modules = get_active_modules(user_config)
         
+        # Build user_profile from configuration for personalization
+        user_profile = build_user_profile_from_config(user_config)
+        if user_profile:
+            logger.info(f"User profile loaded for personalization: {user_profile.get('sport_approach')}")
+        else:
+            logger.info("No user profile configured, using default generation")
+        
         # Get streams data if available
         streams_data = event.get('streams_data')
         
@@ -116,12 +123,13 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             activity_data, streams_data, user_id, active_modules
         )
         
-        # Generate enhanced content using Strands Agent
+        # Generate enhanced content using Strands Agent with user_profile
         enhanced_content = generate_enhanced_content_with_agent(
             activity_data, 
             streams_data, 
             user_id, 
-            enhanced_modules
+            enhanced_modules,
+            user_profile  # Pass user_profile to agent
         )
         
         # Store generated content
@@ -157,13 +165,50 @@ def get_user_configuration(user_id: str) -> Dict[str, Any]:
             # Return default configuration
             return {
                 'user_id': user_id,
-                'modules_config': {},
-                'strava_connected': False
+                'modules_config': {}
             }
             
     except Exception as e:
         logger.error(f"Failed to get user configuration: {str(e)}")
         return {'user_id': user_id, 'modules_config': {}}
+
+
+def build_user_profile_from_config(user_config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Build user_profile from user configuration for agent personalization
+    
+    Extracts user preferences from DynamoDB config and formats them
+    according to the agent's expected user_profile structure.
+    """
+    try:
+        # Extract user preferences from config
+        preferences = user_config.get('user_preferences', {})
+        
+        if not preferences:
+            # No preferences configured, return None
+            return None
+        
+        # Build user_profile according to agent prompt specification
+        user_profile = {
+            'age_range': preferences.get('age_range', '26-35'),
+            'interests': preferences.get('interests', []),
+            'sport_approach': preferences.get('sport_approach', 'health & wellness'),
+            'content_preferences': {
+                'length': preferences.get('content_length', 'medium'),
+                'tone': preferences.get('content_tone', 'motivational & energetic'),
+                'emoji_usage': preferences.get('emoji_usage', 'moderate'),
+                'technical_detail': preferences.get('technical_detail', 'intermediate')
+            }
+        }
+        
+        logger.info(f"Built user_profile: age={user_profile['age_range']}, approach={user_profile['sport_approach']}")
+        logger.info(f"Content preferences: length={user_profile['content_preferences']['length']}, tone={user_profile['content_preferences']['tone']}, emoji={user_profile['content_preferences']['emoji_usage']}, technical={user_profile['content_preferences']['technical_detail']}")
+        logger.info(f"Interests: {user_profile['interests']}")
+        return user_profile
+        
+    except Exception as e:
+        logger.error(f"Failed to build user_profile: {str(e)}")
+        return None
 
 
 def get_active_modules(user_config: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -404,7 +449,8 @@ def generate_enhanced_content_with_agent(
     activity_data: Dict[str, Any],
     streams_data: Optional[Dict[str, Any]],
     user_id: str,
-    modules: List[Dict[str, Any]]
+    modules: List[Dict[str, Any]],
+    user_profile: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Generate enhanced content using Strands Agent with AgentCore Memory
@@ -414,6 +460,7 @@ def generate_enhanced_content_with_agent(
     try:
         logger.info("Generating content with AgentCore Content Generation Agent...")
         logger.info(f"Content generation mode: AgentCore (primary)")
+        logger.info(f"User profile provided: {user_profile is not None}")
         
         # Use Bedrock AgentCore Runtime to invoke AgentCore Content Generation Agent
         # Try different client approaches for AgentCore invocation
@@ -442,10 +489,13 @@ def generate_enhanced_content_with_agent(
             'activity_data': activity_data,
             'streams_data': streams_data,
             'user_id': user_id,
+            'user_profile': user_profile,  # Add user_profile for personalization
             'modules': modules,
             'use_memory': True,
             'personalization': True
         }
+        
+        logger.info(f"Agent input prepared - user_profile: {json.dumps(user_profile, default=str) if user_profile else 'None'}")
         
         # Get agent ARN from environment
         agent_arn = os.environ.get('CONTENT_GENERATION_AGENT_ARN', '')
