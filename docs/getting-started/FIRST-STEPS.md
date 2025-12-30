@@ -19,7 +19,7 @@ After completing the [Quick Start Guide](QUICK-START.md), follow these steps to 
 
 ```bash
 cd local_interface
-./start_dashboard.sh
+./local_interface/start_dashboard.sh
 ```
 
 **What this script does:**

@@ -101,6 +101,20 @@
                 <div style="font-size: 12px; color: #5f6b7a;">Level of technical detail in descriptions</div>
             </div>
             
+            <!-- Content Language -->
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+                <label style="font-size: 14px; font-weight: 700; color: #16191f;" for="contentLanguage">Content Language</label>
+                <select id="contentLanguage" name="content_language" 
+                        style="padding: 8px 12px; border: 1px solid #d5dbdb; border-radius: 4px; font-size: 14px;">
+                    <option value="french" selected>Français</option>
+                    <option value="english">English</option>
+                    <option value="spanish">Español</option>
+                    <option value="german">Deutsch</option>
+                    <option value="italian">Italiano</option>
+                </select>
+                <div style="font-size: 12px; color: #5f6b7a;">Language for titles and descriptions</div>
+            </div>
+            
             <!-- Interests (Multi-select) -->
             <div style="display: flex; flex-direction: column; gap: 8px;">
                 <label style="font-size: 14px; font-weight: 700; color: #16191f;">Interests (Optional)</label>
@@ -166,6 +180,7 @@ function loadCurrentPreferences() {
                 document.getElementById('contentTone').value = prefs.content_tone || 'motivational & energetic';
                 document.getElementById('emojiUsage').value = prefs.emoji_usage || 'moderate';
                 document.getElementById('technicalDetail').value = prefs.technical_detail || 'intermediate';
+                document.getElementById('contentLanguage').value = prefs.content_language || 'french';
                 
                 // Set interests checkboxes
                 const interests = prefs.interests || [];
@@ -198,6 +213,7 @@ function savePreferences(event) {
         content_tone: formData.get('content_tone'),
         emoji_usage: formData.get('emoji_usage'),
         technical_detail: formData.get('technical_detail'),
+        content_language: formData.get('content_language'),
         interests: interests
     };
     

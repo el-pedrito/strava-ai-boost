@@ -197,7 +197,8 @@ def build_user_profile_from_config(user_config: Dict[str, Any]) -> Optional[Dict
                 'length': preferences.get('content_length', 'medium'),
                 'tone': preferences.get('content_tone', 'motivational & energetic'),
                 'emoji_usage': preferences.get('emoji_usage', 'moderate'),
-                'technical_detail': preferences.get('technical_detail', 'intermediate')
+                'technical_detail': preferences.get('technical_detail', 'intermediate'),
+                'language': preferences.get('content_language', 'french')
             }
         }
         

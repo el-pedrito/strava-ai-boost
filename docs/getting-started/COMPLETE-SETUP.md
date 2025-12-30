@@ -279,7 +279,7 @@ SECRET_KEY=your-secure-secret-key
 pip install -r requirements.txt
 
 # Start Flask application with proper AWS configuration
-./start_dashboard.sh
+./local_interface/start_dashboard.sh
 ```
 
 **Benefits of using `start_dashboard.sh`:**

@@ -1,37 +1,44 @@
 #!/bin/bash
 
-# Strava AI Boost - Local Dashboard Startup Script
-# This script configures the AWS profile and starts the Flask development server
+# Start Strava AI Boost Local Dashboard
+# Automatically configures AWS profile and starts Flask application
 
-echo "🚀 Starting Strava AI Boost Local Dashboard..."
+set -e
 
-# Configure AWS Profile
+# Colors
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+echo -e "${BLUE}🚀 Starting Strava AI Boost Dashboard...${NC}"
+
+# Set AWS profile
 export AWS_PROFILE=your-aws-profile
-export AWS_REGION=eu-west-1
 export AWS_DEFAULT_REGION=eu-west-1
 
 # Verify AWS credentials
-echo "🔐 Verifying AWS credentials..."
-aws sts get-caller-identity --profile $AWS_PROFILE > /dev/null 2>&1
-if [ $? -ne 0 ]; then
-    echo "❌ AWS credentials not configured properly for profile: $AWS_PROFILE"
-    echo "Please run: aws configure --profile $AWS_PROFILE"
+echo -e "${BLUE}🔍 Verifying AWS credentials...${NC}"
+if ! aws sts get-caller-identity --profile $AWS_PROFILE > /dev/null 2>&1; then
+    echo "❌ AWS credentials not configured for profile: $AWS_PROFILE"
+    echo "Please configure your AWS credentials first"
     exit 1
 fi
 
-echo "✅ AWS credentials verified for profile: $AWS_PROFILE"
+echo -e "${GREEN}✅ AWS credentials verified${NC}"
 
-# Set Flask environment variables
+# Set Flask environment
 export FLASK_ENV=development
 export FLASK_DEBUG=1
 
-# Start the Flask application
-echo "🌐 Starting Flask development server on http://localhost:3000"
-echo "📊 Dashboard will be available at: http://localhost:3000"
-echo "⚙️  Configuration page: http://localhost:3000/config"
+# Get script directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Start Flask application
+echo -e "${BLUE}🌐 Starting Flask application on http://localhost:3000${NC}"
+echo -e "${GREEN}✅ Dashboard will be available at: http://localhost:3000${NC}"
 echo ""
-echo "Press Ctrl+C to stop the server"
+echo "Press CTRL+C to stop the server"
 echo ""
 
-cd "$(dirname "$0")"
+cd "$SCRIPT_DIR"
 python3 app.py

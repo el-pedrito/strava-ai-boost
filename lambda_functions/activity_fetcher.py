@@ -394,15 +394,20 @@ def store_activity_backup(activity_id: str, activity_data: Dict[str, Any]) -> No
         original_description = activity_data.get('description', '')
         original_name = activity_data.get('name', '')
         
+        # Convert floats to Decimal for DynamoDB
+        from decimal import Decimal
+        distance = activity_data.get('distance', 0)
+        elevation = activity_data.get('total_elevation_gain', 0)
+        
         table.put_item(
             Item={
                 'activity_id': activity_id,
                 'original_name': original_name,
                 'original_description': original_description,
                 'activity_type': activity_data.get('type', 'Unknown'),
-                'distance': activity_data.get('distance', 0),
+                'distance': Decimal(str(distance)) if distance else Decimal('0'),
                 'moving_time': activity_data.get('moving_time', 0),
-                'total_elevation_gain': activity_data.get('total_elevation_gain', 0),
+                'total_elevation_gain': Decimal(str(elevation)) if elevation else Decimal('0'),
                 'start_date': activity_data.get('start_date', ''),
                 'processing_status': 'fetched',
                 'created_at': datetime.utcnow().isoformat(),

@@ -5,6 +5,48 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.9] - 2025-12-30 - User Preferences & Multilingual Content Personalization
+
+### Added
+- **User Preferences System**: Complete personalization interface
+  - New `/preferences` page with 8 configuration options
+  - Age range, sport approach, content style (length/tone/emoji/technical)
+  - **Language selection**: French, English, Spanish, German, Italian
+  - 8 interests: technology, music, travel, food, nature, photography, family, competition
+  - Real-time DynamoDB persistence with visual feedback
+- **Cultural References**: Age-appropriate generational context
+  - Era-specific language (18-25 to 55+)
+  - Subtle interest integration (concepts, not brands)
+  - Universal references avoiding stereotypes
+  - Maximum 1 reference per activity
+- **Start Dashboard Script**: `local_interface/start_dashboard.sh`
+  - One-command startup with AWS profile auto-config
+  - Credential verification before launch
+
+### Changed
+- **Lambda**: User profile construction from DynamoDB
+  - `build_user_profile_from_config()` with language support
+  - Passes complete profile to AgentCore agent
+  - Enhanced logging for all preferences
+- **Prompt**: Language-specific guidelines
+  - Multilingual support (5 languages)
+  - NO HASHTAGS rule enforced
+  - Improved interest-based examples
+
+### Fixed
+- **Activity Backup**: Float to Decimal conversion
+  - Original title/description now properly saved
+  - Converts distance/elevation to Decimal
+  - 100% backup success rate
+- **Flask App**: Removed duplicate routes (1987→1889 lines)
+
+### Results (Tested):
+- 100% preference adaptation verified
+- Tone changes: technical → humorous & fun
+- Age: 26-35 performance → 55+ wellness
+- Language: Generates in user's preferred language
+- Backup: Original content preserved
+
 ## [1.9.8] - 2025-12-30 - Comprehensive DLQ Error Handling
 
 ### Added

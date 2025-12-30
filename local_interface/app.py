@@ -1804,7 +1804,8 @@ def api_user_preferences():
                     'content_length': preferences.get('content_length', 'medium'),
                     'content_tone': preferences.get('content_tone', 'motivational & energetic'),
                     'emoji_usage': preferences.get('emoji_usage', 'moderate'),
-                    'technical_detail': preferences.get('technical_detail', 'intermediate')
+                    'technical_detail': preferences.get('technical_detail', 'intermediate'),
+                    'content_language': preferences.get('content_language', 'french')
                 }
             })
         
@@ -1819,7 +1820,8 @@ def api_user_preferences():
                 'content_length': data.get('content_length', 'medium'),
                 'content_tone': data.get('content_tone', 'motivational & energetic'),
                 'emoji_usage': data.get('emoji_usage', 'moderate'),
-                'technical_detail': data.get('technical_detail', 'intermediate')
+                'technical_detail': data.get('technical_detail', 'intermediate'),
+                'content_language': data.get('content_language', 'french')
             }
             
             # Save to DynamoDB
@@ -1885,102 +1887,3 @@ def get_user_config_from_dynamodb(user_id: str) -> Dict[str, Any]:
 if __name__ == '__main__':
     # Development server
     app.run(host='127.0.0.1', port=3000, debug=True)
-
-@app.route('/api/user-preferences', methods=['GET', 'POST'])
-def api_user_preferences():
-    """API endpoint to get or update user preferences for content personalization"""
-    try:
-        user_id = get_current_user_id()
-        
-        if request.method == 'GET':
-            # Get current user preferences
-            user_config = get_user_config_from_dynamodb(user_id)
-            preferences = user_config.get('user_preferences', {})
-            
-            # Return with defaults if not set
-            return jsonify({
-                'success': True,
-                'preferences': {
-                    'age_range': preferences.get('age_range', '26-35'),
-                    'interests': preferences.get('interests', []),
-                    'sport_approach': preferences.get('sport_approach', 'health & wellness'),
-                    'content_length': preferences.get('content_length', 'medium'),
-                    'content_tone': preferences.get('content_tone', 'motivational & energetic'),
-                    'emoji_usage': preferences.get('emoji_usage', 'moderate'),
-                    'technical_detail': preferences.get('technical_detail', 'intermediate')
-                }
-            })
-        
-        elif request.method == 'POST':
-            # Update user preferences
-            data = request.get_json()
-            
-            preferences = {
-                'age_range': data.get('age_range', '26-35'),
-                'interests': data.get('interests', []),
-                'sport_approach': data.get('sport_approach', 'health & wellness'),
-                'content_length': data.get('content_length', 'medium'),
-                'content_tone': data.get('content_tone', 'motivational & energetic'),
-                'emoji_usage': data.get('emoji_usage', 'moderate'),
-                'technical_detail': data.get('technical_detail', 'intermediate')
-            }
-            
-            # Save to DynamoDB
-            table = boto3.resource('dynamodb', region_name=AWS_REGION).Table(USER_CONFIG_TABLE)
-            table.update_item(
-                Key={'user_id': user_id},
-                UpdateExpression='SET user_preferences = :prefs, updated_at = :timestamp',
-                ExpressionAttributeValues={
-                    ':prefs': preferences,
-                    ':timestamp': datetime.now(UTC).isoformat()
-                }
-            )
-            
-            logger.info(f"User preferences updated for user {user_id}")
-            
-            return jsonify({
-                'success': True,
-                'message': 'Preferences saved successfully',
-                'preferences': preferences
-            })
-            
-    except Exception as e:
-        logger.error(f"User preferences error: {str(e)}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-
-def get_current_user_id() -> str:
-    """Get current user ID (for single-user app, returns default)"""
-    # For single-user application, use default user ID
-    # In multi-user setup, this would come from session/auth
-    return os.environ.get('DEFAULT_USER_ID', 'YOUR_USER_ID')
-
-
-def get_user_config_from_dynamodb(user_id: str) -> Dict[str, Any]:
-    """Get user configuration from DynamoDB"""
-    try:
-        table = boto3.resource('dynamodb', region_name=AWS_REGION).Table(USER_CONFIG_TABLE)
-        response = table.get_item(Key={'user_id': user_id})
-        
-        if 'Item' in response:
-            return response['Item']
-        else:
-            return {'user_id': user_id}
-            
-    except Exception as e:
-        logger.error(f"Failed to get user config: {str(e)}")
-        return {'user_id': user_id}
-
-
-
-@app.route('/preferences')
-def preferences():
-    """User preferences page for content personalization"""
-    try:
-        return render_template('preferences.html')
-    except Exception as e:
-        logger.error(f"Preferences page error: {str(e)}")
-        return render_template('error.html', error=str(e)), 500

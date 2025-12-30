@@ -100,8 +100,7 @@ aws secretsmanager put-secret-value \
 
 ### Step 3: Start Local Interface
 ```bash
-cd local_interface
-./start_dashboard.sh
+./local_interface/start_dashboard.sh
 ```
 
 **What this script does:**
