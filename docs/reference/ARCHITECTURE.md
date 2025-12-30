@@ -666,6 +666,85 @@ class StravaOAuthManager:
         return token_data['access_token']
 ```
 
+### Location & Weather Enrichment
+
+#### Reverse Geocoding (Nominatim/OpenStreetMap)
+
+**Purpose**: Convert GPS coordinates to city/country when Strava doesn't provide location data.
+
+**API**: Nominatim (OpenStreetMap) - Free, no API key required
+
+**Usage Policy Compliance**:
+- Maximum 1 request per second (Lambda is single-threaded, compliant)
+- Valid User-Agent with application identification
+- Results cached in DynamoDB (no repeated requests)
+- Only called for outdoor activities with GPS
+
+**Implementation**:
+```python
+def reverse_geocode_location(latitude: float, longitude: float) -> Dict[str, Optional[str]]:
+    url = "https://nominatim.openstreetmap.org/reverse"
+    params = {
+        'lat': latitude,
+        'lon': longitude,
+        'format': 'json',
+        'addressdetails': 1,
+        'zoom': 10  # City level
+    }
+    headers = {
+        'User-Agent': 'StravaAIBoost/1.9 AWS Lambda (Strava enhancement; contact@example.com)'
+    }
+    response = requests.get(url, params=params, headers=headers, timeout=10)
+    # Returns: {'city': 'Périgueux', 'country': 'France'}
+```
+
+**Data Flow**:
+1. Strava returns GPS coordinates but no city/country
+2. activity_fetcher calls Nominatim API
+3. Enriches activity_data with location
+4. Saves to DynamoDB for caching
+5. Passes to content_generator → agent
+
+#### Weather Data (Open-Meteo)
+
+**Purpose**: Provide historical weather data for activity time (temperature, wind, humidity).
+
+**API**: Open-Meteo Archive API - Free, no API key required
+
+**Implementation**:
+```python
+def fetch_weather_data(latitude: float, longitude: float, date_time: str) -> Dict[str, Any]:
+    url = "https://archive-api.open-meteo.com/v1/archive"
+    params = {
+        'latitude': latitude,
+        'longitude': longitude,
+        'start_date': date_str,
+        'end_date': date_str,
+        'hourly': 'temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m',
+        'timezone': 'auto'
+    }
+    response = requests.get(url, params=params, timeout=10)
+    # Returns: {'temperature': 13.1, 'wind_speed': 13.5, 'humidity': 75, 'wind_direction': 180}
+```
+
+**Data Flow**:
+1. activity_fetcher gets GPS and activity time
+2. Calls Open-Meteo for historical weather
+3. Stores in activity_data['fetched_weather']
+4. Agent uses for content context
+
+**Integration with Enduraw**:
+- **Base layer**: Nominatim location + Open-Meteo weather (always)
+- **Advanced layer**: Enduraw wind-corrected pace and detailed impact analysis (optional)
+- Both layers complement each other for richer content
+
+**Performance**:
+- Nominatim: ~200-500ms per request
+- Open-Meteo: ~200-400ms per request
+- Total added latency: ~400-900ms
+- Only for outdoor activities with GPS
+- Zero cost (free APIs)
+
 ### AgentCore Integration
 
 #### Memory-Based Content Generation

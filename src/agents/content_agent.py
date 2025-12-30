@@ -84,6 +84,24 @@ def invoke(payload, context=None):
         enduraw_str = json.dumps(enduraw_data, indent=2) if enduraw_data else 'No Enduraw data available'
         streams_str = json.dumps(streams_data, indent=2) if streams_data else 'No streams data available'
         
+        # Extract location and weather data (always used when available)
+        location_city = activity_data.get('location_city', '')
+        location_country = activity_data.get('location_country', '')
+        avg_temp = activity_data.get('average_temp')
+        start_latlng = activity_data.get('start_latlng', [])
+        fetched_weather = activity_data.get('fetched_weather', {})  # From Open-Meteo via activity_fetcher
+        
+        location_context = ""
+        if location_city or location_country:
+            location_parts = [p for p in [location_city, location_country] if p]
+            location_context = f"Location: {', '.join(location_parts)}"
+        if avg_temp is not None:
+            location_context += f"\nTemperature (Strava): {avg_temp}°C"
+        if fetched_weather:
+            location_context += f"\nWeather (Open-Meteo): Temp {fetched_weather.get('temperature')}°C, Wind {fetched_weather.get('wind_speed')}km/h, Humidity {fetched_weather.get('humidity')}%"
+        if not location_context:
+            location_context = "No location data available"
+        
         prompt = f"""Generate personalized Strava content for this activity.
 
 ACTIVITY DATA:
@@ -98,6 +116,9 @@ ACTIVITY DATA:
 ORIGINAL USER INPUT (IMPORTANT - Use as context):
 - Original Title: "{activity_data.get('name', 'Untitled')}"
 - Original Description: "{activity_data.get('description', 'No description provided')}"
+
+LOCATION & WEATHER (from Strava - use when Enduraw not active):
+{location_context}
 
 CRITICAL: If the user provided an original title or description, USE THEM as context and inspiration.
 The user's original input contains personal notes, feelings, or context that should be PRESERVED and ENRICHED.
@@ -130,7 +151,14 @@ Generate a personalized, engaging title and description that:
 4. Uses technical precision with fun, motivational elements
 5. Leverages AgentCore Memory to avoid repetitive expressions
 6. Adapts to user's age, interests, and sport approach
-7. Creates authentic French content with appropriate emojis
+7. Creates authentic content in user's preferred language with appropriate emojis
+8. **Uses location and weather data** (always when available):
+   - Location (city/country): Mention if interesting or adds context
+   - Weather (Open-Meteo): Temperature, wind, humidity - use subtly
+   - Enduraw data: Bonus advanced analysis (wind-corrected pace, detailed impact)
+   - Keep it brief and authentic (1-2 sentences max)
+   - Examples: "Sortie matinale à Paris sous un ciel parfait ☀️"
+   - Examples: "Session à Madrid avec 15km/h de vent - conditions challengeantes ! 💨"
 
 Return ONLY a JSON response in this exact format:
 {{

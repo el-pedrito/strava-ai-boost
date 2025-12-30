@@ -5,6 +5,98 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.12] - 2025-12-30 - Location & Weather Integration with Reverse Geocoding
+
+### Added
+- **Reverse Geocoding (Nominatim/OpenStreetMap)**: Automatic city/country from GPS
+  - Converts GPS coordinates to location when Strava doesn't provide it
+  - Uses Nominatim API (free, no API key required)
+  - Tries multiple address fields: city, town, village, municipality, county
+  - Graceful fallback if geocoding fails
+  - Complies with Nominatim usage policy (User-Agent header)
+- **Weather Data (Open-Meteo API)**: Historical weather for activity time
+  - Fetches temperature, wind speed, wind direction, humidity
+  - Uses Open-Meteo Archive API (free, no API key)
+  - Gets weather for exact date/time of activity
+  - Complements Strava's basic temperature data
+  - Provides baseline weather when Enduraw not active
+- **Location Data Logging**: Enhanced debugging for GPS data
+  - Logs city, country, GPS availability in activity_fetcher
+  - Helps troubleshoot location data issues
+  - Verifies Strava API response completeness
+
+### Changed
+- **Activity Backup**: Now saves location data to DynamoDB
+  - Stores location_city, location_country when available
+  - Stores start_latitude, start_longitude from GPS
+  - Converts coordinates to Decimal for DynamoDB compatibility
+  - Enriches activity data with reverse geocoded location
+  - Adds fetched_weather data to activity_data for content generation
+- **Agent Prompt**: Enhanced with weather context
+  - Location + Weather section always shown (not just when Enduraw inactive)
+  - Shows Strava temperature + Open-Meteo data (temp, wind, humidity)
+  - Instruction: Use location/weather always, Enduraw is bonus advanced analysis
+  - Examples updated to show weather integration
+
+### Enhanced
+- **Content Generation Context**: Richer environmental data
+  - Base layer: GPS location + Open-Meteo weather (always)
+  - Advanced layer: Enduraw analysis (wind-corrected pace, detailed impact)
+  - Agent has full context for authentic content
+  - Can reference weather conditions naturally
+  - Can mention location for outdoor activities
+
+### Performance
+- **API Calls**: Minimal impact on latency
+  - Nominatim reverse geocoding: ~200-500ms
+  - Open-Meteo weather fetch: ~200-400ms
+  - Total added latency: ~400-900ms per activity
+  - Only called for outdoor activities with GPS
+  - Cached in activity_data for content generation
+- **Cost**: Zero additional cost
+  - Nominatim: Free (OpenStreetMap)
+  - Open-Meteo: Free (no API key)
+  - No AWS service costs
+
+### Technical Details
+- **Files Modified**:
+  - `lambda_functions/activity_fetcher.py`: +120 lines (reverse geocoding + weather functions)
+  - `src/agents/content_agent.py`: +15 lines (weather context integration)
+  - `docs/reference/CHANGELOG.md`: This entry
+- **External APIs Used**:
+  - Nominatim: https://nominatim.openstreetmap.org/reverse
+  - Open-Meteo Archive: https://archive-api.open-meteo.com/v1/archive
+- **Data Flow**:
+  1. activity_fetcher gets GPS from Strava
+  2. If no city/country, calls Nominatim
+  3. Fetches weather from Open-Meteo
+  4. Stores in DynamoDB + passes to content_generator
+  5. Agent uses for context in generation
+
+## [1.9.11] - 2025-12-30 - Location Context Integration
+
+### Added
+- **Location Context**: Subtle integration of city/country from Strava GPS data
+  - Extracts location_city, location_country from activity data
+  - Displays in agent prompt when available
+  - Instruction to use subtly (not tour guide style)
+  - Examples: "Sortie à Paris ☀️", "Session à Madrid 🔥"
+  - Maximum 1 sentence for location context
+
+### Changed
+- **Agent Prompt**: Enhanced with location data section
+  - New LOCATION & WEATHER section in user prompt
+  - Shows city, country when available from GPS
+  - Clear instruction: location always, weather details only with Enduraw
+  - Keeps it brief and authentic
+
+### Technical Details
+- **Files Modified**:
+  - `src/agents/content_agent.py`: Added location extraction and prompt section (+24 lines)
+- **Data Source**: Strava API GPS data (location_city, location_country)
+- **Availability**: Only for outdoor activities with GPS tracking
+- **Integration**: Automatic when data available, graceful when null
+
 ## [1.9.10] - 2025-12-30 - Original Content Preservation & UTF-8 Robustness
 
 ### Added
