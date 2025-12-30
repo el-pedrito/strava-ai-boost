@@ -5,6 +5,52 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.3] - 2025-12-30 - Enduraw Module Configuration Fix & AgentCore Environment Variables
+
+### Fixed
+- **Module Configuration Reading**: Fixed Enduraw module configuration to read from MODULE_CONFIG item
+  - Changed from reading `modules_config` field in user record to dedicated MODULE_CONFIG item
+  - Module settings now stored in `user_id = "MODULE_CONFIG"` item in user-configuration table
+  - Centralized module configuration for all users
+  - Fixed issue where Enduraw wait logic was not triggered
+  - File: `lambda_functions/activity_processor.py`
+
+### Changed
+- **AgentCore Environment Variables**: Added automatic loading from .env.agentcore file
+  - Content Generation Stack now reads AgentCore ARNs from .env.agentcore
+  - Fixes "AgentCore Content Generation Agent ARN not configured" error
+  - Environment variables loaded during CDK synthesis
+  - File: `stacks/content_generation_stack.py`
+
+### Added
+- **Debug Logging**: Enhanced logging for Enduraw module configuration
+  - Logs MODULE_CONFIG retrieval
+  - Logs enduraw and campus_coach configuration details
+  - Logs Enduraw check with config, enabled status, and waited flag
+  - Helps troubleshoot module configuration issues
+
+### Technical
+- **Module Configuration Structure**:
+  ```json
+  {
+    "user_id": "MODULE_CONFIG",
+    "enduraw": {
+      "enabled": true,
+      "wait_time": "2 minutes"
+    },
+    "campus_coach": {
+      "enabled": false
+    }
+  }
+  ```
+- **Configuration Reading**: `fetch_user_configuration()` now queries MODULE_CONFIG item instead of user-specific modules_config field
+
+### Verified
+- ✅ Enduraw wait logic working: Activity status changes to `waiting_enduraw`
+- ✅ 2-minute SQS delay mechanism functioning correctly
+- ✅ Module configuration read from centralized MODULE_CONFIG item
+- ✅ AgentCore ARNs loaded from .env.agentcore file
+
 ## [1.10.2] - 2025-12-30 - Streams Analysis Bug Fix
 
 ### Fixed

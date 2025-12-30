@@ -102,6 +102,9 @@ def process_activity_record(record: Dict[str, Any]) -> None:
         enduraw_enabled = enduraw_config.get('enabled', False)
         enduraw_waited = message_body.get('enduraw_waited', False)
         
+        # Debug logs
+        logger.info(f"Enduraw check - config: {enduraw_config}, enabled: {enduraw_enabled}, waited: {enduraw_waited}")
+        
         if enduraw_enabled and not enduraw_waited:
             logger.info(f"Enduraw module enabled for activity {activity_id}, delaying by 2 minutes for Enduraw processing")
             
@@ -400,40 +403,53 @@ def fetch_user_configuration(user_id: str) -> Dict[str, Any]:
     """
     Fetch user configuration from DynamoDB
     
-    Returns user configuration including module settings
+    Returns user configuration including module settings from MODULE_CONFIG item
     """
     try:
         table = dynamodb.Table(os.environ.get('USER_CONFIG_TABLE', 'strava-ai-boost-user-configuration'))
         
-        response = table.get_item(Key={'user_id': user_id})
+        # Fetch MODULE_CONFIG for module settings
+        module_config_response = table.get_item(Key={'user_id': 'MODULE_CONFIG'})
         
-        if 'Item' in response:
-            user_config = response['Item']
-            logger.info(f"Retrieved user configuration for {user_id}")
-            return user_config
+        if 'Item' in module_config_response:
+            module_config = module_config_response['Item']
+            logger.info(f"Retrieved MODULE_CONFIG")
+            
+            # Debug: log module structure
+            enduraw_config = module_config.get('enduraw', {})
+            campus_coach_config = module_config.get('campus_coach', {})
+            logger.info(f"enduraw config: {enduraw_config}")
+            logger.info(f"campus_coach config: {campus_coach_config}")
+            
+            # Return config in expected format
+            return {
+                'user_id': user_id,
+                'modules_config': {
+                    'enduraw': enduraw_config,
+                    'campus_coach': campus_coach_config
+                }
+            }
         else:
-            # Return default configuration if user config doesn't exist
+            # Return default configuration if MODULE_CONFIG doesn't exist
             default_config = {
                 'user_id': user_id,
                 'modules_config': {
                     'campus_coach': {'enabled': False},
                     'enduraw': {'enabled': False}
-                },
-                'strava_connected': False
+                }
             }
-            logger.info(f"No user configuration found for {user_id}, using defaults")
+            logger.info(f"No MODULE_CONFIG found, using defaults")
             return default_config
             
     except Exception as e:
-        logger.error(f"Failed to fetch user configuration for {user_id}: {str(e)}")
+        logger.error(f"Failed to fetch MODULE_CONFIG: {str(e)}")
         # Return minimal default config on error
         return {
             'user_id': user_id,
             'modules_config': {
                 'campus_coach': {'enabled': False},
                 'enduraw': {'enabled': False}
-            },
-            'strava_connected': False
+            }
         }
 
 
