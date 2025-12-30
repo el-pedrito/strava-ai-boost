@@ -235,12 +235,23 @@
                 </p>
                 
                 <div id="endurawConfig" style="{% if not modules.get('enduraw', {}).get('enabled') %}display: none;{% endif %}">
-                    <div style="padding: var(--awsui-space-scaled-s, 12px); background: var(--awsui-color-background-notification-info, #e6f3ff); border-radius: var(--awsui-border-radius-container, 8px); margin-bottom: var(--awsui-space-scaled-s, 12px);">
-                        <div style="font-size: var(--awsui-font-body-s-size, 12px); color: var(--awsui-color-text-heading-default, #0d1117); font-weight: var(--awsui-font-body-s-weight-bold, 700);">Configuration</div>
+                    <div style="padding: var(--awsui-space-scaled-s, 12px); background: var(--awsui-color-background-notification-warning, #fff8e6); border-radius: var(--awsui-border-radius-container, 8px); margin-bottom: var(--awsui-space-scaled-s, 12px);">
+                        <div style="font-size: var(--awsui-font-body-s-size, 12px); color: var(--awsui-color-text-heading-default, #0d1117); font-weight: var(--awsui-font-body-s-weight-bold, 700);">⚠️ External Configuration Required</div>
                         <div style="font-size: var(--awsui-font-body-s-size, 12px); color: var(--awsui-color-text-body-secondary, #5f6b7a); margin-top: var(--awsui-space-scaled-xxs, 4px);">
-                            • Processing delay: 2-7 minutes after activity upload<br>
+                            Enduraw Report must be configured separately between your Strava account and Enduraw:<br>
+                            <a href="https://enduraw-report-strava.onrender.com" target="_blank" style="color: var(--awsui-color-text-link-default, #0972d3);">→ Configure Enduraw Report Integration</a><br>
+                            <br>
+                            <strong>Important:</strong> Activating this module only tells our system to wait 2 minutes for Enduraw data. If Enduraw is not configured on your Strava account, the system will generate content without Enduraw data after the timeout.
+                        </div>
+                    </div>
+                    
+                    <div style="padding: var(--awsui-space-scaled-s, 12px); background: var(--awsui-color-background-notification-info, #e6f3ff); border-radius: var(--awsui-border-radius-container, 8px); margin-bottom: var(--awsui-space-scaled-s, 12px);">
+                        <div style="font-size: var(--awsui-font-body-s-size, 12px); color: var(--awsui-color-text-heading-default, #0d1117); font-weight: var(--awsui-font-body-s-weight-bold, 700);">How it works</div>
+                        <div style="font-size: var(--awsui-font-body-s-size, 12px); color: var(--awsui-color-text-body-secondary, #5f6b7a); margin-top: var(--awsui-space-scaled-xxs, 4px);">
+                            • Processing delay: 2 minutes after activity upload<br>
                             • Provides pace without wind, weather impact, elevation cost<br>
-                            • No additional credentials required
+                            • No credentials required in this system<br>
+                            • Content generation proceeds with or without Enduraw data
                         </div>
                     </div>
                     

@@ -1,9 +1,6 @@
 # Strava AI Boost
 
-**Version:** v1.8.0
-**Status:** Production Ready - AgentCore Content Generation Fixed
-
-Strava AI Boost is a production-ready, modular serverless application that automatically enhances Strava activity titles and descriptions using Amazon Bedrock AI and AgentCore Memory. Built with a clean 2-phase deployment architecture, it provides immediate functionality with optional AI enhancement capabilities.
+Strava AI Boost is a production-ready, modular serverless application that automatically enhances Strava activity titles and descriptions using Amazon Bedrock AI and AgentCore Memory. Built with a clean API Gateway + Lambda architecture, it provides secure, scalable functionality with zero direct AWS SDK dependencies in the frontend.
 
 ## ✅ System Status
 
@@ -43,10 +40,17 @@ Strava AI Boost is a production-ready, modular serverless application that autom
 # Configures: IAM permissions + Lambda env vars + CDK context
 ```
 
+**Step 4: Local Environment Setup (30 sec)** ✅ NEW
+```bash
+./scripts/setup_local_env.sh
+# Generates: .env file with API Gateway URL + API Key
+```
+
 **Ready to Use** ✅ OPERATIONAL
 ```bash
-cd local_interface && AWS_PROFILE=your-aws-profile python app.py
+cd local_interface && python app.py
 # Open http://localhost:3000 → Connect with Strava → Configure Preferences → Process activities
+# No AWS_PROFILE needed - all configuration in .env file
 ```
 
 **Step 4: Configure Your Preferences (Optional, 1 min)** 🎨 RECOMMENDED
@@ -116,9 +120,13 @@ The system uses a local web interface approach to avoid complexity of user manag
    - Subscription required for module activation
    - Website: https://campus.coach
 
-3. **Enduraw Integration** (third-party Strava app) - Optional Module
-   - Enhanced analytics (pace without wind, weather impact)
-   - Processing delay: 2-7 minutes when enabled
+3. **Enduraw Report Integration** (third-party Strava app) - Optional Module
+   - **External Configuration Required**: Must be configured separately at https://enduraw-report-strava.onrender.com
+   - **Not Managed by This System**: Enduraw Report is an independent service that connects directly to your Strava account
+   - **How It Works**: When enabled in our system, we wait 2 minutes for Enduraw to add its report to your activity description
+   - **Graceful Fallback**: If Enduraw is not configured or times out, content generation proceeds without Enduraw data
+   - **Enhanced Analytics**: Provides pace without wind, weather impact, elevation cost when available
+   - Processing delay: 2 minutes when module enabled
 
 4. **AWS Account**
    - Cost: ~$0.02 per activity (estimated)
@@ -139,13 +147,13 @@ The system uses a local web interface approach to avoid complexity of user manag
 ```mermaid
 graph TB
     subgraph "Local Environment"
-        UI[Local Web Interface<br/>Flask + Cloudscape]
-        Browser[Web Browser<br/>localhost:8000]
+        UI[Local Web Interface<br/>Flask + Cloudscape<br/>Zero AWS SDK]
+        Browser[Web Browser<br/>localhost:3000]
     end
     
     subgraph "AWS Cloud"
         subgraph "API Layer"
-            APIGW[API Gateway<br/>REST API]
+            APIGW[API Gateway<br/>REST API + API Key<br/>Rate Limiting]
             Webhook[Webhook Handler<br/>Lambda]
         end
         
@@ -172,7 +180,13 @@ graph TB
     end
     
     Browser --> UI
-    UI --> APIGW
+    UI -->|HTTPS + API Key| APIGW
+    APIGW -->|Invoke| ConfigAPI[Configuration Lambda]
+    APIGW -->|Invoke| DashAPI[Dashboard Lambda]
+    APIGW -->|Invoke| PrefAPI[Preferences Lambda]
+    ConfigAPI --> DDB
+    DashAPI --> DDB
+    PrefAPI --> DDB
     Strava --> Webhook
     Webhook --> SQS
     SQS --> SF

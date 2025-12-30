@@ -85,7 +85,7 @@ curl -X GET 'https://www.strava.com/api/v3/push_subscriptions' \
 **Normal Processing Times**:
 - Basic enhancement: 30-60 seconds
 - With Campus Coach: 2-3 minutes
-- With Enduraw: 5-7 minutes
+- With Enduraw: 2 minutes wait + processing
 
 **If Slower**:
 1. **Check Queue Depth**: High activity volume causes delays
@@ -120,17 +120,28 @@ curl -X GET 'https://www.strava.com/api/v3/push_subscriptions' \
 - Check activity timing matches planned sessions
 - Review matching confidence thresholds
 
-### Enduraw Module
+### Enduraw Report Module
+
+**⚠️ Important**: Enduraw Report is an external service that must be configured separately.
 
 **"Enduraw data not available"**
-- Ensure Enduraw app is connected to your Strava account
-- Wait full processing time (2-7 minutes)
-- Check Enduraw app status in Strava settings
+- **First**: Ensure Enduraw Report is configured at https://enduraw-report-strava.onrender.com
+- **Then**: Enable the module in our system (Configuration → Modules)
+- System waits 2 minutes for Enduraw data
+- **Graceful fallback**: Content generation proceeds without Enduraw data if not available
+- Check Enduraw Report configuration and processing status
 
 **"Processing timeout with Enduraw"**
-- Increase wait time in module settings
-- Check Enduraw service status
-- Disable temporarily if service is down
+- This is normal behavior - system waits 2 minutes then proceeds
+- Check Enduraw Report service status at https://enduraw-report-strava.onrender.com
+- Verify Enduraw Report is actually processing your activities
+- **No action needed**: System generates content with or without Enduraw data
+
+**"Module enabled but no Enduraw data in content"**
+- Enduraw Report may not be configured on your Strava account
+- Visit https://enduraw-report-strava.onrender.com to set up the integration
+- Our system only waits for data; it doesn't configure Enduraw Report
+- Content will still be generated using other available data sources
 
 ## Local Interface Issues
 

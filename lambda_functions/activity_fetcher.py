@@ -508,6 +508,32 @@ def fetch_user_configuration(user_id: str) -> Dict[str, Any]:
         
         if 'Item' in response:
             user_config = response['Item']
+            
+            # Migration: Convert old flat format to nested format if needed (one-time migration)
+            if 'modules_config' not in user_config:
+                user_config['modules_config'] = {}
+                
+                # Migrate campus_coach if exists
+                if 'campus_coach_enabled' in user_config:
+                    user_config['modules_config']['campus_coach'] = {
+                        'enabled': user_config.get('campus_coach_enabled', False),
+                        'configured': user_config.get('campus_coach_configured', False)
+                    }
+                
+                # Migrate enduraw if exists
+                if 'enduraw_enabled' in user_config:
+                    user_config['modules_config']['enduraw'] = {
+                        'enabled': user_config.get('enduraw_enabled', False),
+                        'wait_time': user_config.get('enduraw_wait_time', '2 minutes')
+                    }
+                
+                # Save migrated config back to DynamoDB
+                try:
+                    table.put_item(Item=user_config)
+                    logger.info(f"Migrated user configuration to nested format for {user_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to save migrated config: {e}")
+            
             logger.info(f"Retrieved user configuration for {user_id}")
             return user_config
         else:

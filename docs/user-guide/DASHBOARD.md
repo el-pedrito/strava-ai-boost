@@ -78,7 +78,7 @@ The dashboard at http://localhost:3000 provides real-time monitoring and control
 
 **Enduraw Module**
 - **Enable/Disable**: Toggle integration
-- **Wait Time**: How long to wait for Enduraw processing
+- **Wait Time**: Wait time: 2 minutes for Enduraw data
 - **Status**: Integration health
 
 ### Enhancement Control
@@ -138,7 +138,7 @@ The dashboard at http://localhost:3000 provides real-time monitoring and control
 
 **"Processing taking too long"**
 1. Check queue depth (high load)
-2. Review module wait times (Enduraw delay)
+2. Review module wait times (2 min Enduraw wait)
 3. Monitor AWS service health
 4. Check for failed retries
 

@@ -5,6 +5,129 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2025-12-30 - Long-Term Memory (LTM) Integration
+
+### Added
+- **AgentCore Long-Term Memory (LTM)**: Upgraded agents from STM to LTM with semantic search
+  - Semantic memory strategy for persistent learning across activities
+  - 365-day event retention (vs 30 days for STM)
+  - Enables style pattern recognition and preference learning
+  - Memory persists user's writing style, expression preferences, and performance history
+  - Avoids repetitive phrases more effectively with semantic search
+
+### Changed
+- **Agent Deployment Script**: Enhanced `scripts/deploy_agentcore_agents.sh` for LTM
+  - Creates LTM memory resources BEFORE agent configuration
+  - Modifies `.bedrock_agentcore.yaml` after `configure` but before `launch`
+  - Agents now use pre-created LTM memories instead of auto-created STM
+  - Memory mode changed from `STM_ONLY` to `LTM` in agent configuration
+  - Improved memory ID extraction and ARN resolution
+
+### Performance
+- **Content Personalization**: Enhanced with long-term semantic memory
+  - Better style consistency across activities over time
+  - More effective avoidance of repetitive expressions
+  - Improved adaptation to user preferences and feedback
+  - Semantic search enables pattern recognition in user's content history
+
+### Technical
+- **Memory Configuration**: Automated YAML manipulation for LTM setup
+  - Python-based YAML updates for reliability
+  - Memory ARN resolution from memory ID
+  - Proper error handling for memory creation conflicts
+  - Graceful fallback if memory already exists
+
+## [1.9.14] - 2025-12-30 - Complete API Gateway Migration & Security
+
+### Changed
+- **Local Interface Architecture**: 100% API Gateway + Lambda architecture
+  - Removed ALL direct boto3/DynamoDB/SQS/Secrets Manager/Step Functions access from `app.py`
+  - All data operations now go through Lambda functions via API Gateway with API Key
+  - Cleaner separation: Flask app is now a pure UI client with zero AWS SDK dependencies
+  - Easier to add authentication/rate limiting/monitoring at API Gateway level
+  - Removed all fallback DynamoDB access (no more dual code paths)
+
+### Added
+- **User Preferences API Lambda**: New `user_preferences_api.py`
+  - GET/POST endpoints for user preferences management
+  - Centralized user configuration logic
+  - Integrated with API Gateway `/preferences` endpoint
+- **System Stats in Dashboard API**: Extended `dashboard_api.py`
+  - New `/dashboard/system` endpoint for system-wide statistics
+  - Total activities count, success rate (24h), processing count
+  - SQS queue depth monitoring (processing queue + DLQ)
+  - Replaces all direct DynamoDB/SQS access from frontend
+- **Environment Configuration Script**: `scripts/setup_local_env.sh`
+  - Automatically retrieves API Gateway URL from CloudFormation
+  - Retrieves API Key value from AWS API Gateway
+  - Generates `.env` file with all required configuration
+  - No more hardcoded values or manual configuration
+- **Environment Variables Support**: `python-dotenv` integration
+  - Loads configuration from `.env` file automatically
+  - API_GATEWAY_URL and API_GATEWAY_KEY from environment
+  - Fails fast if configuration missing (no silent fallbacks)
+
+### Security
+- **API Key Authentication**: All endpoints protected
+  - API Key required on all endpoints (api_key_required=True)
+  - Usage Plan with rate limiting: 100 req/s, burst 200, quota 10,000/day
+  - Proper CORS configuration for local development
+  - API Key stored in `.env` file (not hardcoded)
+- **IAM Permissions**: Enhanced Lambda role permissions
+  - Added `dynamodb:Scan` for system statistics
+  - Added `sqs:GetQueueAttributes` for queue monitoring
+  - Added coaching_sessions_table access for Campus Coach module
+  - Least privilege principle maintained
+
+### Removed
+- **Direct AWS SDK Access**: Eliminated all boto3 direct calls
+  - Removed boto3 client initializations (dynamodb, secretsmanager, apigateway)
+  - Removed `calculate_success_rate_24h()` function
+  - Removed `get_sqs_queue_depth()` function
+  - Removed `get_real_sqs_status()` function
+  - Removed CloudFormation auto-detection logic
+- **Temporary Files**: Cleaned up migration artifacts
+  - Deleted `local_interface/lambda_client.py` (unused approach)
+  - Deleted `MIGRATION_GUIDE.md` (migration complete)
+
+### Fixed
+- **Configuration API Lambda**: Updated to use nested module configuration format
+  - Fixed `configuration_api.py` to save in `modules_config.enduraw.enabled` format
+  - Fixed `get_modules()` to read from nested format
+  - Consistent with `activity_fetcher.py` and `app.py` implementations
+  - Resolves AccessDeniedException by using proper Lambda execution
+
+## [1.9.13] - 2025-12-30 - Enduraw Module Configuration Standardization
+
+### Changed
+- **Enduraw Module Configuration**: Unified data structure for consistency
+  - Migrated from flat format (`enduraw_enabled`) to nested format (`modules_config.enduraw.enabled`)
+  - Single source of truth for module configuration across frontend and Lambda functions
+  - Automatic migration from old format to new format in `activity_fetcher.py`
+  - Backward compatibility maintained during transition period
+
+### Performance
+- **Enduraw Wait Time**: Reduced from 2-7 minutes to 2 minutes
+  - Faster content generation when Enduraw Report is configured
+  - Reduced timeout from 420s to 120s in `enduraw_module.py`
+  - Check interval reduced from 30s to 20s for more responsive detection
+  - Minimum wait reduced from 120s to 60s
+
+### Documentation
+- **Enduraw Report External Configuration**: Clarified setup requirements
+  - Added prominent warnings that Enduraw Report must be configured externally
+  - Configuration URL: https://enduraw-report-strava.onrender.com
+  - Explained that our system only waits for data, doesn't configure Enduraw Report
+  - Documented graceful fallback behavior when Enduraw data unavailable
+  - Updated all documentation files: README.md, CONFIGURATION.md, TROUBLESHOOTING.md, config.html
+  - Clarified that content generation proceeds with or without Enduraw data
+
+### Fixed
+- **Module Configuration Consistency**: Resolved data structure mismatch
+  - Frontend was saving in flat format but Lambda was reading nested format
+  - Implemented unified nested structure throughout the system
+  - Added migration logic to convert existing flat configurations
+
 ## [1.9.12] - 2025-12-30 - Location & Weather Integration with Reverse Geocoding
 
 ### Added

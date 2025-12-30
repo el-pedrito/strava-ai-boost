@@ -63,20 +63,33 @@ Complete guide to configuring Strava AI Boost via the local web interface.
 - **"Connection timeout"**: Campus Coach website may be temporarily unavailable
 - **"Extraction failed"**: Check CloudWatch logs for detailed error messages
 
-### Enduraw Module
+### Enduraw Report Module
 
 **Purpose**: Enhanced analytics with weather and wind impact analysis.
 
+**⚠️ External Configuration Required**:
+- **Enduraw Report is NOT configured by this system**
+- **Must be set up separately** at: https://enduraw-report-strava.onrender.com
+- Enduraw Report is an independent third-party service that connects directly to your Strava account
+- This module only tells our system to wait for Enduraw data before generating content
+
 **Requirements**:
-- Enduraw app connected to your Strava account
+- Enduraw Report app connected to your Strava account (configured externally)
+- Enduraw Report must be processing your activities (independent of this system)
 
 **Setup**:
-1. Install Enduraw app from Strava App Store
-2. Go to Configuration → Modules
-3. Enable "Enduraw Integration"
-4. Configure wait time (2-7 minutes recommended)
+1. **First**: Configure Enduraw Report at https://enduraw-report-strava.onrender.com
+2. **Then**: In this system, go to Configuration → Modules
+3. Enable "Enduraw Integration" toggle
+4. System will wait 2 minutes for Enduraw data before generating content
 
-**Features**:
+**How It Works**:
+- When enabled, our system waits 2 minutes after activity upload
+- During this time, Enduraw Report (if configured) adds its analysis to your Strava activity description
+- Our system then reads the Enduraw data and includes it in content generation
+- **If Enduraw is not configured or times out**: Content generation proceeds without Enduraw data (graceful fallback)
+
+**Features** (when Enduraw Report is configured):
 - Pace without wind analysis
 - Weather impact assessment
 - Elevation cost analysis

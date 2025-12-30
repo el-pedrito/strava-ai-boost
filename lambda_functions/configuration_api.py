@@ -444,27 +444,40 @@ def get_modules(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
             logger.warning(f"Failed to get module config from DynamoDB: {e}")
             stored_config = {}
         
+        # Get modules_config (nested format)
+        modules_config = stored_config.get('modules_config', {})
+        
+        # Campus Coach configuration
+        campus_coach_config = modules_config.get('campus_coach', {})
+        campus_coach_enabled = campus_coach_config.get('enabled', False)
+        campus_coach_configured = campus_coach_config.get('configured', False)
+        
+        # Enduraw configuration
+        enduraw_config = modules_config.get('enduraw', {})
+        enduraw_enabled = enduraw_config.get('enabled', False)
+        enduraw_wait_time = enduraw_config.get('wait_time', '2 minutes')
+        
         # Default module configurations
         modules = {
             'campus_coach': {
                 'id': 'campus_coach',
                 'name': 'Campus Coach',
                 'description': 'Training session matching and performance analysis',
-                'enabled': stored_config.get('campus_coach_enabled', False),
-                'configured': stored_config.get('campus_coach_configured', False),
+                'enabled': campus_coach_enabled,
+                'configured': campus_coach_configured,
                 'requires_credentials': True,
                 'last_extraction': stored_config.get('campus_coach_last_extraction'),
-                'status': 'active' if stored_config.get('campus_coach_enabled') else 'disabled'
+                'status': 'active' if campus_coach_enabled else 'disabled'
             },
             'enduraw': {
                 'id': 'enduraw',
                 'name': 'Enduraw Integration',
                 'description': 'Enhanced analytics with weather and wind impact',
-                'enabled': stored_config.get('enduraw_enabled', False),
+                'enabled': enduraw_enabled,
                 'configured': True,  # No credentials required
                 'requires_credentials': False,
-                'wait_time': '2-7 minutes',
-                'status': 'active' if stored_config.get('enduraw_enabled') else 'disabled'
+                'wait_time': enduraw_wait_time,
+                'status': 'active' if enduraw_enabled else 'disabled'
             }
         }
         
@@ -529,13 +542,20 @@ def configure_module(event: Dict[str, Any], rate_limit_info: Dict[str, Any] = No
         except Exception:
             module_config = {'user_id': 'MODULE_CONFIG'}
         
-        # Update module configuration
-        module_config[f'{module_id}_enabled'] = enabled
-        module_config[f'{module_id}_configured'] = True
-        module_config[f'{module_id}_updated_at'] = datetime.now(UTC).isoformat()
+        # Update module configuration in nested structure (single source of truth)
+        if 'modules_config' not in module_config:
+            module_config['modules_config'] = {}
         
-        if module_id == 'campus_coach' and enabled:
-            module_config['campus_coach_configured'] = True
+        if module_id not in module_config['modules_config']:
+            module_config['modules_config'][module_id] = {}
+        
+        module_config['modules_config'][module_id]['enabled'] = enabled
+        module_config['modules_config'][module_id]['configured'] = True
+        module_config['modules_config'][module_id]['updated_at'] = datetime.now(UTC).isoformat()
+        
+        # Add module-specific configuration
+        if module_id == 'enduraw':
+            module_config['modules_config'][module_id]['wait_time'] = config.get('wait_time', '2 minutes')
         
         # Store updated configuration
         table.put_item(Item=module_config)

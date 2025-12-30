@@ -6,18 +6,22 @@ Python Flask application with AWS Cloudscape components for:
 - Module management (Campus Coach, Enduraw)
 - Real-time dashboard with activity statistics
 - Processing status monitoring
+
+Architecture: 100% API Gateway + Lambda (no direct AWS SDK access)
 """
 
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session
-import boto3
 import json
 import os
 import sys
 from typing import Dict, Any, List
 import logging
 import requests
-import requests
 from datetime import datetime, timedelta, UTC
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Add src directory to path for config imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -54,48 +58,15 @@ app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=2)  # Extended for OAuth flow
 
-# AWS clients - Force using the correct profile
-import os
-os.environ['AWS_PROFILE'] = 'your-aws-profile'
-os.environ['AWS_DEFAULT_REGION'] = 'eu-west-1'
+# Configuration - All from environment variables (.env file)
+API_GATEWAY_URL = os.environ.get('API_GATEWAY_URL', '').rstrip('/')
+API_GATEWAY_KEY = os.environ.get('API_GATEWAY_KEY', '')
 
-dynamodb = boto3.resource('dynamodb', region_name='eu-west-1')
-secretsmanager = boto3.client('secretsmanager', region_name='eu-west-1')
-apigateway = boto3.client('apigateway', region_name='eu-west-1')
+if not API_GATEWAY_URL or not API_GATEWAY_KEY:
+    logger.error("❌ API_GATEWAY_URL or API_GATEWAY_KEY not configured!")
+    logger.error("Run: ./scripts/setup_local_env.sh to configure environment variables")
+    sys.exit(1)
 
-# AWS Configuration Constants
-AWS_REGION = 'eu-west-1'
-USER_CONFIG_TABLE = os.environ.get('USER_CONFIG_TABLE', 'strava-ai-boost-user-configuration')
-ACTIVITIES_TABLE = os.environ.get('ACTIVITIES_TABLE', 'strava-ai-boost-activities')
-
-# Configuration - All URLs from environment variables or auto-detected from CloudFormation
-def get_api_gateway_url():
-    """Auto-detect API Gateway URL from CloudFormation if not provided via environment"""
-    env_url = os.environ.get('API_GATEWAY_URL')
-    if env_url:
-        return env_url
-    
-    try:
-        # Try to get API Gateway URL from CloudFormation
-        cf_client = boto3.client('cloudformation', region_name='eu-west-1')
-        
-        # Get StravaAIBoost-API stack outputs
-        response = cf_client.describe_stacks(StackName='StravaAIBoost-API')
-        outputs = response['Stacks'][0].get('Outputs', [])
-        
-        for output in outputs:
-            if 'APIEndpoint' in output['OutputKey']:
-                url = output['OutputValue'].rstrip('/')
-                logger.info(f"Auto-detected API Gateway URL from CloudFormation: {url}")
-                return url
-                
-    except Exception as e:
-        logger.warning(f"Failed to auto-detect API Gateway URL: {e}")
-    
-    # Fallback to default
-    return 'https://api.strava-ai-boost.local'
-
-API_GATEWAY_URL = get_api_gateway_url()
 STRAVA_OAUTH_URL = os.environ.get('STRAVA_OAUTH_URL', 'https://www.strava.com/oauth/authorize')
 STRAVA_TOKEN_URL = os.environ.get('STRAVA_TOKEN_URL', 'https://www.strava.com/oauth/token')
 CAMPUS_COACH_URL = os.environ.get('CAMPUS_COACH_URL', 'https://campus.coach')
@@ -104,12 +75,20 @@ ENDURAW_URL = os.environ.get('ENDURAW_URL', 'https://enduraw.com')
 # API Gateway endpoints
 API_ENDPOINTS = {
     'dashboard_stats': f"{API_GATEWAY_URL}/dashboard/stats",
-    'dashboard_activities': f"{API_GATEWAY_URL}/dashboard/activities", 
+    'dashboard_activities': f"{API_GATEWAY_URL}/dashboard/activities",
+    'dashboard_system': f"{API_GATEWAY_URL}/dashboard/system",
     'status': f"{API_GATEWAY_URL}/status",
     'oauth_status': f"{API_GATEWAY_URL}/config/oauth",
     'oauth_callback': f"{API_GATEWAY_URL}/config/oauth",
     'modules': f"{API_GATEWAY_URL}/config/modules",
-    'enhancement': f"{API_GATEWAY_URL}/config/enhancement"
+    'enhancement': f"{API_GATEWAY_URL}/config/enhancement",
+    'preferences': f"{API_GATEWAY_URL}/preferences"
+}
+
+# API Gateway headers with API Key
+API_HEADERS = {
+    'Content-Type': 'application/json',
+    'X-API-Key': API_GATEWAY_KEY
 }
 
 
@@ -140,20 +119,24 @@ def index():
             'enhancement_status': 'active' if enhancement_status.get('enhancement_enabled', True) else 'paused'
         }
         
-        # Get total activities count
+        # Get system stats from API Gateway
         try:
-            table = dynamodb.Table('strava-ai-boost-activities')
-            response = table.scan(Select='COUNT')
-            system_status['total_activities'] = response.get('Count', 0)
+            response = requests.get(API_ENDPOINTS['dashboard_system'], headers=API_HEADERS, timeout=5)
+            if response.status_code == 200:
+                system_stats = response.json()
+                system_status['total_activities'] = system_stats.get('total_activities', 0)
+                system_status['success_rate_24h'] = system_stats.get('success_rate', 0)
+                system_status['processing_queue_depth'] = system_stats.get('queue_depth', 0)
+            else:
+                logger.warning(f"System stats API returned {response.status_code}")
+                system_status['total_activities'] = 0
+                system_status['success_rate_24h'] = 0
+                system_status['processing_queue_depth'] = 0
         except Exception as e:
-            logger.warning(f"Failed to get activity count: {e}")
+            logger.warning(f"Failed to get system stats from API: {e}")
             system_status['total_activities'] = 0
-        
-        # Calculate real success rate from last 24h activities
-        system_status['success_rate_24h'] = calculate_success_rate_24h()
-        
-        # Get real queue depth from SQS
-        system_status['processing_queue_depth'] = get_sqs_queue_depth()
+            system_status['success_rate_24h'] = 0
+            system_status['processing_queue_depth'] = 0
         
         # Get recent activities (same function as API)
         activities = get_recent_activities()
@@ -215,75 +198,20 @@ def get_agentcore_status() -> str:
         return 'error'
 
 
-def calculate_success_rate_24h() -> float:
-    """Calculate real success rate from activities in last 24 hours"""
-    try:
-        table = dynamodb.Table('strava-ai-boost-activities')
-        
-        # Get activities from last 24 hours
-        from datetime import datetime, timedelta, UTC
-        yesterday = (datetime.now(UTC) - timedelta(days=1)).isoformat()
-        
-        response = table.scan(
-            FilterExpression='created_at > :yesterday',
-            ExpressionAttributeValues={':yesterday': yesterday}
-        )
-        
-        activities = response.get('Items', [])
-        if not activities:
-            return 98.0  # Default based on system design
-        
-        # Count successful vs failed activities
-        successful = sum(1 for activity in activities 
-                        if activity.get('processing_status') == 'completed' 
-                        or activity.get('enhanced_description'))
-        
-        total = len(activities)
-        return round((successful / total) * 100, 1) if total > 0 else 98.0
-        
-    except Exception as e:
-        logger.warning(f"Failed to calculate success rate: {e}")
-        return 98.0  # Default
+# REMOVED: calculate_success_rate_24h() - Now using API Gateway /dashboard/system endpoint
 
 
-def get_sqs_queue_depth() -> int:
-    """Get real queue depth from SQS"""
-    try:
-        sqs = boto3.client('sqs', region_name='eu-west-1')
-        
-        # Get queue URL
-        queue_name = 'strava-ai-boost-activity-processing'
-        response = sqs.get_queue_url(QueueName=queue_name)
-        queue_url = response['QueueUrl']
-        
-        # Get queue attributes
-        attributes = sqs.get_queue_attributes(
-            QueueUrl=queue_url,
-            AttributeNames=['ApproximateNumberOfMessages']
-        )
-        
-        return int(attributes['Attributes']['ApproximateNumberOfMessages'])
-        
-    except Exception as e:
-        logger.warning(f"Failed to get SQS queue depth: {e}")
-        return 0
+# REMOVED: get_sqs_queue_depth() - Now using API Gateway /dashboard/system endpoint
 
 
 def get_enhancement_status_local() -> Dict[str, Any]:
-    """Get enhancement status from local DynamoDB"""
+    """Get enhancement status from API Gateway"""
     try:
-        table = dynamodb.Table('strava-ai-boost-user-configuration')
-        response = table.get_item(Key={'user_id': 'SYSTEM_CONFIG'})
-        
-        if 'Item' in response:
-            config = response['Item']
-            return {
-                'enhancement_enabled': config.get('enhancement_enabled', True),
-                'enhancement_paused_at': config.get('enhancement_paused_at'),
-                'status': 'active' if config.get('enhancement_enabled', True) else 'paused'
-            }
+        response = requests.get(API_ENDPOINTS['enhancement'], headers=API_HEADERS, timeout=5)
+        if response.status_code == 200:
+            return response.json()
         else:
-            # Default configuration
+            logger.warning(f"Enhancement API returned {response.status_code}")
             return {
                 'enhancement_enabled': True,
                 'enhancement_paused_at': None,
@@ -299,45 +227,22 @@ def get_enhancement_status_local() -> Dict[str, Any]:
 
 
 def get_processing_status_local() -> Dict[str, Any]:
-    """Get processing status from local sources with real SQS data"""
+    """Get processing status from API Gateway"""
     try:
-        # Get currently processing activities
-        processing_activities = []
-        try:
-            table = dynamodb.Table('strava-ai-boost-activities')
-            response = table.scan(
-                FilterExpression='processing_status = :status',
-                ExpressionAttributeValues={':status': 'processing'},
-                Limit=10
-            )
-            
-            for item in response.get('Items', []):
-                # Get modules being used for this activity
-                modules_used = []
-                if item.get('campus_coach_session_id') or item.get('campus_coach_data'):
-                    modules_used.append('Campus Coach')
-                if item.get('enduraw_data') or item.get('enhanced_metrics'):
-                    modules_used.append('Enduraw')
-                
-                processing_activities.append({
-                    'id': item.get('activity_id'),
-                    'name': item.get('original_name', 'Unknown Activity'),
-                    'type': item.get('activity_type', 'Unknown'),
-                    'started_at': item.get('processing_started_at'),
-                    'modules_used': modules_used
-                })
-        except Exception as e:
-            logger.warning(f"Failed to get processing activities: {e}")
-        
-        # Get real queue status from SQS
-        queue_status = get_real_sqs_status()
-        
-        return {
-            'processing_activities': processing_activities,
-            'queue_status': queue_status,
-            'system_status': 'healthy',
-            'last_updated': datetime.now(UTC).isoformat()
-        }
+        response = requests.get(API_ENDPOINTS['status'], headers=API_HEADERS, timeout=5)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            logger.warning(f"Status API returned {response.status_code}")
+            return {
+                'processing_activities': [],
+                'queue_status': {
+                    'processing_queue': {'approximate_messages': 0},
+                    'dead_letter_queue': {'approximate_messages': 0}
+                },
+                'system_status': 'unknown',
+                'last_updated': datetime.now(UTC).isoformat()
+            }
     except Exception as e:
         logger.error(f"Processing status error: {str(e)}")
         return {
@@ -351,61 +256,7 @@ def get_processing_status_local() -> Dict[str, Any]:
         }
 
 
-def get_real_sqs_status() -> Dict[str, Dict[str, int]]:
-    """Get real SQS queue status"""
-    try:
-        sqs = boto3.client('sqs', region_name='eu-west-1')
-        
-        # Get main processing queue
-        try:
-            main_queue_response = sqs.get_queue_url(QueueName='strava-ai-boost-activity-processing')
-            main_queue_url = main_queue_response['QueueUrl']
-            
-            main_attributes = sqs.get_queue_attributes(
-                QueueUrl=main_queue_url,
-                AttributeNames=['ApproximateNumberOfMessages', 'ApproximateNumberOfMessagesNotVisible']
-            )
-            
-            main_messages = int(main_attributes['Attributes'].get('ApproximateNumberOfMessages', 0))
-            main_in_flight = int(main_attributes['Attributes'].get('ApproximateNumberOfMessagesNotVisible', 0))
-            
-        except Exception as e:
-            logger.warning(f"Failed to get main queue status: {e}")
-            main_messages = 0
-            main_in_flight = 0
-        
-        # Get dead letter queue
-        try:
-            dlq_queue_response = sqs.get_queue_url(QueueName='strava-ai-boost-activity-processing-dlq')
-            dlq_queue_url = dlq_queue_response['QueueUrl']
-            
-            dlq_attributes = sqs.get_queue_attributes(
-                QueueUrl=dlq_queue_url,
-                AttributeNames=['ApproximateNumberOfMessages']
-            )
-            
-            dlq_messages = int(dlq_attributes['Attributes'].get('ApproximateNumberOfMessages', 0))
-            
-        except Exception as e:
-            logger.warning(f"Failed to get DLQ status: {e}")
-            dlq_messages = 0
-        
-        return {
-            'processing_queue': {
-                'approximate_messages': main_messages,
-                'messages_in_flight': main_in_flight
-            },
-            'dead_letter_queue': {
-                'approximate_messages': dlq_messages
-            }
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to get SQS status: {e}")
-        return {
-            'processing_queue': {'approximate_messages': 0},
-            'dead_letter_queue': {'approximate_messages': 0}
-        }
+# REMOVED: get_real_sqs_status() - Now using API Gateway /dashboard/system endpoint
 
 
 @app.route('/config')
@@ -709,47 +560,28 @@ def api_get_module_status():
 
 
 def check_module_health(module_id: str) -> Dict[str, Any]:
-    """Check module health status"""
+    """Check module health status via API Gateway"""
     try:
-        health_data = {
-            'health_status': 'unknown',
-            'last_health_check': datetime.now(UTC).isoformat()
-        }
-        
-        if module_id == 'campus_coach':
-            # Check Campus Coach credentials and AgentCore agent status
-            try:
-                # Check if credentials exist
-                secret_name = 'strava-ai-boost-campus-coach-credentials'
-                secretsmanager.get_secret_value(SecretId=secret_name)
-                
-                # Check recent extraction success
-                sessions_table = dynamodb.Table('strava-ai-boost-campus-coaching-sessions')
-                recent_sessions = sessions_table.scan(
-                    FilterExpression='extracted_at > :recent_time',
-                    ExpressionAttributeValues={
-                        ':recent_time': (datetime.now(UTC) - timedelta(days=7)).isoformat()
-                    },
-                    Limit=1
-                )
-                
-                if recent_sessions.get('Items'):
-                    health_data['health_status'] = 'healthy'
-                    health_data['last_successful_extraction'] = recent_sessions['Items'][0].get('extracted_at')
-                else:
-                    health_data['health_status'] = 'warning'
-                    health_data['health_message'] = 'No recent extractions found'
-                    
-            except Exception as e:
-                health_data['health_status'] = 'error'
-                health_data['health_message'] = f'Health check failed: {str(e)}'
-                
-        elif module_id == 'enduraw':
-            # Enduraw is a third-party integration, check if it's properly configured
-            health_data['health_status'] = 'healthy'
-            health_data['health_message'] = 'Third-party integration - status depends on Enduraw service'
-        
-        return health_data
+        # Get module status from API Gateway
+        response = requests.get(API_ENDPOINTS['modules'], headers=API_HEADERS, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            modules = data.get('modules', {})
+            module_data = modules.get(module_id, {})
+            
+            return {
+                'health_status': module_data.get('status', 'unknown'),
+                'health_message': module_data.get('message', ''),
+                'last_health_check': datetime.now(UTC).isoformat(),
+                'last_successful_extraction': module_data.get('last_extraction')
+            }
+        else:
+            logger.warning(f"Modules API returned {response.status_code}")
+            return {
+                'health_status': 'unknown',
+                'health_message': 'API Gateway unavailable',
+                'last_health_check': datetime.now(UTC).isoformat()
+            }
         
     except Exception as e:
         logger.error(f"Module health check error for {module_id}: {e}")
@@ -761,55 +593,32 @@ def check_module_health(module_id: str) -> Dict[str, Any]:
 
 
 def get_module_processing_status(module_id: str) -> Dict[str, Any]:
-    """Get module processing status from Step Functions workflow"""
+    """Get module processing status from API Gateway"""
     try:
-        processing_data = {
-            'processing_status': 'unknown',
-            'active_executions': 0,
-            'last_execution': None
-        }
-        
-        # Try to get Step Functions status
-        try:
-            stepfunctions = boto3.client('stepfunctions', region_name='eu-west-1')
+        # Get processing status from API Gateway
+        response = requests.get(API_ENDPOINTS['status'], headers=API_HEADERS, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
             
-            # Get state machine ARN (would need to be configured)
-            state_machine_arn = os.environ.get('STEP_FUNCTIONS_ARN')
+            # Extract module-specific processing info
+            processing_activities = data.get('processing_activities', [])
+            module_activities = [
+                act for act in processing_activities 
+                if module_id.replace('_', ' ').title() in act.get('modules_used', [])
+            ]
             
-            if state_machine_arn:
-                # Get recent executions
-                executions = stepfunctions.list_executions(
-                    stateMachineArn=state_machine_arn,
-                    statusFilter='RUNNING',
-                    maxResults=10
-                )
-                
-                processing_data['active_executions'] = len(executions.get('executions', []))
-                
-                # Get most recent execution
-                all_executions = stepfunctions.list_executions(
-                    stateMachineArn=state_machine_arn,
-                    maxResults=1
-                )
-                
-                if all_executions.get('executions'):
-                    latest = all_executions['executions'][0]
-                    processing_data['last_execution'] = {
-                        'name': latest.get('name'),
-                        'status': latest.get('status'),
-                        'start_date': latest.get('startDate').isoformat() if latest.get('startDate') else None
-                    }
-                    processing_data['processing_status'] = 'active' if processing_data['active_executions'] > 0 else 'idle'
-            else:
-                processing_data['processing_status'] = 'not_configured'
-                processing_data['processing_message'] = 'Step Functions ARN not configured'
-                
-        except Exception as e:
-            logger.warning(f"Failed to get Step Functions status: {e}")
-            processing_data['processing_status'] = 'unavailable'
-            processing_data['processing_message'] = f'Step Functions unavailable: {str(e)}'
-        
-        return processing_data
+            return {
+                'processing_status': 'active' if module_activities else 'idle',
+                'active_executions': len(module_activities),
+                'last_execution': module_activities[0] if module_activities else None
+            }
+        else:
+            logger.warning(f"Status API returned {response.status_code}")
+            return {
+                'processing_status': 'unavailable',
+                'active_executions': 0,
+                'processing_message': 'API Gateway unavailable'
+            }
         
     except Exception as e:
         logger.error(f"Processing status error for {module_id}: {e}")
@@ -1020,39 +829,22 @@ def api_get_enhancement_status():
     """API endpoint to get enhancement status"""
     try:
         # Call AWS API Gateway to get enhancement status
-        try:
-            response = requests.get(API_ENDPOINTS['enhancement'], timeout=10)
-            if response.status_code == 200:
-                return jsonify(response.json())
-            else:
-                logger.warning(f"Enhancement API returned status {response.status_code}: {response.text}")
-        except requests.RequestException as e:
-            logger.warning(f"Failed to call API Gateway: {e}")
-        
-        # Fallback to local DynamoDB query
-        table = dynamodb.Table('strava-ai-boost-user-configuration')
-        response = table.get_item(Key={'user_id': 'SYSTEM_CONFIG'})
-        
-        if 'Item' in response:
-            config = response['Item']
-            enhancement_enabled = config.get('enhancement_enabled', True)
-            paused_at = config.get('enhancement_paused_at')
-            
-            return jsonify({
-                'enhancement_enabled': enhancement_enabled,
-                'enhancement_paused_at': paused_at,
-                'status': 'active' if enhancement_enabled else 'paused',
-                'fallback': True
-            })
+        response = requests.get(API_ENDPOINTS['enhancement'], headers=API_HEADERS, timeout=10)
+        if response.status_code == 200:
+            return jsonify(response.json())
         else:
-            # Default configuration
+            logger.error(f"Enhancement API returned status {response.status_code}: {response.text}")
             return jsonify({
-                'enhancement_enabled': True,
-                'enhancement_paused_at': None,
-                'status': 'active',
-                'fallback': True
-            })
+                'error': 'Failed to get enhancement status from API',
+                'status_code': response.status_code
+            }), response.status_code
             
+    except requests.RequestException as e:
+        logger.error(f"Failed to call Enhancement API: {e}")
+        return jsonify({
+            'error': 'API Gateway unavailable',
+            'message': str(e)
+        }), 503
     except Exception as e:
         logger.error(f"Get enhancement status error: {str(e)}")
         return jsonify({'error': str(e)}), 500
@@ -1082,7 +874,7 @@ def api_toggle_enhancement():
                 API_ENDPOINTS['enhancement'], 
                 json={'action': action},
                 timeout=10,
-                headers={'Content-Type': 'application/json'}
+                headers=API_HEADERS
             )
             if response.status_code == 200:
                 result = response.json()
@@ -1101,55 +893,33 @@ def api_toggle_enhancement():
                     flash(message, flash_type)
                     return redirect(url_for('index'))
             else:
-                logger.warning(f"Enhancement API returned status {response.status_code}: {response.text}")
+                logger.error(f"Enhancement API returned status {response.status_code}: {response.text}")
+                if request.is_json:
+                    return jsonify({
+                        'error': 'Failed to toggle enhancement',
+                        'status_code': response.status_code
+                    }), response.status_code
+                else:
+                    flash('Failed to toggle enhancement. Please try again.', 'error')
+                    return redirect(url_for('index'))
         except requests.RequestException as e:
-            logger.warning(f"Failed to call API Gateway: {e}")
+            logger.error(f"Failed to call API Gateway: {e}")
+            if request.is_json:
+                return jsonify({
+                    'error': 'API Gateway unavailable',
+                    'message': str(e)
+                }), 503
+            else:
+                flash('API Gateway unavailable. Please try again.', 'error')
+                return redirect(url_for('index'))
         
-        # Fallback to local DynamoDB update
-        table = dynamodb.Table('strava-ai-boost-user-configuration')
-        
-        if action == 'pause':
-            paused_at = datetime.now(UTC).isoformat()
-            table.put_item(
-                Item={
-                    'user_id': 'SYSTEM_CONFIG',
-                    'enhancement_enabled': False,
-                    'enhancement_paused_at': paused_at,
-                    'updated_at': paused_at
-                }
-            )
-            message = 'Enhancement has been paused. New activities will not be processed.'
-            flash_type = 'info'
-            result = {
-                'status': 'paused',
-                'paused_at': paused_at,
-                'message': 'Enhancement paused',
-                'fallback': True
-            }
-        else:  # resume
-            resumed_at = datetime.now(UTC).isoformat()
-            table.put_item(
-                Item={
-                    'user_id': 'SYSTEM_CONFIG',
-                    'enhancement_enabled': True,
-                    'enhancement_paused_at': None,
-                    'enhancement_resumed_at': resumed_at,
-                    'updated_at': resumed_at
-                }
-            )
-            message = 'Enhancement has been resumed. New activities will be processed automatically.'
-            flash_type = 'success'
-            result = {
-                'status': 'active',
-                'resumed_at': resumed_at,
-                'message': 'Enhancement resumed',
-                'fallback': True
-            }
-        
+    except Exception as e:
+        logger.error(f"Toggle enhancement error: {str(e)}")
         if request.is_json:
-            return jsonify(result)
+            return jsonify({'error': str(e)}), 500
         else:
-            flash(message, flash_type)
+            flash(f'Error: {str(e)}', 'error')
+            return redirect(url_for('index'))
             return redirect(url_for('index'))
         
     except Exception as e:
@@ -1253,56 +1023,27 @@ def api_test_connection():
 
 
 def get_system_status() -> Dict[str, Any]:
-    """Get overall system status"""
+    """Get overall system status from API Gateway"""
     try:
-        # Try to get status from API Gateway first
-        try:
-            response = requests.get(API_ENDPOINTS['status'], timeout=5)
-            if response.status_code == 200:
-                return response.json()
-            else:
-                logger.warning(f"Status API returned status {response.status_code}: {response.text}")
-        except requests.RequestException as e:
-            logger.warning(f"Failed to get status from API Gateway: {e}")
+        # Get status from API Gateway
+        response = requests.get(API_ENDPOINTS['status'], headers=API_HEADERS, timeout=5)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            logger.warning(f"Status API returned status {response.status_code}: {response.text}")
         
-        # Fallback to local status checks using the same functions as config page
+        # Fallback to minimal status
         oauth_status = get_oauth_status()
-        
-        # Get AgentCore status by checking if agents are accessible
-        agentcore_status = 'unknown'
-        try:
-            # Try to access AgentCore memory to test connectivity
-            import os
-            memory_id = os.environ.get('BEDROCK_AGENTCORE_MEMORY_ID')
-            if memory_id:
-                # Simple check - if we have the memory ID, AgentCore is likely configured
-                agentcore_status = 'healthy'
-            else:
-                agentcore_status = 'not_configured'
-        except Exception as e:
-            logger.warning(f"AgentCore status check failed: {e}")
-            agentcore_status = 'error'
-        
-        # Get activity count from DynamoDB
-        total_activities = 0
-        try:
-            table = dynamodb.Table('strava-ai-boost-activities')
-            response = table.scan(Select='COUNT')
-            total_activities = response.get('Count', 0)
-        except Exception as e:
-            logger.warning(f"Failed to get activity count: {e}")
-        
-        # Calculate success rate (simplified)
-        success_rate_24h = 98.0  # Default based on system design
+        agentcore_status = get_agentcore_status()
         
         return {
             'strava_connected': oauth_status.get('connected', False),
             'agentcore_status': agentcore_status,
-            'processing_queue_depth': 0,  # Will be updated when SQS is configured
-            'last_activity_processed': None,  # Will be updated with real data
-            'success_rate_24h': success_rate_24h,
-            'total_activities': total_activities,
-            'enhancement_status': 'active',  # Default, will be updated by enhancement API
+            'processing_queue_depth': 0,
+            'last_activity_processed': None,
+            'success_rate_24h': 98.0,
+            'total_activities': 0,
+            'enhancement_status': 'active',
             'system_health': 'healthy' if oauth_status.get('connected') and agentcore_status == 'healthy' else 'degraded',
             'fallback': True
         }
@@ -1320,118 +1061,52 @@ def get_system_status() -> Dict[str, Any]:
 
 
 def get_recent_activities() -> List[Dict[str, Any]]:
-    """Get recent processed activities from DynamoDB"""
+    """Get recent processed activities from API Gateway"""
     try:
-        # Query DynamoDB directly for activities
-        try:
-            table = dynamodb.Table('strava-ai-boost-activities')
-            # Get recent activities
-            response = table.scan(
-                Limit=10
-            )
+        # Get activities from API Gateway
+        response = requests.get(API_ENDPOINTS['dashboard_activities'], headers=API_HEADERS, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            raw_activities = data.get('activities', [])
             
+            # Transform to template format
             activities = []
-            for item in response.get('Items', []):
-                # Format activity data for dashboard
-                activity_date = item.get('updated_at', '')
-                if activity_date:
+            for act in raw_activities[:10]:  # Top 10
+                # Calculate processing time
+                created_at = act.get('created_at', '')
+                updated_at = act.get('updated_at', '')
+                processing_time = 'N/A'
+                
+                if created_at and updated_at:
                     try:
-                        # Parse and format date (DynamoDB format is different)
-                        if 'T' in activity_date:
-                            parsed_date = datetime.fromisoformat(activity_date.replace('Z', '+00:00'))
-                        else:
-                            # Handle simple date format
-                            parsed_date = datetime.fromisoformat(activity_date + '+00:00')
-                        formatted_date = parsed_date.strftime('%Y-%m-%d %H:%M')
-                    except Exception as e:
-                        logger.warning(f"Date parsing error: {e}")
-                        formatted_date = str(activity_date)
-                else:
-                    formatted_date = 'Unknown'
-                
-                # Determine processing status based on actual data
-                status = item.get('processing_status', 'unknown')
-                if status == 'not_processed' and item.get('enhanced_description'):
-                    status = 'completed'  # Has enhanced content
-                elif status == 'not_processed':
-                    status = 'pending'
-                
-                # Get modules used based on actual data
-                modules_used = []
-                modules_list = item.get('modules_used', [])
-                if isinstance(modules_list, list):
-                    for module in modules_list:
-                        if isinstance(module, dict) and 'S' in module:
-                            modules_used.append(module['S'])
-                        elif isinstance(module, str):
-                            modules_used.append(module)
-                
-                # Check for Campus Coach data
-                if item.get('campus_coach_session_id') or item.get('campus_coach_data'):
-                    if 'Campus Coach' not in modules_used:
-                        modules_used.append('Campus Coach')
-                
-                # Check for Enduraw data
-                if item.get('enduraw_data') or item.get('enhanced_metrics'):
-                    if 'Enduraw' not in modules_used:
-                        modules_used.append('Enduraw')
-                
-                # Calculate processing time if available
-                processing_time = 'unknown'
-                if item.get('processing_started_at') and item.get('processing_completed_at'):
-                    try:
-                        start = datetime.fromisoformat(item['processing_started_at'].replace('Z', '+00:00'))
-                        end = datetime.fromisoformat(item['processing_completed_at'].replace('Z', '+00:00'))
-                        duration = (end - start).total_seconds()
-                        if duration < 60:
-                            processing_time = f"{int(duration)}s"
-                        else:
-                            processing_time = f"{int(duration/60)}m {int(duration%60)}s"
+                        created = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                        updated = datetime.fromisoformat(updated_at.replace('Z', '+00:00'))
+                        delta = updated - created
+                        processing_time = f"{int(delta.total_seconds())}s"
                     except:
-                        processing_time = 'unknown'
-                elif item.get('processing_duration'):
-                    processing_time = item.get('processing_duration')
-                elif status == 'completed':
-                    processing_time = '<30s'  # Estimated for completed activities
+                        pass
                 
-                # Get activity name from enhanced title or fallback
-                activity_name = 'Unknown Activity'
-                if item.get('enhanced_title'):
-                    activity_name = item.get('enhanced_title')
-                elif item.get('original_name'):
-                    activity_name = item.get('original_name')
-                elif item.get('name'):
-                    activity_name = item.get('name')
+                # Format date
+                date_str = 'N/A'
+                if created_at:
+                    try:
+                        dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                        date_str = dt.strftime('%Y-%m-%d %H:%M')
+                    except:
+                        pass
                 
                 activities.append({
-                    'id': item.get('activity_id'),
-                    'name': activity_name,
-                    'date': formatted_date,
-                    'status': status,
-                    'modules_used': modules_used,
+                    'name': act.get('enhanced_title') or act.get('original_name', 'Unknown'),
+                    'date': date_str,
                     'processing_time': processing_time,
-                    'activity_type': item.get('activity_type', 'Run'),  # Default to Run
-                    'distance': item.get('distance', 0),
-                    'duration': item.get('moving_time', 0),
-                    'has_enhanced_content': bool(item.get('enhanced_description'))
+                    'status': act.get('processing_status', 'unknown'),
+                    'modules_used': act.get('modules_used', [])
                 })
             
-            # Sort by date (most recent first) - try to parse dates for proper sorting
-            def sort_key(activity):
-                try:
-                    if activity['date'] != 'Unknown':
-                        return datetime.strptime(activity['date'], '%Y-%m-%d %H:%M')
-                    return datetime.min
-                except:
-                    return datetime.min
-            
-            activities.sort(key=sort_key, reverse=True)
-            
-            logger.info(f"Found {len(activities)} activities in DynamoDB")
-            return activities[:10]  # Return top 10
-            
-        except Exception as e:
-            logger.error(f"Failed to query DynamoDB for activities: {e}")
+            logger.info(f"Transformed {len(activities)} activities for dashboard")
+            return activities
+        else:
+            logger.error(f"Activities API returned {response.status_code}: {response.text}")
             return []
         
     except Exception as e:
@@ -1444,7 +1119,7 @@ def get_module_status() -> Dict[str, Any]:
     try:
         # Try to get module status from API Gateway first
         try:
-            response = requests.get(API_ENDPOINTS['modules'], timeout=5)
+            response = requests.get(API_ENDPOINTS['modules'], headers=API_HEADERS, timeout=5)
             if response.status_code == 200:
                 data = response.json()
                 modules = data.get('modules', {})
@@ -1457,7 +1132,7 @@ def get_module_status() -> Dict[str, Any]:
                         'configured': module_data.get('configured', False),
                         'status': module_data.get('status', 'unknown'),
                         'last_extraction': module_data.get('last_extraction'),
-                        'wait_time': module_data.get('wait_time', '2-7 minutes') if module_id == 'enduraw' else None
+                        'wait_time': module_data.get('wait_time', '2 minutes') if module_id == 'enduraw' else None
                     }
                 
                 return status
@@ -1466,60 +1141,22 @@ def get_module_status() -> Dict[str, Any]:
         except requests.RequestException as e:
             logger.warning(f"Failed to get module status from API Gateway: {e}")
         
-        # Fallback to local DynamoDB query
-        try:
-            table = dynamodb.Table('strava-ai-boost-user-configuration')
-            response = table.get_item(Key={'user_id': 'MODULE_CONFIG'})
-            stored_config = response.get('Item', {})
-            
-            # Get Campus Coach last extraction from coaching sessions table
-            campus_coach_last_extraction = None
-            try:
-                sessions_table = dynamodb.Table('strava-ai-boost-campus-coaching-sessions')
-                sessions_response = sessions_table.scan(
-                    Limit=1,
-                    ScanIndexForward=False  # Get most recent
-                )
-                if sessions_response.get('Items'):
-                    latest_session = sessions_response['Items'][0]
-                    campus_coach_last_extraction = latest_session.get('extracted_at')
-            except Exception as e:
-                logger.warning(f"Failed to get Campus Coach last extraction: {e}")
-            
-            return {
-                'campus_coach': {
-                    'enabled': stored_config.get('campus_coach_enabled', False),
-                    'configured': stored_config.get('campus_coach_configured', False),
-                    'last_extraction': campus_coach_last_extraction,
-                    'status': 'active' if stored_config.get('campus_coach_enabled') else 'disabled',
-                    'credentials_updated': stored_config.get('campus_coach_credentials_updated'),
-                    'updated_at': stored_config.get('campus_coach_updated_at')
-                },
-                'enduraw': {
-                    'enabled': stored_config.get('enduraw_enabled', False),
-                    'configured': True,  # No credentials required
-                    'wait_time': stored_config.get('enduraw_wait_time', '2-7 minutes'),
-                    'status': 'active' if stored_config.get('enduraw_enabled') else 'disabled',
-                    'updated_at': stored_config.get('enduraw_updated_at')
-                }
-            }
-            
-        except Exception as e:
-            logger.warning(f"Failed to query DynamoDB for module status: {e}")
-            
-        # Final fallback with default values
+        # API Gateway failed, return error
+        logger.error("Failed to get module status from API Gateway")
         return {
             'campus_coach': {
                 'enabled': False,
                 'configured': False,
                 'last_extraction': None,
-                'status': 'disabled'
+                'status': 'error',
+                'error': 'API Gateway unavailable'
             },
             'enduraw': {
                 'enabled': False,
                 'configured': True,
-                'wait_time': '2-7 minutes',
-                'status': 'disabled'
+                'wait_time': '2 minutes',
+                'status': 'error',
+                'error': 'API Gateway unavailable'
             }
         }
         
@@ -1536,7 +1173,7 @@ def get_module_status() -> Dict[str, Any]:
             'enduraw': {
                 'enabled': False,
                 'configured': True,
-                'wait_time': '2-7 minutes',
+                'wait_time': '2 minutes',
                 'status': 'error',
                 'error': str(e)
             }
@@ -1583,82 +1220,18 @@ def get_oauth_status() -> Dict[str, Any]:
 def get_module_configurations() -> Dict[str, Any]:
     """Get module configurations with enhanced status information"""
     try:
-        # Try to get module configs from API Gateway first
-        try:
-            response = requests.get(API_ENDPOINTS['modules'], timeout=5)
-            if response.status_code == 200:
-                data = response.json()
-                return data.get('modules', {})
-            else:
-                logger.warning(f"Modules API returned status {response.status_code}: {response.text}")
-        except requests.RequestException as e:
-            logger.warning(f"Failed to get modules from API Gateway: {e}")
-        
-        # Fallback to local DynamoDB query
-        try:
-            table = dynamodb.Table('strava-ai-boost-user-configuration')
-            response = table.get_item(Key={'user_id': 'MODULE_CONFIG'})
-            stored_config = response.get('Item', {})
+        # Get module configs from API Gateway
+        response = requests.get(API_ENDPOINTS['modules'], headers=API_HEADERS, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            return data.get('modules', {})
+        else:
+            logger.error(f"Modules API returned status {response.status_code}: {response.text}")
+            return {}
             
-            # Check Campus Coach credentials status
-            campus_coach_configured = stored_config.get('campus_coach_configured', False)
-            if not campus_coach_configured:
-                # Check if credentials exist in Secrets Manager
-                try:
-                    secretsmanager.get_secret_value(SecretId='strava-ai-boost-campus-coach-credentials')
-                    campus_coach_configured = True
-                except:
-                    campus_coach_configured = False
-            
-            return {
-                'campus_coach': {
-                    'id': 'campus_coach',
-                    'name': 'Campus Coach',
-                    'description': 'Training session matching and performance analysis',
-                    'enabled': stored_config.get('campus_coach_enabled', False),
-                    'configured': campus_coach_configured,
-                    'requires_credentials': True,
-                    'last_extraction': stored_config.get('campus_coach_last_extraction'),
-                    'updated_at': stored_config.get('campus_coach_updated_at'),
-                    'status': 'active' if stored_config.get('campus_coach_enabled') else 'disabled'
-                },
-                'enduraw': {
-                    'id': 'enduraw',
-                    'name': 'Enduraw Integration',
-                    'description': 'Enhanced analytics with weather and wind impact',
-                    'enabled': stored_config.get('enduraw_enabled', False),
-                    'configured': True,  # No credentials required
-                    'requires_credentials': False,
-                    'wait_time': stored_config.get('enduraw_wait_time', '2-7 minutes'),
-                    'updated_at': stored_config.get('enduraw_updated_at'),
-                    'status': 'active' if stored_config.get('enduraw_enabled') else 'disabled'
-                }
-            }
-        except Exception as e:
-            logger.warning(f"Failed to query DynamoDB for modules: {e}")
-            
-        # Final fallback
-        return {
-            'campus_coach': {
-                'id': 'campus_coach',
-                'name': 'Campus Coach',
-                'description': 'Training session matching and performance analysis',
-                'enabled': False,
-                'configured': False,
-                'requires_credentials': True,
-                'status': 'disabled'
-            },
-            'enduraw': {
-                'id': 'enduraw',
-                'name': 'Enduraw Integration',
-                'description': 'Enhanced analytics with weather and wind impact',
-                'enabled': False,
-                'configured': True,
-                'requires_credentials': False,
-                'wait_time': '2-7 minutes',
-                'status': 'disabled'
-            }
-        }
+    except requests.RequestException as e:
+        logger.error(f"Failed to get modules from API Gateway: {e}")
+        return {}
     except Exception as e:
         logger.error(f"Module configurations error: {str(e)}")
         return {}
@@ -1682,97 +1255,27 @@ def configure_module(module_id: str, config_data: Dict[str, Any]) -> Dict[str, A
                 API_ENDPOINTS['modules'],
                 json=payload,
                 timeout=10,
-                headers={'Content-Type': 'application/json'}
+                headers=API_HEADERS
             )
             
             if response.status_code == 200:
                 logger.info(f"Module {module_id} configured successfully via API Gateway")
                 return {
                     'success': True,
-                    'message': f'{module_id.replace("_", " ").title()} {"enabled" if enabled else "disabled"} successfully via API Gateway'
+                    'message': f'{module_id.replace("_", " ").title()} {"enabled" if enabled else "disabled"} successfully'
                 }
             else:
-                logger.warning(f"Module API returned status {response.status_code}: {response.text}")
+                logger.error(f"Module API returned status {response.status_code}: {response.text}")
+                return {
+                    'success': False,
+                    'error': f'API returned status {response.status_code}'
+                }
+                
         except requests.RequestException as e:
-            logger.warning(f"Failed to configure module via API Gateway: {e}")
-        
-        # Fallback to local DynamoDB update
-        try:
-            table = dynamodb.Table('strava-ai-boost-user-configuration')
-            
-            # Get existing config
-            try:
-                response = table.get_item(Key={'user_id': 'MODULE_CONFIG'})
-                module_config = response.get('Item', {'user_id': 'MODULE_CONFIG'})
-            except Exception as e:
-                logger.warning(f"Failed to get existing module config: {e}")
-                module_config = {'user_id': 'MODULE_CONFIG'}
-            
-            # Handle Campus Coach credentials if enabling
-            if module_id == 'campus_coach' and enabled:
-                credentials = config.get('credentials', {})
-                if credentials.get('username') and credentials.get('password'):
-                    # Store credentials in Secrets Manager
-                    try:
-                        credential_data = {
-                            'username': credentials['username'],
-                            'password': credentials['password'],
-                            'configured_at': datetime.now(UTC).isoformat()
-                        }
-                        
-                        secret_name = 'strava-ai-boost-campus-coach-credentials'
-                        
-                        try:
-                            # Try to update existing secret
-                            secretsmanager.update_secret(
-                                SecretId=secret_name,
-                                SecretString=json.dumps(credential_data)
-                            )
-                            logger.info("Updated Campus Coach credentials in Secrets Manager")
-                        except secretsmanager.exceptions.ResourceNotFoundException:
-                            # Create new secret if it doesn't exist
-                            secretsmanager.create_secret(
-                                Name=secret_name,
-                                Description='Campus Coach credentials for Strava AI Boost',
-                                SecretString=json.dumps(credential_data)
-                            )
-                            logger.info("Created Campus Coach credentials in Secrets Manager")
-                        
-                        # Mark as configured
-                        module_config['campus_coach_configured'] = True
-                        module_config['campus_coach_credentials_updated'] = datetime.now(UTC).isoformat()
-                        
-                    except Exception as e:
-                        logger.error(f"Failed to store Campus Coach credentials: {e}")
-                        return {
-                            'success': False,
-                            'error': f'Failed to store Campus Coach credentials: {str(e)}'
-                        }
-            
-            # Update module configuration
-            module_config[f'{module_id}_enabled'] = enabled
-            module_config[f'{module_id}_configured'] = True
-            module_config[f'{module_id}_updated_at'] = datetime.now(UTC).isoformat()
-            
-            # Add module-specific configuration
-            if module_id == 'enduraw':
-                module_config['enduraw_wait_time'] = config.get('wait_time', '2-7 minutes')
-            
-            # Store updated configuration
-            table.put_item(Item=module_config)
-            
-            logger.info(f"Module {module_id} configured locally: enabled={enabled}")
-            
-            return {
-                'success': True,
-                'message': f'{module_id.replace("_", " ").title()} {"enabled" if enabled else "disabled"} successfully'
-            }
-            
-        except Exception as e:
-            logger.error(f"Failed to configure module locally: {e}")
+            logger.error(f"Failed to configure module via API Gateway: {e}")
             return {
                 'success': False,
-                'error': f'Failed to update module configuration: {str(e)}'
+                'error': f'API Gateway unavailable: {str(e)}'
             }
         
     except Exception as e:
@@ -1790,59 +1293,49 @@ def api_user_preferences():
         user_id = get_current_user_id()
         
         if request.method == 'GET':
-            # Get current user preferences
-            user_config = get_user_config_from_dynamodb(user_id)
-            preferences = user_config.get('user_preferences', {})
-            
-            # Return with defaults if not set
-            return jsonify({
-                'success': True,
-                'preferences': {
-                    'age_range': preferences.get('age_range', '26-35'),
-                    'interests': preferences.get('interests', []),
-                    'sport_approach': preferences.get('sport_approach', 'health & wellness'),
-                    'content_length': preferences.get('content_length', 'medium'),
-                    'content_tone': preferences.get('content_tone', 'motivational & energetic'),
-                    'emoji_usage': preferences.get('emoji_usage', 'moderate'),
-                    'technical_detail': preferences.get('technical_detail', 'intermediate'),
-                    'content_language': preferences.get('content_language', 'french')
-                }
-            })
-        
-        elif request.method == 'POST':
-            # Update user preferences
-            data = request.get_json()
-            
-            preferences = {
-                'age_range': data.get('age_range', '26-35'),
-                'interests': data.get('interests', []),
-                'sport_approach': data.get('sport_approach', 'health & wellness'),
-                'content_length': data.get('content_length', 'medium'),
-                'content_tone': data.get('content_tone', 'motivational & energetic'),
-                'emoji_usage': data.get('emoji_usage', 'moderate'),
-                'technical_detail': data.get('technical_detail', 'intermediate'),
-                'content_language': data.get('content_language', 'french')
-            }
-            
-            # Save to DynamoDB
-            table = boto3.resource('dynamodb', region_name=AWS_REGION).Table(USER_CONFIG_TABLE)
-            table.update_item(
-                Key={'user_id': user_id},
-                UpdateExpression='SET user_preferences = :prefs, updated_at = :timestamp',
-                ExpressionAttributeValues={
-                    ':prefs': preferences,
-                    ':timestamp': datetime.now(UTC).isoformat()
-                }
+            # Get preferences from API Gateway
+            response = requests.get(
+                f"{API_ENDPOINTS['preferences']}?user_id={user_id}",
+                headers=API_HEADERS,
+                timeout=10
             )
             
-            logger.info(f"User preferences updated for user {user_id}")
+            if response.status_code == 200:
+                return jsonify(response.json())
+            else:
+                logger.error(f"Preferences API returned status {response.status_code}")
+                return jsonify({
+                    'success': False,
+                    'error': 'Failed to get preferences'
+                }), response.status_code
+        
+        elif request.method == 'POST':
+            # Update preferences via API Gateway
+            data = request.get_json()
+            data['user_id'] = user_id
             
-            return jsonify({
-                'success': True,
-                'message': 'Preferences saved successfully',
-                'preferences': preferences
-            })
+            response = requests.post(
+                API_ENDPOINTS['preferences'],
+                json=data,
+                headers=API_HEADERS,
+                timeout=10
+            )
             
+            if response.status_code == 200:
+                return jsonify(response.json())
+            else:
+                logger.error(f"Preferences API returned status {response.status_code}")
+                return jsonify({
+                    'success': False,
+                    'error': 'Failed to update preferences'
+                }), response.status_code
+            
+    except requests.RequestException as e:
+        logger.error(f"API Gateway error: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'API Gateway unavailable'
+        }), 503
     except Exception as e:
         logger.error(f"User preferences error: {str(e)}")
         return jsonify({
@@ -1866,22 +1359,6 @@ def get_current_user_id() -> str:
     # For single-user application, use default user ID
     # In multi-user setup, this would come from session/auth
     return os.environ.get('DEFAULT_USER_ID', 'YOUR_USER_ID')
-
-
-def get_user_config_from_dynamodb(user_id: str) -> Dict[str, Any]:
-    """Get user configuration from DynamoDB"""
-    try:
-        table = boto3.resource('dynamodb', region_name=AWS_REGION).Table(USER_CONFIG_TABLE)
-        response = table.get_item(Key={'user_id': user_id})
-        
-        if 'Item' in response:
-            return response['Item']
-        else:
-            return {'user_id': user_id}
-            
-    except Exception as e:
-        logger.error(f"Failed to get user config: {str(e)}")
-        return {'user_id': user_id}
 
 
 if __name__ == '__main__':

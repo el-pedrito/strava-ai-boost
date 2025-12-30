@@ -12,7 +12,8 @@ from aws_cdk import (
     aws_apigateway as apigateway,
     aws_lambda as lambda_,
     aws_iam as iam,
-    Duration
+    Duration,
+    CfnOutput
 )
 from constructs import Construct
 from .core_infrastructure_stack import CoreInfrastructureStack
@@ -136,26 +137,68 @@ class ApiGatewayStack(Stack):
                     resources=[self.step_functions_arn, f"{self.step_functions_arn}:*"]
                 )
             )
+        
+        # User Preferences API Lambda
+        self.preferences_lambda = lambda_.Function(
+            self, "UserPreferencesAPI",
+            function_name="StravaAIBoost-UserPreferencesAPI",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="user_preferences_api.handler",
+            code=lambda_.Code.from_asset("lambda_functions"),
+            layers=[self.core_stack.dependencies_layer],
+            timeout=Duration.seconds(10),
+            memory_size=128,
+            role=self.core_stack.webhook_lambda_role,
+            environment={
+                "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
+                "DEFAULT_USER_ID": "YOUR_USER_ID"
+            }
+        )
 
     def _create_api_gateway(self) -> None:
-        """Create API Gateway with CORS for local development"""
+        """Create API Gateway with API Key authentication for local development"""
         
         # Create REST API
         self.api = apigateway.RestApi(
             self, "StravaAIBoostAPI",
             rest_api_name="Strava AI Boost Local Interface API",
-            description="REST API for Strava AI Boost local web interface",
+            description="REST API for Strava AI Boost local web interface (API Key required)",
             default_cors_preflight_options=apigateway.CorsOptions(
                 allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
                 allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-                allow_headers=["Content-Type", "Authorization", "X-Requested-With"]
+                allow_headers=["Content-Type", "Authorization", "X-Requested-With", "X-API-Key"]
             ),
             endpoint_configuration=apigateway.EndpointConfiguration(
                 types=[apigateway.EndpointType.REGIONAL]
             )
         )
+        
+        # Create API Key for authentication
+        self.api_key = self.api.add_api_key(
+            "StravaAIBoostAPIKey",
+            api_key_name="strava-ai-boost-local-interface-key",
+            description="API Key for Strava AI Boost local web interface"
+        )
+        
+        # Create Usage Plan
+        self.usage_plan = self.api.add_usage_plan(
+            "StravaAIBoostUsagePlan",
+            name="Strava AI Boost Local Interface Usage Plan",
+            description="Usage plan for local web interface with rate limiting",
+            throttle=apigateway.ThrottleSettings(
+                rate_limit=100,  # 100 requests per second
+                burst_limit=200  # 200 concurrent requests
+            ),
+            quota=apigateway.QuotaSettings(
+                limit=10000,  # 10,000 requests per day
+                period=apigateway.Period.DAY
+            )
+        )
+        
+        # Associate API Key with Usage Plan
+        self.usage_plan.add_api_key(self.api_key)
 
-        # Create API resources and methods
+        # Create API resources and methods with API Key requirement
         
         # /config resource for configuration management
         config_resource = self.api.root.add_resource("config")
@@ -165,47 +208,57 @@ class ApiGatewayStack(Stack):
         oauth_resource.add_method(
             "GET", 
             apigateway.LambdaIntegration(self.config_lambda),
+            api_key_required=True,
             method_responses=[
                 apigateway.MethodResponse(status_code="200"),
                 apigateway.MethodResponse(status_code="400"),
+                apigateway.MethodResponse(status_code="401"),
+                apigateway.MethodResponse(status_code="403"),
                 apigateway.MethodResponse(status_code="500")
             ]
         )
         oauth_resource.add_method(
             "POST",
-            apigateway.LambdaIntegration(self.config_lambda)
+            apigateway.LambdaIntegration(self.config_lambda),
+            api_key_required=True
         )
 
         # Module management endpoints
         modules_resource = config_resource.add_resource("modules")
         modules_resource.add_method(
             "GET",
-            apigateway.LambdaIntegration(self.config_lambda)
+            apigateway.LambdaIntegration(self.config_lambda),
+            api_key_required=True
         )
         modules_resource.add_method(
             "POST",
-            apigateway.LambdaIntegration(self.config_lambda)
+            apigateway.LambdaIntegration(self.config_lambda),
+            api_key_required=True
         )
         
         module_resource = modules_resource.add_resource("{module_id}")
         module_resource.add_method(
             "PUT",
-            apigateway.LambdaIntegration(self.config_lambda)
+            apigateway.LambdaIntegration(self.config_lambda),
+            api_key_required=True
         )
         module_resource.add_method(
             "DELETE",
-            apigateway.LambdaIntegration(self.config_lambda)
+            apigateway.LambdaIntegration(self.config_lambda),
+            api_key_required=True
         )
 
         # Enhancement control endpoints
         enhancement_resource = config_resource.add_resource("enhancement")
         enhancement_resource.add_method(
             "GET",
-            apigateway.LambdaIntegration(self.config_lambda)
+            apigateway.LambdaIntegration(self.config_lambda),
+            api_key_required=True
         )
         enhancement_resource.add_method(
             "POST",
-            apigateway.LambdaIntegration(self.config_lambda)
+            apigateway.LambdaIntegration(self.config_lambda),
+            api_key_required=True
         )
 
         # /dashboard resource for statistics and monitoring
@@ -215,28 +268,58 @@ class ApiGatewayStack(Stack):
         stats_resource = dashboard_resource.add_resource("stats")
         stats_resource.add_method(
             "GET",
-            apigateway.LambdaIntegration(self.dashboard_lambda)
+            apigateway.LambdaIntegration(self.dashboard_lambda),
+            api_key_required=True
         )
 
         # Activity history endpoint
         activities_resource = dashboard_resource.add_resource("activities")
         activities_resource.add_method(
             "GET",
-            apigateway.LambdaIntegration(self.dashboard_lambda)
+            apigateway.LambdaIntegration(self.dashboard_lambda),
+            api_key_required=True
+        )
+        
+        # System stats endpoint (total activities, success rate, queue depth)
+        system_resource = dashboard_resource.add_resource("system")
+        system_resource.add_method(
+            "GET",
+            apigateway.LambdaIntegration(self.dashboard_lambda),
+            api_key_required=True
         )
 
         # /status resource for real-time processing status
         status_resource = self.api.root.add_resource("status")
         status_resource.add_method(
             "GET",
-            apigateway.LambdaIntegration(self.status_lambda)
+            apigateway.LambdaIntegration(self.status_lambda),
+            api_key_required=True
         )
         
         # Processing status for specific activity
         activity_status_resource = status_resource.add_resource("{activity_id}")
         activity_status_resource.add_method(
             "GET",
-            apigateway.LambdaIntegration(self.status_lambda)
+            apigateway.LambdaIntegration(self.status_lambda),
+            api_key_required=True
+        )
+        
+        # /preferences resource for user preferences
+        preferences_resource = self.api.root.add_resource("preferences")
+        preferences_resource.add_method(
+            "GET",
+            apigateway.LambdaIntegration(self.preferences_lambda),
+            api_key_required=True
+        )
+        preferences_resource.add_method(
+            "POST",
+            apigateway.LambdaIntegration(self.preferences_lambda),
+            api_key_required=True
+        )
+        
+        # Associate Usage Plan with API Stage
+        self.usage_plan.add_api_stage(
+            stage=self.api.deployment_stage
         )
 
         # Add request validation
@@ -244,6 +327,13 @@ class ApiGatewayStack(Stack):
             "RequestValidator",
             validate_request_body=True,
             validate_request_parameters=True
+        )
+        
+        # Output API Key value (will be shown in CloudFormation outputs)
+        CfnOutput(
+            self, "APIKeyValue",
+            value=self.api_key.key_id,
+            description="API Key ID for Strava AI Boost local interface (retrieve value with: aws apigateway get-api-key --api-key <key-id> --include-value)"
         )
 
     @property

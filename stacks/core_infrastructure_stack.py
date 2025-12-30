@@ -54,6 +54,9 @@ class CoreInfrastructureStack(Stack):
         
         # Create Secrets Manager secrets
         self._create_secrets()
+        
+        # Add Secrets Manager permissions after secrets are created
+        self._add_secrets_permissions()
 
     def _create_dynamodb_tables(self) -> None:
         """Create all required DynamoDB tables with encryption"""
@@ -187,13 +190,41 @@ class CoreInfrastructureStack(Stack):
                     "dynamodb:PutItem",
                     "dynamodb:GetItem",
                     "dynamodb:UpdateItem",
-                    "dynamodb:Query"
+                    "dynamodb:Query",
+                    "dynamodb:Scan"
                 ],
                 resources=[
                     self.activities_table.table_arn,
                     self.rate_limits_table.table_arn,
+                    self.user_config_table.table_arn,
+                    self.coaching_sessions_table.table_arn,
                     f"{self.activities_table.table_arn}/index/*"
                 ]
+            )
+        )
+        
+        # Add permissions for SQS access (for queue depth monitoring)
+        self.webhook_lambda_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "sqs:GetQueueAttributes",
+                    "sqs:GetQueueUrl"
+                ],
+                resources=["*"]  # Will be restricted by queue URLs in environment variables
+            )
+        )
+        
+        # Add permissions for Step Functions access (for workflow status monitoring)
+        self.webhook_lambda_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "states:ListExecutions",
+                    "states:DescribeExecution",
+                    "states:GetExecutionHistory"
+                ],
+                resources=["*"]  # Will be restricted by state machine ARN in environment variables
             )
         )
 
@@ -303,3 +334,22 @@ class CoreInfrastructureStack(Stack):
             "rate_limits": self.rate_limits_table.table_arn,
             "coaching_sessions": self.coaching_sessions_table.table_arn
         }
+
+    
+    def _add_secrets_permissions(self) -> None:
+        """Add Secrets Manager permissions after secrets are created"""
+        # Add permissions for Secrets Manager write access (for Campus Coach credentials)
+        self.webhook_lambda_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "secretsmanager:CreateSecret",
+                    "secretsmanager:UpdateSecret",
+                    "secretsmanager:PutSecretValue"
+                ],
+                resources=[
+                    self.campus_coach_secret.secret_arn,
+                    self.strava_oauth_secret.secret_arn
+                ]
+            )
+        )

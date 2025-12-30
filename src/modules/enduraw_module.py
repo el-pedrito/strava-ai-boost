@@ -43,9 +43,9 @@ class EndurawModule(BaseModule):
         super().__init__(config)
         self.strava_client = None
         self.secrets_client = None
-        self.wait_timeout_seconds = config.settings.get('wait_timeout_seconds', 420)  # 7 minutes default
-        self.min_wait_seconds = config.settings.get('min_wait_seconds', 120)  # 2 minutes minimum
-        self.check_interval_seconds = config.settings.get('check_interval_seconds', 30)  # Check every 30s
+        self.wait_timeout_seconds = config.settings.get('wait_timeout_seconds', 120)  # 2 minutes default
+        self.min_wait_seconds = config.settings.get('min_wait_seconds', 60)  # 1 minute minimum
+        self.check_interval_seconds = config.settings.get('check_interval_seconds', 20)  # Check every 20s
         
     async def _initialize_module(self) -> None:
         """Initialize Enduraw module with HTTP client and AWS services"""

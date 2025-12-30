@@ -12,6 +12,7 @@ import json
 import os
 import logging
 from typing import Dict, Any, List, Optional
+from decimal import Decimal
 import boto3
 from botocore.exceptions import ClientError
 from datetime import datetime, timedelta
@@ -29,6 +30,18 @@ cloudwatch = boto3.client('cloudwatch')
 ACTIVITIES_TABLE = os.environ['ACTIVITIES_TABLE']
 USER_CONFIG_TABLE = os.environ['USER_CONFIG_TABLE']
 COACHING_SESSIONS_TABLE = os.environ['COACHING_SESSIONS_TABLE']
+
+
+def decimal_to_float(obj):
+    """Convert Decimal objects to float for JSON serialization"""
+    if isinstance(obj, Decimal):
+        return float(obj)
+    elif isinstance(obj, dict):
+        return {k: decimal_to_float(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [decimal_to_float(item) for item in obj]
+    return obj
+
 
 # Simple in-memory cache with TTL for performance optimization
 _cache = {}
@@ -117,6 +130,9 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         elif '/dashboard/activities' in path:
             response_data = get_activity_history(query_params)
             return create_success_response(response_data, rate_limit_info=rate_limit_info)
+        elif '/dashboard/system' in path:
+            response_data = get_system_stats()
+            return create_success_response(response_data, rate_limit_info=rate_limit_info)
         else:
             return create_error_response(404, 'Endpoint not found', rate_limit_info)
         
@@ -186,10 +202,13 @@ def create_error_response(status_code: int, message: str, rate_limit_info: Dict[
 
 
 def create_success_response(data: Dict[str, Any], status_code: int = 200, rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
-    """Create standardized success response"""
+    """Create standardized success response with Decimal conversion"""
     headers = CORS_HEADERS.copy()
     if rate_limit_info:
         headers = add_rate_limit_headers(headers, rate_limit_info)
+    
+    # Convert Decimal objects to float for JSON serialization
+    data = decimal_to_float(data)
     
     return {
         'statusCode': status_code,
@@ -776,4 +795,90 @@ def get_activity_history(query_params: Dict[str, str]) -> Dict[str, Any]:
             'has_more': False,
             'error': str(e),
             'query_method': 'error'
+        }
+
+
+
+def get_system_stats() -> Dict[str, Any]:
+    """Get system-wide statistics (total activities, success rate, queue depth)"""
+    try:
+        table = dynamodb.Table(ACTIVITIES_TABLE)
+        
+        # Get total activities count
+        total_response = table.scan(Select='COUNT')
+        total_activities = total_response.get('Count', 0)
+        
+        # Get activities from last 24 hours for success rate
+        from datetime import datetime, timedelta
+        cutoff_time = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+        
+        recent_response = table.scan(
+            FilterExpression='created_at > :cutoff',
+            ExpressionAttributeValues={':cutoff': cutoff_time}
+        )
+        
+        recent_activities = recent_response.get('Items', [])
+        total_recent = len(recent_activities)
+        successful_recent = sum(1 for a in recent_activities if a.get('processing_status') == 'completed')
+        
+        success_rate = (successful_recent / total_recent * 100) if total_recent > 0 else 0
+        
+        # Get processing activities count
+        processing_response = table.scan(
+            FilterExpression='processing_status = :status',
+            ExpressionAttributeValues={':status': 'processing'},
+            Select='COUNT'
+        )
+        processing_count = processing_response.get('Count', 0)
+        
+        # Get SQS queue depth if available
+        queue_depth = 0
+        dlq_depth = 0
+        
+        try:
+            sqs = boto3.client('sqs')
+            
+            # Get processing queue URL from environment
+            processing_queue_url = os.environ.get('PROCESSING_QUEUE_URL')
+            dlq_url = os.environ.get('DLQ_URL')
+            
+            if processing_queue_url:
+                queue_attrs = sqs.get_queue_attributes(
+                    QueueUrl=processing_queue_url,
+                    AttributeNames=['ApproximateNumberOfMessages']
+                )
+                queue_depth = int(queue_attrs['Attributes'].get('ApproximateNumberOfMessages', 0))
+            
+            if dlq_url:
+                dlq_attrs = sqs.get_queue_attributes(
+                    QueueUrl=dlq_url,
+                    AttributeNames=['ApproximateNumberOfMessages']
+                )
+                dlq_depth = int(dlq_attrs['Attributes'].get('ApproximateNumberOfMessages', 0))
+                
+        except Exception as e:
+            logger.warning(f"Failed to get SQS queue depth: {e}")
+        
+        return {
+            'total_activities': total_activities,
+            'success_rate': round(success_rate, 1),
+            'recent_activities_24h': total_recent,
+            'successful_24h': successful_recent,
+            'processing_count': processing_count,
+            'queue_depth': queue_depth,
+            'dlq_depth': dlq_depth,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get system stats: {str(e)}")
+        return {
+            'total_activities': 0,
+            'success_rate': 0,
+            'recent_activities_24h': 0,
+            'successful_24h': 0,
+            'processing_count': 0,
+            'queue_depth': 0,
+            'dlq_depth': 0,
+            'error': str(e)
         }

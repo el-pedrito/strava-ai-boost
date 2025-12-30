@@ -98,25 +98,37 @@ aws secretsmanager put-secret-value \
   --profile your-aws-profile
 ```
 
-### Step 3: Start Local Interface
+### Step 3: Setup Local Environment
 ```bash
-./local_interface/start_dashboard.sh
+# Generate .env file with API Gateway URL and API Key
+./scripts/setup_local_env.sh
 ```
 
 **What this script does:**
-- ✅ Configures AWS profile (`your-aws-profile`) automatically
-- ✅ Verifies AWS credentials before starting
-- ✅ Sets Flask development environment
-- ✅ Starts dashboard on http://localhost:3000
+- ✅ Retrieves API Gateway URL from CloudFormation
+- ✅ Retrieves API Key from AWS API Gateway
+- ✅ Generates `local_interface/.env` file with configuration
+- ✅ No manual configuration needed
+
+### Step 4: Start Local Interface
+```bash
+cd local_interface
+python app.py
+```
+
+**The interface will:**
+- ✅ Load configuration from `.env` file automatically
+- ✅ Connect to API Gateway with API Key
+- ✅ Start on http://localhost:3000
 
 Open http://localhost:3000 in your browser.
 
-### Step 4: Connect via Web Interface
+### Step 5: Connect via Web Interface
 1. Open http://localhost:3000
 2. Click "Connect with Strava"
 3. Authorize the application
 
-### Step 5: Configure Your Preferences (Optional but Recommended) 🎨
+### Step 6: Configure Your Preferences (Optional but Recommended) 🎨
 1. Go to http://localhost:3000/preferences
 2. Configure your personal profile:
    - **Age Range**: Adapts tone and cultural references
