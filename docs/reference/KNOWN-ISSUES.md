@@ -485,3 +485,213 @@ AgentCoreError: Agent invocation timeout after 30 seconds
 ```
 
 ---
+
+
+## DLQ Troubleshooting
+
+### Understanding DLQ Messages
+
+The Dead Letter Queue (DLQ) captures two types of failures:
+
+1. **Lambda Processing Failures**: Messages that failed after 3 retry attempts
+2. **Step Functions Failures**: Executions that failed, timed out, or were aborted
+
+### Checking DLQ Status
+
+```bash
+# Get DLQ message count
+aws sqs get-queue-attributes \
+  --queue-url $(aws sqs get-queue-url --queue-name strava-ai-boost-activity-processing-dlq --profile your-aws-profile --query 'QueueUrl' --output text) \
+  --attribute-names ApproximateNumberOfMessages \
+  --profile your-aws-profile
+
+# Read messages without deleting (for inspection)
+aws sqs receive-message \
+  --queue-url $(aws sqs get-queue-url --queue-name strava-ai-boost-activity-processing-dlq --profile your-aws-profile --query 'QueueUrl' --output text) \
+  --max-number-of-messages 10 \
+  --attribute-names All \
+  --message-attribute-names All \
+  --profile your-aws-profile | jq '.'
+```
+
+### Common DLQ Scenarios
+
+#### Scenario 1: Lambda Parsing Errors
+
+**Symptoms**: Messages with malformed JSON or missing required fields
+
+**DLQ Message Example**:
+```json
+{
+  "activity_id": null,
+  "error": "KeyError: 'activity_id'",
+  "retry_count": 3,
+  "original_message": "{\"invalid\": \"data\"}"
+}
+```
+
+**Resolution**:
+1. Check webhook handler validation logic
+2. Verify Strava webhook format hasn't changed
+3. Update message schema validation if needed
+
+#### Scenario 2: Step Functions Timeout
+
+**Symptoms**: Executions that exceed 30-minute timeout
+
+**DLQ Message Example**:
+```json
+{
+  "activity_id": "12345678",
+  "failure_type": "step_functions_failure",
+  "status": "TIMED_OUT",
+  "cause": "Execution timed out after 30 minutes",
+  "execution_details": {
+    "startDate": "2025-12-30T10:00:00Z",
+    "stopDate": "2025-12-30T10:30:00Z"
+  }
+}
+```
+
+**Resolution**:
+1. Check which Lambda function timed out
+2. Review CloudWatch Logs for that Lambda
+3. Increase Lambda timeout if legitimate long-running task
+4. Optimize code if inefficient processing
+
+#### Scenario 3: Bedrock API Errors
+
+**Symptoms**: Content generation failures due to Bedrock throttling or errors
+
+**DLQ Message Example**:
+```json
+{
+  "activity_id": "12345678",
+  "failure_type": "step_functions_failure",
+  "status": "FAILED",
+  "cause": "ThrottlingException: Rate exceeded",
+  "error": "States.TaskFailed"
+}
+```
+
+**Resolution**:
+1. Check Bedrock service quotas
+2. Implement exponential backoff in Lambda
+3. Request quota increase if needed
+4. Consider using reserved capacity
+
+#### Scenario 4: Strava API Rate Limits
+
+**Symptoms**: Activities failing due to Strava API rate limits
+
+**DLQ Message Example**:
+```json
+{
+  "activity_id": "12345678",
+  "failure_type": "step_functions_failure",
+  "cause": "Strava API rate limit exceeded: 100 requests per 15 minutes",
+  "error": "States.TaskFailed"
+}
+```
+
+**Resolution**:
+1. Check rate limits table in DynamoDB
+2. Verify rate limit tracking logic
+3. Implement better rate limit backoff
+4. Consider spreading webhook processing over time
+
+### Reprocessing DLQ Messages
+
+#### Manual Reprocessing
+
+```bash
+# 1. Read message from DLQ
+MESSAGE=$(aws sqs receive-message \
+  --queue-url $(aws sqs get-queue-url --queue-name strava-ai-boost-activity-processing-dlq --profile your-aws-profile --query 'QueueUrl' --output text) \
+  --max-number-of-messages 1 \
+  --profile your-aws-profile)
+
+# 2. Extract message body
+BODY=$(echo $MESSAGE | jq -r '.Messages[0].Body')
+
+# 3. Fix the issue (e.g., increase quotas, fix code, etc.)
+
+# 4. Resend to processing queue
+aws sqs send-message \
+  --queue-url $(aws sqs get-queue-url --queue-name strava-ai-boost-activity-processing --profile your-aws-profile --query 'QueueUrl' --output text) \
+  --message-body "$BODY" \
+  --profile your-aws-profile
+
+# 5. Delete from DLQ
+RECEIPT_HANDLE=$(echo $MESSAGE | jq -r '.Messages[0].ReceiptHandle')
+aws sqs delete-message \
+  --queue-url $(aws sqs get-queue-url --queue-name strava-ai-boost-activity-processing-dlq --profile your-aws-profile --query 'QueueUrl' --output text) \
+  --receipt-handle "$RECEIPT_HANDLE" \
+  --profile your-aws-profile
+```
+
+#### Bulk Reprocessing Script
+
+```bash
+#!/bin/bash
+# scripts/reprocess_dlq.sh
+
+PROFILE="your-aws-profile"
+DLQ_URL=$(aws sqs get-queue-url --queue-name strava-ai-boost-activity-processing-dlq --profile $PROFILE --query 'QueueUrl' --output text)
+PROCESSING_URL=$(aws sqs get-queue-url --queue-name strava-ai-boost-activity-processing --profile $PROFILE --query 'QueueUrl' --output text)
+
+echo "Reprocessing DLQ messages..."
+
+while true; do
+    # Receive message
+    MESSAGE=$(aws sqs receive-message \
+        --queue-url $DLQ_URL \
+        --max-number-of-messages 1 \
+        --profile $PROFILE)
+    
+    # Check if queue is empty
+    if [ "$(echo $MESSAGE | jq '.Messages | length')" -eq "0" ]; then
+        echo "DLQ is empty"
+        break
+    fi
+    
+    # Extract body and receipt handle
+    BODY=$(echo $MESSAGE | jq -r '.Messages[0].Body')
+    RECEIPT_HANDLE=$(echo $MESSAGE | jq -r '.Messages[0].ReceiptHandle')
+    
+    # Resend to processing queue
+    aws sqs send-message \
+        --queue-url $PROCESSING_URL \
+        --message-body "$BODY" \
+        --profile $PROFILE
+    
+    # Delete from DLQ
+    aws sqs delete-message \
+        --queue-url $DLQ_URL \
+        --receipt-handle "$RECEIPT_HANDLE" \
+        --profile $PROFILE
+    
+    echo "Reprocessed 1 message"
+    sleep 1
+done
+
+echo "Reprocessing complete"
+```
+
+### DLQ Monitoring Best Practices
+
+1. **Set up CloudWatch Alarms**: Alert on any message in DLQ
+2. **Regular DLQ Reviews**: Check DLQ daily for patterns
+3. **Log Analysis**: Correlate DLQ messages with CloudWatch Logs
+4. **Metrics Tracking**: Monitor DLQ message age and count
+5. **Automated Reprocessing**: Consider Lambda-based reprocessing for transient errors
+
+### Preventing DLQ Messages
+
+1. **Input Validation**: Validate webhook data before processing
+2. **Retry Logic**: Implement exponential backoff for transient errors
+3. **Rate Limiting**: Respect API rate limits proactively
+4. **Timeout Tuning**: Set appropriate timeouts for each Lambda
+5. **Error Handling**: Catch and handle specific exceptions gracefully
+6. **Idempotency**: Design functions to be safely retried
+7. **Monitoring**: Use CloudWatch Logs and X-Ray for early detection

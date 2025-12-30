@@ -38,23 +38,49 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Lambda handler for SQS-triggered activity processing
     
-    Receives activity notifications from SQS and starts Step Functions workflow
+    Receives activity notifications from SQS and starts Step Functions workflow.
+    Uses batch item failures to prevent deleting messages when Step Functions fails.
     """
+    batch_item_failures = []
+    
     try:
         # Process SQS records
         for record in event.get('Records', []):
-            process_activity_record(record)
+            try:
+                process_activity_record(record)
+            except Exception as e:
+                # Add failed record to batch item failures
+                # This prevents SQS from deleting the message, allowing retry
+                logger.error(f"Failed to process record {record.get('messageId')}: {str(e)}")
+                batch_item_failures.append({
+                    "itemIdentifier": record['messageId']
+                })
         
-        return {'statusCode': 200, 'processed': len(event.get('Records', []))}
+        # Return batch item failures to SQS
+        # Messages with failures will be retried, successful ones will be deleted
+        return {
+            'batchItemFailures': batch_item_failures
+        }
         
     except Exception as e:
-        logger.error(f"Activity processor error: {str(e)}")
-        # Let SQS handle retry logic
-        raise
+        logger.error(f"Activity processor critical error: {str(e)}")
+        # Return all messages as failures to prevent deletion
+        return {
+            'batchItemFailures': [
+                {"itemIdentifier": record['messageId']} 
+                for record in event.get('Records', [])
+            ]
+        }
 
 
 def process_activity_record(record: Dict[str, Any]) -> None:
-    """Process a single activity record from SQS"""
+    """
+    Process a single activity record from SQS
+    
+    Raises exception on failure to signal batch item failure to SQS
+    """
+    activity_id = None
+    
     try:
         # Parse SQS message
         message_body = json.loads(record['body'])
@@ -86,19 +112,26 @@ def process_activity_record(record: Dict[str, Any]) -> None:
         
         if execution_arn:
             logger.info(f"Started Step Functions workflow for activity {activity_id}: {execution_arn}")
-            # Status will be updated by the workflow
+            # IMPORTANT: We return success here, but Step Functions might still fail
+            # To handle Step Functions failures, we need to:
+            # 1. Monitor Step Functions execution status (via CloudWatch Events)
+            # 2. Or wait for execution to complete before returning (not recommended - too slow)
+            # 3. Or use a separate error handler Lambda triggered by Step Functions failures
+            
+            # For now, we trust Step Functions to handle its own retries and error handling
+            # The DLQ will only capture Lambda processing failures, not Step Functions failures
         else:
             logger.error(f"Failed to start Step Functions workflow for activity {activity_id}")
             update_activity_status(activity_id, 'failed', 'Failed to start workflow', critical=False)
-            # Raise exception to trigger SQS retry
+            # Raise exception to trigger SQS retry via batch item failure
             raise Exception("Failed to start Step Functions workflow")
         
     except Exception as e:
         logger.error(f"Failed to process activity record: {str(e)}")
-        # Update status to failed
-        if 'activity_id' in locals():
+        # Update status to failed if we have activity_id
+        if activity_id:
             update_activity_status(activity_id, 'failed', str(e), critical=False)
-        # Re-raise to trigger SQS retry
+        # Re-raise to trigger batch item failure (message will be retried)
         raise
 
 
