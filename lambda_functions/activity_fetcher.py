@@ -234,8 +234,9 @@ def is_token_expired(tokens: Dict[str, Any]) -> bool:
 def refresh_access_token(refresh_token: str) -> Optional[Dict[str, Any]]:
     """Refresh access token using refresh token"""
     try:
-        # Get client_id from the existing OAuth tokens (it's stored there)
+        # Get client_id and client_secret from Secrets Manager
         try:
+            # First, try to get client_id from OAuth tokens
             response = secretsmanager.get_secret_value(SecretId=STRAVA_OAUTH_SECRET)
             oauth_data = json.loads(response['SecretString'])
             client_id = oauth_data.get('client_id')
@@ -243,11 +244,21 @@ def refresh_access_token(refresh_token: str) -> Optional[Dict[str, Any]]:
             logger.error(f"Failed to get client_id from OAuth tokens: {e}")
             client_id = None
         
-        # Get client_secret from environment variable (must be set in Lambda config)
-        client_secret = os.environ.get('STRAVA_CLIENT_SECRET')
+        # Get client_secret from app config secret
+        try:
+            app_secret_name = os.environ.get('STRAVA_APP_SECRET', 'strava-ai-boost-app-config')
+            response = secretsmanager.get_secret_value(SecretId=app_secret_name)
+            app_config = json.loads(response['SecretString'])
+            client_secret = app_config.get('client_secret')
+            # Also get client_id from app config if not found in OAuth tokens
+            if not client_id:
+                client_id = app_config.get('client_id')
+        except Exception as e:
+            logger.error(f"Failed to get client_secret from app config: {e}")
+            client_secret = None
         
         if not client_id or not client_secret:
-            logger.error("Missing client_id or STRAVA_CLIENT_SECRET for token refresh")
+            logger.error(f"Missing credentials for token refresh - client_id: {client_id is not None}, client_secret: {client_secret is not None}")
             return None
         
         token_data = {

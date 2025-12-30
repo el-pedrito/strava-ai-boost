@@ -187,12 +187,13 @@ class ContentGenerationStack(Stack):
             )
         )
 
-        # Add permissions for Secrets Manager access
+        # Add permissions for Secrets Manager access (read AND write for token refresh)
         strava_lambda_role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=[
-                    "secretsmanager:GetSecretValue"
+                    "secretsmanager:GetSecretValue",
+                    "secretsmanager:UpdateSecret"  # Required for OAuth token refresh
                 ],
                 resources=[
                     self.core_stack.strava_oauth_secret.secret_arn,

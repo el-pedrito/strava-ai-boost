@@ -17,9 +17,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 # Add src directory to path for agent imports
-sys.path.append('/opt/python')  # Lambda layer path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src', 'agents'))  # For embedded_prompts
+sys.path.insert(0, '/opt/python')  # Lambda layer path
 
 # Import LLM configuration
 try:
@@ -42,113 +40,28 @@ except ImportError:
 # Import prompt management system
 def get_bedrock_content_generation_prompt():
     """
-    Get the complete Content Generation prompt for Bedrock fallback
+    Get a simple, effective prompt for Bedrock fallback
     
-    Uses embedded prompts from src/agents/embedded_prompts.py for consistency
+    This is a lightweight fallback prompt - the full detailed prompt is in AgentCore agents.
     """
-    try:
-        # Try to import embedded prompts
-        from embedded_prompts import CONTENT_GENERATION_PROMPT
-        return CONTENT_GENERATION_PROMPT
-    except ImportError:
-        logger.warning("Could not import embedded prompts, using fallback")
-        # Fallback prompt if embedded_prompts not available
-        return """# Content Generation Agent - Strava AI Boost
+    return """Tu es un assistant de génération de contenu pour Strava AI Boost.
 
-BEDROCK DIRECT MODE: You are operating in direct Bedrock mode without AgentCore tools.
-Provide complete responses based on the input data without tool calls.
-Return structured JSON responses when appropriate.
+Ton rôle : Créer des titres et descriptions motivants pour des activités sportives en français.
 
-## Agent Role
-You are a specialized Strava activity content generation agent that creates personalized, engaging descriptions for athletic activities. You help athletes tell their story by transforming basic activity data into compelling narratives that reflect their personal style and achievements.
+Style :
+- Technique mais accessible
+- Motivant avec des éléments fun
+- Emojis stratégiques (🚀💪⚡🔥🎯🏃‍♂️)
+- Expressions percutantes : "Ça déchire !", "Machine bien huilée", "Objectif atomisé !"
 
-## Core Capabilities
-- **Personalized Content Creation**: Generate activity descriptions that match the user's writing style and preferences
-- **Performance Analysis**: Incorporate activity metrics and performance data into engaging narratives
-- **Style Consistency**: Maintain consistent tone and expression patterns across activities while avoiding repetition
-- **Modular Enhancement**: Integrate data from active modules (Campus Coach, Enduraw, etc.) when available
-- **Motivational Enhancement**: Create content that motivates and celebrates athletic achievements
-
-## Style et Ton - Fun Elements Integration
-
-**OBJECTIF** : Combiner la précision technique avec l'authenticité personnelle, en ajoutant des éléments fun et courts.
-
-### Éléments Fun et Courts
-- **Expressions percutantes** : "Ça déchire !", "Mission accomplie !", "Objectif atomisé !"
-- **Métaphores créatives** : "Moteur qui ronronne", "Machine bien huilée", "Fusée sur pattes"
-- **Jeux de mots sportifs** : "Courir après ses rêves", "Pédaler vers la gloire"
-- **Emojis stratégiques** : 🚀💪⚡🔥🎯 (selon préférences utilisateur)
-
-### Exemples de Style Optimisé
-
-**✅ Combinaison parfaite avec fun** :
-```
-"Fractionné matinal qui déchire ! 🚀 6x400m avec des splits 
-de malade (3:58 à 4:03/km) - l'analyse streams montre 85% 
-en zone 4-5, du grand art ! La FC récupère comme une machine 
-bien huilée (185→140 bpm). Cette progression, c'est du bonheur 
-pur ! 🎯💪"
-```
-
-## Module Integration Patterns
-
-### Campus Coach Module Integration
-When Campus Coach module is enabled and data is available:
-
-#### High Confidence Match (> 0.8) - Avec Fun
-- Reference the planned session with enthusiasm
-- Compare actual vs planned performance with celebration
-
-Example: "Session Campus Coach atomisée ! 🎯 Tempo planifié à 4:20/km → réalisé à 4:18/km ! Coach va être fier, cette machine suit le plan à la perfection. 💪🚀"
-
-#### Low Confidence Match (< 0.5) - Focus Personnel
-- Focus purely on personal achievement with fun celebration
-
-Example: "Sortie spontanée qui tourne au chef-d'œuvre ! 6K @ 4:25/km en mode freestyle. Parfois les meilleures séances sont les non-planifiées ! 🏃‍♂️✨"
-
-### Enduraw Module Integration
-When Enduraw module is enabled and enhanced metrics are available:
-
-#### Analyse Vent Significatif (>10 km/h) - Fun
-```
-"Bataille épique contre les éléments ! 💨 Allure affichée 4:30/km 
-mais Enduraw révèle 4:15/km sans ce vent de malade (18 km/h de face). 
-Cette performance cachée fait plaisir ! 🚀💪"
-```
-
-## Content Structure Templates
-
-### Medium Format (100-200 characters) - Équilibré
-```
-[Accroche Fun] + [Analyse Technique] + [Célébration Personnelle] + [Emojis]
-Example: "Fractionné de malade ! 6x400m ultra-réguliers (3:58-4:03/km) avec récup efficace. Cette machine progresse ! 🎯💪"
-```
-
-### Detailed Format (200+ characters) - Complet avec Fun
-```
-[Contexte + Fun] + [Analyse Streams Détaillée] + [Insights Personnels] + [Motivation Future] + [Emojis Stratégiques]
-```
-
-## Guidelines
-- Create motivational and engaging titles (max 50 characters)
-- Write technical but accessible descriptions with fun elements (max 200 words) 
-- Use sport-specific terminology appropriate for the activity type
-- Include performance insights from pattern analysis
-- Reference module insights when available (Campus Coach sessions, Enduraw metrics)
-- Maintain an authentic, personal tone with energetic fun elements
-- Always end descriptions with "@Generated by Strava AI Boost"
-- Use emojis strategically: 🚀💪⚡🔥🎯🏃‍♂️✨
-
-## Output Format
-Return responses in JSON format:
+Format de sortie JSON :
 {
-    "title": "Generated title here",
-    "description": "Generated description here\\n\\n@Generated by Strava AI Boost",
-    "style_elements": ["motivational", "technical", "fun"],
-    "confidence": 0.85
+  "title": "Titre motivant (max 50 caractères)",
+  "description": "Description technique et fun\\n\\n@Generated by Strava AI Boost (Fallback Mode)",
+  "confidence": 0.8
 }
 
-Remember: The goal is to help athletes celebrate their achievements with fun, energetic content that reflects technical precision while maintaining personal authenticity and motivational spirit."""
+IMPORTANT: Toujours terminer la description par "@Generated by Strava AI Boost (Fallback Mode)" sur une nouvelle ligne."""
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -181,6 +94,9 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         activity_id = event.get('activity_id')
         user_id = event.get('user_id')
         activity_data = event.get('activity_data', {})
+        
+        logger.info(f"Processing - activity_id: {activity_id}, user_id: {user_id}")
+        logger.info(f"Activity data: distance={activity_data.get('distance')}, type={activity_data.get('sport_type')}")
         
         if not activity_id or not user_id:
             logger.error(f"Missing parameters - activity_id: {activity_id}, user_id: {user_id}")
@@ -599,12 +515,29 @@ def generate_enhanced_content_with_agent(
             completion = str(response.get("response", ""))
         
         logger.info(f"AgentCore Content Generation Agent response length: {len(completion)}")
+        logger.info(f"AgentCore response preview: {completion[:500]}...")
         
         # Parse agent response
         try:
-            # Try to extract JSON from response
+            # First, try to parse the outer response structure
+            outer_response = json.loads(completion)
+            
+            # Check if response is wrapped in a "response" field
+            if 'response' in outer_response:
+                response_text = outer_response['response']
+                logger.info(f"Extracted response field, length: {len(response_text)}")
+            else:
+                response_text = completion
+            
+            # Try to extract JSON from response text (may be in markdown code block)
             import re
-            json_match = re.search(r'\{.*\}', completion, re.DOTALL)
+            # Remove markdown code blocks if present
+            response_text = re.sub(r'```json\s*', '', response_text)
+            response_text = re.sub(r'```\s*$', '', response_text)
+            response_text = response_text.strip()
+            
+            # Now parse the actual content JSON
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
             
             if json_match:
                 agent_response = json.loads(json_match.group())
@@ -631,7 +564,7 @@ def generate_enhanced_content_with_agent(
                     confidence = agent_response.get('confidence', 0.8)
                 
                 if title and description:
-                    # Add signature to description if not present
+                    # Add signature to description if not present (AgentCore mode - normal signature)
                     if not description.endswith('@Generated by Strava AI Boost'):
                         description += '\n\n@Generated by Strava AI Boost'
                     
@@ -732,7 +665,7 @@ def generate_enhanced_content_fallback(
         # Return basic fallback content
         return {
             'title': f"Enhanced: {activity_data.get('name', 'Activity')}",
-            'description': f"AI-enhanced description for {activity_data.get('type', 'activity')}\n\n@Generated by Strava AI Boost",
+            'description': f"AI-enhanced description for {activity_data.get('type', 'activity')}\n\n@Generated by Strava AI Boost (Fallback Mode)",
             'style_elements': ['fallback'],
             'modules_used': [m['name'] for m in modules],
             'confidence': 0.5,
@@ -966,35 +899,10 @@ def build_enhanced_content_prompt(
     patterns: Dict[str, Any],
     module_insights: Dict[str, Any]
 ) -> str:
-    """Build enhanced prompt using externalized prompt system with pattern analysis and module insights"""
+    """Build enhanced prompt using embedded prompt system with pattern analysis and module insights"""
     
-    # Get the base prompt from externalized system
-    try:
-        base_prompt = get_bedrock_content_generation_prompt()
-    except Exception as e:
-        logger.warning(f"Failed to load externalized prompt, using fallback: {str(e)}")
-        try:
-            base_prompt = get_bedrock_content_generation_prompt()
-        except Exception as e:
-            logger.warning(f"Failed to load externalized prompt, using fallback: {str(e)}")
-            base_prompt = """You are a specialized Strava content generation assistant for Strava AI Boost.
-
-BEDROCK DIRECT MODE: You are operating in direct Bedrock mode without AgentCore tools.
-Provide complete responses based on the input data without tool calls.
-Return structured JSON responses when appropriate.
-
-Your role is to create engaging, personalized titles and descriptions for fitness activities.
-
-Guidelines:
-- Create motivational and engaging titles (max 50 characters)
-- Write technical but accessible descriptions (max 200 words) 
-- Use sport-specific terminology appropriate for the activity type
-- Include performance insights from pattern analysis
-- Reference module insights when available (Campus Coach sessions, Enduraw metrics)
-- Maintain an authentic, personal tone
-- Always end descriptions with "@Generated by Strava AI Boost"
-
-Return responses in JSON format with title, description, style_elements, and confidence."""
+    # Get the base prompt from embedded prompts - REQUIRED, no fallback
+    base_prompt = get_bedrock_content_generation_prompt()
     
     activity_type = activity_data.get('type', 'Activity')
     distance = activity_data.get('distance', 0) / 1000
@@ -1095,12 +1003,12 @@ SPECIFIC REQUIREMENTS FOR THIS ACTIVITY:
 5. Reference weather/environmental factors if available from Enduraw
 6. Mention training session context if Campus Coach match found
 7. Maintain an authentic, personal tone that varies from previous activities
-8. End the description with "@Generated by Strava AI Boost" on a new line
+8. End the description with "@Generated by Strava AI Boost (Fallback Mode)" on a new line
 
 Return response in JSON format:
 {
     "title": "Generated title here",
-    "description": "Generated description here\\n\\n@Generated by Strava AI Boost",
+    "description": "Generated description here\\n\\n@Generated by Strava AI Boost (Fallback Mode)",
     "style_elements": ["motivational", "technical", "weather_aware"],
     "confidence": 0.85
 }"""
@@ -1121,10 +1029,13 @@ def parse_enhanced_content(
         
         if json_match:
             content_json = json.loads(json_match.group())
-            # Add signature to description
+            # Add fallback signature to description
             description = content_json.get('description', 'AI-enhanced description')
-            if not description.endswith('@Generated by Strava AI Boost'):
-                description += '\n\n@Generated by Strava AI Boost'
+            if not description.endswith('@Generated by Strava AI Boost (Fallback Mode)'):
+                if description.endswith('@Generated by Strava AI Boost'):
+                    description = description.replace('@Generated by Strava AI Boost', '@Generated by Strava AI Boost (Fallback Mode)')
+                else:
+                    description += '\n\n@Generated by Strava AI Boost (Fallback Mode)'
             
             return {
                 'title': content_json.get('title', 'Enhanced Activity')[:50],
@@ -1139,8 +1050,11 @@ def parse_enhanced_content(
             # Fallback parsing
             lines = generated_text.strip().split('\n')
             description = '\n'.join(lines[1:]) if len(lines) > 1 else 'AI-enhanced description'
-            if not description.endswith('@Generated by Strava AI Boost'):
-                description += '\n\n@Generated by Strava AI Boost'
+            if not description.endswith('@Generated by Strava AI Boost (Fallback Mode)'):
+                if description.endswith('@Generated by Strava AI Boost'):
+                    description = description.replace('@Generated by Strava AI Boost', '@Generated by Strava AI Boost (Fallback Mode)')
+                else:
+                    description += '\n\n@Generated by Strava AI Boost (Fallback Mode)'
             
             return {
                 'title': (lines[0] if lines else 'Enhanced Activity')[:50],
