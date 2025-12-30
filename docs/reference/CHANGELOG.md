@@ -5,6 +5,53 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.1] - 2025-12-30 - Enduraw Module Wait Logic Implementation
+
+### Added
+- **Enduraw Module Wait Logic**: Implemented 2-minute SQS delay for Enduraw Report processing
+  - Activity processor checks if Enduraw module is enabled in user configuration
+  - Automatically delays processing by 2 minutes when Enduraw is active
+  - Uses SQS message delay (DelaySeconds=120) for cost-efficient waiting
+  - Message is requeued with `enduraw_waited` flag to prevent infinite loops
+  - Activity status updated to `waiting_enduraw` during delay period
+  - Logs Enduraw wait completion with timestamp tracking
+
+### Changed
+- **Activity Processor Lambda**: Enhanced with Enduraw module integration
+  - Added `fetch_user_configuration()` function to retrieve module settings
+  - Modified `process_activity_record()` to check Enduraw configuration before processing
+  - Updated `start_step_functions_workflow()` to include `enduraw_waited` metadata
+  - Step Functions workflow now receives Enduraw wait status for tracking
+  - File: `lambda_functions/activity_processor.py`
+
+### Changed
+- **Webhook Processing Stack**: Added USER_CONFIG_TABLE environment variable
+  - Activity processor now has access to user configuration table
+  - Granted read permissions on user_config_table for module configuration checks
+  - File: `stacks/webhook_processing_stack.py`
+
+### Performance
+- **Cost Optimization**: SQS delay instead of Lambda wait
+  - No Lambda execution cost during 2-minute Enduraw wait
+  - Message passes through Lambda twice (initial + after delay)
+  - Estimated cost: ~$0.0000002 per SQS message (negligible)
+  - Lambda execution time reduced by 2 minutes per Enduraw-enabled activity
+
+### Technical
+- **Enduraw Wait Flow**:
+  1. Webhook triggers activity processor via SQS
+  2. Processor checks user config for Enduraw module status
+  3. If enabled and not waited: requeue with 2-minute delay + `enduraw_waited=true`
+  4. After delay: process activity normally with Enduraw data available
+  5. Step Functions receives `enduraw_waited` flag for content generation context
+
+### Documentation
+- **Implementation Notes**:
+  - Enduraw Report must be configured externally at https://enduraw-report-strava.onrender.com
+  - System only waits for data; does not configure Enduraw Report
+  - Graceful fallback: content generation proceeds with or without Enduraw data
+  - Wait logic is transparent to user; no manual intervention required
+
 ## [1.10.0] - 2025-12-30 - Long-Term Memory (LTM) Integration
 
 ### Added

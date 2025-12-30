@@ -94,6 +94,40 @@ def process_activity_record(record: Dict[str, Any]) -> None:
             logger.info(f"Skipping activity {activity_id} - already processed or processing")
             return  # Exit successfully so SQS deletes the message
         
+        # Fetch user configuration to check module settings
+        user_config = fetch_user_configuration(user_id)
+        
+        # Check if Enduraw module is enabled and we haven't waited yet
+        enduraw_config = user_config.get('modules_config', {}).get('enduraw', {})
+        enduraw_enabled = enduraw_config.get('enabled', False)
+        enduraw_waited = message_body.get('enduraw_waited', False)
+        
+        if enduraw_enabled and not enduraw_waited:
+            logger.info(f"Enduraw module enabled for activity {activity_id}, delaying by 2 minutes for Enduraw processing")
+            
+            # Update activity status to indicate Enduraw wait
+            update_activity_status(activity_id, 'waiting_enduraw', 'Waiting 2 minutes for Enduraw Report processing', critical=False)
+            
+            # Mark that we've initiated Enduraw wait
+            message_body['enduraw_waited'] = True
+            message_body['enduraw_delay_started_at'] = datetime.now(UTC).isoformat()
+            
+            # Send back to SQS with 2-minute delay
+            sqs.send_message(
+                QueueUrl=PROCESSING_QUEUE_URL,
+                MessageBody=json.dumps(message_body),
+                DelaySeconds=120  # 2 minutes for Enduraw processing
+            )
+            
+            logger.info(f"Activity {activity_id} requeued with 2-minute delay for Enduraw processing")
+            # Exit successfully so original message is deleted
+            return
+        
+        # Log if Enduraw wait was completed
+        if enduraw_enabled and enduraw_waited:
+            enduraw_delay_started = message_body.get('enduraw_delay_started_at', 'unknown')
+            logger.info(f"Enduraw wait completed for activity {activity_id} (started at {enduraw_delay_started})")
+        
         # Check rate limits BEFORE processing
         if not check_rate_limits():
             logger.warning(f"Rate limits exceeded for activity {activity_id}, delaying processing")
@@ -107,8 +141,8 @@ def process_activity_record(record: Dict[str, Any]) -> None:
         # Update activity status to processing
         update_activity_status(activity_id, 'processing', critical=True)
         
-        # Start Step Functions workflow
-        execution_arn = start_step_functions_workflow(activity_id, user_id, message_body)
+        # Start Step Functions workflow with Enduraw metadata
+        execution_arn = start_step_functions_workflow(activity_id, user_id, message_body, enduraw_enabled and enduraw_waited)
         
         if execution_arn:
             logger.info(f"Started Step Functions workflow for activity {activity_id}: {execution_arn}")
@@ -266,7 +300,8 @@ def update_activity_status(
 def start_step_functions_workflow(
     activity_id: str, 
     user_id: str, 
-    webhook_data: Dict[str, Any]
+    webhook_data: Dict[str, Any],
+    enduraw_waited: bool = False
 ) -> str:
     """Start Step Functions workflow for activity processing"""
     try:
@@ -275,6 +310,7 @@ def start_step_functions_workflow(
             'activity_id': activity_id,
             'user_id': user_id,
             'webhook_data': webhook_data,
+            'enduraw_waited': enduraw_waited,
             'processing_started_at': datetime.now(UTC).isoformat()
         }
         
@@ -358,6 +394,47 @@ def delay_message_processing(
     except Exception as e:
         logger.error(f"Failed to delay message processing for activity {activity_id}: {str(e)}")
         # If we can't delay, let the original processing continue (will likely hit rate limits but won't loop)
+
+
+def fetch_user_configuration(user_id: str) -> Dict[str, Any]:
+    """
+    Fetch user configuration from DynamoDB
+    
+    Returns user configuration including module settings
+    """
+    try:
+        table = dynamodb.Table(os.environ.get('USER_CONFIG_TABLE', 'strava-ai-boost-user-configuration'))
+        
+        response = table.get_item(Key={'user_id': user_id})
+        
+        if 'Item' in response:
+            user_config = response['Item']
+            logger.info(f"Retrieved user configuration for {user_id}")
+            return user_config
+        else:
+            # Return default configuration if user config doesn't exist
+            default_config = {
+                'user_id': user_id,
+                'modules_config': {
+                    'campus_coach': {'enabled': False},
+                    'enduraw': {'enabled': False}
+                },
+                'strava_connected': False
+            }
+            logger.info(f"No user configuration found for {user_id}, using defaults")
+            return default_config
+            
+    except Exception as e:
+        logger.error(f"Failed to fetch user configuration for {user_id}: {str(e)}")
+        # Return minimal default config on error
+        return {
+            'user_id': user_id,
+            'modules_config': {
+                'campus_coach': {'enabled': False},
+                'enduraw': {'enabled': False}
+            },
+            'strava_connected': False
+        }
 
 
 def calculate_rate_limit_delay() -> int:

@@ -130,7 +130,8 @@ The system uses a local web interface approach to avoid complexity of user manag
 3. **Enduraw Report Integration** (third-party Strava app) - Optional Module
    - **External Configuration Required**: Must be configured separately at https://enduraw-report-strava.onrender.com
    - **Not Managed by This System**: Enduraw Report is an independent service that connects directly to your Strava account
-   - **How It Works**: When enabled in our system, we wait 2 minutes for Enduraw to add its report to your activity description
+   - **How It Works**: When enabled, system uses SQS delay to wait 2 minutes for Enduraw to process your activity
+   - **Cost-Optimized**: SQS delay mechanism (no Lambda cost during wait, ~$0.0000003 per activity)
    - **Graceful Fallback**: If Enduraw is not configured or times out, content generation proceeds without Enduraw data
    - **Enhanced Analytics**: Provides pace without wind, weather impact, elevation cost when available
    - Processing delay: 2 minutes when module enabled

@@ -128,6 +128,9 @@ class WebhookProcessingStack(Stack):
         if self.step_functions_arn:
             activity_processor_env["STEP_FUNCTIONS_ARN"] = self.step_functions_arn
         
+        # Add USER_CONFIG_TABLE for Enduraw module configuration
+        activity_processor_env["USER_CONFIG_TABLE"] = self.core_stack.table_names["user_config"]
+        
         self.activity_processor = lambda_.Function(
             self, "ActivityProcessor",
             function_name="StravaAIBoost-ActivityProcessor",
@@ -150,6 +153,7 @@ class WebhookProcessingStack(Stack):
         # Grant DynamoDB permissions to activity processor
         self.core_stack.activities_table.grant_read_write_data(self.activity_processor)
         self.core_stack.rate_limits_table.grant_read_write_data(self.activity_processor)
+        self.core_stack.user_config_table.grant_read_data(self.activity_processor)  # For Enduraw module config
         
         # Grant Secrets Manager permissions to activity processor
         self.core_stack.strava_oauth_secret.grant_read(self.activity_processor)

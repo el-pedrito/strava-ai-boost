@@ -1615,3 +1615,444 @@ aws logs tail /aws/lambda/StravaAIBoost-StepFunctionsErrorHandler --follow --pro
 - [Using dead-letter queues in Amazon SQS](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-dead-letter-queues.html)
 - [Reporting batch item failures for Lambda functions](https://docs.aws.amazon.com/lambda/latest/dg/example_serverless_SQS_Lambda_batch_item_failures_section.html)
 - [Automating Step Functions event delivery with EventBridge](https://docs.aws.amazon.com/step-functions/latest/dg/eventbridge-integration.html)
+
+
+---
+
+## Enduraw Module Integration
+
+### Overview
+
+The Enduraw module provides enhanced analytics for running activities through integration with [Enduraw Report](https://enduraw-report-strava.onrender.com), a third-party Strava app that adds detailed performance metrics including pace without wind, weather impact, and elevation cost analysis.
+
+**Key Features**:
+- 2-minute wait logic for Enduraw Report processing
+- SQS-based delay mechanism (cost-optimized)
+- Graceful fallback when Enduraw data unavailable
+- User-configurable module activation
+
+### Architecture Decision: SQS Delay Pattern
+
+**Chosen Approach**: SQS Message Delay
+
+**Why SQS Delay?**
+1. **Cost Efficient**: No Lambda execution cost during 2-minute wait (~$0.0000003 per activity)
+2. **Simple**: Uses existing SQS infrastructure
+3. **Reliable**: SQS handles message persistence and retry logic
+4. **Debuggable**: Clear logs and message tracking
+
+**Alternatives Considered**:
+- Lambda Sleep: Would block Lambda for 2 minutes (~$0.001 extra cost per activity)
+- Step Functions Wait State: More complex, requires Step Functions modification
+
+### Flow Diagram
+
+```mermaid
+graph TB
+    Webhook[Strava Webhook] --> SQS[SQS Queue]
+    SQS --> Processor[Activity Processor Lambda]
+    Processor --> CheckConfig{Check User Config}
+    CheckConfig -->|Enduraw Disabled| ProcessNormal[Process Normally]
+    CheckConfig -->|Enduraw Enabled| CheckWaited{Already Waited?}
+    CheckWaited -->|Yes| ProcessWithEnduraw[Process with Enduraw Data]
+    CheckWaited -->|No| UpdateStatus[Update Status: waiting_enduraw]
+    UpdateStatus --> Requeue[Requeue with 2min Delay]
+    Requeue --> Wait[2 Minutes Pass]
+    Wait --> Processor
+    ProcessWithEnduraw --> StepFunctions[Step Functions Workflow]
+    ProcessNormal --> StepFunctions
+```
+
+### Implementation Details
+
+#### Activity Processor Lambda Changes
+
+**File**: `lambda_functions/activity_processor.py`
+
+**New Function**:
+```python
+def fetch_user_configuration(user_id: str) -> Dict[str, Any]:
+    """Fetch user configuration from DynamoDB including module settings"""
+    table = dynamodb.Table(os.environ.get('USER_CONFIG_TABLE'))
+    response = table.get_item(Key={'user_id': user_id})
+    
+    if 'Item' in response:
+        return response['Item']
+    else:
+        # Return default configuration
+        return {
+            'user_id': user_id,
+            'modules_config': {
+                'campus_coach': {'enabled': False},
+                'enduraw': {'enabled': False}
+            }
+        }
+```
+
+**Modified Logic in `process_activity_record()`**:
+```python
+# Fetch user configuration
+user_config = fetch_user_configuration(user_id)
+
+# Check if Enduraw is enabled and we haven't waited yet
+enduraw_config = user_config.get('modules_config', {}).get('enduraw', {})
+enduraw_enabled = enduraw_config.get('enabled', False)
+enduraw_waited = message_body.get('enduraw_waited', False)
+
+if enduraw_enabled and not enduraw_waited:
+    logger.info(f"Enduraw module enabled for activity {activity_id}, delaying by 2 minutes")
+    
+    # Update activity status
+    update_activity_status(activity_id, 'waiting_enduraw', 
+                          'Waiting 2 minutes for Enduraw Report processing')
+    
+    # Mark as waited and requeue with delay
+    message_body['enduraw_waited'] = True
+    message_body['enduraw_delay_started_at'] = datetime.now(UTC).isoformat()
+    
+    # Send back to SQS with 2-minute delay
+    sqs.send_message(
+        QueueUrl=PROCESSING_QUEUE_URL,
+        MessageBody=json.dumps(message_body),
+        DelaySeconds=120  # 2 minutes
+    )
+    
+    logger.info(f"Activity {activity_id} requeued with 2-minute delay")
+    return  # Exit successfully, original message deleted
+
+# Log if Enduraw wait was completed
+if enduraw_enabled and enduraw_waited:
+    logger.info(f"Enduraw wait completed for activity {activity_id}")
+
+# Continue with normal processing...
+```
+
+**Modified `start_step_functions_workflow()`**:
+```python
+def start_step_functions_workflow(
+    activity_id: str, 
+    user_id: str, 
+    webhook_data: Dict[str, Any],
+    enduraw_waited: bool = False
+) -> str:
+    """Start Step Functions workflow with Enduraw metadata"""
+    workflow_input = {
+        'activity_id': activity_id,
+        'user_id': user_id,
+        'webhook_data': webhook_data,
+        'enduraw_waited': enduraw_waited,  # Pass wait status
+        'processing_started_at': datetime.now(UTC).isoformat()
+    }
+    # ... rest of implementation
+```
+
+#### Webhook Processing Stack Changes
+
+**File**: `stacks/webhook_processing_stack.py`
+
+**Environment Variables**:
+```python
+activity_processor_env = {
+    "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
+    "RATE_LIMITS_TABLE": self.core_stack.table_names["rate_limits"],
+    "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],  # Added
+    "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
+    "PROCESSING_QUEUE_URL": self.processing_queue.queue_url,
+    "STEP_FUNCTIONS_ARN": self.step_functions_arn
+}
+```
+
+**IAM Permissions**:
+```python
+# Grant read permissions on user_config_table
+self.core_stack.user_config_table.grant_read_data(self.activity_processor)
+```
+
+### Message Flow
+
+#### First Pass (Enduraw Enabled, Not Waited)
+```json
+{
+  "activity_id": "12345678",
+  "user_id": "user123",
+  "webhook_data": {
+    "object_type": "activity",
+    "aspect_type": "create",
+    "event_time": 1703001234
+  },
+  "enduraw_waited": false
+}
+```
+
+**Action**: Update status to `waiting_enduraw`, requeue with 2-minute delay
+
+#### Second Pass (After 2-Minute Delay)
+```json
+{
+  "activity_id": "12345678",
+  "user_id": "user123",
+  "webhook_data": {...},
+  "enduraw_waited": true,
+  "enduraw_delay_started_at": "2025-12-30T10:00:00Z"
+}
+```
+
+**Action**: Process normally, Enduraw data should be available
+
+### Activity Status Tracking
+
+**New Status**: `waiting_enduraw`
+
+**Status Flow**:
+```
+queued → waiting_enduraw → processing → completed
+```
+
+**DynamoDB Update**:
+```python
+update_activity_status(
+    activity_id, 
+    'waiting_enduraw', 
+    'Waiting 2 minutes for Enduraw Report processing',
+    critical=False
+)
+```
+
+### User Configuration Format
+
+```json
+{
+  "user_id": "user123",
+  "modules_config": {
+    "enduraw": {
+      "enabled": true,
+      "wait_time": "2 minutes"
+    },
+    "campus_coach": {
+      "enabled": false
+    }
+  },
+  "strava_connected": true
+}
+```
+
+### Performance Metrics
+
+#### Cost Analysis
+
+**Without Enduraw Wait**:
+- Lambda execution: ~5 seconds
+- Cost: ~$0.0000001 per invocation
+
+**With Enduraw Wait**:
+- First Lambda execution: ~5 seconds (check + requeue)
+- SQS delay: 2 minutes (no cost)
+- Second Lambda execution: ~5 seconds (process)
+- Additional SQS message: ~$0.0000002
+- **Total additional cost**: ~$0.0000003 per activity
+
+#### Timing
+
+- **Enduraw Disabled**: Immediate processing (~30 seconds total)
+- **Enduraw Enabled**: 2-minute delay + processing (~2 minutes 30 seconds total)
+
+### Monitoring
+
+#### CloudWatch Logs Queries
+
+**Find Enduraw Wait Activities**:
+```
+fields @timestamp, @message
+| filter @message like /Enduraw module enabled/
+| sort @timestamp desc
+| limit 20
+```
+
+**Track Wait Completion**:
+```
+fields @timestamp, @message
+| filter @message like /Enduraw wait completed/
+| sort @timestamp desc
+| limit 20
+```
+
+#### Monitoring Commands
+
+```bash
+# Watch activity processor logs for Enduraw activities
+aws logs tail /aws/lambda/StravaAIBoost-ActivityProcessor \
+  --follow \
+  --filter-pattern "Enduraw" \
+  --profile your-aws-profile \
+  --region eu-west-1
+
+# Check SQS delayed messages
+aws sqs get-queue-attributes \
+  --queue-url $(aws sqs get-queue-url --queue-name strava-ai-boost-activity-processing --profile your-aws-profile --query 'QueueUrl' --output text) \
+  --attribute-names ApproximateNumberOfMessagesDelayed \
+  --profile your-aws-profile
+
+# Check activity status in DynamoDB
+aws dynamodb get-item \
+  --table-name strava-ai-boost-activities \
+  --key '{"activity_id": {"S": "12345678"}}' \
+  --profile your-aws-profile \
+  --query 'Item.processing_status.S'
+```
+
+### Testing
+
+#### Enable Enduraw Module
+
+```bash
+# Update user configuration
+aws dynamodb update-item \
+  --table-name strava-ai-boost-user-configuration \
+  --key '{"user_id": {"S": "YOUR_USER_ID"}}' \
+  --update-expression "SET modules_config.enduraw.enabled = :enabled" \
+  --expression-attribute-values '{":enabled": {"BOOL": true}}' \
+  --profile your-aws-profile
+```
+
+#### Test Script
+
+Use the provided test script:
+```bash
+cd strava-ai-boost
+./scripts/test_enduraw_wait.sh YOUR_USER_ID [ACTIVITY_ID]
+```
+
+**Expected Log Output**:
+```
+Processing activity 12345678 for user user123
+Enduraw module enabled for activity 12345678, delaying by 2 minutes
+Activity 12345678 requeued with 2-minute delay for Enduraw processing
+
+[2 minutes later]
+
+Processing activity 12345678 for user user123
+Enduraw wait completed for activity 12345678 (started at 2025-12-30T10:00:00Z)
+Started Step Functions workflow for activity 12345678
+```
+
+### Troubleshooting
+
+#### Issue: Activity Stuck in `waiting_enduraw` Status
+
+**Possible Causes**:
+1. SQS message lost (rare, SQS is highly reliable)
+2. Lambda execution failed on second invocation
+3. Rate limits exceeded
+
+**Solution**:
+```bash
+# Check SQS DLQ for failed messages
+aws sqs receive-message \
+  --queue-url $(aws sqs get-queue-url --queue-name strava-ai-boost-activity-processing-dlq --profile your-aws-profile --query 'QueueUrl' --output text) \
+  --max-number-of-messages 10 \
+  --profile your-aws-profile
+
+# Review Lambda error logs
+aws logs tail /aws/lambda/StravaAIBoost-ActivityProcessor \
+  --since 30m \
+  --profile your-aws-profile
+
+# Manually reprocess if needed
+aws sqs send-message \
+  --queue-url $(aws sqs get-queue-url --queue-name strava-ai-boost-activity-processing --profile your-aws-profile --query 'QueueUrl' --output text) \
+  --message-body '{"activity_id": "12345678", "user_id": "user123", "enduraw_waited": true}' \
+  --profile your-aws-profile
+```
+
+#### Issue: Enduraw Data Not Available After Wait
+
+**Possible Causes**:
+1. Enduraw Report not configured on user's Strava account
+2. Enduraw Report service down
+3. 2 minutes not sufficient for Enduraw processing
+
+**Solution**:
+- Verify Enduraw Report configuration at https://enduraw-report-strava.onrender.com
+- Content generation proceeds gracefully without Enduraw data
+- System logs will show "No Enduraw data available" but processing continues
+
+#### Issue: Infinite Loop of Requeuing
+
+**Prevention**:
+- `enduraw_waited` flag prevents requeuing after first delay
+- Flag is checked before initiating delay
+
+**If it occurs**:
+```bash
+# Check message body structure in logs
+aws logs filter-log-events \
+  --log-group-name /aws/lambda/StravaAIBoost-ActivityProcessor \
+  --filter-pattern "enduraw_waited" \
+  --profile your-aws-profile
+
+# Manually delete stuck messages if needed
+aws sqs purge-queue \
+  --queue-url $(aws sqs get-queue-url --queue-name strava-ai-boost-activity-processing --profile your-aws-profile --query 'QueueUrl' --output text) \
+  --profile your-aws-profile
+```
+
+### Future Enhancements
+
+#### Full Enduraw Module Integration
+
+The current implementation uses simple SQS delay. The full `src/modules/enduraw_module.py` provides:
+- Intelligent wait logic with periodic checking
+- Enhanced metrics extraction (pace without wind, elevation cost)
+- Weather impact analysis
+- Processing status monitoring
+
+**To integrate**:
+1. Import `EndurawModule` in activity processor
+2. Replace simple delay with `wait_for_enduraw_processing()`
+3. Pass enhanced metrics to Step Functions
+4. Update content agent to use Enduraw insights
+
+#### Dynamic Wait Time
+
+Adjust wait time based on Enduraw processing patterns:
+```python
+# Calculate optimal wait time based on historical data
+wait_time = calculate_optimal_enduraw_wait(user_id, activity_type)
+sqs.send_message(
+    QueueUrl=PROCESSING_QUEUE_URL,
+    MessageBody=json.dumps(message_body),
+    DelaySeconds=min(wait_time, 900)  # Max 15 minutes
+)
+```
+
+#### Enduraw Status Check
+
+Poll Enduraw API to detect when data is ready:
+```python
+# Check if Enduraw has processed the activity
+enduraw_ready = await check_enduraw_status(activity_id)
+if enduraw_ready:
+    # Process immediately without full wait
+    process_activity(activity_id)
+```
+
+### External Integration Notes
+
+**Important**: Enduraw Report is an external third-party service that must be configured separately:
+
+1. **Configuration URL**: https://enduraw-report-strava.onrender.com
+2. **User Setup Required**: Each user must connect Enduraw Report to their Strava account
+3. **System Behavior**: Our system only waits for data; it does not configure Enduraw Report
+4. **Graceful Fallback**: Content generation proceeds with or without Enduraw data
+
+**Module Activation**:
+- Enable via local interface: Configuration → Modules → Enduraw Report
+- Or via DynamoDB: Update `modules_config.enduraw.enabled` to `true`
+
+### References
+
+- **Enduraw Report**: https://enduraw-report-strava.onrender.com
+- **SQS Delay Documentation**: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-delay-queues.html
+- **Module Implementation**: `src/modules/enduraw_module.py`
+- **Test Script**: `scripts/test_enduraw_wait.sh`
+- **CHANGELOG**: Version 1.10.1 - Enduraw Module Wait Logic Implementation

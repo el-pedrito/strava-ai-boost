@@ -122,14 +122,36 @@ curl -X GET 'https://www.strava.com/api/v3/push_subscriptions' \
 
 ### Enduraw Report Module
 
-**⚠️ Important**: Enduraw Report is an external service that must be configured separately.
+**⚠️ Important**: Enduraw Report is an external service that must be configured separately at https://enduraw-report-strava.onrender.com
 
 **"Enduraw data not available"**
 - **First**: Ensure Enduraw Report is configured at https://enduraw-report-strava.onrender.com
 - **Then**: Enable the module in our system (Configuration → Modules)
-- System waits 2 minutes for Enduraw data
+- System waits 2 minutes for Enduraw data using SQS delay mechanism
 - **Graceful fallback**: Content generation proceeds without Enduraw data if not available
 - Check Enduraw Report configuration and processing status
+
+**"Activity stuck in waiting_enduraw status"**
+- Check SQS queue for delayed messages:
+  ```bash
+  aws sqs get-queue-attributes \
+    --queue-url $(aws sqs get-queue-url --queue-name strava-ai-boost-activity-processing --profile your-aws-profile --query 'QueueUrl' --output text) \
+    --attribute-names ApproximateNumberOfMessagesDelayed \
+    --profile your-aws-profile
+  ```
+- Check Lambda logs for processing errors:
+  ```bash
+  aws logs tail /aws/lambda/StravaAIBoost-ActivityProcessor \
+    --follow --filter-pattern "Enduraw" \
+    --profile your-aws-profile
+  ```
+- Check DLQ for failed messages:
+  ```bash
+  aws sqs receive-message \
+    --queue-url $(aws sqs get-queue-url --queue-name strava-ai-boost-activity-processing-dlq --profile your-aws-profile --query 'QueueUrl' --output text) \
+    --max-number-of-messages 10 \
+    --profile your-aws-profile
+  ```
 
 **"Processing timeout with Enduraw"**
 - This is normal behavior - system waits 2 minutes then proceeds
@@ -142,6 +164,22 @@ curl -X GET 'https://www.strava.com/api/v3/push_subscriptions' \
 - Visit https://enduraw-report-strava.onrender.com to set up the integration
 - Our system only waits for data; it doesn't configure Enduraw Report
 - Content will still be generated using other available data sources
+
+**"Enduraw wait loop - activity requeued multiple times"**
+- Check if `enduraw_waited` flag is being set correctly
+- Review Lambda logs for flag handling:
+  ```bash
+  aws logs filter-log-events \
+    --log-group-name /aws/lambda/StravaAIBoost-ActivityProcessor \
+    --filter-pattern "enduraw_waited" \
+    --profile your-aws-profile
+  ```
+- If stuck in loop, manually purge queue (use with caution):
+  ```bash
+  aws sqs purge-queue \
+    --queue-url $(aws sqs get-queue-url --queue-name strava-ai-boost-activity-processing --profile your-aws-profile --query 'QueueUrl' --output text) \
+    --profile your-aws-profile
+  ```
 
 ## Local Interface Issues
 
