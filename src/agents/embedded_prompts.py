@@ -709,6 +709,11 @@ The `generate_strava_content` tool returns this format:
 - **Claude Optimization**: Leverage Claude Sonnet's strengths for nuanced content generation
 - **Profile Adaptation**: Ensure content matches user's age, interests, and sport approach
 - **Enduraw Detection**: Always check for Enduraw presence before integration
+- **Original Content Preservation**: If user provided original name/description, USE IT as context
+  - PRESERVE user's personal notes, feelings, and context
+  - ENHANCE rather than REPLACE the user's input
+  - INTEGRATE specific details (weather, feelings, observations) from original description
+  - RESPECT the intent expressed in original name (tempo, recovery, specific focus)
 
 ## Examples by Activity Type with Fun Elements
 

@@ -477,7 +477,7 @@ def generate_enhanced_content_with_agent(
                 logger.error(f"No suitable AgentCore client available: {str(e2)}")
                 # Fallback to direct Bedrock generation
                 return generate_enhanced_content_fallback(
-                    activity_data, streams_data, user_id, modules
+                    activity_data, streams_data, user_id, modules, user_profile
                 )
         
         # Create session ID for this invocation (minimum 33 characters required)
@@ -537,33 +537,47 @@ def generate_enhanced_content_with_agent(
                     logger.error(f"Alternative invocation method also failed: {str(alt_error)}")
                     # Fallback to direct Bedrock generation
                     return generate_enhanced_content_fallback(
-                        activity_data, streams_data, user_id, modules
+                        activity_data, streams_data, user_id, modules, user_profile
                     )
             else:
                 # Other types of errors, fallback
                 return generate_enhanced_content_fallback(
-                    activity_data, streams_data, user_id, modules
+                    activity_data, streams_data, user_id, modules, user_profile
                 )
         
         # Process streaming response from AgentCore
         completion = ""
-        if "text/event-stream" in response.get("contentType", ""):
-            # Handle streaming response
-            for line in response["response"].iter_lines(chunk_size=10):
-                if line:
-                    line = line.decode("utf-8")
-                    if line.startswith("data: "):
-                        line = line[6:]
-                        completion += line
-        elif response.get("contentType") == "application/json":
-            # Handle standard JSON response
-            content = []
-            for chunk in response.get("response", []):
-                content.append(chunk.decode('utf-8'))
-            completion = ''.join(content)
-        else:
-            # Handle other content types
-            completion = str(response.get("response", ""))
+        try:
+            if "text/event-stream" in response.get("contentType", ""):
+                # Handle streaming response
+                for line in response["response"].iter_lines(chunk_size=10):
+                    if line:
+                        try:
+                            line = line.decode("utf-8", errors='replace')  # Replace invalid UTF-8 with �
+                        except Exception as decode_error:
+                            logger.warning(f"UTF-8 decode error, skipping line: {decode_error}")
+                            continue
+                        if line.startswith("data: "):
+                            line = line[6:]
+                            completion += line
+            elif response.get("contentType") == "application/json":
+                # Handle standard JSON response
+                content = []
+                for chunk in response.get("response", []):
+                    try:
+                        content.append(chunk.decode('utf-8', errors='replace'))
+                    except Exception as decode_error:
+                        logger.warning(f"UTF-8 decode error in chunk: {decode_error}")
+                        continue
+                completion = ''.join(content)
+            else:
+                # Handle other content types
+                completion = str(response.get("response", ""))
+        except Exception as stream_error:
+            logger.error(f"Error processing AgentCore response stream: {str(stream_error)}")
+            return generate_enhanced_content_fallback(
+                activity_data, streams_data, user_id, modules, user_profile
+            )
         
         logger.info(f"AgentCore Content Generation Agent response length: {len(completion)}")
         logger.info(f"AgentCore response preview: {completion[:500]}...")
@@ -685,7 +699,8 @@ def generate_enhanced_content_fallback(
     activity_data: Dict[str, Any],
     streams_data: Optional[Dict[str, Any]],
     user_id: str,
-    modules: List[Dict[str, Any]]
+    modules: List[Dict[str, Any]],
+    user_profile: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Fallback content generation using Bedrock directly

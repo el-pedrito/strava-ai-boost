@@ -93,8 +93,18 @@ ACTIVITY DATA:
 - Elevation: {elevation:.0f} m
 - Average HR: {avg_hr} bpm (if available)
 - Max HR: {max_hr} bpm (if available)
-- Original Name: {activity_data.get('name', 'Untitled')}
 - Date: {activity_data.get('start_date', 'Unknown')}
+
+ORIGINAL USER INPUT (IMPORTANT - Use as context):
+- Original Title: "{activity_data.get('name', 'Untitled')}"
+- Original Description: "{activity_data.get('description', 'No description provided')}"
+
+CRITICAL: If the user provided an original title or description, USE THEM as context and inspiration.
+The user's original input contains personal notes, feelings, or context that should be PRESERVED and ENRICHED.
+- If original description has specific details (weather, feelings, context), INTEGRATE them into enhanced content
+- If original title has specific focus (tempo, recovery, interval, etc.), RESPECT and ENHANCE that intent
+- ENHANCE and ENRICH the user's input, don't ignore or replace it
+- If original content is generic (just activity name), then create from scratch using data
 
 USER PREFERENCES:
 User ID: {user_id}
