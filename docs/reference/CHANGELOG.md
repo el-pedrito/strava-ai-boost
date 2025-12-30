@@ -5,6 +5,24 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.2] - 2025-12-30 - Streams Analysis Bug Fix
+
+### Fixed
+- **Streams Data Analysis Type Error**: Fixed "unsupported operand type(s) for +: 'int' and 'str'"
+  - Streams data has nested structure: `{"velocity_smooth": {"data": [...]}}`
+  - Code was trying to access streams as direct lists instead of extracting `data` key
+  - Added proper extraction of `data` arrays from stream dictionaries
+  - Added robust type conversion for velocity and heartrate values
+  - Added error handling for None values and invalid data points
+  - File: `lambda_functions/content_generator.py`
+
+### Changed
+- **AgentCore Configuration**: Updated agent ARNs after redeployment
+  - Content Generation: `content_gen-XXXXXXXXXX` → `content_gen-XXXXXXXXXX`
+  - Campus Coach: `campus_coach-XXXXXXXXXX` → `campus_coach-XXXXXXXXXX`
+  - Updated in `.env.agentcore` for local development
+  - Lambda environment variables updated via `configure_agentcore_integration.sh`
+
 ## [1.10.1] - 2025-12-30 - Enduraw Module Wait Logic Implementation
 
 ### Added

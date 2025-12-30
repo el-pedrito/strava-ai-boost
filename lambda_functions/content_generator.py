@@ -750,9 +750,21 @@ def analyze_streams_data_fallback(
         if not streams_data:
             return analyze_basic_activity_patterns(activity_data)
         
-        # Basic analysis of streams data
-        velocity_data = streams_data.get('velocity_smooth', [])
-        heartrate_data = streams_data.get('heartrate', [])
+        # Extract actual data arrays from streams structure
+        # Streams data has format: {"velocity_smooth": {"data": [...], "series_type": "distance"}}
+        velocity_stream = streams_data.get('velocity_smooth', {})
+        heartrate_stream = streams_data.get('heartrate', {})
+        
+        # Handle both dict format (with 'data' key) and direct list format
+        if isinstance(velocity_stream, dict):
+            velocity_data = velocity_stream.get('data', [])
+        else:
+            velocity_data = velocity_stream if isinstance(velocity_stream, list) else []
+        
+        if isinstance(heartrate_stream, dict):
+            heartrate_data = heartrate_stream.get('data', [])
+        else:
+            heartrate_data = heartrate_stream if isinstance(heartrate_stream, list) else []
         
         patterns = []
         effort_zones = []
@@ -763,9 +775,17 @@ def analyze_streams_data_fallback(
             # Simple interval detection based on velocity variation
             velocity_changes = []
             for i in range(1, len(velocity_data)):
-                if velocity_data[i-1] > 0:  # Avoid division by zero
-                    change = abs(velocity_data[i] - velocity_data[i-1]) / velocity_data[i-1]
-                    velocity_changes.append(change)
+                try:
+                    # Ensure both values are numeric
+                    prev_vel = float(velocity_data[i-1]) if velocity_data[i-1] is not None else 0
+                    curr_vel = float(velocity_data[i]) if velocity_data[i] is not None else 0
+                    
+                    if prev_vel > 0:  # Avoid division by zero
+                        change = abs(curr_vel - prev_vel) / prev_vel
+                        velocity_changes.append(change)
+                except (ValueError, TypeError):
+                    # Skip invalid data points
+                    continue
             
             # Count significant velocity changes (potential intervals)
             significant_changes = [c for c in velocity_changes if c > 0.2]  # 20% change
@@ -780,23 +800,31 @@ def analyze_streams_data_fallback(
         
         # Analyze heart rate zones
         if heartrate_data:
-            avg_hr = sum(heartrate_data) / len(heartrate_data)
-            max_hr = max(heartrate_data)
-            
-            # Simple zone estimation (assuming max HR ~190 for average athlete)
-            estimated_max_hr = 190
-            hr_percentage = avg_hr / estimated_max_hr
-            
-            if hr_percentage < 0.6:
-                effort_zones.append('zone1')
-            elif hr_percentage < 0.7:
-                effort_zones.append('zone2')
-            elif hr_percentage < 0.8:
-                effort_zones.append('zone3')
-            elif hr_percentage < 0.9:
-                effort_zones.append('zone4')
-            else:
-                effort_zones.append('zone5')
+            try:
+                # Filter out None values and convert to float
+                valid_hr_data = [float(hr) for hr in heartrate_data if hr is not None]
+                
+                if valid_hr_data:
+                    avg_hr = sum(valid_hr_data) / len(valid_hr_data)
+                    max_hr = max(valid_hr_data)
+                    
+                    # Simple zone estimation (assuming max HR ~190 for average athlete)
+                    estimated_max_hr = 190
+                    hr_percentage = avg_hr / estimated_max_hr
+                    
+                    if hr_percentage < 0.6:
+                        effort_zones.append('zone1')
+                    elif hr_percentage < 0.7:
+                        effort_zones.append('zone2')
+                    elif hr_percentage < 0.8:
+                        effort_zones.append('zone3')
+                    elif hr_percentage < 0.9:
+                        effort_zones.append('zone4')
+                    else:
+                        effort_zones.append('zone5')
+            except (ValueError, TypeError, ZeroDivisionError):
+                # Skip heart rate analysis if data is invalid
+                pass
         
         return {
             'patterns': patterns if patterns else ['steady_effort'],
