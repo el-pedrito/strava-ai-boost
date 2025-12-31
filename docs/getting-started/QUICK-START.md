@@ -70,6 +70,12 @@ export AWS_PROFILE=your-aws-profile
 - ✅ Enables semantic search for pattern recognition
 - ✅ Takes ~3 minutes per memory to provision
 
+**Memory Features:**
+- **Automatic Integration**: Memory is automatically used by agents via Strands hooks
+- **Context Loading**: Last 5 activities loaded for personalization
+- **Persistent Learning**: User style, preferences, and patterns saved across activities
+- **Semantic Search**: Intelligent retrieval of relevant past context
+
 **Wait for memories to become ACTIVE:**
 ```bash
 # Check memory status
@@ -97,7 +103,17 @@ agentcore memory list --region eu-west-1
 ```
 
 **What this does:**
-- ✅ Creates dynamic IAM permissions for AgentCore agents
+- ✅ Detects deployed agents and memory configuration from `.bedrock_agentcore.yaml`
+- ✅ Reads memory ID for reference and documentation
+- ✅ Updates Lambda IAM permissions for AgentCore invocation
+- ✅ Updates `.env.agentcore` with agent ARNs (memory ID passed to agents via --env)
+- ✅ Enables seamless integration between infrastructure and AI agents
+
+**Memory Integration:**
+- Memory ID automatically detected from agent configuration
+- Each agent receives its memory ID via `agentcore launch --env`
+- Agent code uses Strands hooks for automatic memory management
+- No manual configuration needed - fully automated
 - ✅ **Updates all 10 Lambda functions** with agent ARNs via AWS API
 - ✅ Updates CDK context with agent information
 - ✅ Creates `.env.agentcore` file for local development

@@ -3,7 +3,7 @@ Campus Coach Agent for AgentCore Runtime
 
 AgentCore-compatible agent with ALL prompts embedded directly.
 Uses embedded_prompts.py for complete prompt definitions.
-NO external dependencies - maximum reliability.
+Includes AgentCore Memory (LTM) integration for session history.
 """
 
 import os
@@ -14,8 +14,10 @@ from datetime import datetime
 
 # Required AgentCore imports
 from bedrock_agentcore import BedrockAgentCoreApp
+from bedrock_agentcore.memory import MemoryClient
 from strands import Agent, tool
 from strands_tools.browser import browser_tool
+from strands.hooks import AgentInitializedEvent, HookProvider, MessageAddedEvent
 
 # Import embedded prompts
 from embedded_prompts import CAMPUS_COACH_PROMPT
@@ -23,11 +25,103 @@ from embedded_prompts import CAMPUS_COACH_PROMPT
 # Initialize AgentCore app
 app = BedrockAgentCoreApp()
 
+# Configure logging level
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Also set root logger to INFO for more visibility
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # Environment variables
 REGION = os.getenv("AWS_REGION", "eu-west-1")
 MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-4-5-20250929-v1:0")
+
+# AgentCore Memory configuration
+MEMORY_ID = os.getenv("BEDROCK_AGENTCORE_MEMORY_ID")
+
+# Initialize memory client if memory is configured
+memory_client = None
+if MEMORY_ID:
+    try:
+        memory_client = MemoryClient(region_name=REGION)
+        logger.info(f"AgentCore Memory client initialized for Campus Coach: {MEMORY_ID}")
+    except Exception as e:
+        logger.warning(f"Failed to initialize memory client: {e}")
+        memory_client = None
+
+
+class AgentCoreMemoryHook(HookProvider):
+    """
+    Hook for AgentCore Memory integration with Campus Coach Agent
+    
+    Tracks session extraction history and patterns.
+    """
+    
+    def on_agent_initialized(self, event):
+        """Load previous extraction context from memory"""
+        if not MEMORY_ID or not memory_client:
+            return
+        
+        try:
+            session_id = event.agent.state.get("session_id") or "default"
+            actor_id = event.agent.state.get("actor_id") or "default_user"
+            
+            # Get last 3 extraction sessions from memory
+            turns = memory_client.get_last_k_turns(
+                memory_id=MEMORY_ID,
+                actor_id=actor_id,
+                session_id=session_id,
+                k=3  # Last 3 extractions for context
+            )
+            
+            if turns:
+                context = "\n".join([
+                    f"{m['role']}: {m['content']['text']}" 
+                    for t in turns for m in t
+                ])
+                event.agent.system_prompt += f"\n\nPREVIOUS EXTRACTIONS CONTEXT (from AgentCore LTM):\n{context}"
+                logger.info(f"Loaded {len(turns)} previous extraction turns from memory for actor {actor_id}")
+        except Exception as e:
+            logger.warning(f"Failed to load memory context: {e}")
+    
+    def on_message_added(self, event):
+        """Save extraction to memory after processing"""
+        if not MEMORY_ID or not memory_client:
+            return
+        
+        try:
+            session_id = event.agent.state.get("session_id") or "default"
+            actor_id = event.agent.state.get("actor_id") or "default_user"
+            
+            # Save only assistant messages (responses) to memory
+            msg = event.agent.messages[-1]
+            
+            # Only save assistant messages
+            if msg.get("role") != "assistant":
+                logger.debug(f"Skipping memory save for non-assistant message")
+                return
+            
+            # Extract content and limit size to 9000 characters
+            content = str(msg.get("content", ""))
+            if len(content) > 9000:
+                content = content[:9000] + "... [truncated]"
+                logger.info(f"Truncated message content for memory")
+            
+            memory_client.create_event(
+                memory_id=MEMORY_ID,
+                actor_id=actor_id,
+                session_id=session_id,
+                messages=[(content, msg["role"])]
+            )
+            logger.info(f"Saved extraction to memory for actor {actor_id}, session {session_id}")
+        except Exception as e:
+            logger.warning(f"Failed to save to memory: {e}")
+    
+    def register_hooks(self, registry):
+        """Register hooks with the agent"""
+        registry.add_callback(AgentInitializedEvent, self.on_agent_initialized)
+        registry.add_callback(MessageAddedEvent, self.on_message_added)
+
 
 @tool
 def extract_campus_coach_sessions(
@@ -245,22 +339,35 @@ def invoke(payload, context=None):
         Campus Coach operation results
     """
     try:
-        logger.info(f"Campus Coach agent invoked with action: {payload.get('action', 'unknown')}")
+        # Extract parameters from payload first
+        action = payload.get('action', 'extract_sessions')
+        user_id = payload.get('user_id', 'default_user')
+        extraction_id = payload.get('extraction_id', datetime.now().strftime('%Y%m%d%H%M%S'))
+        
+        logger.info(f"Campus Coach agent invoked with action: {action}")
         
         # Use the embedded complete prompt
         system_prompt = CAMPUS_COACH_PROMPT
         
-        # Create Strands agent with Campus Coach tools
+        # Create Strands agent with Campus Coach tools and memory hooks
         agent = Agent(
             model=MODEL_ID,
             system_prompt=system_prompt,
             tools=[extract_campus_coach_sessions, match_activity_to_session, 
-                   get_user_campus_coach_credentials, analyze_session_compliance, browser_tool]
+                   get_user_campus_coach_credentials, analyze_session_compliance, browser_tool],
+            hooks=[AgentCoreMemoryHook()] if MEMORY_ID else [],
+            state={
+                "session_id": f"extraction-{extraction_id}",
+                "actor_id": str(user_id)
+            }
         )
         
-        # Extract parameters from payload
-        action = payload.get('action', 'extract_sessions')
-        user_id = payload.get('user_id', 'default_user')
+        if MEMORY_ID:
+            logger.info(f"Campus Coach agent created with AgentCore Memory (LTM) for user {user_id}")
+        else:
+            logger.info(f"Campus Coach agent created without memory")
+        
+        # Extract remaining parameters from payload
         activity_data = payload.get('activity_data', {})
         planned_session = payload.get('planned_session', {})
         week_number = payload.get('week_number')

@@ -141,24 +141,70 @@ EOF
             local policy_arn=""
             
             if [ -n "$existing_policy_arn" ] && [ "$existing_policy_arn" != "None" ]; then
-                # Update existing policy
-                print_status "Updating existing policy: $policy_name"
+                # Check if policy content has changed
+                print_status "Checking if policy needs update: $policy_name"
                 
-                # Create new policy version
-                local version_id
-                version_id=$(aws iam create-policy-version \
+                local current_policy_doc
+                current_policy_doc=$(aws iam get-policy-version \
                     --policy-arn "$existing_policy_arn" \
-                    --policy-document "file://$policy_file" \
-                    --set-as-default \
+                    --version-id $(aws iam get-policy --policy-arn "$existing_policy_arn" --profile "$AWS_PROFILE" --query 'Policy.DefaultVersionId' --output text) \
                     --profile "$AWS_PROFILE" \
-                    --query 'PolicyVersion.VersionId' \
-                    --output text 2>/dev/null)
+                    --query 'PolicyVersion.Document' \
+                    --output json 2>/dev/null)
                 
-                if [ $? -eq 0 ] && [ -n "$version_id" ]; then
-                    print_success "✅ Updated policy version: $version_id"
+                local new_policy_doc=$(cat "$policy_file")
+                
+                # Compare policies (normalize JSON for comparison)
+                local current_normalized=$(echo "$current_policy_doc" | jq -S -c '.')
+                local new_normalized=$(echo "$new_policy_doc" | jq -S -c '.')
+                
+                if [ "$current_normalized" = "$new_normalized" ]; then
+                    print_success "✅ Policy unchanged, skipping version creation"
                     policy_arn="$existing_policy_arn"
                 else
-                    print_warning "Failed to update existing policy, will create new one"
+                    # Policy has changed, create new version
+                    print_status "Policy has changed, creating new version"
+                    
+                    # Delete oldest non-default version if we have 5 versions (AWS limit)
+                    local version_count=$(aws iam list-policy-versions \
+                        --policy-arn "$existing_policy_arn" \
+                        --profile "$AWS_PROFILE" \
+                        --query 'length(Versions)' \
+                        --output text 2>/dev/null)
+                    
+                    if [ "$version_count" -ge 5 ]; then
+                        print_status "Cleaning up old policy versions (limit: 5)"
+                        local oldest_version=$(aws iam list-policy-versions \
+                            --policy-arn "$existing_policy_arn" \
+                            --profile "$AWS_PROFILE" \
+                            --query 'Versions[?IsDefaultVersion==`false`] | sort_by(@, &CreateDate) | [0].VersionId' \
+                            --output text 2>/dev/null)
+                        
+                        if [ -n "$oldest_version" ] && [ "$oldest_version" != "None" ]; then
+                            aws iam delete-policy-version \
+                                --policy-arn "$existing_policy_arn" \
+                                --version-id "$oldest_version" \
+                                --profile "$AWS_PROFILE" 2>/dev/null
+                            print_status "Deleted old version: $oldest_version"
+                        fi
+                    fi
+                    
+                    # Create new policy version
+                    local version_id
+                    version_id=$(aws iam create-policy-version \
+                        --policy-arn "$existing_policy_arn" \
+                        --policy-document "file://$policy_file" \
+                        --set-as-default \
+                        --profile "$AWS_PROFILE" \
+                        --query 'PolicyVersion.VersionId' \
+                        --output text 2>/dev/null)
+                    
+                    if [ $? -eq 0 ] && [ -n "$version_id" ]; then
+                        print_success "✅ Created new policy version: $version_id"
+                        policy_arn="$existing_policy_arn"
+                    else
+                        print_warning "Failed to update existing policy, will create new one"
+                    fi
                 fi
             fi
             
@@ -356,16 +402,14 @@ update_lambda_environment_variables() {
             --output json 2>/dev/null)
         
         if [ $? -eq 0 ] && [ "$current_env" != "null" ]; then
-            # Update environment variables with agent ARNs
+            # Update environment variables with agent ARNs (no memory ID for Lambda)
             local updated_env
             updated_env=$(echo "$current_env" | jq \
                 --arg content_arn "$content_arn" \
                 --arg campus_arn "$campus_arn" \
-                --arg memory_id "$memory_id" \
                 '. + {
                     "CONTENT_GENERATION_AGENT_ARN": $content_arn,
                     "CAMPUS_COACH_AGENT_ARN": $campus_arn,
-                    "BEDROCK_AGENTCORE_MEMORY_ID": $memory_id,
                     "AGENTCORE_AGENTS_AVAILABLE": (if ($content_arn != "" or $campus_arn != "") then "true" else "false" end),
                     "AGENTCORE_DEPLOYMENT_TYPE": "direct_code_deploy",
                     "CONTENT_GENERATION_AGENT_NAME": "'"$CONTENT_AGENT_NAME"'",
@@ -455,6 +499,7 @@ update_cdk_context() {
 create_env_file() {
     local content_arn="$1"
     local campus_arn="$2"
+    local memory_id="$3"
     
     print_status "📄 Creating .env.agentcore file for local development..."
     
@@ -477,12 +522,6 @@ CONTENT_GENERATION_AGENT_NAME=$CONTENT_AGENT_NAME
 # Browser Tool agent for Campus Coach session extraction
 CAMPUS_COACH_AGENT_ARN=$campus_arn
 CAMPUS_COACH_AGENT_NAME=$CAMPUS_AGENT_NAME
-
-# ============================================================================
-# AGENTCORE MEMORY
-# ============================================================================
-# Memory is managed automatically by AgentCore in STM_ONLY mode
-# No manual Memory ARN/ID configuration required
 
 # ============================================================================
 # AGENTCORE CONFIGURATION
@@ -525,11 +564,41 @@ MEMORY_LOOKUP_TIMEOUT=500
 CAMPUS_COACH_MODULE_ENABLED=true
 ENDURAW_MODULE_ENABLED=true
 AGENTCORE_MEMORY_PERSONALIZATION=true
-VERBOSE_LOGGING=false
+VERBOSE_LOGGING=true  # Enable verbose logging for debugging
 
 EOF
 
     print_success "Environment file created: .env.agentcore"
+    if [ -n "$memory_id" ]; then
+        print_status "  Note: Memory ID ($memory_id) is passed to agents via agentcore launch --env"
+        print_status "  Each agent has its own memory configured in .bedrock_agentcore.yaml"
+    fi
+}
+
+# Function to get memory ID from .bedrock_agentcore.yaml
+get_memory_id_from_yaml() {
+    local agent_name="$1"
+    
+    if [ ! -f ".bedrock_agentcore.yaml" ]; then
+        echo ""
+        return
+    fi
+    
+    # Use Python to properly parse YAML
+    local memory_id=$(python3 << EOF
+import yaml
+try:
+    with open('.bedrock_agentcore.yaml', 'r') as f:
+        config = yaml.safe_load(f)
+    memory_id = config.get('agents', {}).get('$agent_name', {}).get('memory', {}).get('memory_id', '')
+    if memory_id and memory_id != 'null':
+        print(memory_id)
+except Exception:
+    pass
+EOF
+)
+    
+    echo "$memory_id"
 }
 
 # Main execution
@@ -553,9 +622,21 @@ main() {
     # Parse agent information
     IFS='|' read -r content_arn campus_arn <<< "$agent_info"
     
+    # Get memory ID from YAML
+    print_status "🔍 Detecting AgentCore Memory configuration..."
+    local content_memory_id=$(get_memory_id_from_yaml "$CONTENT_AGENT_NAME")
+    
+    if [ -n "$content_memory_id" ]; then
+        print_success "Found AgentCore Memory: $content_memory_id"
+    else
+        print_warning "No AgentCore Memory configured (agents will run without LTM)"
+        content_memory_id=""
+    fi
+    
     print_success "Detected AgentCore resources:"
     [ -n "$content_arn" ] && print_status "  Content Generation Agent: $content_arn"
     [ -n "$campus_arn" ] && print_status "  Campus Coach Agent: $campus_arn"
+    [ -n "$content_memory_id" ] && print_status "  AgentCore Memory: $content_memory_id"
     
     print_status ""
     print_status "🔧 Configuring AgentCore integration..."
@@ -566,21 +647,25 @@ main() {
     # Verify AgentCore agent permissions (read-only check)
     verify_agentcore_iam_permissions "$content_arn" "$campus_arn"
     
-    # Update Lambda environment variables with agent ARNs (simplified)
-    update_lambda_environment_variables "$content_arn" "$campus_arn"
+    # Update Lambda environment variables with agent ARNs and memory ID
+    update_lambda_environment_variables "$content_arn" "$campus_arn" "$content_memory_id"
     
     # Update CDK context
     update_cdk_context "$content_arn" "$campus_arn"
     
-    # Create environment file
-    create_env_file "$content_arn" "$campus_arn"
+    # Create environment file with memory ID
+    create_env_file "$content_arn" "$campus_arn" "$content_memory_id"
     
     print_success "🎉 AgentCore integration configuration completed successfully!"
     print_status ""
     print_status "📋 Configuration Summary:"
     print_status "  Content Generation Agent: $content_arn"
     print_status "  Campus Coach Agent: $campus_arn"
-    print_status "  AgentCore Memory: Managed automatically (STM_ONLY mode)"
+    if [ -n "$content_memory_id" ]; then
+        print_status "  AgentCore Memory (LTM): $content_memory_id"
+    else
+        print_status "  AgentCore Memory: Not configured"
+    fi
     print_status ""
     print_status "✅ Integration Status:"
     print_status "  - IAM permissions: Lambda roles updated for AgentCore invocation"

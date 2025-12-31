@@ -5,6 +5,125 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.4] - 2025-12-31 - AgentCore Memory (LTM) Integration with Strands Hooks
+
+### Added
+- **AgentCore Memory Hooks**: Integrated LTM memory with Strands Agent using official hooks pattern
+  - Added `AgentCoreMemoryHook` class based on AgentCore documentation
+  - Hook `on_agent_initialized`: Loads last 5 activities from memory for context
+  - Hook `on_message_added`: Saves only assistant messages (responses) to memory
+  - Memory client initialized with `BEDROCK_AGENTCORE_MEMORY_ID` from environment
+  - Uses `actor_id` (user_id) and `session_id` (activity-{id}) for memory scoping
+  - Filters assistant messages only (skips user prompts to avoid 9000 char limit)
+  - Files: `src/agents/content_agent.py`, `src/agents/campus_coach_agent.py`
+
+### Added
+- **Enhanced Agent Logging**: Detailed logging for debugging and monitoring
+  - Logs invocation start with all parameters (activity, user, modules, memory status)
+  - Logs user preferences from correct structure (`content_preferences.language`, etc.)
+  - Logs invocation completion with response metrics
+  - Logs memory operations (context loading, event saving with char count)
+  - Added callback handler for model reasoning events (extended thinking)
+  - Logs event loop lifecycle, tool usage, message creation
+  - Configured `logging.basicConfig` for consistent log format
+  - Files: `src/agents/content_agent.py`, `src/agents/campus_coach_agent.py`
+
+### Added
+- **IAM Policy Version Management**: Smart policy update with change detection
+  - Compares current policy with new policy before creating version
+  - Only creates new version if policy content changed
+  - Automatically cleans up old versions when limit (5) reached
+  - Prevents unnecessary policy version accumulation
+  - File: `scripts/configure_agentcore_integration.sh`
+
+### Changed
+- **AgentCore Configuration Script**: Dynamic memory ID detection and propagation
+  - Added `get_memory_id_from_yaml()` function using Python YAML parser (more reliable)
+  - Updated `create_env_file()` to document memory configuration (reference only)
+  - Updated `main()` to detect memory configuration from `.bedrock_agentcore.yaml`
+  - Memory ID passed to agents via `agentcore launch --env` (not Lambda env vars)
+  - Each agent receives its own memory ID in its isolated runtime
+  - File: `scripts/configure_agentcore_integration.sh`
+
+### Changed
+- **Agent Deployment Script**: Memory ID passed via environment variable
+  - Updated `agentcore launch` to include `--env "BEDROCK_AGENTCORE_MEMORY_ID=$memory_id"`
+  - Each agent receives its specific memory ID at launch time
+  - File: `scripts/deploy_agentcore_agents.sh`
+
+### Fixed
+- **Memory Hook State Access**: Fixed JSONSerializableDict.get() error
+  - Changed from `state.get("key", "default")` to `state.get("key") or "default"`
+  - JSONSerializableDict only supports 1-2 arguments, not 3
+  - Prevents "takes from 1 to 2 positional arguments but 3 were given" error
+  - Files: `src/agents/content_agent.py`, `src/agents/campus_coach_agent.py`
+
+### Fixed
+- **User Preferences Logging**: Fixed reading from nested structure
+  - Changed from `user_profile.get('content_language')` to `user_profile.get('content_preferences', {}).get('language')`
+  - Aligns with Lambda's `build_user_profile_from_config()` structure
+  - All preference fields now read from `content_preferences` dict
+  - File: `src/agents/content_agent.py`
+
+### Technical
+- **Memory Integration Pattern** (based on official AgentCore documentation):
+  ```python
+  # Initialize memory client
+  memory_client = MemoryClient(region_name=REGION)
+  MEMORY_ID = os.getenv("BEDROCK_AGENTCORE_MEMORY_ID")
+  
+  # Create hook for automatic memory management
+  class AgentCoreMemoryHook(HookProvider):
+      def on_agent_initialized(self, event):
+          # Load previous context
+          turns = memory_client.get_last_k_turns(memory_id, actor_id, session_id, k=5)
+      
+      def on_message_added(self, event):
+          # Save only assistant messages (skip user prompts)
+          if msg.get("role") == "assistant":
+              memory_client.create_event(memory_id, actor_id, session_id, messages)
+  
+  # Create agent with hooks and callback handler
+  agent = Agent(
+      model=MODEL_ID,
+      hooks=[AgentCoreMemoryHook()] if MEMORY_ID else [],
+      callback_handler=reasoning_callback_handler,
+      state={"session_id": f"activity-{id}", "actor_id": user_id}
+  )
+  ```
+
+### Performance
+- **Memory Context Loading**: Last 5 activities loaded for personalization context
+- **Memory Saving**: Only assistant responses saved (not prompts) - prevents 9000 char limit errors
+- **Semantic Search**: LTM uses semantic memory strategy (ComprehensiveLearning)
+- **365-Day Retention**: Long-term learning across all user activities
+- **Automatic Fallback**: Agent works without memory if not configured
+
+### Documentation
+- **Memory Scoping**:
+  - `actor_id`: User ID (persistent across all activities for that user)
+  - `session_id`: Activity ID (unique per activity)
+  - Memory persists user style, preferences, and performance patterns
+  - Enables avoiding repetitive expressions across activities
+
+### Deployment
+- **Configuration Flow**:
+  1. `create_agentcore_memories.sh` - Creates LTM memory with semantic strategy
+  2. `deploy_agentcore_agents.sh` - Deploys agents with memory passed via `--env`
+  3. `configure_agentcore_integration.sh` - Configures Lambda IAM and creates reference files
+  4. Agent code reads `BEDROCK_AGENTCORE_MEMORY_ID` from its AgentCore Runtime environment
+
+### Verified
+- ✅ Memory ID dynamically read from `.bedrock_agentcore.yaml`
+- ✅ Memory ID passed to each agent via `agentcore launch --env`
+- ✅ Each agent has its own isolated memory in its runtime
+- ✅ Agent code uses official AgentCore memory hooks pattern
+- ✅ Memory saves only assistant messages (9000 char limit respected)
+- ✅ User preferences read from correct nested structure
+- ✅ Graceful fallback when memory not configured
+- ✅ Enhanced logging for memory operations and debugging
+- ✅ Callback handler logs reasoning events (extended thinking)
+
 ## [1.10.3] - 2025-12-30 - Enduraw Module Configuration Fix & Duplicate Processing Prevention
 
 ### Fixed

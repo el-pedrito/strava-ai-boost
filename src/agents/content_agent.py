@@ -3,7 +3,7 @@ Content Generation Agent for AgentCore Runtime
 
 AgentCore-compatible agent with ALL prompts and tools embedded directly.
 Uses embedded_prompts.py for complete prompt definitions.
-NO external dependencies - maximum reliability.
+Includes AgentCore Memory (LTM) integration for personalization.
 """
 
 import os
@@ -14,7 +14,9 @@ from datetime import datetime
 
 # Required AgentCore imports
 from bedrock_agentcore import BedrockAgentCoreApp
+from bedrock_agentcore.memory import MemoryClient
 from strands import Agent, tool
+from strands.hooks import AgentInitializedEvent, HookProvider, MessageAddedEvent
 
 # Import embedded prompts
 from embedded_prompts import CONTENT_GENERATION_PROMPT
@@ -22,11 +24,106 @@ from embedded_prompts import CONTENT_GENERATION_PROMPT
 # Initialize AgentCore app
 app = BedrockAgentCoreApp()
 
+# Configure logging level
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Also set root logger to INFO for more visibility
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # Environment variables
 REGION = os.getenv("AWS_REGION", "eu-west-1")
 MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-4-5-20250929-v1:0")
+
+# AgentCore Memory configuration
+MEMORY_ID = os.getenv("BEDROCK_AGENTCORE_MEMORY_ID")
+
+# Initialize memory client if memory is configured
+memory_client = None
+if MEMORY_ID:
+    try:
+        memory_client = MemoryClient(region_name=REGION)
+        logger.info(f"AgentCore Memory client initialized: {MEMORY_ID}")
+    except Exception as e:
+        logger.warning(f"Failed to initialize memory client: {e}")
+        memory_client = None
+
+
+class AgentCoreMemoryHook(HookProvider):
+    """
+    Hook for AgentCore Memory integration with Strands Agent
+    
+    Based on official AgentCore documentation example.
+    Automatically handles:
+    - Loading previous conversation/activity context when agent starts
+    - Saving each interaction to memory for long-term learning
+    """
+    
+    def on_agent_initialized(self, event):
+        """Load previous context from memory when agent starts"""
+        if not MEMORY_ID or not memory_client:
+            return
+        
+        try:
+            session_id = event.agent.state.get("session_id") or "default"
+            actor_id = event.agent.state.get("actor_id") or "default_user"
+            
+            # Get last 5 conversation turns from memory
+            turns = memory_client.get_last_k_turns(
+                memory_id=MEMORY_ID,
+                actor_id=actor_id,
+                session_id=session_id,
+                k=5  # Last 5 activities for context
+            )
+            
+            if turns:
+                # Add conversation history to agent's context
+                context = "\n".join([
+                    f"{m['role']}: {m['content']['text']}" 
+                    for t in turns for m in t
+                ])
+                event.agent.system_prompt += f"\n\nPREVIOUS ACTIVITIES CONTEXT (from AgentCore LTM):\n{context}"
+                logger.info(f"Loaded {len(turns)} previous turns from memory for actor {actor_id}")
+        except Exception as e:
+            logger.warning(f"Failed to load memory context: {e}")
+    
+    def on_message_added(self, event):
+        """Save interaction to memory after processing"""
+        if not MEMORY_ID or not memory_client:
+            return
+        
+        try:
+            session_id = event.agent.state.get("session_id") or "default"
+            actor_id = event.agent.state.get("actor_id") or "default_user"
+            
+            # Save only assistant messages (responses) to memory, not user prompts
+            msg = event.agent.messages[-1]
+            
+            # Only save assistant messages (skip user prompts which are too long)
+            if msg.get("role") != "assistant":
+                logger.debug(f"Skipping memory save for non-assistant message (role: {msg.get('role')})")
+                return
+            
+            # Extract content and limit size to 9000 characters (AgentCore Memory limit)
+            content = str(msg.get("content", ""))
+            if len(content) > 9000:
+                content = content[:9000] + "... [truncated]"
+                logger.info(f"Truncated message content from {len(str(msg.get('content')))} to 9000 chars for memory")
+            
+            memory_client.create_event(
+                memory_id=MEMORY_ID,
+                actor_id=actor_id,
+                session_id=session_id,
+                messages=[(content, msg["role"])]
+            )
+            logger.info(f"Saved message to memory for actor {actor_id}, session {session_id} ({len(content)} chars)")
+        except Exception as e:
+            logger.warning(f"Failed to save to memory: {e}")
+    
+    def register_hooks(self, registry):
+        """Register hooks with the agent"""
+        registry.add_callback(AgentInitializedEvent, self.on_agent_initialized)
+        registry.add_callback(MessageAddedEvent, self.on_message_added)
 
 
 @app.entrypoint
@@ -42,28 +139,100 @@ def invoke(payload, context=None):
         Generated content with metadata and analysis
     """
     try:
-        activity_id = payload.get('activity_data', {}).get('id', 'unknown')
+        # Extract parameters from payload first
+        activity_data = payload.get('activity_data', {})
+        activity_id = activity_data.get('id', 'unknown')
+        user_id = payload.get('user_id', 'default_user')
         
         # Use the embedded complete prompt
         system_prompt = CONTENT_GENERATION_PROMPT
         
-        # Create Strands agent WITHOUT tools - let Claude generate directly
+        # Create Strands agent with AgentCore Memory hooks
         agent = Agent(
             model=MODEL_ID,
-            system_prompt=system_prompt
+            system_prompt=system_prompt,
+            hooks=[AgentCoreMemoryHook()] if MEMORY_ID else [],
+            state={
+                "session_id": f"activity-{activity_id}",
+                "actor_id": str(user_id)
+            }
         )
         
-        # Extract parameters from payload
-        activity_data = payload.get('activity_data', {})
+        if MEMORY_ID:
+            logger.info(f"Agent created with AgentCore Memory (LTM) for user {user_id}, activity {activity_id}")
+        else:
+            logger.info(f"Agent created without memory (MEMORY_ID not configured)")
+        
+        # Define callback handler for model reasoning logs
+        def reasoning_callback_handler(**kwargs):
+            """Log model reasoning and tool usage"""
+            if kwargs.get("init_event_loop"):
+                logger.info("🔄 Agent event loop initialized")
+            elif kwargs.get("start_event_loop"):
+                logger.info("▶️ Agent event loop cycle starting")
+            elif kwargs.get("reasoning"):
+                # Log reasoning events (extended thinking from models like Claude)
+                reasoning_text = kwargs.get("reasoningText", "")
+                if reasoning_text:
+                    logger.info(f"🧠 Model reasoning: {reasoning_text[:500]}...")
+                reasoning_sig = kwargs.get("reasoning_signature")
+                if reasoning_sig:
+                    logger.info(f"   Reasoning signature: {reasoning_sig}")
+            elif "current_tool_use" in kwargs and kwargs["current_tool_use"].get("name"):
+                tool_name = kwargs["current_tool_use"]["name"]
+                tool_input = kwargs["current_tool_use"].get("input", {})
+                logger.info(f"🔧 Agent using tool: {tool_name}")
+                logger.info(f"   Tool input: {str(tool_input)[:200]}...")
+            elif "message" in kwargs:
+                role = kwargs["message"].get("role")
+                content_preview = str(kwargs["message"].get("content", ""))[:200]
+                logger.info(f"📬 Message created: {role} ({len(str(kwargs['message'].get('content', '')))} chars)")
+                logger.info(f"   Preview: {content_preview}...")
+            elif kwargs.get("complete"):
+                logger.info("✅ Agent event loop cycle completed")
+            elif kwargs.get("force_stop"):
+                logger.warning(f"🛑 Agent force-stopped: {kwargs.get('force_stop_reason', 'unknown')}")
+        
+        # Add callback handler to agent for reasoning logs
+        agent.callback_handler = reasoning_callback_handler
+        
+        # Extract remaining parameters from payload
         streams_data = payload.get('streams_data')
-        user_id = payload.get('user_id', 'default_user')
         user_profile = payload.get('user_profile')
         active_modules = payload.get('active_modules', [])
         campus_coach_session = payload.get('campus_coach_session')
         enduraw_data = payload.get('enduraw_data')
         
+        # Log detailed invocation info
+        logger.info(f"=== Content Generation Started ===")
+        logger.info(f"Activity ID: {activity_id}")
+        logger.info(f"User ID: {user_id}")
+        logger.info(f"Activity Type: {activity_data.get('type', 'unknown')}")
+        logger.info(f"Distance: {activity_data.get('distance', 0)/1000:.2f} km")
+        logger.info(f"Active Modules: {[m.get('name') for m in active_modules]}")
+        logger.info(f"Campus Coach Session: {'Yes' if campus_coach_session else 'No'}")
+        logger.info(f"Enduraw Data: {'Yes' if enduraw_data else 'No'}")
+        logger.info(f"Streams Data: {'Yes' if streams_data else 'No'}")
+        logger.info(f"Memory Enabled: {MEMORY_ID is not None}")
+        
+        # Log user preferences if available
+        if user_profile:
+            logger.info(f"=== User Preferences ===")
+            content_prefs = user_profile.get('content_preferences', {})
+            logger.info(f"Content Tone: {content_prefs.get('tone') or 'not set'}")
+            logger.info(f"Content Length: {content_prefs.get('length') or 'not set'}")
+            logger.info(f"Technical Detail: {content_prefs.get('technical_detail') or 'not set'}")
+            logger.info(f"Emoji Usage: {content_prefs.get('emoji_usage') or 'not set'}")
+            logger.info(f"Language: {content_prefs.get('language') or 'not set'}")
+            logger.info(f"Sport Approach: {user_profile.get('sport_approach') or 'not set'}")
+            logger.info(f"Interests: {user_profile.get('interests') or []}")
+            logger.info(f"Age Range: {user_profile.get('age_range') or 'not set'}")
+        else:
+            logger.info(f"User Preferences: Not configured")
+        
         # Validate required data
         if not activity_data:
+            logger.error("Missing activity_data in payload")
             return {
                 "error": "activity_data is required for content generation",
                 "user_id": user_id
@@ -168,10 +337,17 @@ Return ONLY a JSON response in this exact format:
 }}"""
         
         # Invoke the agent - Claude will generate directly using the system prompt
+        # Invoke agent
+        logger.info(f"Invoking agent with prompt length: {len(prompt)} characters")
         result = agent(prompt)
         
         # Parse the response
         response_text = result.message.get('content', [{}])[0].get('text', str(result))
+        
+        logger.info(f"=== Content Generation Completed ===")
+        logger.info(f"Response length: {len(response_text)} characters")
+        logger.info(f"Model used: {MODEL_ID}")
+        logger.info(f"Memory used: {MEMORY_ID is not None}")
         
         # Return the structured response
         return {
@@ -184,6 +360,9 @@ Return ONLY a JSON response in this exact format:
         }
         
     except Exception as e:
+        logger.error(f"=== Content Generation Failed ===")
+        logger.error(f"Error: {str(e)}")
+        logger.error(f"Activity ID: {payload.get('activity_data', {}).get('id', 'unknown')}")
         return {
             "error": str(e),
             "user_id": payload.get('user_id', 'unknown'),

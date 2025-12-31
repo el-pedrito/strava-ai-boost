@@ -196,11 +196,12 @@ deploy_agent_with_ltm() {
         return 1
     }
     
-    # Launch agent
-    print_status "Launching agent: $agent_name..."
+    # Launch agent with memory ID as environment variable
+    print_status "Launching agent: $agent_name with memory ID: $memory_id..."
     
     agentcore launch \
         --agent "$agent_name" \
+        --env "BEDROCK_AGENTCORE_MEMORY_ID=$memory_id" \
         --auto-update-on-conflict || {
         print_error "Failed to launch $agent_name"
         return 1
