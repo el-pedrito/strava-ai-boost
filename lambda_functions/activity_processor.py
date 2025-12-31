@@ -235,10 +235,15 @@ def should_skip_processing(activity_id: str, message_body: Dict[str, Any]) -> bo
             logger.info(f"Activity {activity_id} currently processing, skipping")
             return True
         
+        # Skip if waiting for Enduraw (avoid concurrent processing during wait)
+        if processing_status == 'waiting_enduraw':
+            logger.info(f"Activity {activity_id} waiting for Enduraw, skipping")
+            return True
+        
         # For update webhooks, be more restrictive
         if aspect_type == 'update':
             # Skip if we've ever processed this activity successfully
-            if processing_status in ['completed', 'processing']:
+            if processing_status in ['completed', 'processing', 'waiting_enduraw']:
                 logger.info(f"Activity {activity_id} update webhook but already processed, skipping")
                 return True
             

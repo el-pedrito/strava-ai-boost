@@ -1836,6 +1836,35 @@ update_activity_status(
 }
 ```
 
+### User Benefit: 2-Minute Window for Personal Content
+
+**Important Feature**: The Enduraw 2-minute wait period provides a valuable window for adding personal content:
+
+1. **Upload Activity** → System queues for 2-minute Enduraw wait
+2. **Add Personal Title/Description** → You have 2 minutes to add your own content on Strava
+3. **Enduraw Processes** → Enduraw adds its enhanced analytics report
+4. **System Processes** → After 2 minutes, activity_fetcher retrieves current data including:
+   - Your personal title and description
+   - Enduraw enhanced analytics
+   - All activity data and streams
+5. **AI Generation** → Content generator incorporates your personal content with AI enhancements
+
+**Result**: Your personal content is preserved and enriched with AI-generated insights, not replaced.
+
+**Example Timeline**:
+```
+18:02:10 - Activity uploaded (webhook: create)
+18:02:28 - You add personal title (webhook: update) 
+18:04:10 - System fetches data with your title + Enduraw → generates content
+18:04:28 - Update webhook arrives but activity already completed → skipped
+```
+
+**Key Points**:
+- Personal content added during wait period is **preserved**
+- System fetches **current** activity data at processing time
+- Subsequent update webhooks are blocked to prevent duplicate processing
+- No manual coordination needed - the 2-minute window handles it automatically
+
 ### Performance Metrics
 
 #### Cost Analysis

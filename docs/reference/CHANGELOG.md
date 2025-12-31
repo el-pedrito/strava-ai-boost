@@ -5,7 +5,7 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.10.3] - 2025-12-30 - Enduraw Module Configuration Fix & AgentCore Environment Variables
+## [1.10.3] - 2025-12-30 - Enduraw Module Configuration Fix & Duplicate Processing Prevention
 
 ### Fixed
 - **Module Configuration Reading**: Fixed Enduraw module configuration to read from MODULE_CONFIG item
@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Module settings now stored in `user_id = "MODULE_CONFIG"` item in user-configuration table
   - Centralized module configuration for all users
   - Fixed issue where Enduraw wait logic was not triggered
+  - File: `lambda_functions/activity_processor.py`
+
+### Fixed
+- **Duplicate Processing Prevention**: Added `waiting_enduraw` status to skip logic
+  - Prevents concurrent processing when activity is waiting for Enduraw
+  - Blocks update webhooks during Enduraw wait period
+  - Fixes issue where update webhook triggered second Step Functions execution
+  - Added explicit check for `waiting_enduraw` status in `should_skip_processing()`
   - File: `lambda_functions/activity_processor.py`
 
 ### Changed
@@ -44,12 +52,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   }
   ```
 - **Configuration Reading**: `fetch_user_configuration()` now queries MODULE_CONFIG item instead of user-specific modules_config field
+- **Skip Logic**: `should_skip_processing()` now checks for `waiting_enduraw` status to prevent concurrent processing
+
+### User Benefit
+- **2-Minute Window for Personal Content**: The Enduraw wait period provides a window to add personal title/description
+  - Upload activity → System waits 2 minutes for Enduraw
+  - During this window, you can add your own title and description on Strava
+  - When processing starts, activity_fetcher retrieves current data including your personal content
+  - Your personal content is preserved and incorporated into AI-generated content
+  - Subsequent update webhooks are blocked once processing starts (no duplicate processing)
 
 ### Verified
 - ✅ Enduraw wait logic working: Activity status changes to `waiting_enduraw`
 - ✅ 2-minute SQS delay mechanism functioning correctly
 - ✅ Module configuration read from centralized MODULE_CONFIG item
 - ✅ AgentCore ARNs loaded from .env.agentcore file
+- ✅ Duplicate processing prevented during Enduraw wait
+- ✅ Personal title/description added during wait period are preserved
 
 ## [1.10.2] - 2025-12-30 - Streams Analysis Bug Fix
 
