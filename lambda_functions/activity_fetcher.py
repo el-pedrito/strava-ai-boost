@@ -59,6 +59,17 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Fetch streams data for detailed analysis
         streams_data = fetch_streams_data(activity_id, access_token)
         
+        # Fetch athlete stats for context (yearly totals, records, etc.)
+        athlete_id = activity_data.get('athlete', {}).get('id') or user_id
+        athlete_stats = fetch_athlete_stats(athlete_id, access_token)
+        
+        # Fetch athlete profile for FTP, weight, and gear details
+        athlete_profile = fetch_athlete_profile(access_token)
+        
+        # Fetch gear details if gear_id is present
+        gear_id = activity_data.get('gear_id')
+        gear_details = fetch_gear_details(gear_id, access_token) if gear_id else None
+        
         # Fetch user configuration for module decisions
         user_config = fetch_user_configuration(user_id)
         
@@ -66,7 +77,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         store_activity_backup(activity_id, activity_data)
         
         # Update rate limit usage
-        update_rate_limits(2)  # Activity + streams API calls
+        update_rate_limits(5)  # Activity + streams + stats + profile + gear API calls
         
         return {
             'statusCode': 200,
@@ -74,6 +85,9 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'user_id': user_id,
             'activity_data': activity_data,
             'streams_data': streams_data,
+            'athlete_stats': athlete_stats,
+            'athlete_profile': athlete_profile,
+            'gear_details': gear_details,
             'user_config': user_config,
             'fetched_at': datetime.utcnow().isoformat()
         }
@@ -389,6 +403,108 @@ def fetch_streams_data(activity_id: str, access_token: str) -> Optional[Dict[str
     except Exception as e:
         logger.error(f"Failed to fetch streams data: {str(e)}")
         # Don't raise - streams data is optional
+        return None
+
+
+def fetch_athlete_stats(athlete_id: str, access_token: str) -> Optional[Dict[str, Any]]:
+    """
+    Fetch athlete statistics from Strava API
+    
+    Returns yearly totals, all-time totals, recent totals, and records
+    """
+    try:
+        headers = {'Authorization': f'Bearer {access_token}'}
+        url = f"{STRAVA_API_BASE}/athletes/{athlete_id}/stats"
+        
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        
+        stats_data = response.json()
+        
+        logger.info(f"Fetched athlete stats for {athlete_id}")
+        
+        # Log key stats for debugging
+        ytd_run = stats_data.get('ytd_run_totals', {})
+        if ytd_run:
+            ytd_distance = ytd_run.get('distance', 0) / 1000  # Convert to km
+            ytd_count = ytd_run.get('count', 0)
+            logger.info(f"YTD Run Stats: {ytd_distance:.0f} km in {ytd_count} activities")
+        
+        return stats_data
+        
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"Athlete stats API request failed: {str(e)}")
+        # Don't raise - stats data is optional
+        return None
+    except Exception as e:
+        logger.warning(f"Failed to fetch athlete stats: {str(e)}")
+        # Don't raise - stats data is optional
+        return None
+
+
+def fetch_athlete_profile(access_token: str) -> Optional[Dict[str, Any]]:
+    """
+    Fetch athlete profile from Strava API
+    
+    Returns FTP, weight, bikes, shoes for context
+    """
+    try:
+        headers = {'Authorization': f'Bearer {access_token}'}
+        url = f"{STRAVA_API_BASE}/athlete"
+        
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        
+        profile_data = response.json()
+        
+        logger.info(f"Fetched athlete profile")
+        
+        # Log key profile data
+        ftp = profile_data.get('ftp')
+        weight = profile_data.get('weight')
+        if ftp:
+            logger.info(f"Athlete FTP: {ftp}W")
+        if weight:
+            logger.info(f"Athlete Weight: {weight}kg")
+        
+        return profile_data
+        
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"Athlete profile API request failed: {str(e)}")
+        return None
+    except Exception as e:
+        logger.warning(f"Failed to fetch athlete profile: {str(e)}")
+        return None
+
+
+def fetch_gear_details(gear_id: str, access_token: str) -> Optional[Dict[str, Any]]:
+    """
+    Fetch gear details from Strava API
+    
+    Returns gear name, brand, model, and total distance
+    """
+    try:
+        headers = {'Authorization': f'Bearer {access_token}'}
+        url = f"{STRAVA_API_BASE}/gear/{gear_id}"
+        
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        
+        gear_data = response.json()
+        
+        logger.info(f"Fetched gear details: {gear_data.get('name')}")
+        
+        # Log gear mileage
+        gear_distance = gear_data.get('distance', 0) / 1000  # km
+        logger.info(f"Gear mileage: {gear_distance:.0f} km")
+        
+        return gear_data
+        
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"Gear details API request failed: {str(e)}")
+        return None
+    except Exception as e:
+        logger.warning(f"Failed to fetch gear details: {str(e)}")
         return None
 
 

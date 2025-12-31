@@ -118,6 +118,15 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Get streams data if available
         streams_data = event.get('streams_data')
         
+        # Get athlete stats if available
+        athlete_stats = event.get('athlete_stats')
+        
+        # Get athlete profile if available
+        athlete_profile = event.get('athlete_profile')
+        
+        # Get gear details if available
+        gear_details = event.get('gear_details')
+        
         # Apply module-specific processing
         enhanced_modules = apply_module_processing(
             activity_data, streams_data, user_id, active_modules
@@ -129,7 +138,10 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             streams_data, 
             user_id, 
             enhanced_modules,
-            user_profile  # Pass user_profile to agent
+            user_profile,  # Pass user_profile to agent
+            athlete_stats,  # Pass athlete stats
+            athlete_profile,  # Pass athlete profile
+            gear_details  # Pass gear details
         )
         
         # Store generated content
@@ -451,7 +463,10 @@ def generate_enhanced_content_with_agent(
     streams_data: Optional[Dict[str, Any]],
     user_id: str,
     modules: List[Dict[str, Any]],
-    user_profile: Optional[Dict[str, Any]] = None
+    user_profile: Optional[Dict[str, Any]] = None,
+    athlete_stats: Optional[Dict[str, Any]] = None,
+    athlete_profile: Optional[Dict[str, Any]] = None,
+    gear_details: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Generate enhanced content using Strands Agent with AgentCore Memory
@@ -489,6 +504,9 @@ def generate_enhanced_content_with_agent(
             'action': 'generate_content',
             'activity_data': activity_data,
             'streams_data': streams_data,
+            'athlete_stats': athlete_stats,
+            'athlete_profile': athlete_profile,
+            'gear_details': gear_details,
             'user_id': user_id,
             'user_profile': user_profile,  # Add user_profile for personalization
             'modules': modules,

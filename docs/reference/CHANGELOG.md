@@ -5,7 +5,37 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.10.5] - 2025-12-31 - Complete Strava Data Integration (Achievements, Power, Cadence, Splits)
+## [1.10.5] - 2025-12-31 - Complete Strava Data Integration (Achievements, Power, Stats, Context)
+
+### Added
+- **Athlete Statistics Integration**: Added yearly progress and all-time records for context
+  - `ytd_run_totals`: Year-to-date distance, time, elevation, activity count
+  - `all_run_totals`: All-time totals for perspective
+  - `recent_run_totals`: Last 4 weeks activity summary
+  - `biggest_ride_distance`: Longest ride record
+  - `biggest_climb_elevation_gain`: Biggest climb record
+  - New API call: `GET /athletes/{id}/stats`
+  - New prompt section: "ATHLETE CONTEXT (Yearly Progress & Records)"
+  - Files: `lambda_functions/activity_fetcher.py`, `src/agents/content_agent.py`
+
+### Added
+- **Athlete Profile Integration**: Added FTP, weight, and power-to-weight ratio
+  - `ftp`: Functional Threshold Power for effort level context
+  - `weight`: Athlete weight for W/kg calculations
+  - Power-to-weight ratio calculated when power data available
+  - FTP percentage shows effort level (e.g., "85% of FTP")
+  - New API call: `GET /athlete`
+  - New prompt section: "ATHLETE CONTEXT (Power-to-Weight, FTP)"
+  - Files: `lambda_functions/activity_fetcher.py`, `src/agents/content_agent.py`
+
+### Added
+- **Gear Details Integration**: Added equipment mileage and details
+  - `gear.distance`: Total kilometers on equipment
+  - `gear.brand_name`, `gear.model_name`: Equipment details
+  - New API call: `GET /gear/{id}`
+  - New prompt section: "EQUIPMENT CONTEXT (Gear Mileage)"
+  - Contextualizes equipment usage (e.g., "350 km avec ces chaussures")
+  - Files: `lambda_functions/activity_fetcher.py`, `src/agents/content_agent.py`
 
 ### Added
 - **Complete Strava Metrics Integration**: Integrated all available Strava API data into content generation
@@ -18,6 +48,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Training**: `workout_type` (Race, Long Run, Intervals, Tempo, Recovery)
   - **Equipment**: `gear` (shoes/bike name), `device_name` (watch/computer)
   - **Splits**: `splits_metric` (km), `splits_standard` (miles), `laps`
+  - File: `src/agents/content_agent.py`
+
+### Changed
+- **Content Generation Prompt**: Removed device_name (not relevant for content)
+  - Device name (watch/computer) removed from prompt
+  - Focus on performance metrics and context instead
   - File: `src/agents/content_agent.py`
 
 ### Changed
@@ -52,6 +88,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### User Benefit
 - **Richer Content**: Agent has access to all performance data
 - **Celebrate Achievements**: PRs and achievements highlighted
+- **Yearly Context**: "450 km depuis janvier - on avance bien !" 
+- **Progress Motivation**: "15ème sortie du mois - régularité au top !"
+- **Record Perspective**: "Ton plus gros dénivelé reste 800m - celui-ci est costaud !"
 - **Technical Precision**: Power, cadence, suffer score for advanced athletes
 - **Equipment Context**: Mentions shoes/bike and device used
 - **Training Context**: Workout type helps contextualize the session
@@ -59,10 +98,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Example Enhancements
 **With PRs**: "2 records personnels battus ! 🏆"
+**With YTD Stats**: "450 km depuis janvier - cap des 500 en vue ! 🎯"
+**With Power-to-Weight**: "3.5 W/kg à 85% FTP - effort bien calibré !"
+**With Gear Mileage**: "350 km avec ces Nike - elles tournent bien !"
 **With Power**: "Puissance moyenne 245W (capteur direct)"
 **With Suffer Score**: "Score de difficulté: 87/100 - session intense !"
 **With Workout Type**: "Séance tempo planifiée - objectif respecté"
-**With Equipment**: "Avec les Nike Vaporfly - machine bien huilée"
+**With Context**: "15ème sortie du mois - la régularité paie !"
 
 ## [1.10.4] - 2025-12-31 - AgentCore Memory (LTM) Integration with Strands Hooks
 

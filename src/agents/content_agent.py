@@ -202,6 +202,9 @@ def invoke(payload, context=None):
         active_modules = payload.get('active_modules', [])
         campus_coach_session = payload.get('campus_coach_session')
         enduraw_data = payload.get('enduraw_data')
+        athlete_stats = payload.get('athlete_stats', {})
+        athlete_profile = payload.get('athlete_profile', {})
+        gear_details = payload.get('gear_details', {})
         
         # Log detailed invocation info
         logger.info(f"=== Content Generation Started ===")
@@ -225,6 +228,14 @@ def invoke(payload, context=None):
         logger.info(f"Memory Enabled: {MEMORY_ID is not None}")
         logger.info(f"Achievements: {activity_data.get('achievement_count', 0)}, PRs: {activity_data.get('pr_count', 0)}, Kudos: {activity_data.get('kudos_count', 0)}")
         logger.info(f"Segment Efforts: {len(activity_data.get('segment_efforts', []))}, Best Efforts: {len(activity_data.get('best_efforts', []))}")
+        
+        # Log athlete stats if available
+        if athlete_stats:
+            ytd_run = athlete_stats.get('ytd_run_totals', {})
+            if ytd_run and ytd_run.get('distance'):
+                logger.info(f"Athlete YTD: {ytd_run.get('distance', 0)/1000:.0f} km in {ytd_run.get('count', 0)} runs")
+        else:
+            logger.info(f"Athlete Stats: Not available")
         
         # Log user preferences if available
         if user_profile:
@@ -281,7 +292,41 @@ def invoke(payload, context=None):
         
         # Equipment
         gear_name = activity_data.get('gear', {}).get('name') if activity_data.get('gear') else None
-        device_name = activity_data.get('device_name')
+        
+        # Extract athlete profile and gear from payload
+        athlete_profile = payload.get('athlete_profile', {})
+        gear_details = payload.get('gear_details', {})
+        
+        # Build athlete context (FTP, weight, power-to-weight ratio)
+        athlete_context = ""
+        ftp = athlete_profile.get('ftp')
+        weight = athlete_profile.get('weight')
+        if ftp and weight and avg_watts:
+            watts_per_kg = avg_watts / weight
+            ftp_percentage = (avg_watts / ftp) * 100 if ftp > 0 else 0
+            athlete_context += f"💪 Power-to-Weight: {watts_per_kg:.1f} W/kg (FTP: {ftp}W, Weight: {weight}kg)\n"
+            athlete_context += f"📊 Effort Level: {ftp_percentage:.0f}% of FTP\n"
+        
+        # Build gear context (mileage, brand, model)
+        gear_context = ""
+        if gear_details:
+            gear_name_full = gear_details.get('name', gear_name)
+            gear_brand = gear_details.get('brand_name')
+            gear_model = gear_details.get('model_name')
+            gear_distance = gear_details.get('distance', 0) / 1000  # km
+            
+            if gear_name_full:
+                gear_context += f"👟 Equipment: {gear_name_full}"
+                if gear_brand and gear_model:
+                    gear_context += f" ({gear_brand} {gear_model})"
+                gear_context += f"\n"
+            if gear_distance > 0:
+                gear_context += f"📏 Equipment Mileage: {gear_distance:.0f} km\n"
+        elif gear_name:
+            gear_context = f"👟 Equipment: {gear_name}\n"
+        
+        if not gear_context:
+            gear_context = "No equipment data"
         
         # Splits
         splits_metric = activity_data.get('splits_metric', [])
@@ -339,6 +384,43 @@ def invoke(payload, context=None):
         if not achievements_context:
             achievements_context = "No achievements or PRs for this activity"
         
+        # Build athlete stats context (yearly totals, records, etc.)
+        athlete_stats_context = ""
+        if athlete_stats:
+            # Year-to-date totals
+            ytd_run = athlete_stats.get('ytd_run_totals', {})
+            if ytd_run and ytd_run.get('distance'):
+                ytd_distance = ytd_run.get('distance', 0) / 1000  # km
+                ytd_count = ytd_run.get('count', 0)
+                ytd_time = ytd_run.get('moving_time', 0) / 3600  # hours
+                ytd_elevation = ytd_run.get('elevation_gain', 0)
+                athlete_stats_context += f"📊 Year-to-Date (2025): {ytd_distance:.0f} km in {ytd_count} runs ({ytd_time:.0f}h, {ytd_elevation:.0f}m D+)\n"
+            
+            # All-time totals
+            all_run = athlete_stats.get('all_run_totals', {})
+            if all_run and all_run.get('distance'):
+                all_distance = all_run.get('distance', 0) / 1000  # km
+                all_count = all_run.get('count', 0)
+                athlete_stats_context += f"🏃 All-Time: {all_distance:.0f} km in {all_count} runs\n"
+            
+            # Recent totals (last 4 weeks)
+            recent_run = athlete_stats.get('recent_run_totals', {})
+            if recent_run and recent_run.get('distance'):
+                recent_distance = recent_run.get('distance', 0) / 1000  # km
+                recent_count = recent_run.get('count', 0)
+                athlete_stats_context += f"📅 Last 4 Weeks: {recent_distance:.0f} km in {recent_count} runs\n"
+            
+            # Records
+            biggest_ride = athlete_stats.get('biggest_ride_distance')
+            biggest_climb = athlete_stats.get('biggest_climb_elevation_gain')
+            if biggest_ride:
+                athlete_stats_context += f"🚴 Longest Ride: {biggest_ride:.1f} km\n"
+            if biggest_climb:
+                athlete_stats_context += f"⛰️ Biggest Climb: {biggest_climb:.0f}m D+\n"
+        
+        if not athlete_stats_context:
+            athlete_stats_context = "No athlete stats available"
+        
         prompt = f"""Generate personalized Strava content for this activity.
 
 ACTIVITY DATA:
@@ -354,12 +436,19 @@ ACTIVITY DATA:
 {f"- Calories: {calories:.0f} kcal" if calories else ""}
 {f"- Suffer Score: {suffer_score:.0f}/100" if suffer_score else ""}
 {f"- Workout Type: {workout_type_str}" if workout_type_str else ""}
-{f"- Equipment: {gear_name}" if gear_name else ""}
-{f"- Device: {device_name}" if device_name else ""}
 - Date: {activity_data.get('start_date', 'Unknown')}
+
+ATHLETE CONTEXT (Power-to-Weight, FTP):
+{athlete_context}
+
+EQUIPMENT CONTEXT (Gear Mileage):
+{gear_context}
 
 ACHIEVEMENTS & PERFORMANCE HIGHLIGHTS:
 {achievements_context}
+
+ATHLETE CONTEXT (Yearly Progress & Records):
+{athlete_stats_context}
 
 SPLITS & LAPS:
 {f"- Metric Splits: {len(splits_metric)} km splits available" if splits_metric else ""}
@@ -401,9 +490,11 @@ Generate a personalized, engaging title and description that:
 1. Matches the user's style and preferences from their profile
 2. Incorporates performance analysis from activity data and streams
 3. Highlights achievements, PRs, and best efforts when present (celebrate victories!)
-4. Integrates available module insights (Campus Coach, Enduraw) appropriately
-5. Uses technical precision with fun, motivational elements
-6. Mentions segment performances if notable
+4. Uses athlete context (yearly progress, records) to add perspective and motivation
+5. Integrates available module insights (Campus Coach, Enduraw) appropriately
+6. Uses technical precision with fun, motivational elements
+7. Mentions segment performances if notable
+8. Contextualizes performance within yearly goals and progress
 5. Leverages AgentCore Memory to avoid repetitive expressions
 6. Adapts to user's age, interests, and sport approach
 7. Creates authentic content in user's preferred language with appropriate emojis
