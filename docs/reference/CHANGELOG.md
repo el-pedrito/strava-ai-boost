@@ -5,6 +5,65 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.5] - 2025-12-31 - Complete Strava Data Integration (Achievements, Power, Cadence, Splits)
+
+### Added
+- **Complete Strava Metrics Integration**: Integrated all available Strava API data into content generation
+  - **Achievements**: `achievement_count`, `pr_count`, `kudos_count`
+  - **Performance**: `segment_efforts`, `best_efforts` (with times)
+  - **Speed**: `average_speed`, `max_speed`
+  - **Cadence**: `average_cadence`, `max_cadence`
+  - **Power**: `average_watts`, `max_watts`, `weighted_average_watts`, `device_watts`
+  - **Effort**: `calories`, `suffer_score` (Strava difficulty score)
+  - **Training**: `workout_type` (Race, Long Run, Intervals, Tempo, Recovery)
+  - **Equipment**: `gear` (shoes/bike name), `device_name` (watch/computer)
+  - **Splits**: `splits_metric` (km), `splits_standard` (miles), `laps`
+  - File: `src/agents/content_agent.py`
+
+### Changed
+- **Content Generation Prompt**: Comprehensive activity data section
+  - Speed metrics with avg/max in km/h
+  - Cadence metrics when available
+  - Power metrics with device/estimated indicator
+  - Calories and suffer score for effort quantification
+  - Workout type classification (Race, Tempo, Intervals, etc.)
+  - Equipment and device attribution
+  - Splits and laps information
+  - File: `src/agents/content_agent.py`
+
+### Added
+- **Enhanced Logging**: Added comprehensive performance metrics to logs
+  - Logs speed (avg/max)
+  - Logs cadence when available
+  - Logs power metrics when available
+  - Logs calories and suffer score
+  - Helps verify data availability and usage
+  - File: `src/agents/content_agent.py`
+
+### Technical
+- **Data Extraction**: All metrics extracted from `activity_data` payload
+- **Unit Conversions**:
+  - Speed: m/s → km/h (multiply by 3.6)
+  - Time: seconds → minutes (divide by 60)
+  - Distance: meters → km (divide by 1000)
+- **Conditional Display**: Metrics only shown if available (not all activities have power/cadence)
+- **Best Efforts Format**: Top 3 best efforts with formatted times (MM:SS)
+
+### User Benefit
+- **Richer Content**: Agent has access to all performance data
+- **Celebrate Achievements**: PRs and achievements highlighted
+- **Technical Precision**: Power, cadence, suffer score for advanced athletes
+- **Equipment Context**: Mentions shoes/bike and device used
+- **Training Context**: Workout type helps contextualize the session
+- **Performance Analysis**: Splits and laps enable detailed pace analysis
+
+### Example Enhancements
+**With PRs**: "2 records personnels battus ! 🏆"
+**With Power**: "Puissance moyenne 245W (capteur direct)"
+**With Suffer Score**: "Score de difficulté: 87/100 - session intense !"
+**With Workout Type**: "Séance tempo planifiée - objectif respecté"
+**With Equipment**: "Avec les Nike Vaporfly - machine bien huilée"
+
 ## [1.10.4] - 2025-12-31 - AgentCore Memory (LTM) Integration with Strands Hooks
 
 ### Added

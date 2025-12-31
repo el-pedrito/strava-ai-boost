@@ -209,11 +209,22 @@ def invoke(payload, context=None):
         logger.info(f"User ID: {user_id}")
         logger.info(f"Activity Type: {activity_data.get('type', 'unknown')}")
         logger.info(f"Distance: {activity_data.get('distance', 0)/1000:.2f} km")
+        logger.info(f"Speed: Avg {activity_data.get('average_speed', 0)*3.6:.1f} km/h, Max {activity_data.get('max_speed', 0)*3.6:.1f} km/h")
+        if activity_data.get('average_cadence'):
+            logger.info(f"Cadence: Avg {activity_data.get('average_cadence'):.0f} spm")
+        if activity_data.get('average_watts'):
+            logger.info(f"Power: Avg {activity_data.get('average_watts'):.0f}W, Weighted {activity_data.get('weighted_average_watts', 0):.0f}W")
+        if activity_data.get('calories'):
+            logger.info(f"Calories: {activity_data.get('calories'):.0f} kcal")
+        if activity_data.get('suffer_score'):
+            logger.info(f"Suffer Score: {activity_data.get('suffer_score'):.0f}/100")
         logger.info(f"Active Modules: {[m.get('name') for m in active_modules]}")
         logger.info(f"Campus Coach Session: {'Yes' if campus_coach_session else 'No'}")
         logger.info(f"Enduraw Data: {'Yes' if enduraw_data else 'No'}")
         logger.info(f"Streams Data: {'Yes' if streams_data else 'No'}")
         logger.info(f"Memory Enabled: {MEMORY_ID is not None}")
+        logger.info(f"Achievements: {activity_data.get('achievement_count', 0)}, PRs: {activity_data.get('pr_count', 0)}, Kudos: {activity_data.get('kudos_count', 0)}")
+        logger.info(f"Segment Efforts: {len(activity_data.get('segment_efforts', []))}, Best Efforts: {len(activity_data.get('best_efforts', []))}")
         
         # Log user preferences if available
         if user_profile:
@@ -242,9 +253,40 @@ def invoke(payload, context=None):
         activity_type = activity_data.get('sport_type', activity_data.get('type', 'Activity'))
         distance = activity_data.get('distance', 0) / 1000  # km
         duration = activity_data.get('moving_time', 0) / 60  # minutes
+        elapsed_time = activity_data.get('elapsed_time', 0) / 60  # minutes
         elevation = activity_data.get('total_elevation_gain', 0)
         avg_hr = activity_data.get('average_heartrate')
         max_hr = activity_data.get('max_heartrate')
+        
+        # Speed metrics
+        avg_speed = activity_data.get('average_speed', 0) * 3.6  # m/s to km/h
+        max_speed = activity_data.get('max_speed', 0) * 3.6  # m/s to km/h
+        
+        # Cadence metrics
+        avg_cadence = activity_data.get('average_cadence')
+        max_cadence = activity_data.get('max_cadence')
+        
+        # Power metrics
+        avg_watts = activity_data.get('average_watts')
+        max_watts = activity_data.get('max_watts')
+        weighted_avg_watts = activity_data.get('weighted_average_watts')
+        device_watts = activity_data.get('device_watts', False)
+        
+        # Performance metrics
+        calories = activity_data.get('calories')
+        suffer_score = activity_data.get('suffer_score')
+        workout_type = activity_data.get('workout_type')
+        workout_type_names = {0: 'Default', 1: 'Race', 2: 'Long Run', 3: 'Workout', 10: 'Tempo', 11: 'Intervals', 12: 'Recovery'}
+        workout_type_str = workout_type_names.get(workout_type, 'Unknown') if workout_type is not None else None
+        
+        # Equipment
+        gear_name = activity_data.get('gear', {}).get('name') if activity_data.get('gear') else None
+        device_name = activity_data.get('device_name')
+        
+        # Splits
+        splits_metric = activity_data.get('splits_metric', [])
+        splits_standard = activity_data.get('splits_standard', [])
+        laps = activity_data.get('laps', [])
         
         # Build comprehensive prompt with user preferences
         user_profile_str = json.dumps(user_profile, indent=2) if user_profile else 'No user profile provided'
@@ -271,16 +313,58 @@ def invoke(payload, context=None):
         if not location_context:
             location_context = "No location data available"
         
+        # Extract achievements and performance highlights
+        achievement_count = activity_data.get('achievement_count', 0)
+        pr_count = activity_data.get('pr_count', 0)
+        kudos_count = activity_data.get('kudos_count', 0)
+        segment_efforts = activity_data.get('segment_efforts', [])
+        best_efforts = activity_data.get('best_efforts', [])
+        
+        # Build achievements context
+        achievements_context = ""
+        if achievement_count > 0:
+            achievements_context += f"🏆 {achievement_count} achievement(s) unlocked!\n"
+        if pr_count > 0:
+            achievements_context += f"⭐ {pr_count} personal record(s) set!\n"
+        if best_efforts:
+            achievements_context += f"💪 Best efforts: {len(best_efforts)} recorded\n"
+            # Add details of best efforts (e.g., best 1km, 5km, etc.)
+            for effort in best_efforts[:3]:  # Top 3 best efforts
+                effort_name = effort.get('name', 'Unknown')
+                effort_time = effort.get('elapsed_time', 0)
+                achievements_context += f"   - {effort_name}: {effort_time//60}:{effort_time%60:02d}\n"
+        if segment_efforts:
+            achievements_context += f"🎯 {len(segment_efforts)} segment(s) completed\n"
+        
+        if not achievements_context:
+            achievements_context = "No achievements or PRs for this activity"
+        
         prompt = f"""Generate personalized Strava content for this activity.
 
 ACTIVITY DATA:
 - Type: {activity_type}
 - Distance: {distance:.2f} km
-- Duration: {duration:.0f} minutes
+- Duration: {duration:.0f} minutes (Moving: {duration:.0f} min, Elapsed: {elapsed_time:.0f} min)
 - Elevation: {elevation:.0f} m
-- Average HR: {avg_hr} bpm (if available)
-- Max HR: {max_hr} bpm (if available)
+- Average Speed: {avg_speed:.1f} km/h
+- Max Speed: {max_speed:.1f} km/h
+- Average HR: {avg_hr} bpm (Max: {max_hr} bpm)
+{f"- Average Cadence: {avg_cadence:.0f} spm (Max: {max_cadence:.0f} spm)" if avg_cadence else ""}
+{f"- Power: Avg {avg_watts:.0f}W, Max {max_watts:.0f}W, Weighted {weighted_avg_watts:.0f}W {'(Device)' if device_watts else '(Estimated)'}" if avg_watts else ""}
+{f"- Calories: {calories:.0f} kcal" if calories else ""}
+{f"- Suffer Score: {suffer_score:.0f}/100" if suffer_score else ""}
+{f"- Workout Type: {workout_type_str}" if workout_type_str else ""}
+{f"- Equipment: {gear_name}" if gear_name else ""}
+{f"- Device: {device_name}" if device_name else ""}
 - Date: {activity_data.get('start_date', 'Unknown')}
+
+ACHIEVEMENTS & PERFORMANCE HIGHLIGHTS:
+{achievements_context}
+
+SPLITS & LAPS:
+{f"- Metric Splits: {len(splits_metric)} km splits available" if splits_metric else ""}
+{f"- Standard Splits: {len(splits_standard)} mile splits available" if splits_standard else ""}
+{f"- Laps: {len(laps)} lap(s) recorded" if laps else ""}
 
 ORIGINAL USER INPUT (IMPORTANT - Use as context):
 - Original Title: "{activity_data.get('name', 'Untitled')}"
@@ -316,8 +400,10 @@ INSTRUCTIONS:
 Generate a personalized, engaging title and description that:
 1. Matches the user's style and preferences from their profile
 2. Incorporates performance analysis from activity data and streams
-3. Integrates available module insights (Campus Coach, Enduraw) appropriately
-4. Uses technical precision with fun, motivational elements
+3. Highlights achievements, PRs, and best efforts when present (celebrate victories!)
+4. Integrates available module insights (Campus Coach, Enduraw) appropriately
+5. Uses technical precision with fun, motivational elements
+6. Mentions segment performances if notable
 5. Leverages AgentCore Memory to avoid repetitive expressions
 6. Adapts to user's age, interests, and sport approach
 7. Creates authentic content in user's preferred language with appropriate emojis
