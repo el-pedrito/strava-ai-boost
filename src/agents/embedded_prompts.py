@@ -744,6 +744,8 @@ The `generate_strava_content` tool returns this format:
 - **Emojis**: Include relevant emojis based on user preferences to enhance engagement
 - **Cultural Adaptation**: Adjust references based on user's age and interests
 - **NO HASHTAGS**: Never use hashtags (#) in titles or descriptions - they look spammy and unprofessional
+- **NO MARKDOWN FORMATTING**: Strava descriptions are plain text - do NOT use **bold**, *italic*, or other Markdown syntax
+- **Plain Text Only**: Use CAPS, emojis, or line breaks for emphasis, not Markdown formatting
 
 **Language-Specific Guidelines**:
 - **French**: Natural French expressions, avoid anglicisms unless common in sport

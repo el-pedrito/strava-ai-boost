@@ -236,14 +236,21 @@ def should_skip_processing(activity_id: str, message_body: Dict[str, Any]) -> bo
             return True
         
         # Skip if waiting for Enduraw (avoid concurrent processing during wait)
+        # BUT allow processing if enduraw_waited flag is set (message after 2-min delay)
         if processing_status == 'waiting_enduraw':
-            logger.info(f"Activity {activity_id} waiting for Enduraw, skipping")
-            return True
+            enduraw_waited = message_body.get('enduraw_waited', False)
+            if not enduraw_waited:
+                logger.info(f"Activity {activity_id} waiting for Enduraw, skipping")
+                return True
+            else:
+                logger.info(f"Activity {activity_id} Enduraw wait completed, proceeding with processing")
+                # Force processing - return False immediately to bypass other checks
+                return False
         
         # For update webhooks, be more restrictive
         if aspect_type == 'update':
             # Skip if we've ever processed this activity successfully
-            if processing_status in ['completed', 'processing', 'waiting_enduraw']:
+            if processing_status in ['completed', 'processing']:
                 logger.info(f"Activity {activity_id} update webhook but already processed, skipping")
                 return True
             
@@ -420,9 +427,13 @@ def fetch_user_configuration(user_id: str) -> Dict[str, Any]:
             module_config = module_config_response['Item']
             logger.info(f"Retrieved MODULE_CONFIG")
             
+            # Read from modules_config if it exists, otherwise read directly
+            modules_config_data = module_config.get('modules_config', {})
+            
             # Debug: log module structure
-            enduraw_config = module_config.get('enduraw', {})
-            campus_coach_config = module_config.get('campus_coach', {})
+            enduraw_config = modules_config_data.get('enduraw', {}) if modules_config_data else module_config.get('enduraw', {})
+            campus_coach_config = modules_config_data.get('campus_coach', {}) if modules_config_data else module_config.get('campus_coach', {})
+            
             logger.info(f"enduraw config: {enduraw_config}")
             logger.info(f"campus_coach config: {campus_coach_config}")
             

@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.10.5] - 2025-12-31 - Complete Strava Data Integration (Achievements, Power, Stats, Context)
 
+### Fixed
+- **Enduraw Wait Logic**: Fixed message processing after 2-minute delay
+  - `should_skip_processing()` now checks `enduraw_waited` flag from message_body
+  - Allows processing when `enduraw_waited=true` (after delay)
+  - Prevents infinite waiting by checking the flag correctly
+  - File: `lambda_functions/activity_processor.py`
+
+### Fixed
+- **Enduraw Module Configuration Reading**: Fixed reading from nested modules_config structure
+  - MODULE_CONFIG item now has `modules_config.enduraw.enabled` structure
+  - Code now reads from `modules_config` field if present, otherwise reads directly
+  - Fixes issue where Enduraw wait logic was not triggered
+  - File: `lambda_functions/activity_processor.py`
+
+### Fixed
+- **Content Generator Function Signature**: Fixed missing parameters
+  - Added `athlete_stats`, `athlete_profile`, `gear_details` to function signature
+  - Fixed "name 'athlete_stats' is not defined" error
+  - Function now receives all data from activity_fetcher
+  - File: `lambda_functions/content_generator.py`
+
+### Changed
+- **Content Generation Prompt**: Added no-Markdown instruction
+  - Added explicit instruction: NO MARKDOWN FORMATTING (no **bold**, *italic*)
+  - Strava descriptions are plain text - use CAPS, emojis, line breaks for emphasis
+  - Prevents Markdown artifacts in generated content
+  - File: `src/agents/embedded_prompts.py`
+
 ### Added
 - **Athlete Statistics Integration**: Added yearly progress and all-time records for context
   - `ytd_run_totals`: Year-to-date distance, time, elevation, activity count
