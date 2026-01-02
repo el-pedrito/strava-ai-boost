@@ -148,6 +148,133 @@ EOF
     fi
 }
 
+# Function to add guardrail environment variables to YAML
+update_agent_guardrail_config() {
+    local agent_name="$1"
+    local guardrail_id="$2"
+    local guardrail_version="$3"
+    
+    print_status "📝 Adding guardrail config to $agent_name YAML..."
+    
+    if [ ! -f ".bedrock_agentcore.yaml" ]; then
+        print_error ".bedrock_agentcore.yaml not found!"
+        return 1
+    fi
+    
+    # Update YAML using Python
+    AGENT_NAME="$agent_name" GUARDRAIL_ID="$guardrail_id" GUARDRAIL_VERSION="$guardrail_version" python3 << 'EOF'
+import yaml
+import sys
+import os
+
+try:
+    agent_name = os.environ['AGENT_NAME']
+    guardrail_id = os.environ['GUARDRAIL_ID']
+    guardrail_version = os.environ['GUARDRAIL_VERSION']
+    
+    with open('.bedrock_agentcore.yaml', 'r') as f:
+        config = yaml.safe_load(f) or {}
+    
+    if 'agents' not in config or agent_name not in config['agents']:
+        print(f"✗ Agent {agent_name} not found in YAML", file=sys.stderr)
+        sys.exit(1)
+    
+    # Add environment variables section if not exists
+    if 'environment' not in config['agents'][agent_name]:
+        config['agents'][agent_name]['environment'] = {}
+    
+    # Set guardrail environment variables
+    config['agents'][agent_name]['environment']['GUARDRAIL_ENABLED'] = 'true'
+    config['agents'][agent_name]['environment']['GUARDRAIL_ID'] = guardrail_id
+    config['agents'][agent_name]['environment']['GUARDRAIL_VERSION'] = guardrail_version
+    
+    with open('.bedrock_agentcore.yaml', 'w') as f:
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+    
+    print(f"✓ Added guardrail config to {agent_name}")
+    sys.exit(0)
+except Exception as e:
+    print(f"✗ Failed to update YAML: {e}", file=sys.stderr)
+    sys.exit(1)
+EOF
+    
+    if [ $? -eq 0 ]; then
+        print_success "Guardrail configuration added to $agent_name"
+    else
+        print_error "Failed to add guardrail configuration"
+        return 1
+    fi
+}
+
+# Function to update YAML with LTM memory configuration
+update_agent_memory_config() {
+    local agent_name="$1"
+    local memory_id="$2"
+    local memory_name="$3"
+    
+    if [ -z "$memory_id" ]; then
+        print_error "No memory ID provided for $agent_name"
+        return 1
+    fi
+    
+    print_status "📝 Configuring $agent_name to use LTM memory: $memory_id..."
+    
+    if [ ! -f ".bedrock_agentcore.yaml" ]; then
+        print_error ".bedrock_agentcore.yaml not found!"
+        return 1
+    fi
+    
+    # Get memory ARN
+    local memory_arn="arn:aws:bedrock-agentcore:${AWS_REGION}:*:memory/${memory_id}"
+    
+    # Update YAML using Python
+    AGENT_NAME="$agent_name" MEMORY_ID="$memory_id" MEMORY_ARN="$memory_arn" MEMORY_NAME="$memory_name" python3 << 'EOF'
+import yaml
+import sys
+import os
+
+try:
+    agent_name = os.environ['AGENT_NAME']
+    memory_id = os.environ['MEMORY_ID']
+    memory_arn = os.environ['MEMORY_ARN']
+    memory_name = os.environ['MEMORY_NAME']
+    
+    with open('.bedrock_agentcore.yaml', 'r') as f:
+        config = yaml.safe_load(f) or {}
+    
+    if 'agents' not in config or agent_name not in config['agents']:
+        print(f"✗ Agent {agent_name} not found in YAML", file=sys.stderr)
+        sys.exit(1)
+    
+    if 'memory' not in config['agents'][agent_name]:
+        config['agents'][agent_name]['memory'] = {}
+    
+    # Set LTM configuration - use STM_AND_LTM mode (required by AgentCore)
+    config['agents'][agent_name]['memory']['mode'] = 'STM_AND_LTM'
+    config['agents'][agent_name]['memory']['memory_id'] = memory_id
+    config['agents'][agent_name]['memory']['memory_arn'] = memory_arn
+    config['agents'][agent_name]['memory']['memory_name'] = memory_name
+    config['agents'][agent_name]['memory']['event_expiry_days'] = 365
+    config['agents'][agent_name]['memory']['was_created_by_toolkit'] = False
+    
+    with open('.bedrock_agentcore.yaml', 'w') as f:
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+    
+    print(f"✓ Updated {agent_name} to use LTM memory")
+    sys.exit(0)
+except Exception as e:
+    print(f"✗ Failed to update YAML: {e}", file=sys.stderr)
+    sys.exit(1)
+EOF
+    
+    if [ $? -eq 0 ]; then
+        print_success "Memory configuration updated for $agent_name"
+    else
+        print_error "Failed to update memory configuration"
+        return 1
+    fi
+}
+
 # Function to deploy an agent with LTM
 deploy_agent_with_ltm() {
     local agent_name="$1"
@@ -196,29 +323,33 @@ deploy_agent_with_ltm() {
         return 1
     }
     
-    # Launch agent with memory ID as environment variable
-    print_status "Launching agent: $agent_name with memory ID: $memory_id..."
+    # Launch agent with environment variables
+    print_status "Deploying agent: $agent_name..."
     
     # Get guardrail configuration from .env.agentcore
     GUARDRAIL_ENABLED=$(grep "^GUARDRAIL_ENABLED=" .env.agentcore 2>/dev/null | cut -d'=' -f2 || echo "false")
     GUARDRAIL_ID=$(grep "^GUARDRAIL_ID=" .env.agentcore 2>/dev/null | cut -d'=' -f2 || echo "")
     GUARDRAIL_VERSION=$(grep "^GUARDRAIL_VERSION=" .env.agentcore 2>/dev/null | cut -d'=' -f2 || echo "1")
     
-    # Build environment variables
-    ENV_VARS="BEDROCK_AGENTCORE_MEMORY_ID=$memory_id"
+    # Build agentcore deploy command with environment variables
+    DEPLOY_CMD="agentcore deploy --agent $agent_name --auto-update-on-conflict"
     
+    # Add memory ID
+    DEPLOY_CMD="$DEPLOY_CMD --env BEDROCK_AGENTCORE_MEMORY_ID=$memory_id"
+    
+    # Add guardrail variables if enabled
     if [ "$GUARDRAIL_ENABLED" = "true" ] && [ -n "$GUARDRAIL_ID" ]; then
         print_status "🛡️  Guardrails enabled: $GUARDRAIL_ID v$GUARDRAIL_VERSION"
-        ENV_VARS="$ENV_VARS,GUARDRAIL_ENABLED=true,GUARDRAIL_ID=$GUARDRAIL_ID,GUARDRAIL_VERSION=$GUARDRAIL_VERSION"
+        DEPLOY_CMD="$DEPLOY_CMD --env GUARDRAIL_ENABLED=true"
+        DEPLOY_CMD="$DEPLOY_CMD --env GUARDRAIL_ID=$GUARDRAIL_ID"
+        DEPLOY_CMD="$DEPLOY_CMD --env GUARDRAIL_VERSION=$GUARDRAIL_VERSION"
     else
         print_status "⚠️  Guardrails not configured (GUARDRAIL_ENABLED=$GUARDRAIL_ENABLED)"
     fi
     
-    agentcore launch \
-        --agent "$agent_name" \
-        --env "$ENV_VARS" \
-        --auto-update-on-conflict || {
-        print_error "Failed to launch $agent_name"
+    # Execute deployment
+    eval $DEPLOY_CMD || {
+        print_error "Failed to deploy $agent_name"
         return 1
     }
     
@@ -250,11 +381,6 @@ main() {
     
     # Check prerequisites
     check_agentcore_cli
-    
-    # Auto-configure guardrails if Security Stack is deployed
-    print_status ""
-    print_status "🛡️  Checking for Bedrock Guardrails..."
-    configure_guardrails_if_available
     
     # Verify memories exist
     print_status ""
@@ -330,86 +456,6 @@ check_agentcore_cli() {
     fi
     
     print_success "AgentCore CLI is available"
-}
-
-# Function to auto-configure guardrails from CloudFormation
-configure_guardrails_if_available() {
-    local stack_name="StravaAIBoost-Security"
-    local env_file=".env.agentcore"
-    
-    # Check if Security Stack is deployed
-    if ! aws cloudformation describe-stacks \
-        --stack-name "$stack_name" \
-        --profile "$AWS_PROFILE" \
-        --region "$AWS_REGION" \
-        --query 'Stacks[0].StackStatus' \
-        --output text &>/dev/null; then
-        
-        print_warning "Security Stack not deployed - guardrails disabled"
-        print_status "To enable guardrails: cdk deploy StravaAIBoost-Security --profile $AWS_PROFILE"
-        
-        # Ensure guardrails are disabled in .env.agentcore
-        if [ -f "$env_file" ]; then
-            if grep -q "^GUARDRAIL_ENABLED=" "$env_file"; then
-                sed -i.tmp "s|^GUARDRAIL_ENABLED=.*|GUARDRAIL_ENABLED=false|" "$env_file"
-                rm -f "${env_file}.tmp"
-            fi
-        fi
-        return 0
-    fi
-    
-    # Get guardrail ID from CloudFormation
-    local guardrail_id=$(aws cloudformation describe-stacks \
-        --stack-name "$stack_name" \
-        --profile "$AWS_PROFILE" \
-        --region "$AWS_REGION" \
-        --query 'Stacks[0].Outputs[?OutputKey==`GuardrailId`].OutputValue' \
-        --output text 2>/dev/null || echo "")
-    
-    local guardrail_version=$(aws cloudformation describe-stacks \
-        --stack-name "$stack_name" \
-        --profile "$AWS_PROFILE" \
-        --region "$AWS_REGION" \
-        --query 'Stacks[0].Outputs[?OutputKey==`GuardrailVersion`].OutputValue' \
-        --output text 2>/dev/null || echo "1")
-    
-    if [ -z "$guardrail_id" ]; then
-        print_warning "Guardrail ID not found in Security Stack outputs"
-        return 0
-    fi
-    
-    print_success "Found Bedrock Guardrail: $guardrail_id v$guardrail_version"
-    
-    # Update .env.agentcore automatically
-    if [ -f "$env_file" ]; then
-        print_status "📝 Updating $env_file with guardrail configuration..."
-        
-        # Backup
-        cp "$env_file" "${env_file}.backup.$(date +%s)"
-        
-        # Update or add guardrail configuration
-        if grep -q "^GUARDRAIL_ENABLED=" "$env_file"; then
-            sed -i.tmp "s|^GUARDRAIL_ENABLED=.*|GUARDRAIL_ENABLED=true|" "$env_file"
-            sed -i.tmp "s|^GUARDRAIL_ID=.*|GUARDRAIL_ID=$guardrail_id|" "$env_file"
-            sed -i.tmp "s|^GUARDRAIL_VERSION=.*|GUARDRAIL_VERSION=$guardrail_version|" "$env_file"
-            rm -f "${env_file}.tmp"
-        else
-            # Add guardrail section
-            cat >> "$env_file" << EOF
-
-# ============================================================================
-# SECURITY - BEDROCK GUARDRAILS
-# ============================================================================
-GUARDRAIL_ENABLED=true
-GUARDRAIL_ID=$guardrail_id
-GUARDRAIL_VERSION=$guardrail_version
-EOF
-        fi
-        
-        print_success "Guardrails configured: ENABLED=true, ID=$guardrail_id"
-    else
-        print_warning "$env_file not found - guardrails not configured"
-    fi
 }
 
 # Function to check AgentCore CLI availability

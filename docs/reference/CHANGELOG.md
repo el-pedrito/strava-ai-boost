@@ -13,6 +13,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Agent now deploys correctly with guardrails
   - File: `src/agents/campus_coach_agent.py`
 
+### Fixed
+- **Guardrail Environment Variables**: Fixed guardrail configuration for AgentCore agents
+  - Changed from `agentcore launch` to `agentcore deploy` (correct CLI command)
+  - Use multiple `--env` flags instead of comma-separated values
+  - Variables now properly passed to agents at runtime
+  - Both agents now receive guardrail configuration
+  - File: `scripts/deploy_agentcore_agents.sh`
+
+### Changed
+- **Deployment Workflow**: Updated agent deployment sequence
+  - Step 3: Deploy agents (without guardrails initially)
+  - Step 4: Configure integration (detects and configures guardrails)
+  - Step 5: Redeploy agents (with guardrails enabled)
+  - Ensures guardrails are properly configured before agent deployment
+  - Files: `scripts/deploy_agentcore_agents.sh`, `scripts/configure_agentcore_integration.sh`
+
+### Changed
+- **Configure Integration Script**: Enhanced guardrail detection
+  - Auto-detects guardrails from CloudFormation SecurityStack
+  - Preserves existing guardrail configuration if present
+  - Updates `.env.agentcore` with guardrail variables
+  - No manual configuration required
+  - File: `scripts/configure_agentcore_integration.sh`
+
 ### Added
 - **Enduraw Report Extraction**: Parse Enduraw Report from activity description
   - Function: `extract_enduraw_report()` in `content_generator.py`
@@ -35,6 +59,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Prevents hitting AWS 5-version limit
   - Same logic as Lambda policy management
   - File: `scripts/configure_agentcore_integration.sh`
+
+### Documentation
+- **Deployment Guides**: Updated with guardrail deployment sequence
+  - Files: `docs/getting-started/QUICK-START.md`, `docs/getting-started/COMPLETE-SETUP.md`
+  - Clarified 5-step deployment process
+  - Added guardrail verification steps
+  - Explained why agent redeploy is needed
 
 ## [1.16.0] - 2026-01-02 - Bedrock Guardrails Security Integration
 

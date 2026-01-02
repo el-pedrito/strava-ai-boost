@@ -708,12 +708,62 @@ update_cdk_context() {
 }
 
 # Function to create environment file for local development (simplified - no memory variables)
+# Function to create environment file for local development (simplified - no memory variables)
 create_env_file() {
     local content_arn="$1"
     local campus_arn="$2"
     local memory_id="$3"
     
-    print_status "📄 Creating .env.agentcore file for local development..."
+    print_status "📄 Updating .env.agentcore file..."
+    
+    # Backup existing file if it exists
+    if [ -f ".env.agentcore" ]; then
+        # Extract existing guardrail configuration
+        EXISTING_GUARDRAIL_ENABLED=$(grep "^GUARDRAIL_ENABLED=" .env.agentcore 2>/dev/null | cut -d'=' -f2 || echo "false")
+        EXISTING_GUARDRAIL_ID=$(grep "^GUARDRAIL_ID=" .env.agentcore 2>/dev/null | cut -d'=' -f2 || echo "")
+        EXISTING_GUARDRAIL_VERSION=$(grep "^GUARDRAIL_VERSION=" .env.agentcore 2>/dev/null | cut -d'=' -f2 || echo "1")
+    else
+        # No existing file, try to detect from CloudFormation
+        print_status "🛡️  Detecting Bedrock Guardrails from CloudFormation..."
+        
+        local stack_name="StravaAIBoost-Security"
+        if aws cloudformation describe-stacks \
+            --stack-name "$stack_name" \
+            --profile "$AWS_PROFILE" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].StackStatus' \
+            --output text &>/dev/null; then
+            
+            EXISTING_GUARDRAIL_ID=$(aws cloudformation describe-stacks \
+                --stack-name "$stack_name" \
+                --profile "$AWS_PROFILE" \
+                --region "$AWS_REGION" \
+                --query 'Stacks[0].Outputs[?OutputKey==`GuardrailId`].OutputValue' \
+                --output text 2>/dev/null || echo "")
+            
+            EXISTING_GUARDRAIL_VERSION=$(aws cloudformation describe-stacks \
+                --stack-name "$stack_name" \
+                --profile "$AWS_PROFILE" \
+                --region "$AWS_REGION" \
+                --query 'Stacks[0].Outputs[?OutputKey==`GuardrailVersion`].OutputValue' \
+                --output text 2>/dev/null || echo "1")
+            
+            if [ -n "$EXISTING_GUARDRAIL_ID" ]; then
+                EXISTING_GUARDRAIL_ENABLED="true"
+                print_success "Found Bedrock Guardrail: $EXISTING_GUARDRAIL_ID v$EXISTING_GUARDRAIL_VERSION"
+            else
+                EXISTING_GUARDRAIL_ENABLED="false"
+                EXISTING_GUARDRAIL_ID=""
+                EXISTING_GUARDRAIL_VERSION="1"
+                print_status "No guardrail found (SecurityStack not deployed)"
+            fi
+        else
+            EXISTING_GUARDRAIL_ENABLED="false"
+            EXISTING_GUARDRAIL_ID=""
+            EXISTING_GUARDRAIL_VERSION="1"
+            print_status "SecurityStack not deployed, guardrails disabled"
+        fi
+    fi
     
     cat > .env.agentcore << EOF
 # AgentCore Configuration - Strava AI Boost
@@ -778,9 +828,23 @@ ENDURAW_MODULE_ENABLED=true
 AGENTCORE_MEMORY_PERSONALIZATION=true
 VERBOSE_LOGGING=true  # Enable verbose logging for debugging
 
+# ============================================================================
+# SECURITY - BEDROCK GUARDRAILS
+# ============================================================================
+# Bedrock Guardrails for prompt injection and content safety
+# Auto-detected from SecurityStack or preserved from previous config
+GUARDRAIL_ENABLED=$EXISTING_GUARDRAIL_ENABLED
+GUARDRAIL_ID=$EXISTING_GUARDRAIL_ID
+GUARDRAIL_VERSION=$EXISTING_GUARDRAIL_VERSION
+
 EOF
 
-    print_success "Environment file created: .env.agentcore"
+    print_success "Environment file updated: .env.agentcore"
+    if [ "$EXISTING_GUARDRAIL_ENABLED" = "true" ]; then
+        print_success "  ✅ Guardrail configuration: $EXISTING_GUARDRAIL_ID v$EXISTING_GUARDRAIL_VERSION"
+    else
+        print_status "  ⚠️  Guardrails not configured (deploy SecurityStack to enable)"
+    fi
     if [ -n "$memory_id" ]; then
         print_status "  Note: Memory ID ($memory_id) is passed to agents via agentcore launch --env"
         print_status "  Each agent has its own memory configured in .bedrock_agentcore.yaml"

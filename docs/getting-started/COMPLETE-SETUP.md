@@ -41,21 +41,29 @@ This approach ensures:
 
 ## Complete Deployment Process
 
-### Option 1: Automated 4-Step Deployment (Recommended)
+### Option 1: Automated Deployment (Recommended)
 
 ```bash
-# Step 1: Deploy AWS Infrastructure
+# Step 1: Deploy AWS Infrastructure (includes SecurityStack with Guardrails)
 ./scripts/deploy.sh dev
 
 # Step 2: Create AgentCore Long-Term Memories (~6 minutes)
 ./scripts/create_agentcore_memories.sh
 
-# Step 3: Deploy AgentCore Agents with LTM
+# Step 3: Deploy AgentCore Agents (initial deployment)
 ./scripts/deploy_agentcore_agents.sh
 
-# Step 4: Configure AgentCore Integration
+# Step 4: Configure AgentCore Integration (detects and configures guardrails)
 ./scripts/configure_agentcore_integration.sh
+
+# Step 5: Redeploy Agents with Guardrails
+./scripts/deploy_agentcore_agents.sh
+
+# Step 6: Final CDK deployment (load agent ARNs)
+cdk deploy --all --profile your-aws-profile --require-approval never
 ```
+
+**Why Step 5?** After Step 4 detects guardrails and updates `.env.agentcore`, agents need to be redeployed to receive the guardrail configuration.
 
 ### Option 2: Manual Step-by-Step Deployment
 
@@ -66,7 +74,7 @@ If you prefer manual control or need to troubleshoot:
 # Bootstrap CDK (first time only)
 cdk bootstrap --profile your-aws-profile
 
-# Deploy all CDK stacks
+# Deploy all CDK stacks (includes SecurityStack)
 cdk deploy --all --profile your-aws-profile --require-approval never
 ```
 
@@ -79,7 +87,7 @@ cdk deploy --all --profile your-aws-profile --require-approval never
 agentcore memory list --region eu-west-1
 ```
 
-#### Step 3: Deploy AgentCore Agents
+#### Step 3: Deploy AgentCore Agents (Initial)
 ```bash
 # Deploy agents with pre-created LTM memories
 ./scripts/deploy_agentcore_agents.sh
@@ -87,8 +95,29 @@ agentcore memory list --region eu-west-1
 
 #### Step 4: Configure AgentCore Integration
 ```bash
-# Configure IAM permissions and Lambda integration
+# Configure IAM permissions, Lambda integration, and detect guardrails
 ./scripts/configure_agentcore_integration.sh
+```
+
+**This step:**
+- Detects Bedrock Guardrails from SecurityStack
+- Updates `.env.agentcore` with guardrail configuration
+- Configures IAM permissions
+- Updates Lambda environment variables
+
+#### Step 5: Redeploy Agents with Guardrails
+```bash
+# Redeploy agents to enable guardrails
+./scripts/deploy_agentcore_agents.sh
+```
+
+**Verification:**
+```bash
+# Check logs for guardrail confirmation
+aws logs tail /aws/bedrock-agentcore/runtimes/content_gen-* --since 5m --profile your-aws-profile | grep guardrail
+aws logs tail /aws/bedrock-agentcore/runtimes/campus_coach-* --since 5m --profile your-aws-profile | grep guardrail
+
+# Should see: "Creating agent with guardrails: <id> v1"
 ```
 
 ## Prerequisites

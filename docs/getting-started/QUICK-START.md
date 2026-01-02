@@ -94,10 +94,47 @@ agentcore memory list --region eu-west-1
 - ✅ Configures agents to use pre-created LTM memories
 - ✅ Uses `direct_code_deploy` (no Docker containers required)
 - ✅ Validates agent deployment and memory configuration
+- ⚠️  Guardrails not yet configured (configured in Step 4)
 
 ## Step 4: Configure AgentCore Integration (1 minute) - Optional
 
 ```bash
+# Configure IAM permissions and Lambda integration
+./scripts/configure_agentcore_integration.sh
+```
+
+**What this does:**
+- ✅ Detects and configures Bedrock Guardrails from SecurityStack
+- ✅ Updates `.env.agentcore` with guardrail configuration
+- ✅ Configures IAM permissions for AgentCore agents
+- ✅ Updates Lambda environment variables with agent ARNs
+- ✅ Enables seamless integration between infrastructure and AI agents
+
+**Guardrail Detection:**
+- Automatically retrieves GuardrailId from CloudFormation
+- Writes to `.env.agentcore` for agent deployment
+- No manual configuration required
+
+## Step 5: Redeploy Agents with Guardrails (2 minutes) - Recommended
+
+```bash
+# Redeploy agents to enable guardrails
+./scripts/deploy_agentcore_agents.sh
+```
+
+**What this does:**
+- ✅ Reads guardrail configuration from `.env.agentcore`
+- ✅ Deploys agents with Bedrock Guardrails enabled
+- ✅ Protects against prompt injection and harmful content
+- ✅ Enables PII protection and topic boundaries
+
+**After this step:**
+- 🛡️ Both agents protected by Bedrock Guardrails
+- 📊 GenAI Observability Dashboard active
+- 🧠 AgentCore Memory operational
+- ✅ Full security and monitoring enabled
+
+## Step 6: Final CDK Deployment (1 minute)
 # Configure IAM permissions and Lambda integration
 ./scripts/configure_agentcore_integration.sh
 ```

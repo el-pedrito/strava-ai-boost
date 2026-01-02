@@ -24,31 +24,47 @@ Strava AI Boost is a production-ready, modular serverless application that autom
 
 ### Complete Deployment Workflow
 
-**Step 1: Infrastructure (2 min)** ✅ COMPLETED
+**Step 1: Infrastructure (2 min)** ✅
 ```bash
 ./scripts/deploy.sh dev
-# Deploys: CDK stacks + Lambda functions + DynamoDB + API Gateway
+# Deploys: 6 CDK stacks (Core, Security, Content, API, Webhook, Monitoring)
+# Includes: Bedrock Guardrails + GenAI Observability configuration
 ```
 
-**Step 2: AgentCore Long-Term Memory (3 min)** ✅ COMPLETED
+**Step 2: AgentCore Long-Term Memory (3 min)** ✅
 ```bash
 ./scripts/create_agentcore_memories.sh
 # Creates: LTM memories with semantic search (~3 min per memory)
 ```
 
-**Step 3: AgentCore Agents (2 min)** ✅ COMPLETED
+**Step 3: AgentCore Agents - Initial (2 min)** ✅
 ```bash
 ./scripts/deploy_agentcore_agents.sh
-# Deploys: AI agents with LTM using direct_code_deploy
+# Deploys: AI agents with LTM (without guardrails yet)
 ```
 
-**Step 4: AgentCore Integration (1 min)** ✅ COMPLETED
+**Step 4: AgentCore Integration (1 min)** ✅
 ```bash
 ./scripts/configure_agentcore_integration.sh
-# Configures: IAM permissions + Lambda env vars + CDK context
+# Configures: IAM permissions + Lambda env vars + Guardrail detection
+# Detects: Bedrock Guardrails from SecurityStack
+# Updates: .env.agentcore with guardrail configuration
 ```
 
-**Step 5: Local Environment Setup (30 sec)** ✅ NEW
+**Step 5: AgentCore Agents - With Security (2 min)** ✅
+```bash
+./scripts/deploy_agentcore_agents.sh
+# Redeploys: Agents with Bedrock Guardrails enabled
+# Enables: Prompt injection protection + content safety
+```
+
+**Step 6: Final CDK Deployment (1 min)** ✅
+```bash
+cdk deploy --all --profile your-aws-profile --require-approval never
+# Updates: Lambda functions with agent ARNs
+```
+
+**Step 7: Local Environment Setup (30 sec)** ✅
 ```bash
 ./scripts/setup_local_env.sh
 # Generates: .env file with API Gateway URL + API Key
