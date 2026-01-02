@@ -10,10 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Campus Coach Agent Memory**: AgentCore Memory integration for learning
   - Loads last 3 extraction sessions from memory for context
-  - Saves extraction results to memory for continuous improvement
+  - Saves extraction summary to memory ONLY at end (not intermediate messages)
   - Uses daily session_id (campus-extraction-{date}) for grouping
   - Improves extraction accuracy over time
   - File: `src/agents/campus_coach_agent.py`
+
+### Added
+- **Campus Coach Automatic Scheduler**: EventBridge daily extraction
+  - Scheduled extraction every morning at 6 AM Paris time (5 UTC)
+  - Automatically enabled/disabled when user toggles Campus Coach module
+  - No manual intervention required - fully automated
+  - Files: `stacks/content_generation_stack.py`, `lambda_functions/configuration_api.py`
 
 ### Fixed
 - **Campus Coach Duplicate Prevention**: Deterministic keys to avoid duplicates
@@ -24,12 +31,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Prevents duplicate sessions when agent runs multiple times
   - File: `src/agents/campus_coach_agent.py`
 
+### Changed
+- **Module Activation Flow**: EventBridge integration
+  - When user enables Campus Coach → EventBridge scheduler activated
+  - When user disables Campus Coach → EventBridge scheduler deactivated
+  - Seamless integration with dashboard toggle
+  - File: `lambda_functions/configuration_api.py`
+
 ### Performance
 - **Memory Benefits**: Agent learns from previous extractions
   - Remembers successful extraction patterns
   - Adapts to Campus Coach UI changes
   - Improves session parsing accuracy
   - Reduces extraction errors over time
+
+### Performance
+- **Automatic Daily Extraction**: Zero manual intervention
+  - Sessions refreshed every morning at 6 AM
+  - Always up-to-date training plan
+  - Automatic matching with new activities
+  - User never needs to manually trigger extraction
 
 ## [1.13.0] - 2026-01-02 - Campus Coach Intelligent Matching & Content Integration
 

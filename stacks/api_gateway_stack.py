@@ -69,6 +69,21 @@ class ApiGatewayStack(Stack):
         # Grant Secrets Manager permissions to config lambda
         self.core_stack.strava_oauth_secret.grant_read(self.config_lambda)
         self.core_stack.campus_coach_secret.grant_read(self.config_lambda)
+        
+        # Grant EventBridge permissions to config lambda (for enabling/disabling Campus Coach scheduler)
+        self.config_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "events:EnableRule",
+                    "events:DisableRule",
+                    "events:DescribeRule"
+                ],
+                resources=[
+                    f"arn:aws:events:{self.region}:{self.account}:rule/StravaAIBoost-CampusCoach-DailyExtraction"
+                ]
+            )
+        )
 
         # Dashboard API Lambda
         self.dashboard_lambda = lambda_.Function(

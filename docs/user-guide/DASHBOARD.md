@@ -72,6 +72,8 @@ The dashboard at http://localhost:3000 provides real-time monitoring and control
 - **Update Credentials**: Button to reconfigure credentials if needed
 - **Status**: Shows "✓ Configured" when credentials are stored
 - **External Service Notice**: Information about Campus Coach subscription requirement
+- **Automatic Extraction**: When enabled, sessions are extracted daily at 6 AM Paris time
+- **EventBridge Scheduler**: Automatically activated/deactivated with module toggle
 - **Last Extraction**: When sessions were last fetched
 
 **Enduraw Module**

@@ -29,6 +29,8 @@ graph TB
         subgraph "Orchestration"
             StepFunctions[Step Functions<br/>Activity Workflow]
             ProcessorLambda[Activity Processor<br/>Lambda Function]
+            EventBridge[EventBridge Scheduler<br/>Daily 6 AM]
+            CampusInvoker[Campus Coach Invoker<br/>Lambda Function]
         end
         
         subgraph "AI & Content Generation"
@@ -75,6 +77,11 @@ graph TB
     ProcessorLambda --> AgentCoreMemory
     ProcessorLambda --> AgentCoreBrowser
     AgentCoreBrowser --> CampusCoach
+    
+    %% Campus Coach Automatic Extraction
+    EventBridge -.->|Daily 6 AM| CampusInvoker
+    CampusInvoker --> AgentCoreBrowser
+    CampusInvoker --> SessionsTable
     
     %% Data Flow
     ProcessorLambda --> ActivitiesTable

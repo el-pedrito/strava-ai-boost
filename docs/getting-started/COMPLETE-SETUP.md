@@ -411,12 +411,26 @@ aws secretsmanager get-secret-value \
    - Username: Your Campus Coach username
    - Password: Your Campus Coach password
 4. Click "Save Configuration"
-5. Wait for initial session extraction
+5. **Automatic extraction starts immediately**
+
+**Automatic Daily Extraction**:
+- ⏰ **Scheduled Time**: Every morning at 6 AM Paris time (5 UTC)
+- 🔄 **Automatic Activation**: EventBridge scheduler enabled when you activate the module
+- ⏸️ **Automatic Deactivation**: Scheduler disabled when you deactivate the module
+- 📊 **Zero Manual Work**: Sessions always up-to-date without intervention
+- 🎯 **Smart Matching**: New activities automatically matched with latest sessions
+
+**How It Works**:
+1. You enable Campus Coach in dashboard → EventBridge scheduler activates
+2. Every morning at 6 AM → Lambda invokes Campus Coach agent
+3. Agent scrapes latest sessions → Saves to DynamoDB
+4. Your activities → Automatically matched with fresh sessions
+5. You disable Campus Coach → Scheduler deactivates (no more extractions)
 
 **Verification**:
-- Check "Last Extraction" timestamp
+- Check "Last Extraction" timestamp in dashboard
 - Upload a training activity
-- Verify session matching in enhanced content
+- Verify session matching in enhanced content (e.g., "✅ Session Campus Coach validée : Endurance Fondamentale")
 
 ### Enduraw Module
 

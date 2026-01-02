@@ -279,6 +279,35 @@ class ContentGenerationStack(Stack):
                 **self._get_base_environment_variables()
             }
         )
+        
+        # EventBridge Scheduler for daily Campus Coach extraction (DISABLED by default)
+        # Will be enabled/disabled via API when user toggles Campus Coach module
+        from aws_cdk import aws_events as events, aws_events_targets as targets
+        
+        self.campus_coach_schedule = events.Rule(
+            self, "CampusCoachDailySchedule",
+            rule_name="StravaAIBoost-CampusCoach-DailyExtraction",
+            description="Daily Campus Coach session extraction (6 AM Paris time)",
+            schedule=events.Schedule.cron(
+                minute="0",
+                hour="5",  # 5 UTC = 6 AM Paris (winter time)
+                week_day="*",
+                month="*",
+                year="*"
+            ),
+            enabled=False  # DISABLED by default - enabled when user activates module
+        )
+        
+        # Add Lambda target to the rule
+        self.campus_coach_schedule.add_target(
+            targets.LambdaFunction(
+                self.campus_coach_invoker,
+                event=events.RuleTargetInput.from_object({
+                    "action": "extract_sessions",
+                    "source": "eventbridge_scheduler"
+                })
+            )
+        )
 
         # Activity data fetcher Lambda
         self.activity_fetcher = lambda_.Function(

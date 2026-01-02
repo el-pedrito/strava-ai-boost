@@ -576,6 +576,24 @@ def configure_module(event: Dict[str, Any], rate_limit_info: Dict[str, Any] = No
         # Store updated configuration
         table.put_item(Item=module_config)
         
+        # Enable/Disable EventBridge Scheduler for Campus Coach if applicable
+        if module_id == 'campus_coach':
+            try:
+                events_client = boto3.client('events')
+                rule_name = 'StravaAIBoost-CampusCoach-DailyExtraction'
+                
+                if enabled:
+                    # Enable the EventBridge rule
+                    events_client.enable_rule(Name=rule_name)
+                    logger.info(f"✅ Enabled EventBridge scheduler for Campus Coach")
+                else:
+                    # Disable the EventBridge rule
+                    events_client.disable_rule(Name=rule_name)
+                    logger.info(f"⏸️ Disabled EventBridge scheduler for Campus Coach")
+            except Exception as e:
+                logger.warning(f"Failed to update EventBridge scheduler: {str(e)}")
+                # Don't fail the whole operation if EventBridge update fails
+        
         # Log with clear status
         status_label = "configured" if enabled else "unconfigured"
         logger.info(f"Module {module_id} {status_label}: enabled={enabled}")
