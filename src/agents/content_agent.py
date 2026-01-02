@@ -206,6 +206,17 @@ def invoke(payload, context=None):
         athlete_profile = payload.get('athlete_profile', {})
         gear_details = payload.get('gear_details', {})
         
+        # Log Campus Coach data details
+        if campus_coach_session:
+            if isinstance(campus_coach_session, list):
+                logger.info(f"🎯 Campus Coach: Received {len(campus_coach_session)} sessions for matching")
+                for i, session in enumerate(campus_coach_session[:3]):  # Log first 3 sessions
+                    logger.info(f"   Session {i+1}: {session.get('title', 'Unknown')} - {session.get('targetedMetrics', {}).get('target_distance_km', 0)}km")
+            else:
+                logger.info(f"🎯 Campus Coach: Received single session - {campus_coach_session.get('title', 'Unknown')}")
+        else:
+            logger.info("ℹ️ Campus Coach: No sessions provided")
+        
         # Log detailed invocation info
         logger.info(f"=== Content Generation Started ===")
         logger.info(f"Activity ID: {activity_id}")

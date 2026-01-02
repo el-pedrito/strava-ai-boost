@@ -5,6 +5,68 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.0] - 2026-01-02 - Campus Coach Intelligent Matching & Content Integration
+
+### Added
+- **Campus Coach Intelligent Matching**: Agent-powered session matching with stream analysis
+  - Semantic matching using activity title keywords (EF, Tempo, Fractionné, VMA)
+  - Distance and duration matching with tolerance thresholds
+  - Pace zone analysis comparing streams with target intervals
+  - Heart rate zone verification for session intensity
+  - Confidence scoring based on multiple matching signals
+  - File: `lambda_functions/content_generator.py`
+
+### Added
+- **Campus Coach Content Integration**: Automatic session reference in generated content
+  - High confidence match: Celebrates session execution with specific details
+  - Medium confidence: Acknowledges possible connection
+  - Low confidence: Focuses on personal achievement
+  - Includes compliance analysis (actual vs planned metrics)
+  - File: `src/agents/embedded_prompts.py`
+
+### Changed
+- **Module Configuration Loading**: Fixed module config retrieval from DynamoDB
+  - Now loads modules_config from MODULE_CONFIG item (user_id: "MODULE_CONFIG")
+  - Merges module configuration with user-specific preferences
+  - Fixes "Campus Coach module not enabled" issue
+  - File: `lambda_functions/content_generator.py`
+
+### Changed
+- **Campus Coach Session Filtering**: Only retrieve "À faire" sessions
+  - Filters sessions by status to avoid confusion with completed sessions
+  - Reduces noise for agent matching algorithm
+  - Improves matching accuracy
+  - File: `lambda_functions/content_generator.py`
+
+### Changed
+- **Agent Payload Structure**: Consistent module data passing
+  - Changed from 'modules' to 'active_modules' for consistency
+  - Extracts campus_coach_sessions from modules and passes to agent
+  - Agent now receives sessions in expected format
+  - Files: `lambda_functions/content_generator.py`, `src/agents/content_agent.py`
+
+### Added
+- **Detailed Campus Coach Logging**: Comprehensive logging for debugging
+  - Lambda logs: DynamoDB query, sessions retrieved, sessions passed to agent
+  - Agent logs: Sessions received, session details (title, distance)
+  - Easy troubleshooting of Campus Coach integration
+  - Files: `lambda_functions/content_generator.py`, `src/agents/content_agent.py`
+
+### Changed
+- **Campus Coach Prompt Enhancement**: Critical instructions for matching
+  - Added CRITICAL section at prompt beginning
+  - Explicit step-by-step matching instructions
+  - Mandatory inclusion of matching result in content
+  - Detailed data structure documentation
+  - File: `src/agents/embedded_prompts.py`
+
+### Performance
+- **Campus Coach Matching Validated**: End-to-end integration tested
+  - Session retrieval: 4 sessions from DynamoDB
+  - Matching accuracy: Perfect match (6.13km vs 6.2km target, pace in zone)
+  - Content quality: Specific session details included
+  - Agent reasoning: Semantic + distance + pace analysis
+
 ## [1.12.0] - 2026-01-02 - Campus Coach Agent Implementation & Autonomous Scraping
 
 ### Added

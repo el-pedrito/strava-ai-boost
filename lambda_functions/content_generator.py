@@ -166,19 +166,26 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
 
 def get_user_configuration(user_id: str) -> Dict[str, Any]:
-    """Get user configuration from DynamoDB"""
+    """Get user configuration from DynamoDB including module configuration"""
     try:
         table = dynamodb.Table(USER_CONFIG_TABLE)
-        response = table.get_item(Key={'user_id': user_id})
         
-        if 'Item' in response:
-            return response['Item']
+        # Get user-specific configuration
+        response = table.get_item(Key={'user_id': user_id})
+        user_config = response.get('Item', {'user_id': user_id})
+        
+        # Get module configuration (stored separately in MODULE_CONFIG)
+        module_response = table.get_item(Key={'user_id': 'MODULE_CONFIG'})
+        if 'Item' in module_response:
+            # Merge modules_config from MODULE_CONFIG into user config
+            module_config_item = module_response['Item']
+            user_config['modules_config'] = module_config_item.get('modules_config', {})
+            logger.info(f"Loaded module configuration: {list(user_config['modules_config'].keys())}")
         else:
-            # Return default configuration
-            return {
-                'user_id': user_id,
-                'modules_config': {}
-            }
+            user_config['modules_config'] = {}
+            logger.warning("No MODULE_CONFIG found in DynamoDB")
+        
+        return user_config
             
     except Exception as e:
         logger.error(f"Failed to get user configuration: {str(e)}")
@@ -421,41 +428,181 @@ def apply_campus_coach_processing(
     user_id: str,
     module: Dict[str, Any]
 ) -> Dict[str, Any]:
-    """Apply Campus Coach session matching processing"""
+    """
+    Apply Campus Coach session matching processing
+    
+    Retrieves recent Campus Coach sessions from DynamoDB.
+    The intelligent matching and compliance analysis is done by the content generation agent
+    using Claude Sonnet 4.5 with detailed stream analysis (pace, HR, intervals).
+    """
     try:
-        logger.info("Applying Campus Coach session matching...")
+        logger.info("Retrieving Campus Coach sessions for intelligent agent matching...")
         
-        # Use Campus Coach agent for session matching
-        if CampusCoachAgent:
-            matching_result = run_session_matching(activity_data, user_id, AWS_REGION)
+        # Get activity details
+        activity_date = activity_data.get('start_date_local', activity_data.get('start_date', ''))
+        distance_km = activity_data.get('distance', 0) / 1000
+        duration_min = activity_data.get('moving_time', 0) / 60
+        activity_type = activity_data.get('type', '').lower()
+        
+        logger.info(f"Activity: {activity_type}, {distance_km:.1f}km, {duration_min:.0f}min, date: {activity_date}")
+        
+        # Get all recent Campus Coach sessions from DynamoDB
+        sessions = get_recent_campus_sessions()
+        
+        enhanced_module = module.copy()
+        
+        if sessions and len(sessions) > 0:
+            logger.info(f"✅ Retrieved {len(sessions)} Campus Coach sessions for agent analysis")
             
-            # Enhance module with matching results
-            enhanced_module = module.copy()
-            enhanced_module['session_matching'] = matching_result
+            # Pass all sessions to the agent for intelligent matching
+            # The agent will analyze:
+            # - Strava streams (pace, heart rate, power, cadence)
+            # - Campus Coach intervals (target pace, duration, repetitions)
+            # - Compliance scoring (distance, duration, pace zones)
+            # - Performance analysis (actual vs planned)
+            enhanced_module['campus_coach_sessions'] = sessions
+            enhanced_module['sessions_available'] = True
+            enhanced_module['session_count'] = len(sessions)
             
-            logger.info(f"Campus Coach matching: {matching_result.get('match_found', False)}")
-            return enhanced_module
-        else:
-            logger.warning("Campus Coach agent not available, using fallback")
-            enhanced_module = module.copy()
-            enhanced_module['session_matching'] = {
-                'match_found': False,
-                'confidence': 0.0,
-                'reason': 'Agent not available',
-                'session_data': None
+            # Add activity context for agent matching (including title for semantic matching)
+            enhanced_module['activity_context'] = {
+                'date': activity_date,
+                'distance_km': distance_km,
+                'duration_min': duration_min,
+                'type': activity_type,
+                'title': activity_data.get('name', ''),  # Activity title can hint at session type (e.g., "EF", "Tempo", "Fractionné")
+                'description': activity_data.get('description', '')  # Original description may contain session clues
             }
-            return enhanced_module
+            
+            logger.info(f"Campus Coach sessions will be analyzed by agent (activity title: '{activity_data.get('name', 'N/A')}')")
+        else:
+            logger.info("❌ No Campus Coach sessions available")
+            enhanced_module['campus_coach_sessions'] = []
+            enhanced_module['sessions_available'] = False
+            enhanced_module['note'] = 'No recent Campus Coach sessions found'
+        
+        return enhanced_module
             
     except Exception as e:
         logger.error(f"Campus Coach processing error: {str(e)}")
         enhanced_module = module.copy()
-        enhanced_module['session_matching'] = {
-            'match_found': False,
-            'confidence': 0.0,
-            'reason': f'Processing error: {str(e)}',
-            'session_data': None
-        }
+        enhanced_module['campus_coach_sessions'] = []
+        enhanced_module['sessions_available'] = False
+        enhanced_module['error'] = str(e)
         return enhanced_module
+
+
+def apply_campus_coach_processing(
+    activity_data: Dict[str, Any],
+    user_id: str,
+    module: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    Apply Campus Coach session matching processing
+    
+    Retrieves recent Campus Coach sessions from DynamoDB.
+    The intelligent matching and compliance analysis is done by the content generation agent
+    using Claude Sonnet 4.5 with detailed stream analysis.
+    """
+    try:
+        logger.info("Retrieving Campus Coach sessions for intelligent matching...")
+        
+        # Get activity details
+        activity_date = activity_data.get('start_date_local', activity_data.get('start_date', ''))
+        distance_km = activity_data.get('distance', 0) / 1000
+        duration_min = activity_data.get('moving_time', 0) / 60
+        activity_type = activity_data.get('type', '').lower()
+        
+        logger.info(f"Activity: {activity_type}, {distance_km:.1f}km, {duration_min:.0f}min, date: {activity_date}")
+        
+        # Get all recent Campus Coach sessions from DynamoDB
+        sessions = get_recent_campus_sessions()
+        
+        enhanced_module = module.copy()
+        
+        if sessions and len(sessions) > 0:
+            logger.info(f"✅ Retrieved {len(sessions)} Campus Coach sessions for agent analysis")
+            
+            # Pass all sessions to the agent for intelligent matching
+            # The agent will analyze streams, intervals, pace zones, and heart rate
+            # to find the best match and calculate detailed compliance
+            enhanced_module['campus_coach_sessions'] = sessions
+            enhanced_module['sessions_available'] = True
+            enhanced_module['session_count'] = len(sessions)
+            
+            # Add activity context for agent matching
+            enhanced_module['activity_context'] = {
+                'date': activity_date,
+                'distance_km': distance_km,
+                'duration_min': duration_min,
+                'type': activity_type
+            }
+        else:
+            logger.info("❌ No Campus Coach sessions available")
+            enhanced_module['campus_coach_sessions'] = []
+            enhanced_module['sessions_available'] = False
+            enhanced_module['note'] = 'No recent Campus Coach sessions found'
+        
+        return enhanced_module
+            
+    except Exception as e:
+        logger.error(f"Campus Coach processing error: {str(e)}")
+        enhanced_module = module.copy()
+        enhanced_module['campus_coach_sessions'] = []
+        enhanced_module['sessions_available'] = False
+        enhanced_module['error'] = str(e)
+        return enhanced_module
+
+
+def get_recent_campus_sessions() -> List[Dict[str, Any]]:
+    """Get recent Campus Coach sessions from DynamoDB (only 'À faire' sessions)"""
+    try:
+        logger.info("🔍 Querying Campus Coach sessions from DynamoDB...")
+        table = dynamodb.Table(COACHING_SESSIONS_TABLE)
+        
+        # Get sessions from last 14 days that are still "À faire" (to do)
+        from datetime import datetime, timedelta
+        cutoff_date = (datetime.utcnow() - timedelta(days=14)).isoformat()
+        
+        logger.info(f"Filtering sessions: updated_at > {cutoff_date} AND status = 'À faire'")
+        
+        response = table.scan(
+            FilterExpression='updated_at > :cutoff AND #status = :status',
+            ExpressionAttributeNames={
+                '#status': 'status'  # 'status' is a reserved word in DynamoDB
+            },
+            ExpressionAttributeValues={
+                ':cutoff': cutoff_date,
+                ':status': 'À faire'  # Only get sessions that are not yet completed
+            }
+        )
+        
+        sessions = response.get('Items', [])
+        logger.info(f"📊 DynamoDB returned {len(sessions)} sessions")
+        
+        # Log session details for debugging
+        for session in sessions:
+            logger.info(f"  - {session.get('title', 'Unknown')} (week {session.get('week_number', '?')}, {session.get('session_number', '?')})")
+        
+        # Convert Decimal to float for JSON serialization
+        from decimal import Decimal
+        def decimal_to_float(obj):
+            if isinstance(obj, Decimal):
+                return float(obj)
+            elif isinstance(obj, dict):
+                return {k: decimal_to_float(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [decimal_to_float(item) for item in obj]
+            return obj
+        
+        sessions = decimal_to_float(sessions)
+        
+        logger.info(f"✅ Retrieved {len(sessions)} 'À faire' Campus Coach sessions from DynamoDB")
+        return sessions
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to retrieve Campus Coach sessions: {str(e)}")
+        return []
 
 
 def generate_enhanced_content_with_agent(
@@ -499,6 +646,22 @@ def generate_enhanced_content_with_agent(
         import uuid
         session_id = f"content-gen-{uuid.uuid4().hex}"  # UUID hex is 32 chars + prefix = 44 chars total
         
+        # Extract Campus Coach sessions from modules if available
+        campus_coach_sessions = None
+        for module in modules:
+            if module.get('name') == 'campus_coach':
+                logger.info(f"🔍 Found Campus Coach module in enhanced_modules")
+                if module.get('sessions_available'):
+                    campus_coach_sessions = module.get('campus_coach_sessions', [])
+                    logger.info(f"✅ Passing {len(campus_coach_sessions)} Campus Coach sessions to agent")
+                    logger.info(f"   Activity context: {module.get('activity_context', {})}")
+                else:
+                    logger.warning("⚠️ Campus Coach module present but no sessions available")
+                break
+        
+        if not campus_coach_sessions:
+            logger.info("ℹ️ No Campus Coach sessions to pass to agent")
+        
         # Prepare input for AgentCore Content Generation Agent
         agent_input = {
             'action': 'generate_content',
@@ -509,7 +672,8 @@ def generate_enhanced_content_with_agent(
             'gear_details': gear_details,
             'user_id': user_id,
             'user_profile': user_profile,  # Add user_profile for personalization
-            'modules': modules,
+            'active_modules': modules,  # Changed from 'modules' to 'active_modules' for consistency
+            'campus_coach_session': campus_coach_sessions,  # Pass Campus Coach sessions for intelligent matching
             'use_memory': True,
             'personalization': True
         }
