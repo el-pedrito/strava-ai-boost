@@ -5,6 +5,82 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0] - 2026-01-02 - Local Dashboard UX Improvements & AgentCore Health Monitoring
+
+### Fixed
+- **Campus Coach Module Toggle**: Fixed JavaScript bug preventing module activation
+  - Converted `campus_coach` to `campusCoach` for DOM element ID matching
+  - Toggle now correctly enables/disables module in DynamoDB
+  - File: `local_interface/templates/config.html`
+
+### Fixed
+- **Campus Coach Activation Logic**: Allow activation without re-entering credentials
+  - Lambda now checks if credentials exist in Secrets Manager before requiring them
+  - Validates that username AND password are present in the secret
+  - Enables module immediately if credentials already configured
+  - Files: `lambda_functions/configuration_api.py`, `local_interface/app.py`
+
+### Fixed
+- **Rate Limiter DynamoDB Schema**: Fixed key mismatch causing validation errors
+  - Changed from `rate_limit_key` to `limit_type` to match table schema
+  - Eliminates "The provided key element does not match the schema" errors
+  - File: `lambda_functions/rate_limiter.py`
+
+### Changed
+- **Module Configuration Logging**: Improved log clarity for module status changes
+  - Logs now show "configured" when enabled, "unconfigured" when disabled
+  - Easier to track module state changes in CloudWatch
+  - File: `lambda_functions/configuration_api.py`
+
+### Changed
+- **Campus Coach Module UI**: Enhanced user experience and clarity
+  - Added external service notice explaining Campus Coach subscription requirement
+  - Credentials form hidden after successful configuration
+  - "Update Credentials" button to reconfigure if needed
+  - Success message only shown when API returns OK
+  - Consistent blue info boxes for both Campus Coach and Enduraw
+  - File: `local_interface/templates/config.html`
+
+### Removed
+- **Processing Status Section**: Removed unused real-time processing monitoring
+  - Removed "Processing Queue" and "Dead Letter Queue" displays
+  - Removed `status_api.py` Lambda and `/status` API Gateway endpoints
+  - Removed related functions: `get_processing_status_local()`, `get_module_processing_status()`
+  - Simplified dashboard to focus on essential metrics
+  - Files: `local_interface/templates/dashboard.html`, `local_interface/app.py`, `lambda_functions/status_api.py`, `stacks/api_gateway_stack.py`
+
+### Removed
+- **System Configuration Section**: Removed non-actionable technical details
+  - Removed AI Model, API Gateway, Data Storage display cards
+  - Information not useful for end users
+  - File: `local_interface/templates/config.html`
+
+### Removed
+- **System Health Metric**: Removed redundant overall health indicator
+  - Individual component status (Strava, AgentCore, Enhancement) more useful
+  - Simplified dashboard layout from 3 to 2 columns
+  - File: `local_interface/templates/dashboard.html`
+
+### Added
+- **AgentCore Health Check Lambda**: Real agent accessibility testing
+  - New Lambda function tests if AgentCore agents are actually accessible
+  - Validates agent ARN format and configuration
+  - API endpoint: `GET /health/agentcore`
+  - Returns detailed status for each agent (content_generation, campus_coach)
+  - Files: `lambda_functions/agentcore_health_check.py`, `stacks/api_gateway_stack.py`
+
+### Changed
+- **Dashboard Success Rate Display**: Show "N/A" instead of "0%" when no recent activities
+  - More user-friendly for periods without activity
+  - Only shows percentage when activities exist in last 24h
+  - File: `local_interface/templates/dashboard.html`
+
+### Performance
+- **Dashboard Loading**: Removed unnecessary API calls and processing
+  - Eliminated unused status API calls
+  - Simplified data fetching logic
+  - Faster page load times
+
 ## [1.10.5] - 2025-12-31 - Complete Strava Data Integration (Achievements, Power, Stats, Context)
 
 ### Fixed

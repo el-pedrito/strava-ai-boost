@@ -502,35 +502,51 @@ def configure_module(event: Dict[str, Any], rate_limit_info: Dict[str, Any] = No
         # Handle Campus Coach configuration
         if module_id == 'campus_coach' and enabled:
             credentials = config.get('credentials', {})
-            if not credentials.get('username') or not credentials.get('password'):
-                return create_error_response(400, 'Campus Coach credentials required when enabling', rate_limit_info)
             
-            # Store credentials in Secrets Manager
-            try:
-                credential_data = {
-                    'username': credentials['username'],
-                    'password': credentials['password'],
-                    'configured_at': datetime.now(UTC).isoformat()
-                }
-                
-                secretsmanager.put_secret_value(
-                    SecretId=CAMPUS_COACH_SECRET,
-                    SecretString=json.dumps(credential_data)
-                )
-                
-                logger.info("Campus Coach credentials stored")
-                
-            except ClientError as e:
-                if e.response['Error']['Code'] == 'ResourceNotFoundException':
-                    # Create secret if it doesn't exist
-                    secretsmanager.create_secret(
-                        Name=CAMPUS_COACH_SECRET,
-                        Description='Campus Coach credentials for AI Boost',
+            # Only require credentials if they don't exist in Secrets Manager
+            if credentials.get('username') and credentials.get('password'):
+                # Store/update credentials in Secrets Manager
+                try:
+                    credential_data = {
+                        'username': credentials['username'],
+                        'password': credentials['password'],
+                        'configured_at': datetime.now(UTC).isoformat()
+                    }
+                    
+                    secretsmanager.put_secret_value(
+                        SecretId=CAMPUS_COACH_SECRET,
                         SecretString=json.dumps(credential_data)
                     )
-                    logger.info("Campus Coach secret created")
-                else:
-                    raise
+                    
+                    logger.info("Campus Coach credentials stored")
+                    
+                except ClientError as e:
+                    if e.response['Error']['Code'] == 'ResourceNotFoundException':
+                        # Create secret if it doesn't exist
+                        secretsmanager.create_secret(
+                            Name=CAMPUS_COACH_SECRET,
+                            Description='Campus Coach credentials for AI Boost',
+                            SecretString=json.dumps(credential_data)
+                        )
+                        logger.info("Campus Coach secret created")
+                    else:
+                        raise
+            else:
+                # No credentials provided, check if they exist in Secrets Manager
+                try:
+                    response = secretsmanager.get_secret_value(SecretId=CAMPUS_COACH_SECRET)
+                    secret_data = json.loads(response['SecretString'])
+                    
+                    # Verify that username and password exist in the secret
+                    if not secret_data.get('username') or not secret_data.get('password'):
+                        return create_error_response(400, 'Campus Coach credentials in Secrets Manager are incomplete. Please reconfigure.', rate_limit_info)
+                    
+                    logger.info("Campus Coach credentials already exist in Secrets Manager")
+                except ClientError as e:
+                    if e.response['Error']['Code'] == 'ResourceNotFoundException':
+                        return create_error_response(400, 'Campus Coach credentials required when enabling for the first time', rate_limit_info)
+                    else:
+                        raise
         
         # Store module configuration in DynamoDB
         table = dynamodb.Table(USER_CONFIG_TABLE)
@@ -560,10 +576,12 @@ def configure_module(event: Dict[str, Any], rate_limit_info: Dict[str, Any] = No
         # Store updated configuration
         table.put_item(Item=module_config)
         
-        logger.info(f"Module {module_id} configured: enabled={enabled}")
+        # Log with clear status
+        status_label = "configured" if enabled else "unconfigured"
+        logger.info(f"Module {module_id} {status_label}: enabled={enabled}")
         
         return create_success_response({
-            'status': 'configured',
+            'status': status_label,
             'module_id': module_id,
             'enabled': enabled,
             'message': f'{module_id.replace("_", " ").title()} {"enabled" if enabled else "disabled"} successfully'

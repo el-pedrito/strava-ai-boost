@@ -15,28 +15,25 @@ The dashboard at http://localhost:3000 provides real-time monitoring and control
 - 🟡 **Expiring**: Tokens need refresh (automatic)
 - 🔴 **Disconnected**: OAuth setup required
 
+**AgentCore Status**
+- 🟢 **Healthy**: Agents accessible and functional
+- 🟡 **Not Configured**: Agents not deployed yet
+- 🔴 **Error**: Agent connectivity issues
+
 **Enhancement Status**
 - 🟢 **Active**: Processing new activities automatically
 - 🟡 **Paused**: Manual pause activated
 - 🔴 **Error**: System issue requiring attention
 
-**System Health**
-- 🟢 **Healthy**: All services operational
-- 🟡 **Degraded**: Some services experiencing issues
-- 🔴 **Critical**: Major system problems
-
 ### Activity Statistics
 
 **Processing Metrics**
 - **Total Activities**: All-time processed count
-- **Success Rate**: Percentage of successful enhancements
-- **Average Processing Time**: End-to-end timing
-- **Queue Depth**: Activities waiting for processing
+- **Success Rate (24h)**: Percentage of successful enhancements in last 24 hours (shows "N/A" if no recent activities)
 
-**Engagement Metrics**
-- **Kudos Received**: Total kudos on enhanced activities
-- **Comments**: Community engagement on enhanced content
-- **Improvement**: Engagement increase vs original content
+**Module Status**
+- **Campus Coach**: Enabled/Disabled with last extraction timestamp
+- **Enduraw**: Enabled/Disabled with wait time configuration
 
 ### Recent Activities
 
@@ -72,14 +69,16 @@ The dashboard at http://localhost:3000 provides real-time monitoring and control
 **Campus Coach Module**
 - **Enable/Disable**: Toggle module activation
 - **Credentials**: Username and password for Campus Coach (encrypted storage)
+- **Update Credentials**: Button to reconfigure credentials if needed
+- **Status**: Shows "✓ Configured" when credentials are stored
+- **External Service Notice**: Information about Campus Coach subscription requirement
 - **Last Extraction**: When sessions were last fetched
-- **Status**: Module health and connectivity
-- **Session Count**: Number of active training sessions available
 
 **Enduraw Module**
 - **Enable/Disable**: Toggle integration
-- **Wait Time**: Wait time: 2 minutes for Enduraw data
-- **Status**: Integration health
+- **Wait Time**: 2 minutes for Enduraw data processing
+- **External Service Notice**: Information about Enduraw app requirement
+- **Status**: Shows "✓ Ready" when enabled
 
 ### Enhancement Control
 
@@ -98,33 +97,22 @@ The dashboard at http://localhost:3000 provides real-time monitoring and control
 
 ## Real-time Monitoring
 
-### Processing Status
+The dashboard automatically refreshes every 60 seconds to show the latest data.
+
+### Activity List
 
 **Live Updates**
-- Activity detection from Strava webhooks
-- Queue position and estimated processing time
-- Step Functions workflow progress
-- Module processing status
-
-**Error Monitoring**
-- Failed processing attempts
-- Retry status and next attempt
-- Dead letter queue monitoring
-- System health alerts
+- Recent activities with processing status
+- Processing time for each activity
+- Modules used for enhancement
+- Success/failure indicators
 
 ### Performance Metrics
 
-**Response Times**
-- Webhook processing: Target < 5 seconds
-- Content generation: Target < 30 seconds
-- Dashboard loading: Target < 2 seconds
-- API response times: Target < 1 second
-
-**Resource Usage**
-- Lambda function invocations
-- DynamoDB read/write units
-- Step Functions executions
-- Bedrock API calls
+The dashboard shows key performance indicators:
+- **Total Activities**: All-time count
+- **Success Rate (24h)**: Recent processing success (N/A if no recent activities)
+- **Processing Time**: Shown per activity in the activity list
 
 ## Troubleshooting via Dashboard
 

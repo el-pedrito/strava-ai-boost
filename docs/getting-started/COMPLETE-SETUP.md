@@ -277,6 +277,28 @@ agentcore memory list --profile your-aws-profile
 agentcore invoke strava-ai-boost-content-generator --input '{"test": true}'
 ```
 
+### 5. **IMPORTANT: Redeploy After Agent Configuration**
+
+After deploying AgentCore agents, you **MUST redeploy the CDK stacks** to update Lambda environment variables with agent ARNs:
+
+```bash
+# Redeploy to update Lambda environment variables
+cdk deploy --all --profile your-aws-profile --require-approval never
+```
+
+**Why this is required:**
+- AgentCore agents are deployed independently of CDK
+- Lambda functions need agent ARNs in their environment variables
+- The AgentCore Health Check Lambda reads ARNs from `.env.agentcore`
+- CDK loads `.env.agentcore` at deployment time, not runtime
+- Without redeployment, the dashboard won't show correct AgentCore status
+
+**When to redeploy:**
+- ✅ After initial AgentCore agent deployment
+- ✅ After updating agent ARNs in `.env.agentcore`
+- ✅ After redeploying AgentCore agents with new versions
+- ❌ Not needed for module configuration (Campus Coach credentials, etc.)
+
 ## Local Interface Setup
 
 ### 1. Environment Configuration

@@ -77,12 +77,12 @@ API_ENDPOINTS = {
     'dashboard_stats': f"{API_GATEWAY_URL}/dashboard/stats",
     'dashboard_activities': f"{API_GATEWAY_URL}/dashboard/activities",
     'dashboard_system': f"{API_GATEWAY_URL}/dashboard/system",
-    'status': f"{API_GATEWAY_URL}/status",
     'oauth_status': f"{API_GATEWAY_URL}/config/oauth",
     'oauth_callback': f"{API_GATEWAY_URL}/config/oauth",
     'modules': f"{API_GATEWAY_URL}/config/modules",
     'enhancement': f"{API_GATEWAY_URL}/config/enhancement",
-    'preferences': f"{API_GATEWAY_URL}/preferences"
+    'preferences': f"{API_GATEWAY_URL}/preferences",
+    'agentcore_health': f"{API_GATEWAY_URL}/health/agentcore"
 }
 
 # API Gateway headers with API Key
@@ -114,7 +114,6 @@ def index():
         system_status = {
             'strava_connected': oauth_status.get('connected', False),
             'agentcore_status': agentcore_status,
-            'system_health': 'healthy' if oauth_status.get('connected') and agentcore_status == 'healthy' else 'degraded',
             'enhancement_enabled': enhancement_status.get('enhancement_enabled', True),
             'enhancement_status': 'active' if enhancement_status.get('enhancement_enabled', True) else 'paused'
         }
@@ -126,17 +125,17 @@ def index():
                 system_stats = response.json()
                 system_status['total_activities'] = system_stats.get('total_activities', 0)
                 system_status['success_rate_24h'] = system_stats.get('success_rate', 0)
-                system_status['processing_queue_depth'] = system_stats.get('queue_depth', 0)
+                system_status['recent_activities_24h'] = system_stats.get('recent_activities_24h', 0)
             else:
                 logger.warning(f"System stats API returned {response.status_code}")
                 system_status['total_activities'] = 0
                 system_status['success_rate_24h'] = 0
-                system_status['processing_queue_depth'] = 0
+                system_status['recent_activities_24h'] = 0
         except Exception as e:
             logger.warning(f"Failed to get system stats from API: {e}")
             system_status['total_activities'] = 0
             system_status['success_rate_24h'] = 0
-            system_status['processing_queue_depth'] = 0
+            system_status['recent_activities_24h'] = 0
         
         # Get recent activities (same function as API)
         activities = get_recent_activities()
@@ -144,16 +143,12 @@ def index():
         # Get module status (same as config page approach)
         modules = get_module_status()
         
-        # Get processing status for real-time section
-        processing_status = get_processing_status_local()
-        
         return render_template('dashboard.html', 
                              status=system_status, 
                              activities=activities,
                              modules=modules,
                              oauth_status=oauth_status,
-                             enhancement_status=enhancement_status,
-                             processing_status=processing_status)
+                             enhancement_status=enhancement_status)
     except Exception as e:
         logger.error(f"Dashboard error: {str(e)}")
         return render_template('error.html', error=str(e)), 500
@@ -178,23 +173,23 @@ def load_agentcore_env():
 
 
 def get_agentcore_status() -> str:
-    """Get AgentCore status by checking agent ARNs and accessibility"""
+    """Get AgentCore status by testing agent accessibility via API Gateway"""
     try:
-        # Check if agents are configured
-        content_arn = os.environ.get('CONTENT_GENERATION_AGENT_ARN')
-        campus_arn = os.environ.get('CAMPUS_COACH_AGENT_ARN')
-        agents_available = os.environ.get('AGENTCORE_AGENTS_AVAILABLE', 'false').lower() == 'true'
+        # Call AgentCore health check API
+        response = requests.get(API_ENDPOINTS['agentcore_health'], headers=API_HEADERS, timeout=10)
         
-        if not agents_available or (not content_arn and not campus_arn):
-            return 'not_configured'
-        
-        # If we have agent ARNs, consider AgentCore as healthy
-        # Memory is managed automatically in STM mode, no need to check
-        logger.info(f"AgentCore agents found - Content: {bool(content_arn)}, Campus: {bool(campus_arn)}")
-        return 'healthy'
+        if response.status_code == 200:
+            health_data = response.json()
+            overall_status = health_data.get('overall_status', 'unknown')
+            
+            logger.info(f"AgentCore health check: {overall_status}")
+            return overall_status
+        else:
+            logger.warning(f"AgentCore health API returned {response.status_code}")
+            return 'error'
             
     except Exception as e:
-        logger.error(f"AgentCore status check failed: {e}")
+        logger.error(f"AgentCore health check failed: {e}")
         return 'error'
 
 
@@ -225,38 +220,6 @@ def get_enhancement_status_local() -> Dict[str, Any]:
             'status': 'active'
         }
 
-
-def get_processing_status_local() -> Dict[str, Any]:
-    """Get processing status from API Gateway"""
-    try:
-        response = requests.get(API_ENDPOINTS['status'], headers=API_HEADERS, timeout=5)
-        if response.status_code == 200:
-            return response.json()
-        else:
-            logger.warning(f"Status API returned {response.status_code}")
-            return {
-                'processing_activities': [],
-                'queue_status': {
-                    'processing_queue': {'approximate_messages': 0},
-                    'dead_letter_queue': {'approximate_messages': 0}
-                },
-                'system_status': 'unknown',
-                'last_updated': datetime.now(UTC).isoformat()
-            }
-    except Exception as e:
-        logger.error(f"Processing status error: {str(e)}")
-        return {
-            'processing_activities': [],
-            'queue_status': {
-                'processing_queue': {'approximate_messages': 0},
-                'dead_letter_queue': {'approximate_messages': 0}
-            },
-            'system_status': 'error',
-            'error': str(e)
-        }
-
-
-# REMOVED: get_real_sqs_status() - Now using API Gateway /dashboard/system endpoint
 
 
 @app.route('/config')
@@ -533,16 +496,11 @@ def api_get_module_status():
         # Get module configurations and status
         modules = get_module_status()
         
-        # Add health checks and processing status for each module
+        # Add health checks for each enabled module
         for module_id, module_data in modules.items():
             if module_data.get('enabled'):
-                # Add health check status
                 health_status = check_module_health(module_id)
                 module_data.update(health_status)
-                
-                # Add processing status from Step Functions if available
-                processing_status = get_module_processing_status(module_id)
-                module_data.update(processing_status)
         
         return jsonify({
             'modules': modules,
@@ -592,41 +550,6 @@ def check_module_health(module_id: str) -> Dict[str, Any]:
         }
 
 
-def get_module_processing_status(module_id: str) -> Dict[str, Any]:
-    """Get module processing status from API Gateway"""
-    try:
-        # Get processing status from API Gateway
-        response = requests.get(API_ENDPOINTS['status'], headers=API_HEADERS, timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            
-            # Extract module-specific processing info
-            processing_activities = data.get('processing_activities', [])
-            module_activities = [
-                act for act in processing_activities 
-                if module_id.replace('_', ' ').title() in act.get('modules_used', [])
-            ]
-            
-            return {
-                'processing_status': 'active' if module_activities else 'idle',
-                'active_executions': len(module_activities),
-                'last_execution': module_activities[0] if module_activities else None
-            }
-        else:
-            logger.warning(f"Status API returned {response.status_code}")
-            return {
-                'processing_status': 'unavailable',
-                'active_executions': 0,
-                'processing_message': 'API Gateway unavailable'
-            }
-        
-    except Exception as e:
-        logger.error(f"Processing status error for {module_id}: {e}")
-        return {
-            'processing_status': 'error',
-            'processing_message': f'Processing status check failed: {str(e)}'
-        }
-
 
 @app.route('/api/modules/<module_id>', methods=['POST'])
 def api_configure_module(module_id: str):
@@ -662,16 +585,9 @@ def api_configure_module(module_id: str):
                 'error': '"enabled" field must be a boolean'
             }), 400
         
-        # Validate Campus Coach credentials if enabling
-        if module_id == 'campus_coach' and enabled:
-            config = config_data.get('config', {})
-            credentials = config.get('credentials', {})
-            
-            if not credentials.get('username') or not credentials.get('password'):
-                return jsonify({
-                    'success': False,
-                    'error': 'Campus Coach credentials (username and password) are required when enabling the module'
-                }), 400
+        # No validation needed here - let the Lambda/API Gateway handle it
+        # This allows enabling Campus Coach without credentials if already configured
+        # (same behavior as Enduraw)
         
         # Configure module with validation and error handling
         result = configure_module(module_id, config_data)
@@ -778,39 +694,6 @@ def api_dashboard_stats():
         logger.error(f"Dashboard stats error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-
-@app.route('/api/processing/status')
-def api_processing_status():
-    """API endpoint for real-time processing status"""
-    try:
-        # Call AWS API Gateway for processing status
-        api_url = f"{API_GATEWAY_URL}/status"
-        
-        try:
-            response = requests.get(api_url, timeout=10)
-            if response.status_code == 200:
-                return jsonify(response.json())
-            else:
-                logger.warning(f"Status API returned status {response.status_code}")
-        except requests.RequestException as e:
-            logger.warning(f"Failed to call Status API: {e}")
-        
-        # Fallback to local data
-        status = {
-            'system_status': 'unknown',
-            'recent_activities': [],
-            'queue_status': {
-                'processing_queue': {'approximate_messages': 0},
-                'dead_letter_queue': {'approximate_messages': 0}
-            },
-            'last_updated': datetime.now(UTC).isoformat()
-        }
-        
-        return jsonify(status)
-        
-    except Exception as e:
-        logger.error(f"Processing status error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/activities')
@@ -1021,43 +904,6 @@ def api_test_connection():
             'error': f'Connection test failed: {str(e)}'
         }), 500
 
-
-def get_system_status() -> Dict[str, Any]:
-    """Get overall system status from API Gateway"""
-    try:
-        # Get status from API Gateway
-        response = requests.get(API_ENDPOINTS['status'], headers=API_HEADERS, timeout=5)
-        if response.status_code == 200:
-            return response.json()
-        else:
-            logger.warning(f"Status API returned status {response.status_code}: {response.text}")
-        
-        # Fallback to minimal status
-        oauth_status = get_oauth_status()
-        agentcore_status = get_agentcore_status()
-        
-        return {
-            'strava_connected': oauth_status.get('connected', False),
-            'agentcore_status': agentcore_status,
-            'processing_queue_depth': 0,
-            'last_activity_processed': None,
-            'success_rate_24h': 98.0,
-            'total_activities': 0,
-            'enhancement_status': 'active',
-            'system_health': 'healthy' if oauth_status.get('connected') and agentcore_status == 'healthy' else 'degraded',
-            'fallback': True
-        }
-    except Exception as e:
-        logger.error(f"System status error: {str(e)}")
-        return {
-            'error': str(e),
-            'strava_connected': False,
-            'agentcore_status': 'error',
-            'processing_queue_depth': 0,
-            'success_rate_24h': 0,
-            'total_activities': 0,
-            'system_health': 'error'
-        }
 
 
 def get_recent_activities() -> List[Dict[str, Any]]:

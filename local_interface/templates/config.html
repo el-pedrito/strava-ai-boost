@@ -186,35 +186,53 @@
                 </p>
                 
                 <div id="campusCoachConfig" style="{% if not modules.get('campus_coach', {}).get('enabled') %}display: none;{% endif %}">
-                    <form id="campusCoachForm" onsubmit="configureCampusCoach(event)" style="display: flex; flex-direction: column; gap: var(--awsui-space-scaled-m, 16px);">
-                        <div style="display: flex; flex-direction: column; gap: var(--awsui-space-scaled-xs, 8px);">
-                            <label style="font-size: var(--awsui-font-body-m-size, 14px); font-weight: var(--awsui-font-body-m-weight-bold, 700); color: var(--awsui-color-text-label, #16191f);" for="campusCoachUsername">Username</label>
-                            <input type="text" id="campusCoachUsername" name="username" 
-                                   style="padding: var(--awsui-space-scaled-xs, 8px) var(--awsui-space-scaled-s, 12px); border: var(--awsui-border-field-width, 1px) solid var(--awsui-color-border-input-default, #d5dbdb); border-radius: var(--awsui-border-radius-input, 4px); font-size: var(--awsui-font-body-m-size, 14px);"
-                                   placeholder="Your Campus Coach username" required>
-                        </div>
-                        
-                        <div style="display: flex; flex-direction: column; gap: var(--awsui-space-scaled-xs, 8px);">
-                            <label style="font-size: var(--awsui-font-body-m-size, 14px); font-weight: var(--awsui-font-body-m-weight-bold, 700); color: var(--awsui-color-text-label, #16191f);" for="campusCoachPassword">Password</label>
-                            <input type="password" id="campusCoachPassword" name="password" 
-                                   style="padding: var(--awsui-space-scaled-xs, 8px) var(--awsui-space-scaled-s, 12px); border: var(--awsui-border-field-width, 1px) solid var(--awsui-color-border-input-default, #d5dbdb); border-radius: var(--awsui-border-radius-input, 4px); font-size: var(--awsui-font-body-m-size, 14px);"
-                                   placeholder="Your Campus Coach password" required>
-                            <div style="font-size: var(--awsui-font-body-s-size, 12px); color: var(--awsui-color-text-body-secondary, #5f6b7a);">Credentials are stored securely in AWS Secrets Manager</div>
-                        </div>
-                        
-                        <button type="submit" class="awsui-button primary" id="campusCoachBtn">
-                            Configure Campus Coach
-                        </button>
-                    </form>
-                    
-                    {% if modules.get('campus_coach', {}).get('configured') %}
-                    <div style="margin-top: var(--awsui-space-scaled-s, 12px); padding: var(--awsui-space-scaled-s, 12px); background: var(--awsui-color-background-notification-success, #d5f2d5); border-radius: var(--awsui-border-radius-container, 8px);">
-                        <div style="font-size: var(--awsui-font-body-s-size, 12px); color: var(--awsui-color-text-status-success, #037f0c); font-weight: var(--awsui-font-body-s-weight-bold, 700);">✓ Configured</div>
-                        <div style="font-size: var(--awsui-font-body-s-size, 12px); color: var(--awsui-color-text-body-secondary, #5f6b7a);">
-                            Credentials stored securely. Sessions will be extracted automatically.
+                    <!-- External Service Notice -->
+                    <div style="padding: var(--awsui-space-scaled-s, 12px); background: var(--awsui-color-background-notification-info, #e6f3ff); border-radius: var(--awsui-border-radius-container, 8px); margin-bottom: var(--awsui-space-scaled-s, 12px);">
+                        <div style="font-size: var(--awsui-font-body-s-size, 12px); color: var(--awsui-color-text-heading-default, #0d1117); font-weight: var(--awsui-font-body-s-weight-bold, 700);">ℹ️ External Service Required</div>
+                        <div style="font-size: var(--awsui-font-body-s-size, 12px); color: var(--awsui-color-text-body-secondary, #5f6b7a); margin-top: var(--awsui-space-scaled-xxs, 4px);">
+                            <strong>Campus Coach</strong> is a French running training platform that requires a separate account and subscription:<br>
+                            <a href="https://app.campus.coach" target="_blank" style="color: var(--awsui-color-text-link-default, #0972d3);">→ Visit Campus Coach</a><br>
+                            <br>
+                            This module matches your Strava activities with your weekly Campus Coach training sessions to provide personalized commentary on how well you executed each planned workout.
                         </div>
                     </div>
-                    {% endif %}
+                    
+                    <!-- Configuration Form (only shown if not configured) -->
+                    <div id="campusCoachCredentialsForm" style="{% if modules.get('campus_coach', {}).get('configured') %}display: none;{% endif %}">
+                        <form id="campusCoachForm" onsubmit="configureCampusCoach(event)" style="display: flex; flex-direction: column; gap: var(--awsui-space-scaled-m, 16px);">
+                            <div style="display: flex; flex-direction: column; gap: var(--awsui-space-scaled-xs, 8px);">
+                                <label style="font-size: var(--awsui-font-body-m-size, 14px); font-weight: var(--awsui-font-body-m-weight-bold, 700); color: var(--awsui-color-text-label, #16191f);" for="campusCoachUsername">Username</label>
+                                <input type="text" id="campusCoachUsername" name="username" 
+                                       style="padding: var(--awsui-space-scaled-xs, 8px) var(--awsui-space-scaled-s, 12px); border: var(--awsui-border-field-width, 1px) solid var(--awsui-color-border-input-default, #d5dbdb); border-radius: var(--awsui-border-radius-input, 4px); font-size: var(--awsui-font-body-m-size, 14px);"
+                                       placeholder="Your Campus Coach username" required>
+                            </div>
+                            
+                            <div style="display: flex; flex-direction: column; gap: var(--awsui-space-scaled-xs, 8px);">
+                                <label style="font-size: var(--awsui-font-body-m-size, 14px); font-weight: var(--awsui-font-body-m-weight-bold, 700); color: var(--awsui-color-text-label, #16191f);" for="campusCoachPassword">Password</label>
+                                <input type="password" id="campusCoachPassword" name="password" 
+                                       style="padding: var(--awsui-space-scaled-xs, 8px) var(--awsui-space-scaled-s, 12px); border: var(--awsui-border-field-width, 1px) solid var(--awsui-color-border-input-default, #d5dbdb); border-radius: var(--awsui-border-radius-input, 4px); font-size: var(--awsui-font-body-m-size, 14px);"
+                                       placeholder="Your Campus Coach password" required>
+                                <div style="font-size: var(--awsui-font-body-s-size, 12px); color: var(--awsui-color-text-body-secondary, #5f6b7a);">Credentials are stored securely in AWS Secrets Manager</div>
+                            </div>
+                            
+                            <button type="submit" class="awsui-button primary" id="campusCoachBtn">
+                                Configure Campus Coach
+                            </button>
+                        </form>
+                    </div>
+                    
+                    <!-- Success Status (shown after configuration) -->
+                    <div id="campusCoachConfiguredStatus" style="{% if not modules.get('campus_coach', {}).get('configured') %}display: none;{% endif %}">
+                        <div style="padding: var(--awsui-space-scaled-s, 12px); background: var(--awsui-color-background-notification-success, #d5f2d5); border-radius: var(--awsui-border-radius-container, 8px); margin-bottom: var(--awsui-space-scaled-s, 12px);">
+                            <div style="font-size: var(--awsui-font-body-s-size, 12px); color: var(--awsui-color-text-status-success, #037f0c); font-weight: var(--awsui-font-body-s-weight-bold, 700);">✓ Configured</div>
+                            <div style="font-size: var(--awsui-font-body-s-size, 12px); color: var(--awsui-color-text-body-secondary, #5f6b7a);">
+                                Credentials stored securely. Sessions will be extracted automatically.
+                            </div>
+                        </div>
+                        <button type="button" class="awsui-button normal" onclick="reconfigureCampusCoach()" style="width: 100%;">
+                            Update Credentials
+                        </button>
+                    </div>
                 </div>
             </div>
             
@@ -235,8 +253,8 @@
                 </p>
                 
                 <div id="endurawConfig" style="{% if not modules.get('enduraw', {}).get('enabled') %}display: none;{% endif %}">
-                    <div style="padding: var(--awsui-space-scaled-s, 12px); background: var(--awsui-color-background-notification-warning, #fff8e6); border-radius: var(--awsui-border-radius-container, 8px); margin-bottom: var(--awsui-space-scaled-s, 12px);">
-                        <div style="font-size: var(--awsui-font-body-s-size, 12px); color: var(--awsui-color-text-heading-default, #0d1117); font-weight: var(--awsui-font-body-s-weight-bold, 700);">⚠️ External Configuration Required</div>
+                    <div style="padding: var(--awsui-space-scaled-s, 12px); background: var(--awsui-color-background-notification-info, #e6f3ff); border-radius: var(--awsui-border-radius-container, 8px); margin-bottom: var(--awsui-space-scaled-s, 12px);">
+                        <div style="font-size: var(--awsui-font-body-s-size, 12px); color: var(--awsui-color-text-heading-default, #0d1117); font-weight: var(--awsui-font-body-s-weight-bold, 700);">ℹ️ External Service Required</div>
                         <div style="font-size: var(--awsui-font-body-s-size, 12px); color: var(--awsui-color-text-body-secondary, #5f6b7a); margin-top: var(--awsui-space-scaled-xxs, 4px);">
                             Enduraw Report must be configured separately between your Strava account and Enduraw:<br>
                             <a href="https://enduraw-report-strava.onrender.com" target="_blank" style="color: var(--awsui-color-text-link-default, #0972d3);">→ Configure Enduraw Report Integration</a><br>
@@ -269,48 +287,7 @@
     </div>
 </div>
 
-<!-- System Configuration -->
-<div class="awsui-container">
-    <div class="awsui-container-header">
-        <h3 class="awsui-container-header-title">System Configuration</h3>
-    </div>
-    <div class="awsui-container-content">
-        <div class="awsui-column-layout columns-3">
-            <!-- AI Model Configuration -->
-            <div>
-                <h4 style="margin: 0 0 var(--awsui-space-scaled-xs, 8px) 0; font-size: var(--awsui-font-body-m-size, 14px); color: var(--awsui-color-text-heading-default, #0d1117);">AI Model</h4>
-                <div style="padding: var(--awsui-space-scaled-s, 12px); border: var(--awsui-border-container-width, 1px) solid var(--awsui-color-border-container-default, #d5dbdb); border-radius: var(--awsui-border-radius-container, 8px);">
-                    <div style="font-weight: var(--awsui-font-body-m-weight-bold, 700); color: var(--awsui-color-text-heading-default, #0d1117);">{{ bedrock_model }}</div>
-                    <div style="font-size: var(--awsui-font-body-s-size, 12px); color: var(--awsui-color-text-body-secondary, #5f6b7a); margin-top: var(--awsui-space-scaled-xxs, 4px);">
-                        Amazon Bedrock Claude model for content generation
-                    </div>
-                </div>
-            </div>
-            
-            <!-- API Gateway Configuration -->
-            <div>
-                <h4 style="margin: 0 0 var(--awsui-space-scaled-xs, 8px) 0; font-size: var(--awsui-font-body-m-size, 14px); color: var(--awsui-color-text-heading-default, #0d1117);">API Gateway</h4>
-                <div style="padding: var(--awsui-space-scaled-s, 12px); border: var(--awsui-border-container-width, 1px) solid var(--awsui-color-border-container-default, #d5dbdb); border-radius: var(--awsui-border-radius-container, 8px);">
-                    <div style="font-weight: var(--awsui-font-body-m-weight-bold, 700); color: var(--awsui-color-text-heading-default, #0d1117);">AWS API Gateway</div>
-                    <div style="font-size: var(--awsui-font-body-s-size, 12px); color: var(--awsui-color-text-body-secondary, #5f6b7a); margin-top: var(--awsui-space-scaled-xxs, 4px);">
-                        Secure communication with AWS resources
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Data Storage -->
-            <div>
-                <h4 style="margin: 0 0 var(--awsui-space-scaled-xs, 8px) 0; font-size: var(--awsui-font-body-m-size, 14px); color: var(--awsui-color-text-heading-default, #0d1117);">Data Storage</h4>
-                <div style="padding: var(--awsui-space-scaled-s, 12px); border: var(--awsui-border-container-width, 1px) solid var(--awsui-color-border-container-default, #d5dbdb); border-radius: var(--awsui-border-radius-container, 8px);">
-                    <div style="font-weight: var(--awsui-font-body-m-weight-bold, 700); color: var(--awsui-color-text-heading-default, #0d1117);">DynamoDB + Secrets Manager</div>
-                    <div style="font-size: var(--awsui-font-body-s-size, 12px); color: var(--awsui-color-text-body-secondary, #5f6b7a); margin-top: var(--awsui-space-scaled-xxs, 4px);">
-                        Encrypted storage for activities and credentials
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
+
 {% endblock %}
 
 {% block extra_scripts %}
@@ -437,14 +414,52 @@
     
     // Toggle module
     async function toggleModule(moduleId) {
-        const toggle = document.getElementById(moduleId + 'Toggle');
-        const config = document.getElementById(moduleId + 'Config');
+        // Convert module_id to camelCase for element IDs (campus_coach -> campusCoach)
+        const elementId = moduleId.replace(/_([a-z])/g, (match, letter) => letter.toUpperCase());
+        const toggle = document.getElementById(elementId + 'Toggle');
+        const config = document.getElementById(elementId + 'Config');
         
         if (toggle.checked) {
             // Enable module
             config.style.display = 'block';
             
-            // For Enduraw, no additional configuration needed
+            // For Campus Coach, check if already configured
+            if (moduleId === 'campus_coach') {
+                const configuredStatus = document.getElementById('campusCoachConfiguredStatus');
+                
+                // If already configured, enable immediately via API
+                if (configuredStatus && configuredStatus.style.display !== 'none') {
+                    try {
+                        const response = await fetch(`/api/modules/${moduleId}`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                enabled: true
+                            })
+                        });
+                        
+                        if (response.ok) {
+                            StravaAIBoost.showFlash('Campus Coach enabled successfully', 'success');
+                        } else {
+                            toggle.checked = false;
+                            config.style.display = 'none';
+                            StravaAIBoost.showFlash('Failed to enable Campus Coach', 'error');
+                        }
+                    } catch (error) {
+                        toggle.checked = false;
+                        config.style.display = 'none';
+                        StravaAIBoost.showFlash('Network error: ' + error.message, 'error');
+                    }
+                } else {
+                    // Not configured yet, show credentials form
+                    StravaAIBoost.showFlash('Campus Coach enabled. Please configure your credentials below.', 'info');
+                }
+                return;
+            }
+            
+            // For Enduraw, enable immediately (no credentials needed)
             if (moduleId === 'enduraw') {
                 try {
                     const response = await fetch(`/api/modules/${moduleId}`, {
@@ -471,7 +486,7 @@
                 }
             }
         } else {
-            // Disable module
+            // Disable module - call API for both modules
             config.style.display = 'none';
             
             try {
@@ -486,7 +501,8 @@
                 });
                 
                 if (response.ok) {
-                    StravaAIBoost.showFlash(`${moduleId === 'campus_coach' ? 'Campus Coach' : 'Enduraw'} disabled`, 'info');
+                    const moduleName = moduleId === 'campus_coach' ? 'Campus Coach' : 'Enduraw';
+                    StravaAIBoost.showFlash(`${moduleName} disabled`, 'info');
                 } else {
                     toggle.checked = true;
                     config.style.display = 'block';
@@ -498,6 +514,21 @@
                 StravaAIBoost.showFlash('Network error: ' + error.message, 'error');
             }
         }
+    }
+    
+    // Reconfigure Campus Coach (show form again)
+    function reconfigureCampusCoach() {
+        // Hide configured status
+        document.getElementById('campusCoachConfiguredStatus').style.display = 'none';
+        
+        // Show credentials form
+        document.getElementById('campusCoachCredentialsForm').style.display = 'block';
+        
+        // Clear form fields
+        document.getElementById('campusCoachForm').reset();
+        
+        // Show info message
+        StravaAIBoost.showFlash('Enter new Campus Coach credentials', 'info');
     }
     
     // Configure Campus Coach
@@ -531,15 +562,17 @@
             const data = await response.json();
             
             if (response.ok) {
-                StravaAIBoost.showFlash('Campus Coach configured successfully!', 'success');
+                // Show success message
+                StravaAIBoost.showFlash('Campus Coach configured successfully! Credentials stored securely.', 'success');
                 
-                // Clear form
-                form.reset();
+                // Hide credentials form
+                document.getElementById('campusCoachCredentialsForm').style.display = 'none';
                 
                 // Show configured status
-                setTimeout(() => {
-                    window.location.reload();
-                }, 2000);
+                document.getElementById('campusCoachConfiguredStatus').style.display = 'block';
+                
+                // Clear form for security
+                form.reset();
                 
             } else {
                 StravaAIBoost.showFlash(data.error || 'Configuration failed', 'error');

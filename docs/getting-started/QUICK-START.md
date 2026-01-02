@@ -109,6 +109,25 @@ agentcore memory list --region eu-west-1
 - ✅ Updates `.env.agentcore` with agent ARNs (memory ID passed to agents via --env)
 - ✅ Enables seamless integration between infrastructure and AI agents
 
+## Step 5: **IMPORTANT - Redeploy After AgentCore Configuration** ⚠️
+
+After deploying AgentCore agents, you **MUST redeploy** the CDK stacks to update the AgentCore Health Check Lambda:
+
+```bash
+# Redeploy to load agent ARNs into Lambda environment variables
+cdk deploy --all --profile your-aws-profile --require-approval never
+```
+
+**Why this is required:**
+- The AgentCore Health Check Lambda tests agent connectivity
+- Agent ARNs are loaded from `.env.agentcore` at CDK deployment time
+- Without redeployment, the dashboard will show "Not Configured" for AgentCore
+
+**When to redeploy:**
+- ✅ After initial AgentCore agent deployment (this step)
+- ✅ After updating agent ARNs in `.env.agentcore`
+- ❌ Not needed for module configuration (Campus Coach, Enduraw)
+
 **Memory Integration:**
 - Memory ID automatically detected from agent configuration
 - Each agent receives its memory ID via `agentcore launch --env`

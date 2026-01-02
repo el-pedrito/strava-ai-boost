@@ -118,7 +118,7 @@ def get_current_usage(client_key: str) -> int:
     try:
         table = dynamodb.Table(RATE_LIMITS_TABLE)
         
-        response = table.get_item(Key={'rate_limit_key': client_key})
+        response = table.get_item(Key={'limit_type': client_key})
         
         if 'Item' in response:
             return int(response['Item'].get('request_count', 0))
@@ -144,7 +144,7 @@ def increment_usage(client_key: str) -> None:
         
         # Use atomic counter increment
         table.update_item(
-            Key={'rate_limit_key': client_key},
+            Key={'limit_type': client_key},
             UpdateExpression='ADD request_count :inc SET updated_at = :timestamp, expires_at = :expires',
             ExpressionAttributeValues={
                 ':inc': 1,

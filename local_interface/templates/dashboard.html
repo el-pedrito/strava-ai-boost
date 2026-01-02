@@ -16,25 +16,19 @@
         <h3 class="awsui-container-header-title">System Overview</h3>
     </div>
     <div class="awsui-container-content">
-        <div class="awsui-column-layout columns-4">
+        <div class="awsui-column-layout columns-2">
             <div class="awsui-key-value-pair">
                 <div class="awsui-key-value-pair-label">Total Activities</div>
                 <div class="awsui-key-value-pair-value">{{ status.get('total_activities', 0) }}</div>
             </div>
             <div class="awsui-key-value-pair">
                 <div class="awsui-key-value-pair-label">Success Rate (24h)</div>
-                <div class="awsui-key-value-pair-value">{{ "%.1f"|format(status.get('success_rate_24h', 0)) }}%</div>
-            </div>
-            <div class="awsui-key-value-pair">
-                <div class="awsui-key-value-pair-label">Queue Depth</div>
-                <div class="awsui-key-value-pair-value">{{ status.get('processing_queue_depth', 0) }}</div>
-            </div>
-            <div class="awsui-key-value-pair">
-                <div class="awsui-key-value-pair-label">System Health</div>
                 <div class="awsui-key-value-pair-value">
-                    <span class="awsui-status-indicator {% if status.get('system_health') == 'healthy' %}success{% elif status.get('system_health') == 'degraded' %}warning{% else %}error{% endif %}">
-                        {{ status.get('system_health', 'Unknown')|title }}
-                    </span>
+                    {% if status.get('recent_activities_24h', 0) > 0 %}
+                        {{ "%.1f"|format(status.get('success_rate_24h', 0)) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -171,63 +165,6 @@
             <div class="awsui-empty-state">
                 <div class="awsui-empty-state-title">No recent activities found</div>
                 <div class="awsui-empty-state-description">Activities will appear here after they are processed.</div>
-            </div>
-        {% endif %}
-    </div>
-</div>
-
-<!-- Processing Status -->
-<div class="awsui-container">
-    <div class="awsui-container-header">
-        <h3 class="awsui-container-header-title">Processing Status</h3>
-        <div style="font-size: 12px; color: var(--awsui-color-text-body-secondary, #5f6b7a);">
-            Real-time view of activities being processed
-        </div>
-    </div>
-    <div class="awsui-container-content">
-        {% if processing_status.get('processing_activities') %}
-            <div style="margin-bottom: 16px;">
-                <h4 style="margin: 0 0 8px 0; font-size: 14px; color: #232f3e;">Currently Processing</h4>
-                <div style="display: flex; flex-direction: column; gap: 8px;">
-                    {% for activity in processing_status.processing_activities %}
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border: 1px solid #e9ebed; border-radius: 4px;">
-                        <div>
-                            <div style="font-weight: 500;">{{ activity.name }}</div>
-                            <div style="font-size: 12px; color: #5f6b7a;">
-                                {{ activity.type }} • Started: {{ activity.started_at }}
-                            </div>
-                        </div>
-                        <span class="awsui-status-indicator info">Processing</span>
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
-        {% endif %}
-        
-        <!-- Queue Status -->
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
-            <div style="padding: 12px; border: 1px solid #e9ebed; border-radius: 4px;">
-                <div style="font-weight: 500; color: #232f3e;">Processing Queue</div>
-                <div style="font-size: 20px; font-weight: 600; color: #0972d3; margin: 4px 0;">
-                    {{ processing_status.get('queue_status', {}).get('processing_queue', {}).get('approximate_messages', 0) }}
-                </div>
-                <div style="font-size: 12px; color: #5f6b7a;">Messages waiting</div>
-            </div>
-            
-            <div style="padding: 12px; border: 1px solid #e9ebed; border-radius: 4px;">
-                <div style="font-weight: 500; color: #232f3e;">Dead Letter Queue</div>
-                {% set dlq_count = processing_status.get('queue_status', {}).get('dead_letter_queue', {}).get('approximate_messages', 0) %}
-                <div style="font-size: 20px; font-weight: 600; color: {% if dlq_count > 0 %}#d13212{% else %}#0d7d0d{% endif %}; margin: 4px 0;">
-                    {{ dlq_count }}
-                </div>
-                <div style="font-size: 12px; color: #5f6b7a;">Failed messages</div>
-            </div>
-        </div>
-        
-        {% if not processing_status.get('processing_activities') and processing_status.get('queue_status', {}).get('processing_queue', {}).get('approximate_messages', 0) == 0 %}
-            <div style="text-align: center; padding: 20px; color: #5f6b7a; margin-top: 16px;">
-                <p>No activities currently processing</p>
-                <p style="font-size: 12px;">Processing status will appear here when activities are being enhanced.</p>
             </div>
         {% endif %}
     </div>

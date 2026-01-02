@@ -92,52 +92,6 @@ class ApiGatewayStack(Stack):
         # Grant Secrets Manager permissions to dashboard lambda
         self.core_stack.strava_oauth_secret.grant_read(self.dashboard_lambda)
 
-        # Status API Lambda
-        status_env = {
-            "ACTIVITIES_TABLE": self.core_stack.table_names["activities"]
-        }
-        
-        # Add Step Functions ARN if provided
-        if self.step_functions_arn:
-            status_env["STEP_FUNCTIONS_ARN"] = self.step_functions_arn
-        
-        # Add SQS queue URLs if webhook stack is provided
-        if self.webhook_stack:
-            status_env["PROCESSING_QUEUE_URL"] = self.webhook_stack.processing_queue.queue_url
-            status_env["DLQ_URL"] = self.webhook_stack.dlq.queue_url
-        
-        self.status_lambda = lambda_.Function(
-            self, "StatusAPI",
-            function_name="StravaAIBoost-StatusAPI",
-            runtime=lambda_.Runtime.PYTHON_3_12,
-            handler="status_api.handler",
-            code=lambda_.Code.from_asset("lambda_functions"),
-            layers=[self.core_stack.dependencies_layer],
-            timeout=Duration.seconds(15),
-            memory_size=128,
-            role=self.core_stack.webhook_lambda_role,
-            environment=status_env
-        )
-        
-        # Grant SQS permissions to status lambda if webhook stack is provided
-        if self.webhook_stack:
-            self.webhook_stack.processing_queue.grant_send_messages(self.status_lambda)
-            self.webhook_stack.dlq.grant_send_messages(self.status_lambda)
-        
-        # Grant Step Functions permissions if ARN is provided
-        if self.step_functions_arn:
-            self.status_lambda.add_to_role_policy(
-                iam.PolicyStatement(
-                    effect=iam.Effect.ALLOW,
-                    actions=[
-                        "states:ListExecutions",
-                        "states:DescribeExecution",
-                        "states:GetExecutionHistory"
-                    ],
-                    resources=[self.step_functions_arn, f"{self.step_functions_arn}:*"]
-                )
-            )
-        
         # User Preferences API Lambda
         self.preferences_lambda = lambda_.Function(
             self, "UserPreferencesAPI",
@@ -153,6 +107,48 @@ class ApiGatewayStack(Stack):
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
                 "DEFAULT_USER_ID": "YOUR_USER_ID"
             }
+        )
+        
+        # AgentCore Health Check Lambda
+        agentcore_env = {
+            "RATE_LIMITS_TABLE": self.core_stack.table_names["rate_limits"]
+        }
+        
+        # Load AgentCore agent ARNs from .env.agentcore if available
+        import os as env_os
+        env_file = env_os.path.join(env_os.path.dirname(__file__), '..', '.env.agentcore')
+        if env_os.path.exists(env_file):
+            with open(env_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        if key in ['CONTENT_GENERATION_AGENT_ARN', 'CAMPUS_COACH_AGENT_ARN']:
+                            agentcore_env[key] = value
+        
+        self.agentcore_health_lambda = lambda_.Function(
+            self, "AgentCoreHealthCheck",
+            function_name="StravaAIBoost-AgentCoreHealthCheck",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="agentcore_health_check.handler",
+            code=lambda_.Code.from_asset("lambda_functions"),
+            layers=[self.core_stack.dependencies_layer],
+            timeout=Duration.seconds(10),
+            memory_size=128,
+            role=self.core_stack.webhook_lambda_role,
+            environment=agentcore_env
+        )
+        
+        # Grant AgentCore permissions
+        self.agentcore_health_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "bedrock-agentcore:InvokeAgentRuntime",
+                    "bedrock-agentcore:GetAgentRuntime"
+                ],
+                resources=["*"]  # Will be restricted to specific agent ARNs in production
+            )
         )
 
     def _create_api_gateway(self) -> None:
@@ -288,22 +284,6 @@ class ApiGatewayStack(Stack):
             api_key_required=True
         )
 
-        # /status resource for real-time processing status
-        status_resource = self.api.root.add_resource("status")
-        status_resource.add_method(
-            "GET",
-            apigateway.LambdaIntegration(self.status_lambda),
-            api_key_required=True
-        )
-        
-        # Processing status for specific activity
-        activity_status_resource = status_resource.add_resource("{activity_id}")
-        activity_status_resource.add_method(
-            "GET",
-            apigateway.LambdaIntegration(self.status_lambda),
-            api_key_required=True
-        )
-        
         # /preferences resource for user preferences
         preferences_resource = self.api.root.add_resource("preferences")
         preferences_resource.add_method(
@@ -314,6 +294,15 @@ class ApiGatewayStack(Stack):
         preferences_resource.add_method(
             "POST",
             apigateway.LambdaIntegration(self.preferences_lambda),
+            api_key_required=True
+        )
+        
+        # /health resource for AgentCore health check
+        health_resource = self.api.root.add_resource("health")
+        agentcore_health_resource = health_resource.add_resource("agentcore")
+        agentcore_health_resource.add_method(
+            "GET",
+            apigateway.LambdaIntegration(self.agentcore_health_lambda),
             api_key_required=True
         )
         
