@@ -168,9 +168,37 @@ export SECRET_KEY=your-flask-secret-key
 ### Database Configuration
 
 User configuration is stored in DynamoDB:
-- Table: `strava-ai-boost-user-configuration`
-- Key: `user_id` (MODULE_CONFIG, SYSTEM_CONFIG)
-- Attributes: Module settings, enhancement status, personal profile
+- **Table**: `strava-ai-boost-user-configuration`
+- **Key**: `user_id` (Strava athlete ID)
+- **Attributes**: 
+  - `user_preferences`: Personal profile and content preferences
+  - `modules_config`: Per-user module settings (campus_coach, enduraw)
+  - `enhancement_enabled`: Per-user pause/resume status
+  - `strava_connected`: OAuth connection status
+
+**Architecture**: Per-user configuration
+- Each user has isolated configuration
+- User ID automatically retrieved from OAuth tokens
+- Supports multi-user scenarios
+
+## User Identification
+
+The system automatically identifies users through:
+
+1. **Webhook Flow**: `owner_id` from Strava webhook (athlete ID)
+2. **Configuration API**: `athlete.id` from OAuth tokens in Secrets Manager
+3. **Fallback**: `DEFAULT_USER_ID` environment variable (optional)
+
+**OAuth Token Structure**:
+```json
+{
+  "access_token": "...",
+  "refresh_token": "...",
+  "athlete": {
+    "id": YOUR_USER_ID  // Used as user_id
+  }
+}
+```
 
 ## Security Notes
 

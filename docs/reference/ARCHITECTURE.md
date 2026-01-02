@@ -213,14 +213,43 @@ GSI: ProcessingStatusIndex
 
 #### 2. strava-ai-boost-user-configuration
 ```
-Partition Key: user_id (string)
+Partition Key: user_id (string) # Strava athlete ID
+
 Attributes:
-- strava_connected (boolean)
-- modules_config (map)
-- rate_limit_status (map)
-- enhancement_paused (boolean)
-- last_updated (timestamp)
+- user_preferences (map) # User profile and content preferences
+  - age_range (string)
+  - sport_approach (string)
+  - content_tone (string)
+  - content_length (string)
+  - emoji_usage (string)
+  - technical_detail (string)
+  - interests (list)
+  - content_language (string)
+
+- modules_config (map) # Per-user module configuration
+  - campus_coach (map)
+    - enabled (boolean)
+    - configured (boolean)
+    - updated_at (timestamp)
+  - enduraw (map)
+    - enabled (boolean)
+    - configured (boolean)
+    - wait_time (string)
+    - updated_at (timestamp)
+
+- enhancement_enabled (boolean) # Per-user pause/resume
+- enhancement_paused_at (timestamp)
+- enhancement_resumed_at (timestamp)
+
+- strava_connected (boolean) # OAuth status
 - oauth_token_status (string)
+- rate_limit_status (map)
+- last_updated (timestamp)
+- updated_at (timestamp)
+
+Note: Configuration is per-user
+- Each user has isolated configuration
+- Enables true multi-user support
 ```
 
 #### 3. strava-ai-boost-rate-limits

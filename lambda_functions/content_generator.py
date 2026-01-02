@@ -170,26 +170,30 @@ def get_user_configuration(user_id: str) -> Dict[str, Any]:
     try:
         table = dynamodb.Table(USER_CONFIG_TABLE)
         
-        # Get user-specific configuration
+        # Get user-specific configuration (now includes modules_config)
         response = table.get_item(Key={'user_id': user_id})
-        user_config = response.get('Item', {'user_id': user_id})
+        user_config = response.get('Item', {
+            'user_id': user_id,
+            'modules_config': {},
+            'enhancement_enabled': True
+        })
         
-        # Get module configuration (stored separately in MODULE_CONFIG)
-        module_response = table.get_item(Key={'user_id': 'MODULE_CONFIG'})
-        if 'Item' in module_response:
-            # Merge modules_config from MODULE_CONFIG into user config
-            module_config_item = module_response['Item']
-            user_config['modules_config'] = module_config_item.get('modules_config', {})
-            logger.info(f"Loaded module configuration: {list(user_config['modules_config'].keys())}")
-        else:
+        # Ensure modules_config exists
+        if 'modules_config' not in user_config:
             user_config['modules_config'] = {}
-            logger.warning("No MODULE_CONFIG found in DynamoDB")
+            logger.warning(f"No modules_config found for user {user_id}, using defaults")
+        else:
+            logger.info(f"Loaded module configuration for user {user_id}: {list(user_config['modules_config'].keys())}")
         
         return user_config
             
     except Exception as e:
         logger.error(f"Failed to get user configuration: {str(e)}")
-        return {'user_id': user_id, 'modules_config': {}}
+        return {
+            'user_id': user_id,
+            'modules_config': {},
+            'enhancement_enabled': True
+        }
 
 
 def build_user_profile_from_config(user_config: Dict[str, Any]) -> Optional[Dict[str, Any]]:

@@ -192,9 +192,12 @@ def handle_webhook_notification(event: Dict[str, Any]) -> Dict[str, Any]:
                 'body': json.dumps({'error': 'Invalid webhook data'})
             }
         
-        # Check if enhancement is paused
-        if is_enhancement_paused():
-            logger.info("Enhancement is paused, acknowledging webhook but skipping processing")
+        # Extract user_id from webhook (owner_id)
+        owner_id = str(webhook_data.get('owner_id'))
+        
+        # Check if enhancement is paused for this user
+        if is_enhancement_paused(owner_id):
+            logger.info(f"Enhancement is paused for user {owner_id}, acknowledging webhook but skipping processing")
             return {
                 'statusCode': 200,
                 'body': json.dumps({'status': 'acknowledged_paused'})
@@ -320,9 +323,12 @@ def verify_webhook_signature(body: str, headers: Dict[str, str]) -> bool:
         return False
 
 
-def is_enhancement_paused() -> bool:
+def is_enhancement_paused(user_id: str = None) -> bool:
     """
-    Check if enhancement is currently paused by reading from DynamoDB
+    Check if enhancement is currently paused by reading from user's DynamoDB config
+    
+    Args:
+        user_id: User ID to check (if None, checks for a default user or returns False)
     """
     try:
         dynamodb = get_dynamodb_resource()
@@ -330,8 +336,15 @@ def is_enhancement_paused() -> bool:
         user_config_table_name = os.environ.get('USER_CONFIG_TABLE', 'strava-ai-boost-user-configuration')
         table = dynamodb.Table(user_config_table_name)
         
-        # Use a system-wide configuration key
-        response = table.get_item(Key={'user_id': 'SYSTEM_CONFIG'})
+        # If no user_id provided, use default user or return False (enabled)
+        if not user_id:
+            # For backward compatibility, you could check a default user
+            # For now, default to enabled if no user specified
+            logger.warning("No user_id provided for enhancement check, defaulting to enabled")
+            return False
+        
+        # Get user-specific configuration
+        response = table.get_item(Key={'user_id': user_id})
         
         if 'Item' in response:
             config = response['Item']

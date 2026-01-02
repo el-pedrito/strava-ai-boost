@@ -39,6 +39,41 @@ CORS_HEADERS = {
 }
 
 
+def get_authenticated_user_id() -> str:
+    """
+    Get authenticated user_id from Strava OAuth tokens
+    
+    Returns the athlete ID from stored OAuth tokens.
+    Falls back to DEFAULT_USER_ID environment variable if tokens not found.
+    """
+    try:
+        # Get OAuth tokens from Secrets Manager
+        response = secretsmanager.get_secret_value(SecretId=STRAVA_OAUTH_SECRET)
+        tokens = json.loads(response['SecretString'])
+        
+        # Extract athlete ID from tokens
+        athlete = tokens.get('athlete', {})
+        athlete_id = athlete.get('id')
+        
+        if athlete_id:
+            logger.info(f"Retrieved user_id from OAuth tokens: {athlete_id}")
+            return str(athlete_id)
+        else:
+            logger.warning("No athlete ID in OAuth tokens, using default")
+            return os.environ.get('DEFAULT_USER_ID', 'YOUR_USER_ID')
+            
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ResourceNotFoundException':
+            logger.warning("OAuth tokens not found, using default user_id")
+            return os.environ.get('DEFAULT_USER_ID', 'YOUR_USER_ID')
+        else:
+            logger.error(f"Failed to retrieve OAuth tokens: {str(e)}")
+            return os.environ.get('DEFAULT_USER_ID', 'YOUR_USER_ID')
+    except Exception as e:
+        logger.error(f"Error getting authenticated user_id: {str(e)}")
+        return os.environ.get('DEFAULT_USER_ID', 'YOUR_USER_ID')
+
+
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Lambda handler for configuration API"""
     try:
@@ -434,14 +469,17 @@ def handle_oauth_callback(event: Dict[str, Any], rate_limit_info: Dict[str, Any]
 def get_modules(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
     """Get available modules and their configurations"""
     try:
+        # Get authenticated user_id from OAuth tokens
+        user_id = get_authenticated_user_id()
+        
         # Get module configurations from DynamoDB
         table = dynamodb.Table(USER_CONFIG_TABLE)
         
         try:
-            response = table.get_item(Key={'user_id': 'MODULE_CONFIG'})
+            response = table.get_item(Key={'user_id': user_id})
             stored_config = response.get('Item', {})
         except Exception as e:
-            logger.warning(f"Failed to get module config from DynamoDB: {e}")
+            logger.warning(f"Failed to get user config from DynamoDB: {e}")
             stored_config = {}
         
         # Get modules_config (nested format)
@@ -499,6 +537,9 @@ def configure_module(event: Dict[str, Any], rate_limit_info: Dict[str, Any] = No
         if not module_id or module_id not in ['campus_coach', 'enduraw']:
             return create_error_response(400, 'Invalid or missing module_id', rate_limit_info)
         
+        # Get authenticated user_id from OAuth tokens
+        user_id = get_authenticated_user_id()
+        
         # Handle Campus Coach configuration
         if module_id == 'campus_coach' and enabled:
             credentials = config.get('credentials', {})
@@ -548,33 +589,33 @@ def configure_module(event: Dict[str, Any], rate_limit_info: Dict[str, Any] = No
                     else:
                         raise
         
-        # Store module configuration in DynamoDB
+        # Store module configuration in DynamoDB (user-specific)
         table = dynamodb.Table(USER_CONFIG_TABLE)
         
-        # Get existing config
+        # Get existing user config
         try:
-            response = table.get_item(Key={'user_id': 'MODULE_CONFIG'})
-            module_config = response.get('Item', {'user_id': 'MODULE_CONFIG'})
+            response = table.get_item(Key={'user_id': user_id})
+            user_config = response.get('Item', {'user_id': user_id})
         except Exception:
-            module_config = {'user_id': 'MODULE_CONFIG'}
+            user_config = {'user_id': user_id}
         
         # Update module configuration in nested structure (single source of truth)
-        if 'modules_config' not in module_config:
-            module_config['modules_config'] = {}
+        if 'modules_config' not in user_config:
+            user_config['modules_config'] = {}
         
-        if module_id not in module_config['modules_config']:
-            module_config['modules_config'][module_id] = {}
+        if module_id not in user_config['modules_config']:
+            user_config['modules_config'][module_id] = {}
         
-        module_config['modules_config'][module_id]['enabled'] = enabled
-        module_config['modules_config'][module_id]['configured'] = True
-        module_config['modules_config'][module_id]['updated_at'] = datetime.now(UTC).isoformat()
+        user_config['modules_config'][module_id]['enabled'] = enabled
+        user_config['modules_config'][module_id]['configured'] = True
+        user_config['modules_config'][module_id]['updated_at'] = datetime.now(UTC).isoformat()
         
         # Add module-specific configuration
         if module_id == 'enduraw':
-            module_config['modules_config'][module_id]['wait_time'] = config.get('wait_time', '2 minutes')
+            user_config['modules_config'][module_id]['wait_time'] = config.get('wait_time', '2 minutes')
         
         # Store updated configuration
-        table.put_item(Item=module_config)
+        table.put_item(Item=user_config)
         
         # Enable/Disable EventBridge Scheduler for Campus Coach if applicable
         if module_id == 'campus_coach':
@@ -596,7 +637,7 @@ def configure_module(event: Dict[str, Any], rate_limit_info: Dict[str, Any] = No
         
         # Log with clear status
         status_label = "configured" if enabled else "unconfigured"
-        logger.info(f"Module {module_id} {status_label}: enabled={enabled}")
+        logger.info(f"Module {module_id} {status_label} for user {user_id}: enabled={enabled}")
         
         return create_success_response({
             'status': status_label,
@@ -613,12 +654,15 @@ def configure_module(event: Dict[str, Any], rate_limit_info: Dict[str, Any] = No
 
 
 def get_enhancement_status(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
-    """Get current enhancement status (enabled/paused)"""
+    """Get current enhancement status (enabled/paused) for user"""
     try:
+        # Get authenticated user_id from OAuth tokens
+        user_id = get_authenticated_user_id()
+        
         table = dynamodb.Table(USER_CONFIG_TABLE)
         
         try:
-            response = table.get_item(Key={'user_id': 'SYSTEM_CONFIG'})
+            response = table.get_item(Key={'user_id': user_id})
             
             if 'Item' in response:
                 config = response['Item']
@@ -656,7 +700,7 @@ def get_enhancement_status(rate_limit_info: Dict[str, Any] = None) -> Dict[str, 
 
 
 def toggle_enhancement_status(event: Dict[str, Any], rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
-    """Toggle enhancement status (pause/resume)"""
+    """Toggle enhancement status (pause/resume) for user"""
     try:
         body = json.loads(event.get('body', '{}'))
         action = body.get('action')  # 'pause' or 'resume'
@@ -664,21 +708,28 @@ def toggle_enhancement_status(event: Dict[str, Any], rate_limit_info: Dict[str, 
         if action not in ['pause', 'resume']:
             return create_error_response(400, 'Invalid action. Use "pause" or "resume"', rate_limit_info)
         
+        # Get authenticated user_id from OAuth tokens
+        user_id = get_authenticated_user_id()
+        
         table = dynamodb.Table(USER_CONFIG_TABLE)
         current_time = datetime.now(UTC).isoformat()
         
+        # Get existing user config
+        try:
+            response = table.get_item(Key={'user_id': user_id})
+            user_config = response.get('Item', {'user_id': user_id})
+        except Exception:
+            user_config = {'user_id': user_id}
+        
         if action == 'pause':
             # Pause enhancement
-            config_item = {
-                'user_id': 'SYSTEM_CONFIG',
-                'enhancement_enabled': False,
-                'enhancement_paused_at': current_time,
-                'updated_at': current_time
-            }
+            user_config['enhancement_enabled'] = False
+            user_config['enhancement_paused_at'] = current_time
+            user_config['updated_at'] = current_time
             
-            table.put_item(Item=config_item)
+            table.put_item(Item=user_config)
             
-            logger.info("Enhancement paused")
+            logger.info(f"Enhancement paused for user {user_id}")
             
             return create_success_response({
                 'status': 'paused',
@@ -688,17 +739,14 @@ def toggle_enhancement_status(event: Dict[str, Any], rate_limit_info: Dict[str, 
             
         else:  # resume
             # Resume enhancement
-            config_item = {
-                'user_id': 'SYSTEM_CONFIG',
-                'enhancement_enabled': True,
-                'enhancement_paused_at': None,
-                'enhancement_resumed_at': current_time,
-                'updated_at': current_time
-            }
+            user_config['enhancement_enabled'] = True
+            user_config['enhancement_paused_at'] = None
+            user_config['enhancement_resumed_at'] = current_time
+            user_config['updated_at'] = current_time
             
-            table.put_item(Item=config_item)
+            table.put_item(Item=user_config)
             
-            logger.info("Enhancement resumed")
+            logger.info(f"Enhancement resumed for user {user_id}")
             
             return create_success_response({
                 'status': 'active',
