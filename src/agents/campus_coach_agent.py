@@ -223,7 +223,6 @@ async def scrape_campus_sessions(region, campus_username, campus_password):
             model=model,
             tools=[browser_tool.browser],
             system_prompt=CAMPUS_COACH_PROMPT,
-            model=MODEL_ID,
             hooks=[AgentCoreMemoryHook()] if MEMORY_ID else [],
             state={
                 "session_id": f"campus-extraction-{datetime.now().strftime('%Y%m%d')}",

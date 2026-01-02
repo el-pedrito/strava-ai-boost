@@ -127,6 +127,11 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Get gear details if available
         gear_details = event.get('gear_details')
         
+        # Extract Enduraw Report from activity description if available
+        enduraw_data = extract_enduraw_report(activity_data)
+        if enduraw_data:
+            logger.info(f"Enduraw Report detected: {enduraw_data['metrics']}")
+        
         # Apply module-specific processing
         enhanced_modules = apply_module_processing(
             activity_data, streams_data, user_id, active_modules
@@ -141,7 +146,8 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             user_profile,  # Pass user_profile to agent
             athlete_stats,  # Pass athlete stats
             athlete_profile,  # Pass athlete profile
-            gear_details  # Pass gear details
+            gear_details,  # Pass gear details
+            enduraw_data  # Pass extracted Enduraw data
         )
         
         # Store generated content
@@ -163,6 +169,77 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'activity_id': event.get('activity_id'),
             'user_id': event.get('user_id')
         }
+
+
+def extract_enduraw_report(activity_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Extract Enduraw Report from activity description
+    
+    Enduraw adds a report to the description after 2 minutes:
+    📈 𝗠𝘆 𝗘𝗻𝗱𝘂𝗿𝗮𝘄 𝗥𝗲𝗽𝗼𝗿𝘁 📈
+    🏢 You climbed 53 floors today!
+    Adjusted Pace: 𝟱:𝟯𝟮/km
+    🏝️ Elevation (0.4% avg) cost you 𝟬'𝟬𝟰"/km.
+    🌬️ Wind (17.2km/h) cost you 𝟬'𝟭𝟱"/km.
+    ...
+    """
+    try:
+        description = activity_data.get('description', '')
+        
+        if not description or '𝗘𝗻𝗱𝘂𝗿𝗮𝘄 𝗥𝗲𝗽𝗼𝗿𝘁' not in description:
+            return None
+        
+        # Extract the Enduraw Report section
+        import re
+        
+        # Find the Enduraw Report block
+        enduraw_pattern = r'📈 𝗠𝘆 𝗘𝗻𝗱𝘂𝗿𝗮𝘄 𝗥𝗲𝗽𝗼𝗿𝘁 📈(.*?)(?:Try it now|$)'
+        match = re.search(enduraw_pattern, description, re.DOTALL)
+        
+        if not match:
+            return None
+        
+        report_text = match.group(1).strip()
+        
+        # Parse key metrics from report
+        enduraw_data = {
+            'report_available': True,
+            'report_text': report_text,
+            'metrics': {}
+        }
+        
+        # Extract adjusted pace
+        pace_match = re.search(r'Adjusted Pace:\s*([𝟬-𝟵]+):([𝟬-𝟵]+)/km', report_text)
+        if pace_match:
+            # Convert bold numbers to regular
+            min_bold = pace_match.group(1).translate(str.maketrans('𝟬𝟭𝟮𝟯𝟰𝟱𝟲𝟳𝟴𝟵', '0123456789'))
+            sec_bold = pace_match.group(2).translate(str.maketrans('𝟬𝟭𝟮𝟯𝟰𝟱𝟲𝟳𝟴𝟵', '0123456789'))
+            enduraw_data['metrics']['adjusted_pace'] = f"{min_bold}:{sec_bold}/km"
+        
+        # Extract wind impact
+        wind_match = re.search(r'Wind \(([0-9.]+)km/h\) cost you ([𝟬-𝟵]+)\'([𝟬-𝟵]+)"/km', report_text)
+        if wind_match:
+            wind_speed = wind_match.group(1)
+            min_bold = wind_match.group(2).translate(str.maketrans('𝟬𝟭𝟮𝟯𝟰𝟱𝟲𝟳𝟴𝟵', '0123456789'))
+            sec_bold = wind_match.group(3).translate(str.maketrans('𝟬𝟭𝟮𝟯𝟰𝟱𝟲𝟳𝟴𝟵', '0123456789'))
+            enduraw_data['metrics']['wind_speed'] = f"{wind_speed}km/h"
+            enduraw_data['metrics']['wind_cost'] = f"{min_bold}'{sec_bold}\"/km"
+        
+        # Extract elevation impact
+        elev_match = re.search(r'Elevation \(([0-9.]+)% avg\) cost you ([𝟬-𝟵]+)\'([𝟬-𝟵]+)"/km', report_text)
+        if elev_match:
+            elev_pct = elev_match.group(1)
+            min_bold = elev_match.group(2).translate(str.maketrans('𝟬𝟭𝟮𝟯𝟰𝟱𝟲𝟳𝟴𝟵', '0123456789'))
+            sec_bold = elev_match.group(3).translate(str.maketrans('𝟬𝟭𝟮𝟯𝟰𝟱𝟲𝟳𝟴𝟵', '0123456789'))
+            enduraw_data['metrics']['elevation_avg'] = f"{elev_pct}%"
+            enduraw_data['metrics']['elevation_cost'] = f"{min_bold}'{sec_bold}\"/km"
+        
+        logger.info(f"Extracted Enduraw Report: {enduraw_data['metrics']}")
+        return enduraw_data
+        
+    except Exception as e:
+        logger.error(f"Failed to extract Enduraw Report: {str(e)}")
+        return None
 
 
 def get_user_configuration(user_id: str) -> Dict[str, Any]:
@@ -617,7 +694,8 @@ def generate_enhanced_content_with_agent(
     user_profile: Optional[Dict[str, Any]] = None,
     athlete_stats: Optional[Dict[str, Any]] = None,
     athlete_profile: Optional[Dict[str, Any]] = None,
-    gear_details: Optional[Dict[str, Any]] = None
+    gear_details: Optional[Dict[str, Any]] = None,
+    enduraw_data: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Generate enhanced content using Strands Agent with AgentCore Memory
@@ -628,6 +706,7 @@ def generate_enhanced_content_with_agent(
         logger.info("Generating content with AgentCore Content Generation Agent...")
         logger.info(f"Content generation mode: AgentCore (primary)")
         logger.info(f"User profile provided: {user_profile is not None}")
+        logger.info(f"Enduraw data provided: {enduraw_data is not None}")
         
         # Use Bedrock AgentCore Runtime to invoke AgentCore Content Generation Agent
         # Try different client approaches for AgentCore invocation
@@ -678,6 +757,7 @@ def generate_enhanced_content_with_agent(
             'user_profile': user_profile,  # Add user_profile for personalization
             'active_modules': modules,  # Changed from 'modules' to 'active_modules' for consistency
             'campus_coach_session': campus_coach_sessions,  # Pass Campus Coach sessions for intelligent matching
+            'enduraw_data': enduraw_data,  # Pass extracted Enduraw Report
             'use_memory': True,
             'personalization': True
         }

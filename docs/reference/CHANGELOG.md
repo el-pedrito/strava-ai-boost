@@ -5,6 +5,37 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.1] - 2026-01-02 - Bug Fixes and Enduraw Integration
+
+### Fixed
+- **Campus Coach Agent**: Fixed syntax error in agent creation
+  - Removed duplicate `model` parameter in Agent() constructor
+  - Agent now deploys correctly with guardrails
+  - File: `src/agents/campus_coach_agent.py`
+
+### Added
+- **Enduraw Report Extraction**: Parse Enduraw Report from activity description
+  - Function: `extract_enduraw_report()` in `content_generator.py`
+  - Extracts adjusted pace, wind impact, elevation impact
+  - Parses bold Unicode numbers from Enduraw format
+  - Passes structured data to content generation agent
+  - File: `lambda_functions/content_generator.py`
+
+### Changed
+- **Content Generation**: Enhanced with Enduraw Report data
+  - Agent now receives parsed Enduraw metrics
+  - Can reference wind-adjusted pace in generated content
+  - Includes elevation and wind cost analysis
+  - Better integration of Enduraw insights
+  - Files: `lambda_functions/content_generator.py`, `src/agents/content_agent.py`
+
+### Fixed
+- **IAM Policy Management**: Prevent unnecessary policy version creation
+  - Script now checks if policy content changed before creating new version
+  - Prevents hitting AWS 5-version limit
+  - Same logic as Lambda policy management
+  - File: `scripts/configure_agentcore_integration.sh`
+
 ## [1.16.0] - 2026-01-02 - Bedrock Guardrails Security Integration
 
 ### Added
