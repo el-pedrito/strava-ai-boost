@@ -267,11 +267,13 @@ sequenceDiagram
 
 ## Security
 
+- **Bedrock Guardrails**: AI safety and prompt injection protection (v1.16.0+)
 - **Data Encryption**: AWS managed encryption for all DynamoDB tables
 - **Secure Communication**: HTTPS for all API endpoints
 - **Credential Management**: AWS Secrets Manager with automatic rotation
 - **IAM**: Least privilege principle with AWS managed policies
 - **Local Interface**: Local-only access (127.0.0.1)
+- **User Isolation**: Per-user configuration for future multi-user support
 
 ## Testing and Validation
 

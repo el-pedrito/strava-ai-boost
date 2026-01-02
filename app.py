@@ -8,6 +8,7 @@ for the Strava AI Boost system.
 
 import aws_cdk as cdk
 from stacks.core_infrastructure_stack import CoreInfrastructureStack
+from stacks.security_stack import SecurityStack
 from stacks.api_gateway_stack import ApiGatewayStack
 from stacks.webhook_processing_stack import WebhookProcessingStack
 from stacks.content_generation_stack import ContentGenerationStack
@@ -29,16 +30,26 @@ core_stack = CoreInfrastructureStack(
     description="Core infrastructure for Strava AI Boost - DynamoDB tables and IAM roles"
 )
 
+# Security stack - Bedrock Guardrails
+security_stack = SecurityStack(
+    app,
+    "StravaAIBoost-Security",
+    env=env,
+    description="Security infrastructure with Bedrock Guardrails for content safety"
+)
+
 # Content generation stack - Step Functions, Bedrock, AgentCore
 content_stack = ContentGenerationStack(
     app,
     "StravaAIBoost-Content",
     core_stack=core_stack,
+    security_stack=security_stack,
     env=env,
     description="Content generation infrastructure with Step Functions and Bedrock"
 )
-# Explicit dependency on core stack
+# Explicit dependencies
 content_stack.add_dependency(core_stack)
+content_stack.add_dependency(security_stack)
 
 # Webhook processing stack - Strava webhooks, SQS
 webhook_stack = WebhookProcessingStack(

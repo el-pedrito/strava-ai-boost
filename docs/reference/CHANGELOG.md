@@ -5,21 +5,105 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.15.0] - 2026-01-02 - Multi-User Architecture Migration
+## [1.16.0] - 2026-01-02 - Bedrock Guardrails Security Integration
+
+### Added
+- **Bedrock Guardrails**: Comprehensive security layer for AI agents
+  - Protection against prompt injection attacks
+  - Content filtering (violence, hate, sexual content, insults)
+  - Topic boundaries (blocks politics, financial advice, medical advice)
+  - PII protection (email, phone, address, credit cards)
+  - Custom word blocking for injection phrases
+  - Files: `stacks/security_stack.py`, `src/agents/content_agent.py`, `src/agents/campus_coach_agent.py`
+
+### Added
+- **Security Stack**: New CDK stack for guardrail management
+  - Creates and manages Bedrock Guardrails
+  - Exports guardrail ID and version for agent use
+  - Configurable content policies and topic restrictions
+  - File: `stacks/security_stack.py`
 
 ### Changed
-- **User Configuration Architecture**: Migrated from global to per-user configuration
+- **Content Generation Agent**: Integrated with Bedrock Guardrails
+  - Uses `BedrockModel` with guardrail configuration
+  - Automatic input redaction when guardrail intervenes
+  - Fallback content generation for blocked requests
+  - Guardrail trace enabled for debugging
+  - File: `src/agents/content_agent.py`
+
+### Changed
+- **Campus Coach Agent**: Integrated with Bedrock Guardrails
+  - Uses `BedrockModel` with guardrail configuration
+  - Protects browser automation from malicious inputs
+  - Prevents prompt injection in session extraction
+  - File: `src/agents/campus_coach_agent.py`
+
+### Changed
+- **AgentCore Configuration**: Added guardrail environment variables
+  - `GUARDRAIL_ENABLED`: Feature flag for guardrails
+  - `GUARDRAIL_ID`: Bedrock guardrail identifier
+  - `GUARDRAIL_VERSION`: Guardrail version number
+  - File: `.env.agentcore`
+
+### Security
+- **Prompt Injection Protection**: HIGH strength filtering
+  - Blocks attempts to override system instructions
+  - Detects persona takeover attempts
+  - Prevents instruction leakage
+  - Protects against jailbreaking attempts
+
+### Security
+- **Content Safety**: Multi-layer filtering
+  - Sexual content: HIGH strength (input + output)
+  - Violence: HIGH strength (input + output)
+  - Hate speech: HIGH strength (input + output)
+  - Insults: MEDIUM strength (input + output)
+  - Misconduct: MEDIUM strength (input + output)
+
+### Security
+- **PII Protection**: Automatic detection and blocking
+  - Email addresses: BLOCKED
+  - Phone numbers: BLOCKED
+  - Physical addresses: ANONYMIZED
+  - Credit card numbers: BLOCKED
+
+### Security
+- **Topic Boundaries**: Domain-specific restrictions
+  - Politics: DENIED
+  - Financial advice: DENIED
+  - Medical advice: DENIED
+  - Keeps content within sports/fitness domain
+
+### Performance
+- **Guardrail Cost**: Minimal impact on processing
+  - Cost per activity: +$0.000375 (~2% increase)
+  - Latency impact: +10-20ms per request
+  - Integrated with Strands SDK (no extra API calls)
+  - Total cost per activity: ~$0.0204 (from $0.02)
+
+### Documentation
+- **Guardrails Guide**: Complete implementation documentation
+  - File: `docs/advanced/BEDROCK-GUARDRAILS.md`
+  - Includes configuration examples, testing strategies
+  - Monitoring and metrics guidance
+  - Cost optimization recommendations
+
+## [1.15.0] - 2026-01-02 - Per-User Configuration Architecture
+
+### Changed
+- **User Configuration Architecture**: Refactored to per-user configuration
   - All configuration now stored in single DynamoDB item per user_id
-  - Prepares system for multi-user support
+  - Cleaner architecture with better data isolation
+  - Prepares foundation for potential future multi-user support
   - Files: `lambda_functions/content_generator.py`, `lambda_functions/activity_processor.py`, `lambda_functions/webhook_handler.py`, `lambda_functions/configuration_api.py`
 
 ### Added
 - **Authenticated User ID Retrieval**: Automatic user_id extraction from OAuth tokens
   - Function: `get_authenticated_user_id()` in `configuration_api.py`
   - Reads athlete.id from Strava OAuth tokens in Secrets Manager
-  - Eliminates need for hardcoded DEFAULT_USER_ID
+  - Eliminates hardcoded user IDs
   - Fallback to environment variable if tokens unavailable
-  - Enables true multi-user support without code changes
+  - Cleaner code architecture
 
 ### Changed
 - **Lambda Functions**: Refactored for per-user configuration
@@ -35,8 +119,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Webhook Handler**: User-aware enhancement checking
   - Extracts owner_id from webhook data (Strava athlete ID)
   - Passes user_id to `is_enhancement_paused(user_id)`
-  - Enables per-user pause/resume functionality
-  - Maintains user isolation in webhook processing
+  - Per-user pause/resume functionality
+  - Better user data isolation
 
 ### Changed
 - **OAuth Token Storage**: Enhanced with athlete information
@@ -83,21 +167,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 66% reduction in DynamoDB read operations
   - Lower latency: ~50ms saved per configuration read
   - Cost reduction: ~$0.0001 per request
-  - Improved scalability for multi-user scenarios
+  - Cleaner architecture with better scalability
 
 ### Security
 - **User Isolation**: Enhanced data separation
   - Each user's configuration completely isolated
   - No shared global configuration items
-  - Prevents cross-user data leakage
-  - Prepares for multi-tenant architecture
-
-### Documentation
-- **Migration Guide**: Complete migration documentation
-  - File: `MIGRATION_SUMMARY.md`
-  - Includes deployment steps, testing checklist, rollback procedures
-  - Documents future multi-user roadmap
-  - Step-by-step migration instructions
+  - Prevents potential cross-user data issues
+  - Foundation for future multi-user scenarios (if needed)
 
 ### Breaking Changes
 - **DynamoDB Schema**: Global configuration items deprecated

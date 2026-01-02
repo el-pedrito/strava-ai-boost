@@ -48,11 +48,13 @@ class ContentGenerationStack(Stack):
         scope: Construct, 
         construct_id: str, 
         core_stack: CoreInfrastructureStack,
+        security_stack=None,  # Optional security stack for guardrails
         **kwargs
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
         
         self.core_stack = core_stack
+        self.security_stack = security_stack
         
         # Create Lambda functions
         self._create_lambda_functions()

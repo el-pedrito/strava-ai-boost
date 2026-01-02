@@ -35,6 +35,7 @@ graph TB
         
         subgraph "AI & Content Generation"
             Bedrock[Amazon Bedrock<br/>Claude Sonnet 4.5]
+            Guardrails[Bedrock Guardrails<br/>Security Layer]
             AgentCoreMemory[AgentCore Memory<br/>Personalization]
             AgentCoreBrowser[AgentCore Browser<br/>Campus Coach Scraping]
         end
@@ -71,11 +72,13 @@ graph TB
     SQS --> StepFunctions
     StepFunctions --> ProcessorLambda
     
-    %% Processing Flow
+    %% Processing Flow with Guardrails
+    ProcessorLambda --> Guardrails
+    Guardrails --> Bedrock
     ProcessorLambda --> StravaAPI
-    ProcessorLambda --> Bedrock
     ProcessorLambda --> AgentCoreMemory
     ProcessorLambda --> AgentCoreBrowser
+    AgentCoreBrowser --> Guardrails
     AgentCoreBrowser --> CampusCoach
     
     %% Campus Coach Automatic Extraction
@@ -148,13 +151,14 @@ graph LR
 
 ### AWS CDK Stack Organization
 
-The infrastructure is organized into 5 modular CDK stacks:
+The infrastructure is organized into 6 modular CDK stacks:
 
 1. **CoreInfrastructureStack** - Foundation services (DynamoDB, IAM, Secrets)
-2. **WebhookProcessingStack** - Strava webhook handling (SQS, Lambda, API Gateway)
-3. **ContentGenerationStack** - AI content generation (Step Functions, Bedrock)
-4. **ApiGatewayStack** - Local interface API (REST API, CORS, API Key authentication)
-5. **MonitoringStack** - Observability (CloudWatch, X-Ray, alarms)
+2. **SecurityStack** - Bedrock Guardrails for AI safety and prompt injection protection
+3. **WebhookProcessingStack** - Strava webhook handling (SQS, Lambda, API Gateway)
+4. **ContentGenerationStack** - AI content generation (Step Functions, Bedrock)
+5. **ApiGatewayStack** - Local interface API (REST API, CORS, API Key authentication)
+6. **MonitoringStack** - Observability (CloudWatch, X-Ray, alarms)
 
 ### Local Interface Architecture
 
@@ -594,17 +598,24 @@ graph TD
     B -->|Yes| C[Invoke AgentCore Agent]
     B -->|No| D[Direct Bedrock Fallback]
     
-    C --> E{Agent Response OK?}
+    C --> C1[Bedrock Guardrails Check]
+    C1 -->|Pass| E{Agent Response OK?}
+    C1 -->|Block| G[Log Intervention & Fallback]
+    
     E -->|Yes| F[Parse AgentCore Response]
-    E -->|No| G[Log Error & Fallback]
+    E -->|No| G
     G --> D
     
-    D --> H[Build Enhanced Prompt]
+    D --> D1[Bedrock Guardrails Check]
+    D1 -->|Pass| H[Build Enhanced Prompt]
+    D1 -->|Block| K1[Safe Fallback Content]
+    
     H --> I[Invoke Claude Sonnet 4.5]
     I --> J[Parse Bedrock Response]
     
     F --> K[Enhanced Content]
     J --> K
+    K1 --> K
     K --> L[Store in DynamoDB]
     K --> M[Return to Step Functions]
 ```
@@ -880,6 +891,40 @@ class CampusCoachAgent:
 ```
 
 ## Security Configuration
+
+### Bedrock Guardrails (v1.16.0+)
+
+**Purpose**: Protect AI agents against prompt injection, harmful content, and PII leakage
+
+**Implementation**: Integrated at Strands Agent level using `BedrockModel`
+
+**Policies**:
+- **Prompt Attack**: HIGH strength (input only) - Blocks instruction override attempts
+- **Content Filtering**: HIGH/MEDIUM strength - Violence, hate, sexual content, insults
+- **Topic Boundaries**: DENY - Politics, financial advice, medical advice
+- **PII Protection**: BLOCK/ANONYMIZE - Email, phone, address, credit cards
+- **Word Blocking**: Custom phrases - "ignore previous instructions", "system prompt", etc.
+
+**Integration**:
+```python
+# Automatic in Strands agents
+model = BedrockModel(
+    model_id="claude-sonnet-4-5",
+    guardrail_id=os.getenv("GUARDRAIL_ID"),
+    guardrail_version="1",
+    guardrail_redact_input=True
+)
+```
+
+**Deployment**: Fully automated via `deploy_agentcore_agents.sh`
+- Auto-detects Security Stack
+- Retrieves GuardrailId from CloudFormation
+- Updates `.env.agentcore` automatically
+- Passes to agents via environment variables
+
+**Cost**: +$0.000375 per activity (+2%)
+
+**Reference**: See `docs/advanced/BEDROCK-GUARDRAILS.md`
 
 ### Encryption at Rest
 - **DynamoDB**: AWS managed encryption (SSE-S3)

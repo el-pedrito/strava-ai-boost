@@ -199,9 +199,24 @@ deploy_agent_with_ltm() {
     # Launch agent with memory ID as environment variable
     print_status "Launching agent: $agent_name with memory ID: $memory_id..."
     
+    # Get guardrail configuration from .env.agentcore
+    GUARDRAIL_ENABLED=$(grep "^GUARDRAIL_ENABLED=" .env.agentcore 2>/dev/null | cut -d'=' -f2 || echo "false")
+    GUARDRAIL_ID=$(grep "^GUARDRAIL_ID=" .env.agentcore 2>/dev/null | cut -d'=' -f2 || echo "")
+    GUARDRAIL_VERSION=$(grep "^GUARDRAIL_VERSION=" .env.agentcore 2>/dev/null | cut -d'=' -f2 || echo "1")
+    
+    # Build environment variables
+    ENV_VARS="BEDROCK_AGENTCORE_MEMORY_ID=$memory_id"
+    
+    if [ "$GUARDRAIL_ENABLED" = "true" ] && [ -n "$GUARDRAIL_ID" ]; then
+        print_status "🛡️  Guardrails enabled: $GUARDRAIL_ID v$GUARDRAIL_VERSION"
+        ENV_VARS="$ENV_VARS,GUARDRAIL_ENABLED=true,GUARDRAIL_ID=$GUARDRAIL_ID,GUARDRAIL_VERSION=$GUARDRAIL_VERSION"
+    else
+        print_status "⚠️  Guardrails not configured (GUARDRAIL_ENABLED=$GUARDRAIL_ENABLED)"
+    fi
+    
     agentcore launch \
         --agent "$agent_name" \
-        --env "BEDROCK_AGENTCORE_MEMORY_ID=$memory_id" \
+        --env "$ENV_VARS" \
         --auto-update-on-conflict || {
         print_error "Failed to launch $agent_name"
         return 1
@@ -236,7 +251,13 @@ main() {
     # Check prerequisites
     check_agentcore_cli
     
+    # Auto-configure guardrails if Security Stack is deployed
+    print_status ""
+    print_status "🛡️  Checking for Bedrock Guardrails..."
+    configure_guardrails_if_available
+    
     # Verify memories exist
+    print_status ""
     print_status "🔍 Verifying LTM memories exist..."
     
     local content_mem_id=$(get_memory_id "$CONTENT_MEMORY_NAME")
@@ -296,6 +317,99 @@ main() {
     print_status "🔧 Next Step:"
     print_status "  Configure Lambda integration:"
     print_status "  ./scripts/configure_agentcore_integration.sh"
+}
+
+# Function to check AgentCore CLI availability
+check_agentcore_cli() {
+    print_status "🔍 Checking AgentCore CLI availability..."
+    
+    if ! command -v agentcore &> /dev/null; then
+        print_error "AgentCore CLI not found. Please install it first."
+        print_status "Installation: pip install bedrock-agentcore-starter-toolkit"
+        exit 1
+    fi
+    
+    print_success "AgentCore CLI is available"
+}
+
+# Function to auto-configure guardrails from CloudFormation
+configure_guardrails_if_available() {
+    local stack_name="StravaAIBoost-Security"
+    local env_file=".env.agentcore"
+    
+    # Check if Security Stack is deployed
+    if ! aws cloudformation describe-stacks \
+        --stack-name "$stack_name" \
+        --profile "$AWS_PROFILE" \
+        --region "$AWS_REGION" \
+        --query 'Stacks[0].StackStatus' \
+        --output text &>/dev/null; then
+        
+        print_warning "Security Stack not deployed - guardrails disabled"
+        print_status "To enable guardrails: cdk deploy StravaAIBoost-Security --profile $AWS_PROFILE"
+        
+        # Ensure guardrails are disabled in .env.agentcore
+        if [ -f "$env_file" ]; then
+            if grep -q "^GUARDRAIL_ENABLED=" "$env_file"; then
+                sed -i.tmp "s|^GUARDRAIL_ENABLED=.*|GUARDRAIL_ENABLED=false|" "$env_file"
+                rm -f "${env_file}.tmp"
+            fi
+        fi
+        return 0
+    fi
+    
+    # Get guardrail ID from CloudFormation
+    local guardrail_id=$(aws cloudformation describe-stacks \
+        --stack-name "$stack_name" \
+        --profile "$AWS_PROFILE" \
+        --region "$AWS_REGION" \
+        --query 'Stacks[0].Outputs[?OutputKey==`GuardrailId`].OutputValue' \
+        --output text 2>/dev/null || echo "")
+    
+    local guardrail_version=$(aws cloudformation describe-stacks \
+        --stack-name "$stack_name" \
+        --profile "$AWS_PROFILE" \
+        --region "$AWS_REGION" \
+        --query 'Stacks[0].Outputs[?OutputKey==`GuardrailVersion`].OutputValue' \
+        --output text 2>/dev/null || echo "1")
+    
+    if [ -z "$guardrail_id" ]; then
+        print_warning "Guardrail ID not found in Security Stack outputs"
+        return 0
+    fi
+    
+    print_success "Found Bedrock Guardrail: $guardrail_id v$guardrail_version"
+    
+    # Update .env.agentcore automatically
+    if [ -f "$env_file" ]; then
+        print_status "📝 Updating $env_file with guardrail configuration..."
+        
+        # Backup
+        cp "$env_file" "${env_file}.backup.$(date +%s)"
+        
+        # Update or add guardrail configuration
+        if grep -q "^GUARDRAIL_ENABLED=" "$env_file"; then
+            sed -i.tmp "s|^GUARDRAIL_ENABLED=.*|GUARDRAIL_ENABLED=true|" "$env_file"
+            sed -i.tmp "s|^GUARDRAIL_ID=.*|GUARDRAIL_ID=$guardrail_id|" "$env_file"
+            sed -i.tmp "s|^GUARDRAIL_VERSION=.*|GUARDRAIL_VERSION=$guardrail_version|" "$env_file"
+            rm -f "${env_file}.tmp"
+        else
+            # Add guardrail section
+            cat >> "$env_file" << EOF
+
+# ============================================================================
+# SECURITY - BEDROCK GUARDRAILS
+# ============================================================================
+GUARDRAIL_ENABLED=true
+GUARDRAIL_ID=$guardrail_id
+GUARDRAIL_VERSION=$guardrail_version
+EOF
+        fi
+        
+        print_success "Guardrails configured: ENABLED=true, ID=$guardrail_id"
+    else
+        print_warning "$env_file not found - guardrails not configured"
+    fi
 }
 
 # Function to check AgentCore CLI availability

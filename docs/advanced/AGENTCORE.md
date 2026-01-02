@@ -10,32 +10,62 @@ AgentCore provides the AI agent runtime and memory system for Strava AI Boost, e
 - **Browser Tool**: Automated Campus Coach session extraction
 - **Agent Runtime**: Scalable, serverless AI agent execution
 - **Strands Framework**: Modern agent architecture with structured tools
+- **Bedrock Guardrails**: AI safety and prompt injection protection (v1.16.0+)
 
 ## Architecture
 
-### AgentCore Components
+### AgentCore Components with Security
 
+```mermaid
+graph TB
+    subgraph "AgentCore Infrastructure"
+        Memory[AgentCore Memory<br/>LTM + Semantic Search]
+        Runtime[AgentCore Runtime<br/>Strands Framework]
+        Browser[AgentCore Browser<br/>Web Automation]
+        Guardrails[Bedrock Guardrails<br/>Security Layer]
+    end
+    
+    subgraph "Content Generation Agent"
+        ContentAgent[Content Agent<br/>content_gen]
+        ContentAgent --> Guardrails
+        Guardrails --> Claude1[Claude Sonnet 4.5]
+        ContentAgent --> Memory
+        Claude1 --> ContentTool[Structured Tool<br/>JSON Response]
+    end
+    
+    subgraph "Campus Coach Agent"
+        CampusAgent[Campus Coach Agent<br/>campus_coach]
+        CampusAgent --> Guardrails
+        Guardrails --> Claude2[Claude Sonnet 4.5]
+        CampusAgent --> Memory
+        CampusAgent --> Browser
+        Claude2 --> Extraction[Session Extraction<br/>Protected]
+    end
+    
+    Lambda[Lambda Functions] --> ContentAgent
+    Lambda --> CampusAgent
+    
+    ContentTool --> DynamoDB[(DynamoDB)]
+    Extraction --> DynamoDB
+    
+    style Guardrails fill:#ff6b6b,stroke:#c92a2a,stroke-width:3px
+    style ContentAgent fill:#4dabf7,stroke:#1971c2
+    style CampusAgent fill:#51cf66,stroke:#2f9e44
 ```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   AgentCore     │    │   AgentCore      │    │   AgentCore     │
-│    Memory       │◄──►│    Runtime       │◄──►│  Browser Tool   │
-│                 │    │  (Strands)       │    │                 │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-         │                       │                       │
-         ▼                       ▼                       ▼
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│  Personalized   │    │  Content Gen     │    │  Campus Coach   │
-│  Content Gen    │    │     Tool         │    │   Extraction    │
-│   (JSON API)    │    │  (Structured)    │    │                 │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-```
+
+**Key Points**:
+- 🛡️ **Both agents** use the same Bedrock Guardrails
+- 🧠 **Both agents** have their own AgentCore Memory
+- 🔒 **Security layer** applied before Claude invocation
+- 📊 **Structured outputs** for reliable parsing
 
 ### Integration Points
 
-1. **Content Generation Agent**: Uses structured tools with JSON responses
-2. **Campus Coach Agent**: Uses AgentCore Browser Tool for web scraping
+1. **Content Generation Agent**: Structured tools + JSON responses + guardrails
+2. **Campus Coach Agent**: Browser Tool + web scraping + guardrails
 3. **Lambda Functions**: Handle both old and new JSON formats for compatibility
 4. **Step Functions**: Orchestrate agent workflows with error handling
+5. **Bedrock Guardrails**: Automatic security layer for **both agents**
 
 ## Content Generation Tool (NEW v1.8.0)
 
@@ -456,6 +486,25 @@ aws logs filter-log-events --log-group-name /aws/bedrock-agentcore/runtimes/stra
 ```
 
 ## Security Considerations
+
+### Bedrock Guardrails (v1.16.0+)
+
+**Automatic Protection**: Integrated at agent level via `BedrockModel`
+
+- **Prompt Injection**: HIGH strength blocking of instruction override attempts
+- **Content Safety**: Filters violence, hate, sexual content, insults
+- **Topic Boundaries**: Keeps content within sports/fitness domain
+- **PII Protection**: Blocks/anonymizes sensitive information
+- **Deployment**: Fully automated via `deploy_agentcore_agents.sh`
+
+**Configuration**: Environment variables in `.env.agentcore`
+```bash
+GUARDRAIL_ENABLED=true
+GUARDRAIL_ID=<auto-detected-from-cloudformation>
+GUARDRAIL_VERSION=1
+```
+
+**Reference**: See `docs/advanced/BEDROCK-GUARDRAILS.md`
 
 ### Credential Management
 
