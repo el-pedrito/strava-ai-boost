@@ -266,6 +266,173 @@ EOF
     return 0
 }
 
+# Function to configure AgentCore agent IAM permissions
+# Function to configure AgentCore agent IAM permissions
+configure_agentcore_agent_permissions() {
+    local campus_arn="$1"
+    
+    print_status "🔐 Configuring IAM permissions for Campus Coach agent..."
+    
+    # Get account ID
+    local account_id
+    account_id=$(aws sts get-caller-identity --profile "$AWS_PROFILE" --query 'Account' --output text 2>/dev/null)
+    
+    if [ -z "$account_id" ]; then
+        print_error "Failed to get AWS account ID"
+        return 1
+    fi
+    
+    # Get Campus Coach agent execution role
+    # Note: AWS CLI doesn't have bedrock-agentcore commands yet
+    # We list all AgentCore roles and use the first one found
+    print_status "Searching for AgentCore execution roles..."
+    
+    local agentcore_roles=$(aws iam list-roles \
+        --profile "$AWS_PROFILE" \
+        --query 'Roles[?starts_with(RoleName, `AmazonBedrockAgentCoreSDKRuntime-`)].RoleName' \
+        --output text 2>/dev/null)
+    
+    if [ -n "$agentcore_roles" ]; then
+        # Use the first AgentCore role found
+        local role_name=$(echo "$agentcore_roles" | awk '{print $1}')
+        print_status "Found AgentCore role: $role_name"
+    else
+        print_error "No AgentCore execution roles found"
+        return 1
+    fi
+    
+    # Create policy for Campus Coach agent permissions
+    local policy_name="StravaAIBoost-CampusCoach-AgentPermissions"
+    local policy_file="/tmp/campus_agent_policy_$.json"
+    
+    cat > "$policy_file" << EOF
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "secretsmanager:GetSecretValue"
+            ],
+            "Resource": [
+                "arn:aws:secretsmanager:${AWS_REGION}:${account_id}:secret:strava-ai-boost-campus-coach-credentials-*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "dynamodb:PutItem",
+                "dynamodb:UpdateItem",
+                "dynamodb:GetItem",
+                "dynamodb:Query",
+                "dynamodb:Scan"
+            ],
+            "Resource": [
+                "arn:aws:dynamodb:${AWS_REGION}:${account_id}:table/strava-ai-boost-campus-coaching-sessions",
+                "arn:aws:dynamodb:${AWS_REGION}:${account_id}:table/strava-ai-boost-campus-coaching-sessions/index/*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "bedrock-agentcore:StartBrowserSession",
+                "bedrock-agentcore:StopBrowserSession",
+                "bedrock-agentcore:GetBrowserSession",
+                "bedrock-agentcore:ListBrowserSessions",
+                "bedrock-agentcore:ConnectBrowserAutomationStream"
+            ],
+            "Resource": ["*"]
+        }
+    ]
+}
+EOF
+    
+    # Check if policy exists
+    local existing_policy_arn
+    existing_policy_arn=$(aws iam list-policies \
+        --scope Local \
+        --profile "$AWS_PROFILE" \
+        --query "Policies[?PolicyName=='$policy_name'].Arn" \
+        --output text 2>/dev/null)
+    
+    local policy_arn=""
+    
+    if [ -n "$existing_policy_arn" ] && [ "$existing_policy_arn" != "None" ]; then
+        print_status "Policy already exists, updating..."
+        policy_arn="$existing_policy_arn"
+        
+        # Delete old versions if at limit
+        local version_count=$(aws iam list-policy-versions \
+            --policy-arn "$policy_arn" \
+            --profile "$AWS_PROFILE" \
+            --query 'length(Versions)' \
+            --output text 2>/dev/null)
+        
+        if [ "$version_count" -ge 5 ]; then
+            local oldest_version=$(aws iam list-policy-versions \
+                --policy-arn "$policy_arn" \
+                --profile "$AWS_PROFILE" \
+                --query 'Versions[?IsDefaultVersion==`false`] | sort_by(@, &CreateDate) | [0].VersionId' \
+                --output text 2>/dev/null)
+            
+            if [ -n "$oldest_version" ] && [ "$oldest_version" != "None" ]; then
+                aws iam delete-policy-version \
+                    --policy-arn "$policy_arn" \
+                    --version-id "$oldest_version" \
+                    --profile "$AWS_PROFILE" 2>/dev/null || true
+            fi
+        fi
+        
+        # Create new version
+        aws iam create-policy-version \
+            --policy-arn "$policy_arn" \
+            --policy-document "file://$policy_file" \
+            --set-as-default \
+            --profile "$AWS_PROFILE" > /dev/null 2>&1 || true
+    else
+        print_status "Creating new policy..."
+        policy_arn=$(aws iam create-policy \
+            --policy-name "$policy_name" \
+            --policy-document "file://$policy_file" \
+            --description "Permissions for Campus Coach agent to access Secrets Manager and DynamoDB" \
+            --profile "$AWS_PROFILE" \
+            --query 'Policy.Arn' \
+            --output text 2>/dev/null)
+    fi
+    
+    rm -f "$policy_file"
+    
+    if [ -n "$policy_arn" ] && [[ "$policy_arn" == arn:* ]]; then
+        print_success "✅ Policy created/updated: $policy_arn"
+        
+        # Attach policy to agent role
+        if aws iam attach-role-policy \
+            --role-name "$role_name" \
+            --policy-arn "$policy_arn" \
+            --profile "$AWS_PROFILE" > /dev/null 2>&1; then
+            print_success "✅ Attached policy to Campus Coach agent role"
+        else
+            # Check if already attached
+            local is_attached=$(aws iam list-attached-role-policies \
+                --role-name "$role_name" \
+                --profile "$AWS_PROFILE" \
+                --query "AttachedPolicies[?PolicyArn=='$policy_arn'].PolicyArn" \
+                --output text 2>/dev/null)
+            
+            if [ -n "$is_attached" ]; then
+                print_success "✅ Policy already attached to Campus Coach agent role"
+            else
+                print_warning "⚠️  Could not attach policy (may need manual configuration)"
+            fi
+        fi
+    else
+        print_error "Failed to create/update policy"
+        return 1
+    fi
+    
+    return 0
+}
+
 # Function to verify AgentCore agent permissions (read-only check)
 verify_agentcore_iam_permissions() {
     local content_arn="$1"
@@ -640,6 +807,11 @@ main() {
     
     print_status ""
     print_status "🔧 Configuring AgentCore integration..."
+    
+    # Configure Campus Coach agent IAM permissions
+    if [ -n "$campus_arn" ]; then
+        configure_agentcore_agent_permissions "$campus_arn"
+    fi
     
     # Update Lambda IAM permissions for AgentCore invocation
     update_lambda_iam_permissions "$content_arn" "$campus_arn"

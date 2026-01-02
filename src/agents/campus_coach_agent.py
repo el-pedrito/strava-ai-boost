@@ -1,23 +1,25 @@
 """
 Campus Coach Agent for AgentCore Runtime
 
-AgentCore-compatible agent with ALL prompts embedded directly.
-Uses embedded_prompts.py for complete prompt definitions.
-Includes AgentCore Memory (LTM) integration for session history.
+Autonomous agent that:
+1. Retrieves credentials from Secrets Manager
+2. Scrapes Campus Coach sessions using Browser Tool
+3. Writes directly to DynamoDB
+4. Runs asynchronously (Lambda invoker returns immediately)
 """
 
 import os
 import json
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 from datetime import datetime
+from decimal import Decimal
+import boto3
 
 # Required AgentCore imports
 from bedrock_agentcore import BedrockAgentCoreApp
-from bedrock_agentcore.memory import MemoryClient
-from strands import Agent, tool
-from strands_tools.browser import browser_tool
-from strands.hooks import AgentInitializedEvent, HookProvider, MessageAddedEvent
+from strands import Agent
+from strands_tools.browser import AgentCoreBrowser
 
 # Import embedded prompts
 from embedded_prompts import CAMPUS_COACH_PROMPT
@@ -25,436 +27,208 @@ from embedded_prompts import CAMPUS_COACH_PROMPT
 # Initialize AgentCore app
 app = BedrockAgentCoreApp()
 
-# Configure logging level
+# Configure logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-# Also set root logger to INFO for more visibility
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # Environment variables
 REGION = os.getenv("AWS_REGION", "eu-west-1")
 MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-4-5-20250929-v1:0")
+COACHING_SESSIONS_TABLE = os.getenv("COACHING_SESSIONS_TABLE", "strava-ai-boost-campus-coaching-sessions")
+CAMPUS_COACH_SECRET = os.getenv("CAMPUS_COACH_SECRET", "strava-ai-boost-campus-coach-credentials")
 
-# AgentCore Memory configuration
-MEMORY_ID = os.getenv("BEDROCK_AGENTCORE_MEMORY_ID")
 
-# Initialize memory client if memory is configured
-memory_client = None
-if MEMORY_ID:
+def get_campus_credentials(region: str = "eu-west-1"):
+    """Retrieve Campus Coach credentials from Secrets Manager"""
+    client = boto3.client('secretsmanager', region_name=region)
+    
     try:
-        memory_client = MemoryClient(region_name=REGION)
-        logger.info(f"AgentCore Memory client initialized for Campus Coach: {MEMORY_ID}")
+        response = client.get_secret_value(SecretId=CAMPUS_COACH_SECRET)
+        secret = json.loads(response['SecretString'])
+        return secret.get('username'), secret.get('password')
     except Exception as e:
-        logger.warning(f"Failed to initialize memory client: {e}")
-        memory_client = None
+        logger.error(f"❌ Error retrieving credentials: {e}")
+        return None, None
 
 
-class AgentCoreMemoryHook(HookProvider):
-    """
-    Hook for AgentCore Memory integration with Campus Coach Agent
+def save_sessions_to_dynamodb(sessions_data: dict, region: str = "eu-west-1"):
+    """Save training sessions to DynamoDB"""
+    dynamodb = boto3.resource('dynamodb', region_name=region)
+    table = dynamodb.Table(COACHING_SESSIONS_TABLE)
     
-    Tracks session extraction history and patterns.
-    """
+    sessions = sessions_data.get('sessions_found', [])
+    saved_count = 0
     
-    def on_agent_initialized(self, event):
-        """Load previous extraction context from memory"""
-        if not MEMORY_ID or not memory_client:
-            return
-        
+    for session in sessions:
         try:
-            session_id = event.agent.state.get("session_id") or "default"
-            actor_id = event.agent.state.get("actor_id") or "default_user"
+            # Convert floats to Decimal for DynamoDB
+            if session.get('targetedMetrics'):
+                metrics = session['targetedMetrics']
+                if 'target_distance_km' in metrics and metrics['target_distance_km'] is not None:
+                    metrics['target_distance_km'] = Decimal(str(metrics['target_distance_km']))
             
-            # Get last 3 extraction sessions from memory
-            turns = memory_client.get_last_k_turns(
-                memory_id=MEMORY_ID,
-                actor_id=actor_id,
-                session_id=session_id,
-                k=3  # Last 3 extractions for context
+            session_date = session.get('session_date', datetime.now().isoformat())
+            session_id = session.get('id', f"session_{datetime.now().timestamp()}")
+            
+            # Store in DynamoDB with session_date + session_id as composite key
+            table.put_item(
+                Item={
+                    'session_date': session_date,
+                    'session_id': session_id,
+                    'week_number': session.get('week_number', ''),
+                    'session_number': session.get('session_number', ''),
+                    'title': session.get('title', ''),
+                    'workout': session.get('workout', ''),
+                    'status': session.get('status', ''),
+                    'targetedMetrics': session.get('targetedMetrics'),
+                    'intervals': session.get('intervals', []),
+                    'coach_advice': session.get('coach_advice'),
+                    'description': session.get('description', ''),
+                    'objectives': session.get('objectives', []),
+                    'updated_at': datetime.now().isoformat()
+                }
             )
             
-            if turns:
-                context = "\n".join([
-                    f"{m['role']}: {m['content']['text']}" 
-                    for t in turns for m in t
-                ])
-                event.agent.system_prompt += f"\n\nPREVIOUS EXTRACTIONS CONTEXT (from AgentCore LTM):\n{context}"
-                logger.info(f"Loaded {len(turns)} previous extraction turns from memory for actor {actor_id}")
+            saved_count += 1
+            logger.info(f"✅ Saved session: {session_id} (week {session.get('week_number')})")
+            
         except Exception as e:
-            logger.warning(f"Failed to load memory context: {e}")
+            logger.error(f"❌ Error saving session {session.get('id')}: {e}")
     
-    def on_message_added(self, event):
-        """Save extraction to memory after processing"""
-        if not MEMORY_ID or not memory_client:
-            return
-        
-        try:
-            session_id = event.agent.state.get("session_id") or "default"
-            actor_id = event.agent.state.get("actor_id") or "default_user"
-            
-            # Save only assistant messages (responses) to memory
-            msg = event.agent.messages[-1]
-            
-            # Only save assistant messages
-            if msg.get("role") != "assistant":
-                logger.debug(f"Skipping memory save for non-assistant message")
-                return
-            
-            # Extract content and limit size to 9000 characters
-            content = str(msg.get("content", ""))
-            if len(content) > 9000:
-                content = content[:9000] + "... [truncated]"
-                logger.info(f"Truncated message content for memory")
-            
-            memory_client.create_event(
-                memory_id=MEMORY_ID,
-                actor_id=actor_id,
-                session_id=session_id,
-                messages=[(content, msg["role"])]
-            )
-            logger.info(f"Saved extraction to memory for actor {actor_id}, session {session_id}")
-        except Exception as e:
-            logger.warning(f"Failed to save to memory: {e}")
-    
-    def register_hooks(self, registry):
-        """Register hooks with the agent"""
-        registry.add_callback(AgentInitializedEvent, self.on_agent_initialized)
-        registry.add_callback(MessageAddedEvent, self.on_message_added)
+    return saved_count
 
 
-@tool
-def extract_campus_coach_sessions(
-    user_id: str,
-    week_number: Optional[int] = None
-) -> Dict[str, Any]:
-    """
-    Extract weekly training sessions from Campus Coach using Browser Tool
+@app.async_task
+async def scrape_campus_sessions(region, campus_username, campus_password):
+    """Background task to scrape Campus Coach sessions"""
     
-    Args:
-        user_id: User identifier for credential lookup
-        week_number: Optional specific week number to extract
-        
-    Returns:
-        Extraction results with sessions data
-    """
+    logger.info(f"✅ Credentials retrieved for user: {campus_username}")
+    
     try:
-        # Simplified extraction for AgentCore compatibility
-        # This would use the Browser Tool to scrape Campus Coach
+        logger.info("🔄 Initializing Strands Agent with Browser Tool...")
         
-        # Mock session data for now (replace with actual Browser Tool logic)
-        sessions = [
-            {
-                'session_type': 'tempo_run',
-                'planned_distance': 8.0,
-                'planned_duration': 40,
-                'intensity': 'moderate',
-                'week_number': week_number or 1
+        browser_tool = AgentCoreBrowser(region=region)
+        
+        agent = Agent(
+            tools=[browser_tool.browser],
+            system_prompt=CAMPUS_COACH_PROMPT,
+            model=MODEL_ID
+        )
+        logger.info("✅ Agent initialized with Browser Tool")
+        
+        # Prepare extraction task
+        combined_task = f"""
+        MISSION COMPLÈTE: Connexion à Campus Coach et extraction des séances d'entraînement.
+        
+        ÉTAPE 1 - CONNEXION:
+        1. Va sur https://app.campus.coach/auth
+        2. Si popup cookies: accepter
+        3. Clique "Continue with your email" puis "Log In"
+        4. Email: {campus_username}
+        5. Password: {campus_password}
+        6. Clique connexion
+        7. Attendre redirection dashboard
+        
+        ÉTAPE 2 - EXTRACTION:
+        1. Scroll progressivement pour voir toutes les séances
+        2. Capturer le contenu des séances visibles
+        3. Extraire les 5 séances de la semaine
+        
+        ÉTAPE 3 - ANALYSE:
+        Retourner un JSON avec ce format:
+        {{
+            "total_found": 5,
+            "sessions_found": [
+                {{
+                    "id": "session-id",
+                    "title": "Titre de la séance",
+                    "week_number": "15-12",
+                    "session_number": "1/5",
+                    "session_date": "2026-01-02",
+                    "workout": "ROUTE",
+                    "status": "À faire",
+                    "targetedMetrics": {{"target_distance_km": 8.0, "target_duration_min": 40, "difficulty": 3}},
+                    "intervals": [],
+                    "coach_advice": {{"main_advice": "Conseil du coach"}},
+                    "description": "Description",
+                    "objectives": ["Endurance"]
+                }}
+            ]
+        }}
+        
+        Retourner UNIQUEMENT le JSON final.
+        """
+        
+        logger.info("🚀 Executing complete mission (login + extraction)...")
+        result = agent(combined_task)
+        logger.info(f"✅ Mission result: {str(result)[:200]}...")
+        
+        # Parse JSON and save to DynamoDB
+        try:
+            response_text = str(result)
+            if '```json' in response_text:
+                start = response_text.find('```json') + 7
+                end = response_text.find('```', start)
+                json_text = response_text[start:end].strip()
+            else:
+                json_text = response_text.strip()
+            
+            sessions_data = json.loads(json_text)
+            
+            logger.info("💾 Saving to DynamoDB...")
+            saved_count = save_sessions_to_dynamodb(sessions_data, region)
+            logger.info(f"✅ {saved_count} sessions saved")
+            
+            result = {
+                "success": True,
+                "sessions": sessions_data,
+                "saved_count": saved_count,
+                "message": f"Campus Coach: {saved_count} sessions extracted and saved to DynamoDB"
             }
-        ]
-        
-        return {
-            'success': True,
-            'sessions_extracted': len(sessions),
-            'sessions': sessions,
-            'retry_attempted': False
-        }
             
-    except Exception as e:
-        logger.error(f"Campus Coach extraction failed: {str(e)}")
-        return {
-            'success': False,
-            'error': str(e),
-            'sessions_extracted': 0,
-            'retry_attempted': False
-        }
-
-
-@tool
-def match_activity_to_session(
-    activity_data: Dict[str, Any],
-    user_id: str
-) -> Dict[str, Any]:
-    """
-    Match Strava activity to Campus Coach planned session
-    
-    Args:
-        activity_data: Complete Strava activity data (67+ fields)
-        user_id: User identifier for session lookup
-        
-    Returns:
-        Matching results with confidence score and session details
-    """
-    try:
-        # Simplified matching logic for AgentCore compatibility
-        activity_type = activity_data.get('type', '').lower()
-        distance = activity_data.get('distance', 0) / 1000  # km
-        duration = activity_data.get('moving_time', 0) / 60  # minutes
-        
-        # Basic matching logic
-        if activity_type == 'run' and distance > 5:
-            confidence = 0.8
-            session_match = True
-            session_type = 'tempo_run' if distance < 10 else 'long_run'
-        else:
-            confidence = 0.3
-            session_match = False
-            session_type = 'unknown'
-        
-        return {
-            'session_match': session_match,
-            'confidence': confidence,
-            'planned_vs_actual': {
-                'distance_compliance': 0.9,
-                'pace_compliance': 0.8,
-                'overall_score': confidence
-            },
-            'session_type': session_type,
-            'compliance_score': confidence,
-            'match_reasons': ['Distance and type match'] if session_match else ['No clear match found']
-        }
+            # Cleanup and return
+            agent.cleanup()
+            return result
             
+        except json.JSONDecodeError as e:
+            logger.error(f"⚠️ JSON parsing error: {e}")
+            return {
+                "success": True,
+                "sessions": str(result),
+                "saved_count": 0,
+                "message": "Extraction completed but JSON parsing failed"
+            }
+        
     except Exception as e:
-        logger.error(f"Session matching failed: {str(e)}")
-        return {
-            'session_match': False,
-            'confidence': 0.0,
-            'planned_vs_actual': {},
-            'session_type': 'unknown',
-            'compliance_score': 0.0,
-            'error': str(e)
-        }
+        logger.error(f"❌ Error: {e}")
+        return {"success": False, "error": str(e)}
 
-@tool
-def get_user_campus_coach_credentials(user_id: str) -> Dict[str, Any]:
-    """
-    Retrieve Campus Coach credentials for user
-    
-    Args:
-        user_id: User identifier
-        
-    Returns:
-        Credential status and configuration
-    """
-    try:
-        # Simplified credential check for AgentCore compatibility
-        # This would integrate with AWS Secrets Manager
-        
-        return {
-            'credentials_found': True,
-            'username': 'user@example.com',
-            'login_url': 'https://campus.coach/login',
-            'status': 'configured'
-        }
-            
-    except Exception as e:
-        logger.error(f"Credential lookup failed: {str(e)}")
-        return {
-            'credentials_found': False,
-            'status': 'error',
-            'error': str(e)
-        }
-
-
-@tool
-def analyze_session_compliance(
-    activity_data: Dict[str, Any],
-    planned_session: Dict[str, Any]
-) -> Dict[str, Any]:
-    """
-    Analyze compliance between actual activity and planned session
-    
-    Args:
-        activity_data: Complete Strava activity data
-        planned_session: Campus Coach planned session data
-        
-    Returns:
-        Compliance analysis with scoring and insights
-    """
-    try:
-        # Basic compliance analysis
-        actual_distance = activity_data.get('distance', 0) / 1000  # km
-        actual_duration = activity_data.get('moving_time', 0) / 60  # minutes
-        
-        planned_distance = planned_session.get('planned_distance', 0)
-        planned_duration = planned_session.get('planned_duration', 0)
-        
-        # Calculate compliance scores
-        distance_compliance = 1.0
-        if planned_distance > 0:
-            distance_diff = abs(actual_distance - planned_distance) / planned_distance
-            distance_compliance = max(0.0, 1.0 - distance_diff)
-        
-        duration_compliance = 1.0
-        if planned_duration > 0:
-            duration_diff = abs(actual_duration - planned_duration) / planned_duration
-            duration_compliance = max(0.0, 1.0 - duration_diff)
-        
-        # Overall execution assessment
-        overall_score = (distance_compliance + duration_compliance) / 2
-        
-        if overall_score >= 0.9:
-            execution = 'excellent'
-        elif overall_score >= 0.7:
-            execution = 'good'
-        elif overall_score >= 0.5:
-            execution = 'fair'
-        else:
-            execution = 'poor'
-        
-        return {
-            'compliance_analysis': {
-                'distance_compliance': distance_compliance,
-                'pace_compliance': 0.8,  # Placeholder
-                'duration_compliance': duration_compliance,
-                'overall_execution': execution,
-                'overall_score': overall_score
-            },
-            'match_found': True,
-            'confidence': overall_score
-        }
-            
-    except Exception as e:
-        logger.error(f"Compliance analysis failed: {str(e)}")
-        return {
-            'compliance_analysis': {
-                'distance_compliance': 0.0,
-                'pace_compliance': 0.0,
-                'duration_compliance': 0.0,
-                'overall_execution': 'error'
-            },
-            'error': str(e)
-        }
 
 @app.entrypoint
-def invoke(payload, context=None):
+async def invoke(payload, context=None):
     """
-    AgentCore entrypoint for Campus Coach operations
+    AgentCore entrypoint for Campus Coach scraping
     
-    Args:
-        payload: Input data containing action and parameters
-        context: AgentCore context (optional)
-        
-    Returns:
-        Campus Coach operation results
+    Launches async task and returns immediately (non-blocking)
     """
-    try:
-        # Extract parameters from payload first
-        action = payload.get('action', 'extract_sessions')
-        user_id = payload.get('user_id', 'default_user')
-        extraction_id = payload.get('extraction_id', datetime.now().strftime('%Y%m%d%H%M%S'))
-        
-        logger.info(f"Campus Coach agent invoked with action: {action}")
-        
-        # Use the embedded complete prompt
-        system_prompt = CAMPUS_COACH_PROMPT
-        
-        # Create Strands agent with Campus Coach tools and memory hooks
-        agent = Agent(
-            model=MODEL_ID,
-            system_prompt=system_prompt,
-            tools=[extract_campus_coach_sessions, match_activity_to_session, 
-                   get_user_campus_coach_credentials, analyze_session_compliance, browser_tool],
-            hooks=[AgentCoreMemoryHook()] if MEMORY_ID else [],
-            state={
-                "session_id": f"extraction-{extraction_id}",
-                "actor_id": str(user_id)
-            }
-        )
-        
-        if MEMORY_ID:
-            logger.info(f"Campus Coach agent created with AgentCore Memory (LTM) for user {user_id}")
-        else:
-            logger.info(f"Campus Coach agent created without memory")
-        
-        # Extract remaining parameters from payload
-        activity_data = payload.get('activity_data', {})
-        planned_session = payload.get('planned_session', {})
-        week_number = payload.get('week_number')
-        
-        # Generate prompt based on action
-        if action == 'extract_sessions':
-            prompt = f"""Extract training sessions from Campus Coach for user {user_id}.
-
-{'Focus on week number ' + str(week_number) if week_number else 'Extract current week sessions'}.
-
-Use the extract_campus_coach_sessions tool to get the latest training plan.
-Return detailed session information including session types, distances, and planned intensities."""
-            
-        elif action == 'match_activity':
-            activity_type = activity_data.get('type', 'Unknown')
-            distance = activity_data.get('distance', 0) / 1000
-            duration = activity_data.get('moving_time', 0) / 60
-            
-            prompt = f"""Match this Strava activity to a Campus Coach planned session:
-
-Activity Details:
-- Type: {activity_type}
-- Distance: {distance:.2f} km
-- Duration: {duration:.0f} minutes
-- Date: {activity_data.get('start_date', 'Unknown')}
-
-User ID: {user_id}
-
-Use the match_activity_to_session tool to find the best matching planned session.
-Provide confidence scoring and compliance analysis."""
-            
-        elif action == 'check_credentials':
-            prompt = f"""Check Campus Coach credentials for user {user_id}.
-
-Use the get_user_campus_coach_credentials tool to verify if the user has configured their Campus Coach login credentials.
-Return credential status and configuration details."""
-            
-        elif action == 'analyze_compliance':
-            if not planned_session:
-                return {
-                    "error": "planned_session data required for compliance analysis",
-                    "action": action,
-                    "user_id": user_id
-                }
-            
-            prompt = f"""Analyze compliance between actual activity and planned session:
-
-Actual Activity:
-- Type: {activity_data.get('type', 'Unknown')}
-- Distance: {activity_data.get('distance', 0) / 1000:.2f} km
-- Duration: {activity_data.get('moving_time', 0) / 60:.0f} minutes
-
-Planned Session:
-- Type: {planned_session.get('session_type', 'Unknown')}
-- Planned Distance: {planned_session.get('planned_distance', 0)} km
-- Planned Duration: {planned_session.get('planned_duration', 0)} minutes
-
-Use the analyze_session_compliance tool to perform detailed compliance analysis."""
-            
-        else:
-            return {
-                "error": f"Unknown action: {action}",
-                "supported_actions": ["extract_sessions", "match_activity", "check_credentials", "analyze_compliance"]
-            }
-        
-        # Invoke the agent
-        result = agent(prompt)
-        
-        return {
-            "response": result.message.get('content', [{}])[0].get('text', str(result)),
-            "action": action,
-            "user_id": user_id,
-            "model_id": MODEL_ID,
-            "agentcore_runtime": "campus_coach_browser_tool"
-        }
-        
-    except Exception as e:
-        logger.error(f"Campus Coach operation failed: {str(e)}")
-        return {
-            "error": str(e),
-            "action": payload.get('action', 'unknown'),
-            "user_id": payload.get('user_id', 'unknown'),
-            "model_id": MODEL_ID,
-            "agentcore_runtime": "campus_coach_browser_tool"
-        }
+    
+    region = payload.get("region", REGION)
+    
+    # Retrieve credentials from Secrets Manager
+    logger.info("🔑 Retrieving credentials from Secrets Manager...")
+    campus_username, campus_password = get_campus_credentials(region)
+    
+    if not campus_username or not campus_password:
+        return {"success": False, "error": "Failed to retrieve credentials from Secrets Manager"}
+    
+    # Launch async task in background without awaiting
+    logger.info("🚀 Starting background scraping task...")
+    import asyncio
+    asyncio.create_task(scrape_campus_sessions(region, campus_username, campus_password))
+    
+    return {"success": True, "message": "Scraping task started in background"}
 
 
-# Required AgentCore app.run() call
 if __name__ == "__main__":
     app.run()

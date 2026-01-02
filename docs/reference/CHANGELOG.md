@@ -5,6 +5,63 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0] - 2026-01-02 - Campus Coach Agent Implementation & Autonomous Scraping
+
+### Added
+- **Campus Coach Agent**: Fully autonomous AgentCore agent for session extraction
+  - Autonomous operation: Retrieves credentials from Secrets Manager
+  - Browser Tool integration: Uses AgentCore Browser Tool for web scraping
+  - Direct DynamoDB writes: Saves sessions without Lambda intervention
+  - Asynchronous execution: Runs in background (Lambda returns immediately)
+  - Performance: ~6 minutes extraction time, 32 browser tool calls
+  - File: `src/agents/campus_coach_agent.py`
+
+### Added
+- **Campus Coach Prompt**: Externalized prompt for maintainability
+  - Detailed extraction instructions with step-by-step process
+  - JSON schema specification for structured data
+  - Error handling and graceful degradation guidelines
+  - File: `src/agents/embedded_prompts.py`
+
+### Added
+- **Campus Coach IAM Permissions**: Automated permission configuration
+  - Secrets Manager read access for credentials
+  - DynamoDB write access for session storage
+  - Browser Tool permissions (StartBrowserSession, ConnectBrowserAutomationStream)
+  - Script: `scripts/configure_agentcore_integration.sh`
+
+### Fixed
+- **Campus Coach Invoker**: Simplified to async-only invocation
+  - Removed synchronous retry logic (agent handles retries internally)
+  - Removed session parsing and storage (agent writes directly to DynamoDB)
+  - Lambda now only launches agent asynchronously and returns immediately
+  - Fixed `AWS_REGION` variable name bug (was using undefined variable)
+  - File: `lambda_functions/campus_coach_invoker.py`
+
+### Fixed
+- **Agent Dependencies**: Added missing strands-agents-tools dependencies
+  - Added `strands-agents-tools` (correct package name, not `strands-tools`)
+  - Added `nest-asyncio` (required by Browser Tool)
+  - Added `playwright` (required by Browser Tool)
+  - Added `bedrock-agentcore-starter-toolkit`
+  - File: `src/agents/requirements.txt`
+
+### Changed
+- **AgentCore Integration Script**: Improved IAM permission management
+  - Removed non-existent `aws bedrock-agentcore` API calls
+  - Direct fallback to IAM role listing (more reliable)
+  - Fixed bash syntax errors (`else:` → `else`)
+  - Added Campus Coach agent permission configuration
+  - File: `scripts/configure_agentcore_integration.sh`
+
+### Performance
+- **Campus Coach Extraction**: Validated end-to-end performance
+  - Extraction time: 362 seconds (~6 minutes)
+  - Sessions extracted: 5 sessions per week
+  - Browser tool calls: 32 calls per extraction
+  - Success rate: 100% with proper IAM permissions
+  - Data quality: Complete structured data with intervals, pace targets, coach advice
+
 ## [1.11.0] - 2026-01-02 - Local Dashboard UX Improvements & AgentCore Health Monitoring
 
 ### Fixed

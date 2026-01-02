@@ -1,6 +1,10 @@
 # Required AgentCore dependencies
 bedrock-agentcore
+bedrock-agentcore-starter-toolkit
 strands-agents
+strands-agents-tools
+playwright
+nest-asyncio
 
 # Additional dependencies for content generation
 boto3

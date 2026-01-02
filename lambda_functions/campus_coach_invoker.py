@@ -35,22 +35,57 @@ RETRY_DELAY_SECONDS = 5
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
-    Lambda handler for invoking Campus Coach AgentCore Browser Tool agent
+    Lambda handler for invoking Campus Coach AgentCore agent
     
-    Handles retry logic for cold start issues and stores extracted sessions
+    Launches agent asynchronously and returns immediately (non-blocking)
     """
     try:
         action = event.get('action', 'extract_sessions')
-        user_id = event.get('user_id')
+        user_id = event.get('user_id', 'default_user')
         
         logger.info(f"Campus Coach invoker action: {action}")
         
-        if action == 'extract_sessions':
-            return extract_coaching_sessions(user_id)
-        elif action == 'get_sessions':
-            return get_stored_sessions(user_id)
-        else:
-            raise ValueError(f"Unknown action: {action}")
+        # Get agent ARN from environment
+        agent_arn = os.environ.get('CAMPUS_COACH_AGENT_ARN', '')
+        
+        if not agent_arn:
+            logger.error("CAMPUS_COACH_AGENT_ARN environment variable not set")
+            return {
+                'statusCode': 500,
+                'error': 'Campus Coach agent not configured'
+            }
+        
+        # Prepare payload for AgentCore agent
+        agent_payload = {
+            'action': action,
+            'user_id': user_id,
+            'region': REGION
+        }
+        
+        # Invoke AgentCore agent asynchronously (fire and forget)
+        bedrock_agentcore_client = boto3.client('bedrock-agentcore', region_name=REGION)
+        
+        # Create session ID
+        import uuid
+        session_id = f"campus-coach-{uuid.uuid4().hex}"
+        
+        logger.info(f"Invoking Campus Coach agent asynchronously: {agent_arn}")
+        
+        # Invoke agent (non-blocking)
+        response = bedrock_agentcore_client.invoke_agent_runtime(
+            agentRuntimeArn=agent_arn,
+            runtimeSessionId=session_id,
+            payload=json.dumps(agent_payload).encode('utf-8')
+        )
+        
+        logger.info("✅ Campus Coach agent invoked successfully (async)")
+        
+        return {
+            'statusCode': 200,
+            'message': 'Campus Coach extraction started in background',
+            'session_id': session_id,
+            'agent_arn': agent_arn
+        }
         
     except Exception as e:
         logger.error(f"Campus Coach invoker error: {str(e)}")
@@ -59,306 +94,6 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'error': str(e),
             'action': event.get('action')
         }
-
-
-def extract_coaching_sessions(user_id: Optional[str] = None) -> Dict[str, Any]:
-    """
-    Extract coaching sessions from Campus Coach using AgentCore Browser Tool
-    
-    Implements retry logic for cold start issues (30% first-try success rate)
-    """
-    try:
-        # Get Campus Coach credentials
-        credentials = get_campus_coach_credentials()
-        
-        # Prepare input for AgentCore agent
-        agent_input = {
-            'credentials': credentials,
-            'action': 'extract_sessions',
-            'user_id': user_id or 'default_user'
-        }
-        
-        # Invoke AgentCore agent with retry logic
-        sessions_data = invoke_agent_with_retry(agent_input)
-        
-        if not sessions_data:
-            raise Exception("Failed to extract sessions after retries")
-        
-        # Store extracted sessions in DynamoDB
-        stored_count = store_coaching_sessions(sessions_data)
-        
-        return {
-            'statusCode': 200,
-            'sessions_extracted': len(sessions_data),
-            'sessions_stored': stored_count,
-            'extraction_timestamp': datetime.utcnow().isoformat()
-        }
-        
-    except Exception as e:
-        logger.error(f"Session extraction failed: {str(e)}")
-        return {
-            'statusCode': 500,
-            'error': str(e),
-            'sessions_extracted': 0
-        }
-
-
-def get_campus_coach_credentials() -> Dict[str, str]:
-    """Get Campus Coach credentials from Secrets Manager"""
-    try:
-        response = secretsmanager.get_secret_value(SecretId=CAMPUS_COACH_SECRET)
-        secrets = json.loads(response['SecretString'])
-        
-        username = secrets.get('username')
-        password = secrets.get('password')
-        
-        if not username or not password:
-            raise ValueError("Campus Coach credentials not found in secrets")
-        
-        return {
-            'username': username,
-            'password': password
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to get Campus Coach credentials: {str(e)}")
-        raise
-
-
-def invoke_agent_with_retry(agent_input: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
-    """
-    Invoke AgentCore Browser Tool agent with retry logic
-    
-    Known issue: Cold start problem with ~30% first-try success rate
-    Implements exponential backoff retry strategy
-    """
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            logger.info(f"AgentCore invocation attempt {attempt}/{MAX_RETRIES}")
-            
-            # Invoke AgentCore Browser Tool agent
-            sessions_data = invoke_agentcore_agent(agent_input)
-            
-            if sessions_data:
-                logger.info(f"Successfully extracted {len(sessions_data)} sessions on attempt {attempt}")
-                return sessions_data
-            else:
-                logger.warning(f"No sessions returned on attempt {attempt}")
-                
-        except Exception as e:
-            logger.error(f"AgentCore invocation attempt {attempt} failed: {str(e)}")
-            
-            if attempt < MAX_RETRIES:
-                # Exponential backoff
-                delay = RETRY_DELAY_SECONDS * (2 ** (attempt - 1))
-                logger.info(f"Retrying in {delay} seconds...")
-                time.sleep(delay)
-            else:
-                logger.error("All retry attempts exhausted")
-                return None
-    
-    return None
-
-
-def invoke_agentcore_agent(agent_input: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
-    """
-    Invoke AgentCore Browser Tool agent using AWS Bedrock Agent Runtime
-    
-    Integrates with actual AgentCore Browser Tool for Campus Coach session extraction
-    """
-    try:
-        # Get agent ARN from environment
-        agent_arn = os.environ.get('CAMPUS_COACH_AGENT_ARN', '')
-        agent_name = os.environ.get('CAMPUS_COACH_AGENT_NAME', 'campus_coach')
-        
-        if not agent_arn:
-            logger.error("CAMPUS_COACH_AGENT_ARN environment variable not set")
-            raise ValueError("AgentCore Campus Coach Agent ARN not configured")
-        
-        # Create session ID for this invocation (minimum 33 characters required)
-        import uuid
-        session_id = f"campus-coach-{uuid.uuid4().hex}"  # UUID hex is 32 chars + prefix = 44 chars total
-        
-        logger.info(f"Invoking AgentCore agent: {agent_name} (ARN: {agent_arn}) with session: {session_id}")
-        
-        # Prepare input for AgentCore Browser Tool agent
-        agentcore_input = {
-            'action': 'extract_sessions',
-            'credentials': agent_input.get('credentials', {}),
-            'user_id': agent_input.get('user_id', 'default_user'),
-            'target_weeks': 2,  # Extract current and next week
-            'retry_on_failure': True
-        }
-        
-        # Prepare payload for AgentCore
-        payload = json.dumps(agentcore_input).encode('utf-8')
-        
-        # Use Bedrock AgentCore Runtime to invoke Campus Coach Agent
-        bedrock_agentcore_client = boto3.client('bedrock-agentcore', region_name=AWS_REGION)
-        
-        # Invoke AgentCore agent via Bedrock AgentCore Runtime using correct API
-        response = bedrock_agentcore_client.invoke_agent_runtime(
-            agentRuntimeArn=agent_arn,  # Use full ARN with correct parameter name
-            runtimeSessionId=session_id,
-            payload=payload
-        )
-        
-        # Process streaming response from AgentCore
-        completion = ""
-        if "text/event-stream" in response.get("contentType", ""):
-            # Handle streaming response
-            for line in response["response"].iter_lines(chunk_size=10):
-                if line:
-                    line = line.decode("utf-8")
-                    if line.startswith("data: "):
-                        line = line[6:]
-                        completion += line
-        elif response.get("contentType") == "application/json":
-            # Handle standard JSON response
-            content = []
-            for chunk in response.get("response", []):
-                content.append(chunk.decode('utf-8'))
-            completion = ''.join(content)
-        else:
-            # Handle other content types
-            completion = str(response.get("response", ""))
-        
-        logger.info(f"AgentCore agent response length: {len(completion)}")
-        
-        # Parse agent response
-        try:
-            # Try to extract JSON from response
-            import re
-            json_match = re.search(r'\{.*\}', completion, re.DOTALL)
-            
-            if json_match:
-                agent_response = json.loads(json_match.group())
-                
-                # Extract sessions from agent response
-                if agent_response.get('success', False):
-                    sessions = agent_response.get('sessions', [])
-                    logger.info(f"Successfully extracted {len(sessions)} sessions from AgentCore agent")
-                    return sessions
-                else:
-                    error_msg = agent_response.get('error', 'Unknown agent error')
-                    logger.error(f"AgentCore agent reported error: {error_msg}")
-                    return None
-            else:
-                # Fallback: try to parse as plain text response
-                logger.warning("Could not parse JSON from agent response, using fallback parsing")
-                return parse_agent_text_response(completion)
-                
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse agent response as JSON: {str(e)}")
-            return parse_agent_text_response(completion)
-        
-    except Exception as e:
-        logger.error(f"AgentCore agent invocation failed: {str(e)}")
-        
-        # Check if this is a cold start issue (common with Browser Tool agents)
-        if "timeout" in str(e).lower() or "unavailable" in str(e).lower():
-            logger.warning("Possible cold start issue detected - this is expected on first invocation")
-        
-        raise
-
-
-def parse_agent_text_response(response_text: str) -> Optional[List[Dict[str, Any]]]:
-    """
-    Fallback parser for agent text responses when JSON parsing fails
-    
-    Attempts to extract session information from plain text response
-    """
-    try:
-        sessions = []
-        
-        # Look for session patterns in text
-        # This is a simplified parser - in production, the agent should return structured JSON
-        lines = response_text.split('\n')
-        
-        current_session = {}
-        for line in lines:
-            line = line.strip()
-            
-            # Look for session indicators
-            if 'session' in line.lower() and ':' in line:
-                if current_session:
-                    sessions.append(current_session)
-                    current_session = {}
-                
-                # Extract session ID/name
-                session_id = line.split(':')[1].strip()
-                current_session['session_id'] = session_id
-                current_session['extracted_at'] = datetime.utcnow().isoformat()
-            
-            elif 'date:' in line.lower():
-                current_session['session_date'] = line.split(':')[1].strip()
-            
-            elif 'type:' in line.lower():
-                current_session['session_type'] = line.split(':')[1].strip()
-            
-            elif 'distance:' in line.lower():
-                try:
-                    distance_str = line.split(':')[1].strip()
-                    current_session['planned_distance'] = float(distance_str.replace('km', '').strip())
-                except:
-                    pass
-            
-            elif 'description:' in line.lower():
-                current_session['description'] = line.split(':')[1].strip()
-        
-        # Add last session if exists
-        if current_session:
-            sessions.append(current_session)
-        
-        if sessions:
-            logger.info(f"Parsed {len(sessions)} sessions from text response")
-            return sessions
-        else:
-            logger.warning("No sessions found in text response")
-            return None
-            
-    except Exception as e:
-        logger.error(f"Failed to parse agent text response: {str(e)}")
-        return None
-
-
-def store_coaching_sessions(sessions_data: List[Dict[str, Any]]) -> int:
-    """Store extracted coaching sessions in DynamoDB"""
-    try:
-        table = dynamodb.Table(COACHING_SESSIONS_TABLE)
-        stored_count = 0
-        
-        for session in sessions_data:
-            try:
-                session_date = session.get('session_date', datetime.utcnow().isoformat())
-                session_id = session.get('session_id', f"session_{datetime.utcnow().timestamp()}")
-                
-                table.put_item(
-                    Item={
-                        'session_date': session_date,
-                        'session_id': session_id,
-                        'week_number': session.get('week_number', ''),
-                        'session_type': session.get('session_type', ''),
-                        'description': session.get('description', ''),
-                        'workout_structure': session.get('workout_structure', {}),
-                        'session_data': session,
-                        'extracted_at': datetime.utcnow().isoformat()
-                    }
-                )
-                
-                stored_count += 1
-                
-            except Exception as e:
-                logger.error(f"Failed to store session {session.get('session_id')}: {str(e)}")
-                # Continue with other sessions
-        
-        logger.info(f"Stored {stored_count}/{len(sessions_data)} sessions")
-        
-        return stored_count
-        
-    except Exception as e:
-        logger.error(f"Failed to store coaching sessions: {str(e)}")
-        return 0
 
 
 def get_stored_sessions(user_id: Optional[str] = None) -> Dict[str, Any]:
