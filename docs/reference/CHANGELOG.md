@@ -5,6 +5,32 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.0] - 2026-01-02 - Campus Coach Memory Integration & Duplicate Prevention
+
+### Added
+- **Campus Coach Agent Memory**: AgentCore Memory integration for learning
+  - Loads last 3 extraction sessions from memory for context
+  - Saves extraction results to memory for continuous improvement
+  - Uses daily session_id (campus-extraction-{date}) for grouping
+  - Improves extraction accuracy over time
+  - File: `src/agents/campus_coach_agent.py`
+
+### Fixed
+- **Campus Coach Duplicate Prevention**: Deterministic keys to avoid duplicates
+  - Changed from random session_id to deterministic week_number + session_number
+  - session_date = "week-{week_number}" (e.g., "week-3")
+  - session_id = "{week_number}-{session_number}" (e.g., "3-2/5")
+  - Same session = same key = automatic overwrite (no duplicates)
+  - Prevents duplicate sessions when agent runs multiple times
+  - File: `src/agents/campus_coach_agent.py`
+
+### Performance
+- **Memory Benefits**: Agent learns from previous extractions
+  - Remembers successful extraction patterns
+  - Adapts to Campus Coach UI changes
+  - Improves session parsing accuracy
+  - Reduces extraction errors over time
+
 ## [1.13.0] - 2026-01-02 - Campus Coach Intelligent Matching & Content Integration
 
 ### Added

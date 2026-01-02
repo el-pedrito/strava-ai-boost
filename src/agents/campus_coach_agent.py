@@ -6,6 +6,7 @@ Autonomous agent that:
 2. Scrapes Campus Coach sessions using Browser Tool
 3. Writes directly to DynamoDB
 4. Runs asynchronously (Lambda invoker returns immediately)
+5. Uses AgentCore Memory to learn from previous extractions
 """
 
 import os
@@ -18,8 +19,10 @@ import boto3
 
 # Required AgentCore imports
 from bedrock_agentcore import BedrockAgentCoreApp
+from bedrock_agentcore.memory import MemoryClient
 from strands import Agent
 from strands_tools.browser import AgentCoreBrowser
+from strands.hooks import AgentInitializedEvent, HookProvider, MessageAddedEvent
 
 # Import embedded prompts
 from embedded_prompts import CAMPUS_COACH_PROMPT
@@ -38,6 +41,85 @@ MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-4-5-202
 COACHING_SESSIONS_TABLE = os.getenv("COACHING_SESSIONS_TABLE", "strava-ai-boost-campus-coaching-sessions")
 CAMPUS_COACH_SECRET = os.getenv("CAMPUS_COACH_SECRET", "strava-ai-boost-campus-coach-credentials")
 
+# AgentCore Memory configuration
+MEMORY_ID = os.getenv("BEDROCK_AGENTCORE_MEMORY_ID")
+
+# Initialize memory client if memory is configured
+memory_client = None
+if MEMORY_ID:
+    try:
+        memory_client = MemoryClient(region_name=REGION)
+        logger.info(f"AgentCore Memory client initialized for Campus Coach: {MEMORY_ID}")
+    except Exception as e:
+        logger.warning(f"Failed to initialize memory client: {e}")
+        memory_client = None
+
+
+class AgentCoreMemoryHook(HookProvider):
+    """Hook for AgentCore Memory integration with Campus Coach Agent"""
+    
+    def on_agent_initialized(self, event):
+        """Load previous extraction context from memory"""
+        if not MEMORY_ID or not memory_client:
+            return
+        
+        try:
+            session_id = event.agent.state.get("session_id") or "default"
+            actor_id = event.agent.state.get("actor_id") or "default_user"
+            
+            # Get last 3 extraction sessions from memory
+            turns = memory_client.get_last_k_turns(
+                memory_id=MEMORY_ID,
+                actor_id=actor_id,
+                session_id=session_id,
+                k=3
+            )
+            
+            if turns:
+                context = "\n".join([
+                    f"{m['role']}: {m['content']['text'][:200]}..." 
+                    for t in turns for m in t
+                ])
+                event.agent.system_prompt += f"\n\nPREVIOUS EXTRACTIONS (from Memory):\n{context}"
+                logger.info(f"Loaded {len(turns)} previous extraction turns from memory")
+        except Exception as e:
+            logger.warning(f"Failed to load memory context: {e}")
+    
+    def on_message_added(self, event):
+        """Save extraction to memory after processing"""
+        if not MEMORY_ID or not memory_client:
+            return
+        
+        try:
+            session_id = event.agent.state.get("session_id") or "default"
+            actor_id = event.agent.state.get("actor_id") or "default_user"
+            
+            # Save only assistant messages
+            msg = event.agent.messages[-1]
+            
+            if msg.get("role") != "assistant":
+                return
+            
+            # Extract content and limit size
+            content = str(msg.get("content", ""))
+            if len(content) > 9000:
+                content = content[:9000] + "... [truncated]"
+            
+            memory_client.create_event(
+                memory_id=MEMORY_ID,
+                actor_id=actor_id,
+                session_id=session_id,
+                messages=[(content, msg["role"])]
+            )
+            logger.info(f"Saved extraction to memory for actor {actor_id}")
+        except Exception as e:
+            logger.warning(f"Failed to save to memory: {e}")
+    
+    def register_hooks(self, registry):
+        """Register hooks with the agent"""
+        registry.add_callback(AgentInitializedEvent, self.on_agent_initialized)
+        registry.add_callback(MessageAddedEvent, self.on_message_added)
+
 
 def get_campus_credentials(region: str = "eu-west-1"):
     """Retrieve Campus Coach credentials from Secrets Manager"""
@@ -53,7 +135,7 @@ def get_campus_credentials(region: str = "eu-west-1"):
 
 
 def save_sessions_to_dynamodb(sessions_data: dict, region: str = "eu-west-1"):
-    """Save training sessions to DynamoDB"""
+    """Save training sessions to DynamoDB (upsert to avoid duplicates)"""
     dynamodb = boto3.resource('dynamodb', region_name=region)
     table = dynamodb.Table(COACHING_SESSIONS_TABLE)
     
@@ -68,16 +150,21 @@ def save_sessions_to_dynamodb(sessions_data: dict, region: str = "eu-west-1"):
                 if 'target_distance_km' in metrics and metrics['target_distance_km'] is not None:
                     metrics['target_distance_km'] = Decimal(str(metrics['target_distance_km']))
             
-            session_date = session.get('session_date', datetime.now().isoformat())
-            session_id = session.get('id', f"session_{datetime.now().timestamp()}")
+            # Use week_number + session_number as unique key to avoid duplicates
+            week_number = session.get('week_number', 'unknown')
+            session_number = session.get('session_number', '1/5')
             
-            # Store in DynamoDB with session_date + session_id as composite key
+            # Create deterministic session_date and session_id from week_number + session_number
+            session_date = f"week-{week_number}"
+            session_id = f"{week_number}-{session_number}"
+            
+            # Use put_item with the unique key (will overwrite if exists)
             table.put_item(
                 Item={
                     'session_date': session_date,
                     'session_id': session_id,
-                    'week_number': session.get('week_number', ''),
-                    'session_number': session.get('session_number', ''),
+                    'week_number': week_number,
+                    'session_number': session_number,
                     'title': session.get('title', ''),
                     'workout': session.get('workout', ''),
                     'status': session.get('status', ''),
@@ -113,9 +200,18 @@ async def scrape_campus_sessions(region, campus_username, campus_password):
         agent = Agent(
             tools=[browser_tool.browser],
             system_prompt=CAMPUS_COACH_PROMPT,
-            model=MODEL_ID
+            model=MODEL_ID,
+            hooks=[AgentCoreMemoryHook()] if MEMORY_ID else [],
+            state={
+                "session_id": f"campus-extraction-{datetime.now().strftime('%Y%m%d')}",
+                "actor_id": "campus_coach_agent"
+            }
         )
-        logger.info("✅ Agent initialized with Browser Tool")
+        
+        if MEMORY_ID:
+            logger.info(f"✅ Agent initialized with Browser Tool and Memory (LTM)")
+        else:
+            logger.info("✅ Agent initialized with Browser Tool (no memory)")
         
         # Prepare extraction task
         combined_task = f"""
@@ -179,6 +275,20 @@ async def scrape_campus_sessions(region, campus_username, campus_password):
             logger.info("💾 Saving to DynamoDB...")
             saved_count = save_sessions_to_dynamodb(sessions_data, region)
             logger.info(f"✅ {saved_count} sessions saved")
+            
+            # Save extraction summary to memory (only final result, not intermediate messages)
+            if MEMORY_ID and memory_client:
+                try:
+                    extraction_summary = f"Extraction réussie : {saved_count} séances extraites pour la semaine {sessions_data.get('sessions_found', [{}])[0].get('week_number', 'unknown')}"
+                    memory_client.create_event(
+                        memory_id=MEMORY_ID,
+                        actor_id="campus_coach_agent",
+                        session_id=f"campus-extraction-{datetime.now().strftime('%Y%m%d')}",
+                        messages=[(extraction_summary, "assistant")]
+                    )
+                    logger.info("💾 Saved extraction summary to memory")
+                except Exception as mem_error:
+                    logger.warning(f"Failed to save to memory: {mem_error}")
             
             result = {
                 "success": True,
