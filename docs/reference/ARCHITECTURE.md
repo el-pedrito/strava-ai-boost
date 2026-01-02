@@ -38,6 +38,7 @@ graph TB
             Guardrails[Bedrock Guardrails<br/>Security Layer]
             AgentCoreMemory[AgentCore Memory<br/>Personalization]
             AgentCoreBrowser[AgentCore Browser<br/>Campus Coach Scraping]
+            Observability[AgentCore Observability<br/>Traces + Metrics]
         end
         
         subgraph "Data Storage"
@@ -51,6 +52,7 @@ graph TB
         subgraph "Monitoring"
             CloudWatch[CloudWatch<br/>Logs & Metrics]
             XRay[X-Ray<br/>Distributed Tracing]
+            GenAIDashboard[GenAI Dashboard<br/>Agent Observability]
         end
     end
     
@@ -75,10 +77,12 @@ graph TB
     %% Processing Flow with Guardrails
     ProcessorLambda --> Guardrails
     Guardrails --> Bedrock
+    ProcessorLambda --> Observability
     ProcessorLambda --> StravaAPI
     ProcessorLambda --> AgentCoreMemory
     ProcessorLambda --> AgentCoreBrowser
     AgentCoreBrowser --> Guardrails
+    AgentCoreBrowser --> Observability
     AgentCoreBrowser --> CampusCoach
     
     %% Campus Coach Automatic Extraction
@@ -96,6 +100,7 @@ graph TB
     %% Monitoring
     ProcessorLambda --> CloudWatch
     ProcessorLambda --> XRay
+    Observability --> GenAIDashboard
     
     %% Error Handling
     SQS --> DLQ

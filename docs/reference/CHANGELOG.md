@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.16.0] - 2026-01-02 - Bedrock Guardrails Security Integration
 
 ### Added
+- **AgentCore Observability**: Automatic monitoring for AI agents
+  - GenAI Observability Dashboard in CloudWatch
+  - Transaction Search enabled automatically via CDK
+  - X-Ray tracing configured (1% sampling, free tier)
+  - OpenTelemetry integration in agent requirements
+  - Files: `stacks/security_stack.py`, `src/agents/requirements.txt`
+
+### Added
 - **Bedrock Guardrails**: Comprehensive security layer for AI agents
   - Protection against prompt injection attacks
   - Content filtering (violence, hate, sexual content, insults)
@@ -17,10 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Files: `stacks/security_stack.py`, `src/agents/content_agent.py`, `src/agents/campus_coach_agent.py`
 
 ### Added
-- **Security Stack**: New CDK stack for guardrail management
+- **Security Stack**: New CDK stack for guardrail management and observability
   - Creates and manages Bedrock Guardrails
-  - Exports guardrail ID and version for agent use
-  - Configurable content policies and topic restrictions
+  - Configures AgentCore Observability (Transaction Search, X-Ray)
+  - Exports guardrail ID, version, and dashboard URL
+  - Automatic setup of GenAI Observability Dashboard
   - File: `stacks/security_stack.py`
 
 ### Changed
@@ -87,6 +96,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Includes configuration examples, testing strategies
   - Monitoring and metrics guidance
   - Cost optimization recommendations
+
+### Documentation
+- **Observability Guide**: AgentCore monitoring documentation
+  - Section in: `docs/advanced/AGENTCORE.md`
+  - GenAI Dashboard access and usage
+  - Metrics, traces, and logs reference
+  - Automatic setup via CDK SecurityStack
 
 ## [1.15.0] - 2026-01-02 - Per-User Configuration Architecture
 

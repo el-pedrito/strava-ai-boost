@@ -1,10 +1,13 @@
 # Required AgentCore dependencies
 bedrock-agentcore
 bedrock-agentcore-starter-toolkit
-strands-agents
+strands-agents[otel]  # With OpenTelemetry for observability
 strands-agents-tools
 playwright
 nest-asyncio
+
+# OpenTelemetry for GenAI Observability Dashboard
+aws-opentelemetry-distro
 
 # Additional dependencies for content generation
 boto3

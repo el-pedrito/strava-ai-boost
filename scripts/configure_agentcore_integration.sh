@@ -358,39 +358,76 @@ EOF
     local policy_arn=""
     
     if [ -n "$existing_policy_arn" ] && [ "$existing_policy_arn" != "None" ]; then
-        print_status "Policy already exists, updating..."
-        policy_arn="$existing_policy_arn"
+        # Check if policy content has changed
+        print_status "Checking if policy needs update: $policy_name"
         
-        # Delete old versions if at limit
-        local version_count=$(aws iam list-policy-versions \
-            --policy-arn "$policy_arn" \
+        local current_policy_doc
+        current_policy_doc=$(aws iam get-policy-version \
+            --policy-arn "$existing_policy_arn" \
+            --version-id $(aws iam get-policy --policy-arn "$existing_policy_arn" --profile "$AWS_PROFILE" --query 'Policy.DefaultVersionId' --output text) \
             --profile "$AWS_PROFILE" \
-            --query 'length(Versions)' \
-            --output text 2>/dev/null)
+            --query 'PolicyVersion.Document' \
+            --output json 2>/dev/null)
         
-        if [ "$version_count" -ge 5 ]; then
-            local oldest_version=$(aws iam list-policy-versions \
-                --policy-arn "$policy_arn" \
+        local new_policy_doc=$(cat "$policy_file")
+        
+        # Compare policies (normalize JSON for comparison)
+        local current_normalized=$(echo "$current_policy_doc" | jq -S -c '.')
+        local new_normalized=$(echo "$new_policy_doc" | jq -S -c '.')
+        
+        if [ "$current_normalized" = "$new_normalized" ]; then
+            print_success "✅ Policy unchanged, skipping version creation"
+            policy_arn="$existing_policy_arn"
+        else
+            # Policy has changed, create new version
+            print_status "Policy has changed, creating new version"
+            
+            # Delete oldest non-default version if we have 5 versions (AWS limit)
+            local version_count=$(aws iam list-policy-versions \
+                --policy-arn "$existing_policy_arn" \
                 --profile "$AWS_PROFILE" \
-                --query 'Versions[?IsDefaultVersion==`false`] | sort_by(@, &CreateDate) | [0].VersionId' \
+                --query 'length(Versions)' \
                 --output text 2>/dev/null)
             
-            if [ -n "$oldest_version" ] && [ "$oldest_version" != "None" ]; then
-                aws iam delete-policy-version \
-                    --policy-arn "$policy_arn" \
-                    --version-id "$oldest_version" \
-                    --profile "$AWS_PROFILE" 2>/dev/null || true
+            if [ "$version_count" -ge 5 ]; then
+                print_status "Cleaning up old policy versions (limit: 5)"
+                local oldest_version=$(aws iam list-policy-versions \
+                    --policy-arn "$existing_policy_arn" \
+                    --profile "$AWS_PROFILE" \
+                    --query 'Versions[?IsDefaultVersion==`false`] | sort_by(@, &CreateDate) | [0].VersionId' \
+                    --output text 2>/dev/null)
+                
+                if [ -n "$oldest_version" ] && [ "$oldest_version" != "None" ]; then
+                    aws iam delete-policy-version \
+                        --policy-arn "$existing_policy_arn" \
+                        --version-id "$oldest_version" \
+                        --profile "$AWS_PROFILE" 2>/dev/null
+                    print_status "Deleted old version: $oldest_version"
+                fi
+            fi
+            
+            # Create new policy version
+            local version_id
+            version_id=$(aws iam create-policy-version \
+                --policy-arn "$existing_policy_arn" \
+                --policy-document "file://$policy_file" \
+                --set-as-default \
+                --profile "$AWS_PROFILE" \
+                --query 'PolicyVersion.VersionId' \
+                --output text 2>/dev/null)
+            
+            if [ $? -eq 0 ] && [ -n "$version_id" ]; then
+                print_success "✅ Created new policy version: $version_id"
+                policy_arn="$existing_policy_arn"
+            else
+                print_warning "Failed to update existing policy"
             fi
         fi
-        
-        # Create new version
-        aws iam create-policy-version \
-            --policy-arn "$policy_arn" \
-            --policy-document "file://$policy_file" \
-            --set-as-default \
-            --profile "$AWS_PROFILE" > /dev/null 2>&1 || true
-    else
-        print_status "Creating new policy..."
+    fi
+    
+    # Create new policy if doesn't exist or update failed
+    if [ -z "$policy_arn" ]; then
+        print_status "Creating new policy: $policy_name"
         policy_arn=$(aws iam create-policy \
             --policy-name "$policy_name" \
             --policy-document "file://$policy_file" \
@@ -398,6 +435,14 @@ EOF
             --profile "$AWS_PROFILE" \
             --query 'Policy.Arn' \
             --output text 2>/dev/null)
+        
+        if [ $? -eq 0 ] && [ -n "$policy_arn" ] && [[ "$policy_arn" == arn:* ]]; then
+            print_success "✅ Created new policy: $policy_arn"
+        else
+            print_error "Failed to create policy"
+            rm -f "$policy_file"
+            return 1
+        fi
     fi
     
     rm -f "$policy_file"

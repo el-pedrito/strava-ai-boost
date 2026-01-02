@@ -14,7 +14,7 @@ AgentCore provides the AI agent runtime and memory system for Strava AI Boost, e
 
 ## Architecture
 
-### AgentCore Components with Security
+### AgentCore Components with Security & Observability
 
 ```mermaid
 graph TB
@@ -23,11 +23,13 @@ graph TB
         Runtime[AgentCore Runtime<br/>Strands Framework]
         Browser[AgentCore Browser<br/>Web Automation]
         Guardrails[Bedrock Guardrails<br/>Security Layer]
+        Observability[AgentCore Observability<br/>Traces + Metrics]
     end
     
     subgraph "Content Generation Agent"
         ContentAgent[Content Agent<br/>content_gen]
         ContentAgent --> Guardrails
+        ContentAgent --> Observability
         Guardrails --> Claude1[Claude Sonnet 4.5]
         ContentAgent --> Memory
         Claude1 --> ContentTool[Structured Tool<br/>JSON Response]
@@ -36,10 +38,16 @@ graph TB
     subgraph "Campus Coach Agent"
         CampusAgent[Campus Coach Agent<br/>campus_coach]
         CampusAgent --> Guardrails
+        CampusAgent --> Observability
         Guardrails --> Claude2[Claude Sonnet 4.5]
         CampusAgent --> Memory
         CampusAgent --> Browser
         Claude2 --> Extraction[Session Extraction<br/>Protected]
+    end
+    
+    subgraph "Monitoring"
+        CloudWatch[CloudWatch<br/>GenAI Dashboard]
+        Observability --> CloudWatch
     end
     
     Lambda[Lambda Functions] --> ContentAgent
@@ -49,15 +57,17 @@ graph TB
     Extraction --> DynamoDB
     
     style Guardrails fill:#ff6b6b,stroke:#c92a2a,stroke-width:3px
+    style Observability fill:#ffd43b,stroke:#f59f00,stroke-width:2px
     style ContentAgent fill:#4dabf7,stroke:#1971c2
     style CampusAgent fill:#51cf66,stroke:#2f9e44
 ```
 
 **Key Points**:
-- 🛡️ **Both agents** use the same Bedrock Guardrails
+- 🛡️ **Both agents** use the same Bedrock Guardrails (red)
+- 📊 **Both agents** send traces to AgentCore Observability (yellow)
 - 🧠 **Both agents** have their own AgentCore Memory
 - 🔒 **Security layer** applied before Claude invocation
-- 📊 **Structured outputs** for reliable parsing
+- 📈 **Monitoring** via CloudWatch GenAI Dashboard
 
 ### Integration Points
 
@@ -549,3 +559,134 @@ GUARDRAIL_VERSION=1
 2. **Error Recovery**: Implement retry logic and fallbacks
 3. **Logging**: Comprehensive logging for debugging
 4. **Testing**: Regular testing of agent functionality
+
+
+## Observability
+
+### GenAI Observability Dashboard
+
+**Automatic Setup**: Configured automatically via CDK SecurityStack
+
+The GenAI Observability Dashboard provides:
+- 📊 **Agent Metrics**: Invocations, latency, errors, token usage
+- 🔍 **Trace Visualization**: Detailed execution timeline for each invocation
+- 🔗 **Session Tracking**: Group related invocations
+- 🛡️ **Guardrail Monitoring**: Track security interventions
+
+**Access**: https://console.aws.amazon.com/cloudwatch/home?region=eu-west-1#gen-ai-observability/agent-core/agents
+
+### What's Monitored Automatically
+
+**For Both Agents** (`content_gen` and `campus_coach`):
+- ✅ Invocation count and frequency
+- ✅ Latency (p50, p90, p99)
+- ✅ Token usage (input/output)
+- ✅ Error rate and types
+- ✅ Guardrail interventions
+- ✅ Memory operations
+- ✅ Tool executions
+
+### Setup (Automatic via CDK)
+
+When you deploy the SecurityStack, it automatically:
+1. ✅ Creates CloudWatch Logs resource policy
+2. ✅ Configures X-Ray trace destination
+3. ✅ Sets trace sampling to 1% (free tier)
+4. ✅ Enables Transaction Search
+
+**No manual configuration needed!**
+
+### Requirements
+
+Already configured in `src/agents/requirements.txt`:
+```txt
+strands-agents[otel]  # OpenTelemetry support
+aws-opentelemetry-distro  # AWS distribution
+```
+
+### Viewing Data
+
+**GenAI Dashboard**:
+```
+CloudWatch → GenAI Observability → AgentCore → Agents
+```
+
+**Logs**:
+```bash
+# Content generation agent
+aws logs tail /aws/bedrock-agentcore/runtimes/content_gen-* --follow --profile your-aws-profile
+
+# Campus coach agent
+aws logs tail /aws/bedrock-agentcore/runtimes/campus_coach-* --follow --profile your-aws-profile
+```
+
+**Traces**:
+```
+CloudWatch → Transaction Search → Filter by service name
+```
+
+**Metrics**:
+```
+CloudWatch → Metrics → Bedrock-AgentCore namespace
+```
+
+### Key Metrics
+
+| Metric | Target | Alert Threshold |
+|--------|--------|-----------------|
+| Content Gen Latency | <5s | >10s |
+| Campus Coach Latency | <180s | >300s |
+| Error Rate | <2% | >5% |
+| Token Usage | <2000/activity | >5000 |
+| Guardrail Blocks | <1% | >5% |
+
+### Trace Timeline Example
+
+```
+Activity Processing Trace:
+├─ Lambda Invocation (50ms)
+├─ DynamoDB Read (20ms)
+├─ AgentCore Invocation (3.2s)
+│  ├─ Guardrails Check (15ms)
+│  ├─ Memory Retrieval (100ms)
+│  ├─ Claude Invocation (2.8s)
+│  └─ Memory Storage (80ms)
+└─ Strava API Update (200ms)
+
+Total: 3.47s
+```
+
+### Cost
+
+**Observability Costs**:
+- Transaction Search: 100% sampling
+- First 100K traces/month: FREE
+- After 100K: $1 per 1M traces
+- Estimated: ~$0.001 per activity
+- Monthly (100 activities): ~$0.10
+
+**Total System Cost**:
+- Content Gen: $0.005
+- Campus Coach: $0.01/day
+- Guardrails: $0.000375
+- Observability: $0.001
+- **Total**: ~$0.0214 per activity
+
+### Troubleshooting
+
+**Traces not appearing?**
+- Wait 10 minutes after first invocation
+- Check Transaction Search is enabled
+- Verify agents have `strands-agents[otel]` in requirements
+- Check CloudWatch Logs for OTEL errors
+- With 100% sampling, every invocation creates a trace
+
+**Dashboard empty?**
+- Invoke agents at least once
+- Wait ~10 minutes for traces to appear
+- Verify X-Ray destination is CloudWatchLogs
+- Check `/aws/spans/default` log group exists
+
+---
+
+**Status**: ✅ Automatic observability via CDK, no manual setup required

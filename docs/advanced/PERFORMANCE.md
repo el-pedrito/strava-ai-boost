@@ -875,6 +875,27 @@ class MultiLevelCache:
 
 ## Monitoring and Metrics
 
+### GenAI Observability Dashboard (v1.16.0+)
+
+**Automatic Setup**: Configured via CDK SecurityStack
+
+Access comprehensive agent monitoring:
+- 📊 **Agent Metrics**: Invocations, latency, errors, token usage
+- 🔍 **Trace Visualization**: Detailed execution timeline
+- 🔗 **Session Tracking**: Group related invocations
+- 🛡️ **Guardrail Monitoring**: Security interventions
+
+**Dashboard URL**: https://console.aws.amazon.com/cloudwatch/home?region=eu-west-1#gen-ai-observability/agent-core/agents
+
+**Key Metrics**:
+- Content Gen Latency: Target <5s
+- Campus Coach Latency: Target <180s
+- Token Usage: ~1,850 avg per activity
+- Error Rate: Target <2%
+- Guardrail Blocks: Target <1%
+
+**Reference**: See Observability section in `docs/advanced/AGENTCORE.md`
+
 ### Custom CloudWatch Metrics
 
 ```python

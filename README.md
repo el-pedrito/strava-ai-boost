@@ -4,8 +4,8 @@ Strava AI Boost is a production-ready, modular serverless application that autom
 
 ## ✅ System Status
 
-**🎉 FULLY OPERATIONAL** - AgentCore content generation with Long-Term Memory:
-- ✅ **Phase 1 (Infrastructure)**: 5 CDK stacks deployed (Core, Content, API, Webhook, Monitoring)
+**🎉 FULLY OPERATIONAL** - AgentCore content generation with Long-Term Memory + Security:
+- ✅ **Phase 1 (Infrastructure)**: 6 CDK stacks deployed (Core, Security, Content, API, Webhook, Monitoring)
 - ✅ **Phase 2 (LTM Memory)**: 2 LTM memories with semantic search (365-day retention)
 - ✅ **Phase 3 (AgentCore)**: 2 AI agents deployed (`content_gen`, `campus_coach`)
 - ✅ **Integration**: All 10 Lambda functions configured with agent ARNs
@@ -14,6 +14,7 @@ Strava AI Boost is a production-ready, modular serverless application that autom
 - ✅ **Strava Integration**: Webhook active with complete OAuth flow
 - ✅ **Local Interface**: Running with real-time dashboard and configuration
 - ✅ **AI Memory**: Long-term personalization with semantic search
+- ✅ **Security**: Bedrock Guardrails + GenAI Observability Dashboard
 
 ## 🚀 Quick Start
 

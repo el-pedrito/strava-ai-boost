@@ -346,6 +346,39 @@ app.config.update(
 
 ## Application Security
 
+### AI Security - Bedrock Guardrails (v1.16.0+)
+
+**Purpose**: Protect AI agents against prompt injection, harmful content, and PII leakage
+
+**Implementation**: Automatic via CDK SecurityStack
+
+**Protection Layers**:
+- 🛡️ **Prompt Injection**: HIGH strength blocking of instruction override attempts
+- 🚫 **Harmful Content**: Filters violence, hate, sexual content, insults
+- 📋 **Topic Boundaries**: Blocks politics, financial advice, medical advice
+- 🔒 **PII Protection**: Blocks/anonymizes email, phone, address, credit cards
+- 📝 **Custom Words**: Blocks injection phrases
+
+**Deployment**: Fully automated
+```bash
+# Guardrails deployed automatically with infrastructure
+./scripts/deploy.sh dev
+```
+
+**Configuration**: Automatic detection in agents
+```python
+# Both agents use guardrails automatically
+model = BedrockModel(
+    model_id="claude-sonnet-4-5",
+    guardrail_id=os.getenv("GUARDRAIL_ID"),  # Auto-configured
+    guardrail_version="1"
+)
+```
+
+**Cost**: +$0.000375 per activity (+2%)
+
+**Reference**: See `docs/advanced/BEDROCK-GUARDRAILS.md`
+
 ### Input Validation
 
 #### Pydantic Models
