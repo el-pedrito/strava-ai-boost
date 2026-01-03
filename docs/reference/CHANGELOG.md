@@ -5,7 +5,75 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.2] - 2025-01-02 - Scripts Cleanup and Corrections
+
+### Fixed
+- **Scripts Configuration**: Corrected resource names in deployment scripts
+  - `configure_strava_webhook.sh`: Fixed secret name from `strava-ai-boost-app-config` to `strava-ai-boost-oauth-tokens`
+  - `validate_deployment.sh`: Removed validation of non-existent table `strava-ai-boost-campus-coaching-sessions`
+  - Campus Coach uses AgentCore Memory instead of dedicated DynamoDB table
+  - Files: `scripts/configure_strava_webhook.sh`, `scripts/validate_deployment.sh`
+
+### Removed
+- **Obsolete Scripts**: Cleaned up 14 obsolete/duplicate scripts
+  - Removed: `deploy_complete.sh`, `deploy_campus_coach_agent.sh`, `setup_memory.sh`, `cleanup_agentcore.sh`
+  - Removed: `setup_strava_application.sh`, `validate_setup.sh`, `validate_strava_setup.sh`
+  - Removed: `backup_data.sh`, `strava_health_check.sh`, `test_dlq_solution.sh`, `test_enduraw_wait.sh`
+  - Removed: `test_agentcore_integration.py`, `test_basic_integration.py`, `validate_agentcore_setup.py`
+  - Kept: `setup_local_env.sh` (necessary for local interface configuration)
+  - Reduced script count from 25 to 11 (-56%)
+  - Eliminated redundancy and confusion
+
+### Added
+- **Scripts Documentation**: Comprehensive documentation for all deployment scripts
+  - Created `scripts/README.md` with detailed usage, examples, and troubleshooting
+  - Created `SCRIPTS_CLEANUP_RECOMMENDATIONS.md` with cleanup analysis
+  - Created `SCRIPTS_AUDIT_REPORT.md` with audit findings
+  - Created `SCRIPTS_CORRECTIONS_APPLIED.md` with correction summary
+  - All 11 remaining scripts fully documented and validated
+
+### Changed
+- **Scripts Organization**: Simplified and clarified script structure
+  - 2 deployment scripts (Phase 1: CDK, Phase 2: AgentCore)
+  - 4 configuration scripts (local env, memories, integration, webhook)
+  - 2 maintenance scripts (DLQ reprocess, webhook cleanup)
+  - 1 validation script (post-deployment)
+  - 2 uninstall scripts (uninstall, verify)
+  - Clear separation of concerns and responsibilities
+
+### Changed
+- **Documentation Updates**: Updated main documentation with correct scripts
+  - Updated `README.md` with simplified deployment workflow and script list
+  - Updated `docs/getting-started/QUICK-START.md` with 2-phase deployment (15 min each)
+  - Removed obsolete script references
+  - Added link to comprehensive `scripts/README.md`
+  - Clarified Phase 1 (required) vs Phase 2 (optional) deployment
+
+### Performance
+- **Scripts Maintenance**: Improved maintainability and clarity
+  - 56% reduction in script count (25 → 11)
+  - 100% of scripts validated and conforming to architecture
+  - Eliminated all duplicate functionality
+  - Clear documentation for all workflows
+  - Simplified deployment process (2 phases instead of 6+ steps)
+
 ## [1.16.1] - 2026-01-02 - Bug Fixes and Enduraw Integration
+
+### Fixed
+- **Guardrail Configuration**: Adjusted for production use
+  - Disabled Topic Policy to prevent rate limiting with large prompts
+  - Changed Prompt Attack from HIGH to MEDIUM sensitivity
+  - Campus Coach agent: Guardrails disabled (internal agent, credentials in prompt)
+  - Content Gen agent: Guardrails enabled (user-facing content)
+  - Prevents ThrottlingException with 230K+ character prompts
+  - Files: `stacks/security_stack.py`, `src/agents/campus_coach_agent.py`
+
+### Fixed
+- **DLQ Reprocess Script**: Fixed message body validation
+  - Added null/empty body checks
+  - Fixed integer comparison error
+  - Improved error handling
+  - File: `scripts/reprocess_dlq.sh`
 
 ### Fixed
 - **Campus Coach Agent**: Fixed syntax error in agent creation

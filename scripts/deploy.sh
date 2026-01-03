@@ -493,6 +493,7 @@ cat > $DEPLOYMENT_INFO_FILE << EOF
   "webhook_url": "$WEBHOOK_URL",
   "stacks_deployed": [
     "StravaAIBoost-Core",
+    "StravaAIBoost-Security",
     "StravaAIBoost-Content", 
     "StravaAIBoost-Webhook",
     "StravaAIBoost-API",

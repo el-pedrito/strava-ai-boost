@@ -118,7 +118,6 @@ EXPECTED_TABLES=(
     "strava-ai-boost-activities"
     "strava-ai-boost-user-configuration"
     "strava-ai-boost-rate-limits"
-    "strava-ai-boost-campus-coaching-sessions"
 )
 
 for table in "${EXPECTED_TABLES[@]}"; do

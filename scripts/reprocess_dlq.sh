@@ -65,14 +65,21 @@ case $option in
                 --region $REGION)
             
             # Check if queue is empty
-            if [ "$(echo $MESSAGE | jq '.Messages | length')" -eq "0" ]; then
+            MSG_COUNT=$(echo "$MESSAGE" | jq -r '.Messages | length' 2>/dev/null || echo "0")
+            if [ -z "$MSG_COUNT" ] || [ "$MSG_COUNT" -eq "0" ]; then
                 echo "✅ DLQ is now empty"
                 break
             fi
             
             # Extract body and receipt handle
-            BODY=$(echo $MESSAGE | jq -r '.Messages[0].Body')
-            RECEIPT_HANDLE=$(echo $MESSAGE | jq -r '.Messages[0].ReceiptHandle')
+            BODY=$(echo "$MESSAGE" | jq -r '.Messages[0].Body')
+            RECEIPT_HANDLE=$(echo "$MESSAGE" | jq -r '.Messages[0].ReceiptHandle')
+            
+            # Check if body is valid
+            if [ -z "$BODY" ] || [ "$BODY" = "null" ]; then
+                echo "⚠️  Invalid message, skipping"
+                continue
+            fi
             
             # Resend to processing queue
             aws sqs send-message \
