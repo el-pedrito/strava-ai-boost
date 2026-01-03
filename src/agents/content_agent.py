@@ -11,6 +11,7 @@ import json
 import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime
+import boto3
 
 # Required AgentCore imports
 from bedrock_agentcore import BedrockAgentCoreApp
@@ -37,6 +38,14 @@ MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-4-5-202
 
 # AgentCore Memory configuration
 MEMORY_ID = os.getenv("BEDROCK_AGENTCORE_MEMORY_ID")
+
+# Guardrail configuration (for input validation only)
+GUARDRAIL_ID = os.getenv("GUARDRAIL_ID")
+GUARDRAIL_VERSION = os.getenv("GUARDRAIL_VERSION", "DRAFT")
+GUARDRAIL_ENABLED = os.getenv("GUARDRAIL_ENABLED", "false").lower() == "true"
+
+# Initialize Bedrock Runtime client for guardrail validation
+bedrock_runtime = boto3.client('bedrock-runtime', region_name=REGION) if GUARDRAIL_ENABLED and GUARDRAIL_ID else None
 
 # Initialize memory client if memory is configured
 memory_client = None
@@ -126,6 +135,86 @@ class AgentCoreMemoryHook(HookProvider):
         registry.add_callback(MessageAddedEvent, self.on_message_added)
 
 
+def validate_user_input_with_guardrail(text: str, field_name: str) -> tuple[str, bool]:
+    """
+    Validate user input (title/description) with Bedrock Guardrail
+    
+    This applies guardrail ONLY to user-provided content (Strava title/description)
+    to detect prompt injection, without processing the entire prompt.
+    
+    Args:
+        text: User input to validate (title or description)
+        field_name: Name of the field for logging
+        
+    Returns:
+        tuple: (validated_text, is_blocked)
+            - validated_text: Original text or sanitized version
+            - is_blocked: True if guardrail blocked the content
+    """
+    if not GUARDRAIL_ENABLED or not GUARDRAIL_ID or not bedrock_runtime:
+        logger.debug(f"Guardrail validation skipped for {field_name} (not enabled)")
+        return text, False
+    
+    if not text or len(text.strip()) == 0:
+        return text, False
+    
+    try:
+        logger.info(f"🛡️ Validating {field_name} with guardrail ({len(text)} chars)")
+        logger.info(f"   Guardrail ID: {GUARDRAIL_ID}")
+        logger.info(f"   Guardrail Version: {GUARDRAIL_VERSION}")
+        logger.info(f"   Text preview: {text[:100]}...")
+        
+        # Call ApplyGuardrail API directly (not via model inference)
+        logger.info(f"   Calling bedrock_runtime.apply_guardrail()...")
+        response = bedrock_runtime.apply_guardrail(
+            guardrailIdentifier=GUARDRAIL_ID,
+            guardrailVersion=GUARDRAIL_VERSION,
+            source="INPUT",
+            content=[{
+                "text": {
+                    "text": text
+                }
+            }]
+        )
+        
+        logger.info(f"   API Response received: {response.get('ResponseMetadata', {}).get('HTTPStatusCode')}")
+        
+        # Check if content was blocked
+        action = response.get('action', 'NONE')
+        logger.info(f"   Guardrail action: {action}")
+        
+        if action == 'GUARDRAIL_INTERVENED':
+            logger.warning(f"⚠️ Guardrail blocked {field_name}: {text[:100]}...")
+            
+            # Log assessment details
+            assessments = response.get('assessments', [])
+            logger.warning(f"   Assessments count: {len(assessments)}")
+            for assessment in assessments:
+                content_policy = assessment.get('contentPolicy', {})
+                if content_policy:
+                    filters = content_policy.get('filters', [])
+                    for filter_item in filters:
+                        filter_type = filter_item.get('type')
+                        confidence = filter_item.get('confidence')
+                        action = filter_item.get('action')
+                        logger.warning(f"   Filter: {filter_type}, Confidence: {confidence}, Action: {action}")
+            
+            # Return sanitized version
+            sanitized = f"[Contenu bloqué - {field_name}]"
+            return sanitized, True
+        
+        logger.info(f"✅ Guardrail passed for {field_name}")
+        logger.info(f"   Usage: {response.get('usage', {})}")
+        return text, False
+        
+    except Exception as e:
+        logger.error(f"❌ Guardrail validation failed for {field_name}: {e}")
+        logger.error(f"   Exception type: {type(e).__name__}")
+        logger.error(f"   Exception details: {str(e)}")
+        # On error, allow content through (fail open for availability)
+        return text, False
+
+
 @app.entrypoint
 def invoke(payload, context=None):
     """
@@ -147,35 +236,13 @@ def invoke(payload, context=None):
         # Use the embedded complete prompt
         system_prompt = CONTENT_GENERATION_PROMPT
         
-        # Create Strands agent with AgentCore Memory hooks
-        # Use BedrockModel with guardrails for security
+        # Create Strands agent WITHOUT guardrails on the model
+        # Guardrails are applied manually on user inputs only (title/description)
         from strands.models import BedrockModel
         
-        # Get guardrail configuration from environment
-        guardrail_id = os.getenv("GUARDRAIL_ID")
-        guardrail_version = os.getenv("GUARDRAIL_VERSION", "1")
-        guardrail_enabled = os.getenv("GUARDRAIL_ENABLED", "false").lower() == "true"
-        
-        # Create model with optional guardrails
-        if guardrail_enabled and guardrail_id:
-            logger.info(f"Creating agent with guardrails: {guardrail_id} v{guardrail_version}")
-            model = BedrockModel(
-                model_id=MODEL_ID,
-                guardrail_id=guardrail_id,
-                guardrail_version=guardrail_version,
-                guardrail_trace="enabled",
-                # Redact blocked input from conversation history
-                guardrail_redact_input=True,
-                guardrail_redact_input_message="[Contenu bloqué par les filtres de sécurité]",
-                # Don't redact output (let it through for logging)
-                guardrail_redact_output=False,
-            )
-        else:
-            logger.info("Creating agent without guardrails (not configured)")
-            model = MODEL_ID
-        
+        logger.info(f"Creating agent without model-level guardrails (input validation done separately)")
         agent = Agent(
-            model=model,
+            model=MODEL_ID,  # No guardrails on model - we validate inputs manually
             system_prompt=system_prompt,
             hooks=[AgentCoreMemoryHook()] if MEMORY_ID else [],
             state={
@@ -295,6 +362,36 @@ def invoke(payload, context=None):
             return {
                 "error": "activity_data is required for content generation",
                 "user_id": user_id
+            }
+        
+        # CRITICAL: Validate user-provided content with guardrail BEFORE including in prompt
+        # This prevents prompt injection without processing the entire 230K+ char prompt
+        original_title = activity_data.get('name', 'Untitled')
+        original_description = activity_data.get('description', 'No description provided')
+        
+        validated_title, title_blocked = validate_user_input_with_guardrail(original_title, "title")
+        validated_description, desc_blocked = validate_user_input_with_guardrail(original_description, "description")
+        
+        if title_blocked or desc_blocked:
+            logger.warning(f"🛡️ Guardrail intervention detected:")
+            logger.warning(f"   Title blocked: {title_blocked}")
+            logger.warning(f"   Description blocked: {desc_blocked}")
+            
+            # Return safe fallback content
+            return {
+                "response": json.dumps({
+                    "title": f"{activity_data.get('type', 'Activity')} - {activity_data.get('distance', 0)/1000:.1f}km",
+                    "description": f"Activité de {activity_data.get('moving_time', 0)//60} minutes.\n\n@Generated by Strava AI Boost (Safe Mode)",
+                    "confidence": 0.5,
+                    "guardrail_blocked": True,
+                    "blocked_fields": {
+                        "title": title_blocked,
+                        "description": desc_blocked
+                    }
+                }),
+                "user_id": user_id,
+                "activity_id": activity_id,
+                "guardrail_intervention": True
             }
         
         # Generate prompt for content creation with ALL user preferences
@@ -493,8 +590,10 @@ SPLITS & LAPS:
 {f"- Laps: {len(laps)} lap(s) recorded" if laps else ""}
 
 ORIGINAL USER INPUT (IMPORTANT - Use as context):
-- Original Title: "{activity_data.get('name', 'Untitled')}"
-- Original Description: "{activity_data.get('description', 'No description provided')}"
+- Original Title: "{validated_title}"
+- Original Description: "{validated_description}"
+{f"⚠️ Note: Title was sanitized by security filters" if title_blocked else ""}
+{f"⚠️ Note: Description was sanitized by security filters" if desc_blocked else ""}
 
 LOCATION & WEATHER (from Strava - use when Enduraw not active):
 {location_context}
@@ -550,30 +649,12 @@ Return ONLY a JSON response in this exact format:
   "confidence": 0.85
 }}"""
         
-        # Invoke the agent - Claude will generate directly using the system prompt
         # Invoke agent
         logger.info(f"Invoking agent with prompt length: {len(prompt)} characters")
         result = agent(prompt)
         
-        # Check if guardrail intervened
-        if hasattr(result, 'stop_reason') and result.stop_reason == "guardrail_intervened":
-            logger.warning(f"⚠️ Guardrail blocked content for activity {activity_id}")
-            logger.warning(f"Guardrail intervention - using fallback content")
-            
-            # Return fallback content
-            return {
-                "response": json.dumps({
-                    "title": f"{activity_data.get('type', 'Activity')} - {activity_data.get('distance', 0)/1000:.1f}km",
-                    "description": f"Activité de {activity_data.get('moving_time', 0)//60} minutes.\n\n@Generated by Strava AI Boost (Safe Mode)",
-                    "confidence": 0.5,
-                    "guardrail_blocked": True
-                }),
-                "user_id": user_id,
-                "activity_id": activity_id,
-                "guardrail_intervention": True
-            }
-        
-        # Parse the response
+        # No need to check guardrail intervention on model (we validated inputs separately)
+        # Parse the response directly
         response_text = result.message.get('content', [{}])[0].get('text', str(result))
         
         logger.info(f"=== Content Generation Completed ===")

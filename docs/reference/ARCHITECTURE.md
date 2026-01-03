@@ -35,7 +35,7 @@ graph TB
         
         subgraph "AI & Content Generation"
             Bedrock[Amazon Bedrock<br/>Claude Sonnet 4.5]
-            Guardrails[Bedrock Guardrails<br/>Security Layer]
+            Guardrails[Bedrock Guardrails<br/>Title/Description Only]
             AgentCoreMemory[AgentCore Memory<br/>Personalization]
             AgentCoreBrowser[AgentCore Browser<br/>Campus Coach Scraping]
             Observability[AgentCore Observability<br/>Traces + Metrics]
@@ -74,14 +74,13 @@ graph TB
     SQS --> StepFunctions
     StepFunctions --> ProcessorLambda
     
-    %% Processing Flow with Guardrails
+    %% Processing Flow with Guardrails (Content Gen only)
     ProcessorLambda --> Guardrails
     Guardrails --> Bedrock
     ProcessorLambda --> Observability
     ProcessorLambda --> StravaAPI
     ProcessorLambda --> AgentCoreMemory
     ProcessorLambda --> AgentCoreBrowser
-    AgentCoreBrowser --> Guardrails
     AgentCoreBrowser --> Observability
     AgentCoreBrowser --> CampusCoach
     
@@ -159,7 +158,7 @@ graph LR
 The infrastructure is organized into 6 modular CDK stacks:
 
 1. **CoreInfrastructureStack** - Foundation services (DynamoDB, IAM, Secrets)
-2. **SecurityStack** - Bedrock Guardrails for AI safety and prompt injection protection
+2. **SecurityStack** - Bedrock Guardrails for Content Generation Agent (validates user inputs only)
 3. **WebhookProcessingStack** - Strava webhook handling (SQS, Lambda, API Gateway)
 4. **ContentGenerationStack** - AI content generation (Step Functions, Bedrock)
 5. **ApiGatewayStack** - Local interface API (REST API, CORS, API Key authentication)
@@ -603,7 +602,7 @@ graph TD
     B -->|Yes| C[Invoke AgentCore Agent]
     B -->|No| D[Direct Bedrock Fallback]
     
-    C --> C1[Bedrock Guardrails Check]
+    C --> C1[Validate Title/Description<br/>Guardrails on User Inputs Only]
     C1 -->|Pass| E{Agent Response OK?}
     C1 -->|Block| G[Log Intervention & Fallback]
     
@@ -611,18 +610,17 @@ graph TD
     E -->|No| G
     G --> D
     
-    D --> D1[Bedrock Guardrails Check]
-    D1 -->|Pass| H[Build Enhanced Prompt]
-    D1 -->|Block| K1[Safe Fallback Content]
+    D --> H[Build Enhanced Prompt<br/>No Guardrails - Trusted Data]
     
     H --> I[Invoke Claude Sonnet 4.5]
     I --> J[Parse Bedrock Response]
     
     F --> K[Enhanced Content]
     J --> K
-    K1 --> K
     K --> L[Store in DynamoDB]
     K --> M[Return to Step Functions]
+    
+    style C1 fill:#ff6b6b,stroke:#c92a2a,stroke-width:3px
 ```
 
 ### Content Generation Components
@@ -897,29 +895,42 @@ class CampusCoachAgent:
 
 ## Security Configuration
 
-### Bedrock Guardrails (v1.16.0+)
+### Bedrock Guardrails (v1.16.5+)
 
-**Purpose**: Protect AI agents against prompt injection, harmful content, and PII leakage
+**Purpose**: Protect Content Generation Agent against prompt injection in user-provided Strava activity titles and descriptions
 
-**Implementation**: Integrated at Strands Agent level using `BedrockModel`
+**Scope**: 
+- ✅ **Validates**: Strava activity title and description (user inputs)
+- ❌ **Does NOT validate**: Streams data, Campus Coach sessions, Enduraw data (trusted sources)
 
-**Policies**:
-- **Prompt Attack**: HIGH strength (input only) - Blocks instruction override attempts
-- **Content Filtering**: HIGH/MEDIUM strength - Violence, hate, sexual content, insults
-- **Topic Boundaries**: DENY - Politics, financial advice, medical advice
-- **PII Protection**: BLOCK/ANONYMIZE - Email, phone, address, credit cards
-- **Word Blocking**: Custom phrases - "ignore previous instructions", "system prompt", etc.
+**Method**: Targeted input validation using `bedrock_runtime.apply_guardrail()` API
 
-**Integration**:
+**Implementation**: Manual validation before prompt construction
 ```python
-# Automatic in Strands agents
-model = BedrockModel(
-    model_id="claude-sonnet-4-5",
-    guardrail_id=os.getenv("GUARDRAIL_ID"),
-    guardrail_version="1",
-    guardrail_redact_input=True
+# Validate user inputs before including in prompt
+validated_title, title_blocked = validate_user_input_with_guardrail(
+    activity_data.get('name', 'Untitled'),
+    "title"
 )
+validated_description, desc_blocked = validate_user_input_with_guardrail(
+    activity_data.get('description', ''),
+    "description"
+)
+
+# If blocked, return safe fallback
+if title_blocked or desc_blocked:
+    return generate_fallback_content()
+
+# Otherwise, build full prompt with validated inputs (no size limit)
+prompt = build_prompt(validated_title, validated_description, streams_data, ...)
 ```
+
+**Policies** (Applied to title/description only):
+- **Prompt Attack**: HIGH strength - Blocks instruction override attempts
+- **Content Filtering**: DISABLED - Not relevant for sports content
+- **Topic Boundaries**: DISABLED - Not needed for title/description
+- **PII Protection**: DISABLED - Handled separately
+- **Word Blocking**: DISABLED - Covered by Prompt Attack
 
 **Deployment**: Fully automated via `deploy_agentcore_agents.sh`
 - Auto-detects Security Stack
@@ -927,7 +938,7 @@ model = BedrockModel(
 - Updates `.env.agentcore` automatically
 - Passes to agents via environment variables
 
-**Cost**: +$0.000375 per activity (+2%)
+**Cost**: +$0.002 per activity (+10% vs no guardrails, 99% reduction vs full prompt validation)
 
 **Reference**: See `docs/advanced/BEDROCK-GUARDRAILS.md`
 

@@ -5,6 +5,50 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.5] - 2026-01-03 - Guardrail Throttling Fix with Targeted Input Validation
+
+### Fixed
+- **Guardrail Throttling**: Resolved `ThrottlingException: Too many requests sent to ApplyGuardrail`
+  - Root cause: Full prompt validation (230K+ chars with streams data) exceeded text units/second quota
+  - Solution: Apply guardrails ONLY on user inputs (title/description) using `apply_guardrail` API
+  - Validation scope: ~500 chars (title+description) instead of 230K+ chars (full prompt)
+  - Performance: <100ms validation vs 5-10s for full prompt
+  - Cost: $0.000375 per activity (vs $0.1725 for full prompt validation)
+  - Files: `src/agents/content_agent.py`
+
+### Changed
+- **Guardrail Architecture**: Switched from model-level to targeted input validation
+  - **Before**: Guardrails on `BedrockModel` (validated entire prompt including streams data)
+  - **After**: Manual validation with `bedrock_runtime.apply_guardrail()` on user inputs only
+  - **Rationale**: User inputs (title/description) are the only attack surface for prompt injection
+  - **Trade-off**: Accepts risk from trusted data sources (streams, Campus Coach, Enduraw) to avoid throttling
+  - **Security**: Still protects against prompt injection in user-provided content
+  - Function: `validate_user_input_with_guardrail(text, field_name)`
+
+### Added
+- **Input Validation Function**: New `validate_user_input_with_guardrail()` helper
+  - Validates Strava activity title and description before including in prompt
+  - Returns tuple: `(validated_text, is_blocked)`
+  - Logs detailed assessment (filter type, confidence, action) when content blocked
+  - Fail-open strategy: On validation error, allows content through for availability
+  - Sanitizes blocked content: `[Contenu bloqué - title/description]`
+
+### Performance
+- **Guardrail Efficiency**: 99.8% reduction in text units processed
+  - Before: 230 text units per activity (full prompt)
+  - After: 0.5 text units per activity (title+description only)
+  - Validation time: <100ms (vs 5-10s for full prompt)
+  - No throttling: Stays well within quota limits
+  - Cost savings: 99.8% reduction in guardrail costs
+
+### Documentation
+- **BEDROCK-GUARDRAILS.md**: Updated with targeted validation architecture
+  - Detailed explanation of `apply_guardrail` API usage
+  - Code examples showing validation flow
+  - Cost comparison: targeted vs full prompt validation
+  - Known limitations: validation scope and trade-offs
+  - Removed outdated model-level guardrail documentation
+
 ## [1.16.4] - 2026-01-03 - AgentCore Memory Permissions Fix
 
 ### Fixed

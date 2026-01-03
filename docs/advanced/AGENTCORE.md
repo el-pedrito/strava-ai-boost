@@ -10,7 +10,7 @@ AgentCore provides the AI agent runtime and memory system for Strava AI Boost, e
 - **Browser Tool**: Automated Campus Coach session extraction
 - **Agent Runtime**: Scalable, serverless AI agent execution
 - **Strands Framework**: Modern agent architecture with structured tools
-- **Bedrock Guardrails**: AI safety and prompt injection protection (v1.16.0+)
+- **Bedrock Guardrails**: AI safety and prompt injection protection (Content Gen only, v1.16.5+)
 
 ## Architecture
 
@@ -22,7 +22,7 @@ graph TB
         Memory[AgentCore Memory<br/>LTM + Semantic Search]
         Runtime[AgentCore Runtime<br/>Strands Framework]
         Browser[AgentCore Browser<br/>Web Automation]
-        Guardrails[Bedrock Guardrails<br/>Security Layer]
+        Guardrails[Bedrock Guardrails<br/>Title/Description Only]
         Observability[AgentCore Observability<br/>Traces + Metrics]
     end
     
@@ -63,19 +63,20 @@ graph TB
 ```
 
 **Key Points**:
-- 🛡️ **Both agents** use the same Bedrock Guardrails (red)
+- 🛡️ **Content Gen agent only** uses Bedrock Guardrails for title/description validation (red)
+- 🏃 **Campus Coach agent** does NOT use guardrails (internal scraping, no user input)
 - 📊 **Both agents** send traces to AgentCore Observability (yellow)
 - 🧠 **Both agents** have their own AgentCore Memory
-- 🔒 **Security layer** applied before Claude invocation
+- 🔒 **Security layer** applied before Claude invocation (Content Gen only)
 - 📈 **Monitoring** via CloudWatch GenAI Dashboard
 
 ### Integration Points
 
-1. **Content Generation Agent**: Structured tools + JSON responses + guardrails
-2. **Campus Coach Agent**: Browser Tool + web scraping + guardrails
+1. **Content Generation Agent**: Structured tools + JSON responses + guardrails (title/description only)
+2. **Campus Coach Agent**: Browser Tool + web scraping (no guardrails)
 3. **Lambda Functions**: Handle both old and new JSON formats for compatibility
 4. **Step Functions**: Orchestrate agent workflows with error handling
-5. **Bedrock Guardrails**: Automatic security layer for **both agents**
+5. **Bedrock Guardrails**: Security layer for **Content Gen agent only** (validates user inputs)
 
 ## Content Generation Tool (NEW v1.8.0)
 
