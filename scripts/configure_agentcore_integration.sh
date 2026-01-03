@@ -266,12 +266,13 @@ EOF
     return 0
 }
 
-# Function to configure AgentCore agent IAM permissions
-# Function to configure AgentCore agent IAM permissions
+# Function to configure AgentCore agent IAM permissions (including memory access)
 configure_agentcore_agent_permissions() {
     local campus_arn="$1"
+    local content_memory_id="$2"
+    local campus_memory_id="$3"
     
-    print_status "🔐 Configuring IAM permissions for Campus Coach agent..."
+    print_status "🔐 Configuring IAM permissions for AgentCore agents (including memory access)..."
     
     # Get account ID
     local account_id
@@ -282,34 +283,80 @@ configure_agentcore_agent_permissions() {
         return 1
     fi
     
-    # Get Campus Coach agent execution role
-    # Note: AWS CLI doesn't have bedrock-agentcore commands yet
-    # We list all AgentCore roles and use the first one found
-    print_status "Searching for AgentCore execution roles..."
+    # Extract specific roles from .bedrock_agentcore.yaml
+    print_status "Extracting AgentCore execution roles from deployment config..."
     
-    local agentcore_roles=$(aws iam list-roles \
-        --profile "$AWS_PROFILE" \
-        --query 'Roles[?starts_with(RoleName, `AmazonBedrockAgentCoreSDKRuntime-`)].RoleName' \
-        --output text 2>/dev/null)
+    local agentcore_roles=""
     
-    if [ -n "$agentcore_roles" ]; then
-        # Use the first AgentCore role found
-        local role_name=$(echo "$agentcore_roles" | awk '{print $1}')
-        print_status "Found AgentCore role: $role_name"
-    else
+    if [ -f ".bedrock_agentcore.yaml" ]; then
+        # Extract execution_role from YAML (correct path: agents.*.aws.execution_role)
+        agentcore_roles=$(python3 << 'EOF'
+import yaml
+import sys
+
+try:
+    with open('.bedrock_agentcore.yaml', 'r') as f:
+        config = yaml.safe_load(f) or {}
+    
+    roles = set()
+    for agent_name, agent_config in config.get('agents', {}).items():
+        # Correct path: agents.*.aws.execution_role
+        role_arn = agent_config.get('aws', {}).get('execution_role', '')
+        if role_arn and 'role/' in role_arn:
+            role_name = role_arn.split('role/')[-1]
+            roles.add(role_name)
+    
+    if roles:
+        print(' '.join(sorted(roles)))
+    sys.exit(0)
+except Exception as e:
+    print(f"Error: {e}", file=sys.stderr)
+    sys.exit(1)
+EOF
+)
+    fi
+    
+    # Fallback: list all AgentCore roles if YAML parsing fails
+    if [ -z "$agentcore_roles" ]; then
+        print_warning "Could not extract roles from YAML, using all AgentCore roles"
+        agentcore_roles=$(aws iam list-roles \
+            --profile "$AWS_PROFILE" \
+            --query 'Roles[?starts_with(RoleName, `AmazonBedrockAgentCoreSDKRuntime-`)].RoleName' \
+            --output text 2>/dev/null)
+    fi
+    
+    if [ -z "$agentcore_roles" ]; then
         print_error "No AgentCore execution roles found"
         return 1
     fi
     
-    # Create policy for Campus Coach agent permissions
-    local policy_name="StravaAIBoost-CampusCoach-AgentPermissions"
-    local policy_file="/tmp/campus_agent_policy_$.json"
+    # Count roles
+    local role_count=$(echo "$agentcore_roles" | wc -w)
+    
+    print_status "Found AgentCore roles: $role_count role(s)"
+    for role in $agentcore_roles; do
+        print_status "  - $role"
+    done
+    
+    # Build memory ARNs for both agents
+    local memory_resources="[]"
+    if [ -n "$content_memory_id" ]; then
+        memory_resources=$(echo "$memory_resources" | jq --arg arn "arn:aws:bedrock-agentcore:${AWS_REGION}:${account_id}:memory/${content_memory_id}" '. + [$arn]')
+    fi
+    if [ -n "$campus_memory_id" ]; then
+        memory_resources=$(echo "$memory_resources" | jq --arg arn "arn:aws:bedrock-agentcore:${AWS_REGION}:${account_id}:memory/${campus_memory_id}" '. + [$arn]')
+    fi
+    
+    # Create comprehensive policy for ALL AgentCore agents
+    local policy_name="StravaAIBoost-AgentCore-AllPermissions"
+    local policy_file="/tmp/agentcore_all_permissions_$.json"
     
     cat > "$policy_file" << EOF
 {
     "Version": "2012-10-17",
     "Statement": [
         {
+            "Sid": "SecretsManagerAccess",
             "Effect": "Allow",
             "Action": [
                 "secretsmanager:GetSecretValue"
@@ -319,6 +366,7 @@ configure_agentcore_agent_permissions() {
             ]
         },
         {
+            "Sid": "DynamoDBAccess",
             "Effect": "Allow",
             "Action": [
                 "dynamodb:PutItem",
@@ -333,6 +381,7 @@ configure_agentcore_agent_permissions() {
             ]
         },
         {
+            "Sid": "BrowserToolAccess",
             "Effect": "Allow",
             "Action": [
                 "bedrock-agentcore:StartBrowserSession",
@@ -342,6 +391,19 @@ configure_agentcore_agent_permissions() {
                 "bedrock-agentcore:ConnectBrowserAutomationStream"
             ],
             "Resource": ["*"]
+        },
+        {
+            "Sid": "AgentCoreMemoryAccess",
+            "Effect": "Allow",
+            "Action": [
+                "bedrock-agentcore:ListEvents",
+                "bedrock-agentcore:GetEvent",
+                "bedrock-agentcore:CreateEvent",
+                "bedrock-agentcore:DeleteEvent",
+                "bedrock-agentcore:GetMemory",
+                "bedrock-agentcore:ListMemories"
+            ],
+            "Resource": $(echo "$memory_resources" | jq -c '.')
         }
     ]
 }
@@ -420,26 +482,27 @@ EOF
                 print_success "✅ Created new policy version: $version_id"
                 policy_arn="$existing_policy_arn"
             else
-                print_warning "Failed to update existing policy"
+                print_warning "Failed to update existing policy, will create new one"
             fi
         fi
     fi
     
-    # Create new policy if doesn't exist or update failed
+    # Create new policy if update failed or policy doesn't exist
     if [ -z "$policy_arn" ]; then
         print_status "Creating new policy: $policy_name"
         policy_arn=$(aws iam create-policy \
             --policy-name "$policy_name" \
             --policy-document "file://$policy_file" \
-            --description "Permissions for Campus Coach agent to access Secrets Manager and DynamoDB" \
+            --description "Comprehensive permissions for all Strava AI Boost AgentCore agents (including memory access)" \
             --profile "$AWS_PROFILE" \
+            --region "$AWS_REGION" \
             --query 'Policy.Arn' \
             --output text 2>/dev/null)
         
         if [ $? -eq 0 ] && [ -n "$policy_arn" ] && [[ "$policy_arn" == arn:* ]]; then
-            print_success "✅ Created new policy: $policy_arn"
+            print_success "✅ Created comprehensive AgentCore policy: $policy_arn"
         else
-            print_error "Failed to create policy"
+            print_error "Failed to create AgentCore policy"
             rm -f "$policy_file"
             return 1
         fi
@@ -447,35 +510,43 @@ EOF
     
     rm -f "$policy_file"
     
-    if [ -n "$policy_arn" ] && [[ "$policy_arn" == arn:* ]]; then
-        print_success "✅ Policy created/updated: $policy_arn"
+    # Attach policy to ALL AgentCore roles
+    local attached_count=0
+    for role_name in $agentcore_roles; do
+        print_status "Attaching policy to role: $role_name"
         
-        # Attach policy to agent role
-        if aws iam attach-role-policy \
+        # Check if policy is already attached
+        local is_attached
+        is_attached=$(aws iam list-attached-role-policies \
             --role-name "$role_name" \
-            --policy-arn "$policy_arn" \
-            --profile "$AWS_PROFILE" > /dev/null 2>&1; then
-            print_success "✅ Attached policy to Campus Coach agent role"
-        else
-            # Check if already attached
-            local is_attached=$(aws iam list-attached-role-policies \
+            --profile "$AWS_PROFILE" \
+            --query "AttachedPolicies[?PolicyArn=='$policy_arn'].PolicyArn" \
+            --output text 2>/dev/null)
+        
+        if [ -z "$is_attached" ] || [ "$is_attached" = "None" ]; then
+            if aws iam attach-role-policy \
                 --role-name "$role_name" \
-                --profile "$AWS_PROFILE" \
-                --query "AttachedPolicies[?PolicyArn=='$policy_arn'].PolicyArn" \
-                --output text 2>/dev/null)
-            
-            if [ -n "$is_attached" ]; then
-                print_success "✅ Policy already attached to Campus Coach agent role"
+                --policy-arn "$policy_arn" \
+                --profile "$AWS_PROFILE" > /dev/null 2>&1; then
+                print_success "✅ Attached policy to role: $role_name"
+                ((attached_count++))
             else
-                print_warning "⚠️  Could not attach policy (may need manual configuration)"
+                print_warning "⚠️  Failed to attach policy to role: $role_name"
             fi
+        else
+            print_success "✅ Policy already attached to role: $role_name"
+            ((attached_count++))
         fi
+    done
+    
+    if [ $attached_count -gt 0 ]; then
+        print_success "✅ AgentCore permissions configured for $attached_count role(s)"
+        print_status "   Permissions include: Secrets Manager, DynamoDB, Browser Tool, Memory Access"
+        return 0
     else
-        print_error "Failed to create/update policy"
+        print_error "Failed to attach policy to any AgentCore roles"
         return 1
     fi
-    
-    return 0
 }
 
 # Function to verify AgentCore agent permissions (read-only check)
@@ -583,12 +654,18 @@ update_lambda_environment_variables() {
         --output json 2>/dev/null)
     
     if [ $? -eq 0 ] && [ "$all_functions" != "null" ] && [ "$all_functions" != "[]" ]; then
-        # Convert JSON array to bash array
+        # Convert JSON array to bash array, filtering out CDK custom resource handlers
         while IFS= read -r function_name; do
+            # Skip CDK custom resource handlers (they don't need AgentCore env vars)
+            if [[ "$function_name" =~ Provider.*framework ]] || \
+               [[ "$function_name" =~ Handler[A-Z0-9]{8}- ]]; then
+                print_status "Skipping CDK custom resource handler: $function_name"
+                continue
+            fi
             lambda_functions+=("$function_name")
         done < <(echo "$all_functions" | jq -r '.[]')
         
-        print_status "Found ${#lambda_functions[@]} Strava AI Boost Lambda functions"
+        print_status "Found ${#lambda_functions[@]} Strava AI Boost Lambda functions (excluding CDK handlers)"
     else
         print_warning "No Strava AI Boost Lambda functions found, using fallback list"
         # Fallback to expected function names
@@ -898,28 +975,33 @@ main() {
     # Parse agent information
     IFS='|' read -r content_arn campus_arn <<< "$agent_info"
     
-    # Get memory ID from YAML
+    # Get memory IDs from YAML
     print_status "🔍 Detecting AgentCore Memory configuration..."
     local content_memory_id=$(get_memory_id_from_yaml "$CONTENT_AGENT_NAME")
+    local campus_memory_id=$(get_memory_id_from_yaml "$CAMPUS_AGENT_NAME")
     
-    if [ -n "$content_memory_id" ]; then
-        print_success "Found AgentCore Memory: $content_memory_id"
+    if [ -n "$content_memory_id" ] || [ -n "$campus_memory_id" ]; then
+        print_success "Found AgentCore Memory configuration:"
+        [ -n "$content_memory_id" ] && print_status "  Content Agent Memory: $content_memory_id"
+        [ -n "$campus_memory_id" ] && print_status "  Campus Coach Memory: $campus_memory_id"
     else
         print_warning "No AgentCore Memory configured (agents will run without LTM)"
         content_memory_id=""
+        campus_memory_id=""
     fi
     
     print_success "Detected AgentCore resources:"
     [ -n "$content_arn" ] && print_status "  Content Generation Agent: $content_arn"
     [ -n "$campus_arn" ] && print_status "  Campus Coach Agent: $campus_arn"
-    [ -n "$content_memory_id" ] && print_status "  AgentCore Memory: $content_memory_id"
+    [ -n "$content_memory_id" ] && print_status "  Content Agent Memory: $content_memory_id"
+    [ -n "$campus_memory_id" ] && print_status "  Campus Coach Memory: $campus_memory_id"
     
     print_status ""
     print_status "🔧 Configuring AgentCore integration..."
     
-    # Configure Campus Coach agent IAM permissions
-    if [ -n "$campus_arn" ]; then
-        configure_agentcore_agent_permissions "$campus_arn"
+    # Configure AgentCore agent IAM permissions (including memory access)
+    if [ -n "$campus_arn" ] || [ -n "$content_arn" ]; then
+        configure_agentcore_agent_permissions "$campus_arn" "$content_memory_id" "$campus_memory_id"
     fi
     
     # Update Lambda IAM permissions for AgentCore invocation
@@ -942,8 +1024,10 @@ main() {
     print_status "📋 Configuration Summary:"
     print_status "  Content Generation Agent: $content_arn"
     print_status "  Campus Coach Agent: $campus_arn"
-    if [ -n "$content_memory_id" ]; then
-        print_status "  AgentCore Memory (LTM): $content_memory_id"
+    if [ -n "$content_memory_id" ] || [ -n "$campus_memory_id" ]; then
+        print_status "  AgentCore Memory (LTM):"
+        [ -n "$content_memory_id" ] && print_status "    - Content Agent: $content_memory_id"
+        [ -n "$campus_memory_id" ] && print_status "    - Campus Coach: $campus_memory_id"
     else
         print_status "  AgentCore Memory: Not configured"
     fi

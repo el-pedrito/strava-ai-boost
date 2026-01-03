@@ -236,10 +236,11 @@ agentcore memory list --region eu-west-1
 
 ### 5. `configure_agentcore_integration.sh` - Configuration IAM et Lambda
 
-**Description:** Configure les permissions IAM et les variables d'environnement Lambda pour AgentCore.
+**Description:** Configure automatiquement les permissions IAM et les variables d'environnement Lambda pour l'intégration AgentCore.
 
 **Prérequis:**
 - Agents AgentCore déployés (`deploy_agentcore_agents.sh`)
+- Mémoires AgentCore créées (`create_agentcore_memories.sh`)
 
 **Usage:**
 ```bash
@@ -247,35 +248,74 @@ agentcore memory list --region eu-west-1
 ```
 
 **Ce qu'il fait:**
-- ✅ Détecte automatiquement les ARNs des agents déployés
-- ✅ Crée/met à jour les policies IAM pour invocation AgentCore
-- ✅ Attache les policies aux rôles Lambda
-- ✅ Met à jour les variables d'environnement Lambda avec les ARNs
-- ✅ Configure les permissions pour Campus Coach agent (Secrets Manager, DynamoDB)
-- ✅ Pas de redéploiement CDK nécessaire (mise à jour directe)
+- ✅ **Détection intelligente des rôles AgentCore** : Extrait les rôles depuis `.bedrock_agentcore.yaml` (2 rôles au lieu de tous)
+- ✅ **Création/mise à jour de policy IAM complète** : `StravaAIBoost-AgentCore-AllPermissions`
+  - Permissions mémoire AgentCore (`ListEvents`, `GetEvent`, `CreateEvent`, `DeleteEvent`, `GetMemory`)
+  - Accès Secrets Manager (credentials Campus Coach)
+  - Accès DynamoDB (sessions Campus Coach)
+  - Permissions Browser Tool (scraping Campus Coach)
+- ✅ **Optimisation des policies** : Compare le contenu JSON avant de créer une nouvelle version
+- ✅ **Attachement aux rôles AgentCore** : Uniquement les 2 rôles des agents déployés
+- ✅ **Configuration Lambda IAM** : Policy pour invoquer les agents AgentCore
+- ✅ **Mise à jour variables d'environnement Lambda** : Injection directe des ARNs agents (pas de redéploiement CDK)
+- ✅ **Filtrage intelligent** : Ignore les custom resource handlers CDK (pas de warnings inutiles)
+- ✅ **Mise à jour CDK context** : Sauvegarde des ARNs dans `cdk.context.json`
+- ✅ **Création fichier .env.agentcore** : Configuration pour développement local
+
+**Rôles AgentCore configurés:**
+- `AmazonBedrockAgentCoreSDKRuntime-eu-west-1-XXXXXXXXXXXX` (content_gen)
+- `AmazonBedrockAgentCoreSDKRuntime-eu-west-1-XXXXXXXXXXXX` (campus_coach)
 
 **Variables d'environnement Lambda configurées:**
 ```bash
-CONTENT_GENERATION_AGENT_ARN=arn:aws:bedrock-agentcore:...
-CAMPUS_COACH_AGENT_ARN=arn:aws:bedrock-agentcore:...
+CONTENT_GENERATION_AGENT_ARN=arn:aws:bedrock-agentcore:eu-west-1:xxx:runtime/content_gen-xxx
+CAMPUS_COACH_AGENT_ARN=arn:aws:bedrock-agentcore:eu-west-1:xxx:runtime/campus_coach-xxx
 AGENTCORE_AGENTS_AVAILABLE=true
 AGENTCORE_DEPLOYMENT_TYPE=direct_code_deploy
 AGENTCORE_REGION=eu-west-1
+AGENTCORE_MEMORY_ENABLED=true
+```
+
+**Permissions IAM ajoutées:**
+```json
+{
+  "SecretsManagerAccess": ["secretsmanager:GetSecretValue"],
+  "DynamoDBAccess": ["dynamodb:PutItem", "UpdateItem", "GetItem", "Query", "Scan"],
+  "BrowserToolAccess": ["bedrock-agentcore:StartBrowserSession", "StopBrowserSession", ...],
+  "AgentCoreMemoryAccess": ["bedrock-agentcore:ListEvents", "GetEvent", "CreateEvent", ...]
+}
 ```
 
 **Sortie:**
-- Nombre de rôles Lambda mis à jour
+- Nombre de rôles AgentCore configurés (2)
+- Nombre de fonctions Lambda mises à jour (~14, hors CDK handlers)
 - Policies IAM créées/mises à jour
-- Confirmation de configuration
+- Fichiers générés : `cdk.context.json`, `.env.agentcore`
 
 **Exemple:**
 ```bash
 # Après déploiement des agents
 ./scripts/deploy_agentcore_agents.sh
 ./scripts/configure_agentcore_integration.sh
+
+# Vérifier la configuration
+cat .env.agentcore
+cat cdk.context.json | jq '.agentcore'
+
+# Tester l'accès mémoire
+aws logs tail /aws/bedrock-agentcore/runtimes/content_gen-* --follow --profile your-aws-profile
+# Plus d'erreur "AccessDeniedException" sur ListEvents
 ```
 
 **Temps d'exécution:** ~2-3 minutes
+
+**Optimisations:**
+- ✅ Détection précise des rôles (2 au lieu de 12)
+- ✅ Pas de nouvelle version de policy si contenu identique
+- ✅ Mise à jour Lambda directe (pas de redéploiement CDK)
+- ✅ Filtrage des custom resource handlers CDK
+
+**Note:** Ce script résout le problème `AccessDeniedException: bedrock-agentcore:ListEvents` en ajoutant les permissions mémoire manquantes aux rôles d'exécution AgentCore.
 
 ---
 

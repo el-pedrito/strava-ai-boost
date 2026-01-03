@@ -5,6 +5,40 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.4] - 2026-01-03 - AgentCore Memory Permissions Fix
+
+### Fixed
+- **AgentCore Memory Access**: Resolved `AccessDeniedException` on `bedrock-agentcore:ListEvents`
+  - Added missing memory permissions to AgentCore execution roles
+  - Permissions: `ListEvents`, `GetEvent`, `CreateEvent`, `DeleteEvent`, `GetMemory`, `ListMemories`
+  - Agents can now load previous context and save interactions to memory
+  - Fixes: Campus Coach and Content Generation agents memory access
+  - File: `scripts/configure_agentcore_integration.sh`
+
+### Changed
+- **IAM Policy Management**: Enhanced `configure_agentcore_integration.sh` with intelligent optimizations
+  - **Precise role detection**: Extracts exact 2 AgentCore roles from `.bedrock_agentcore.yaml` (instead of all 12 roles)
+  - **Policy comparison**: Compares JSON content before creating new policy versions (avoids unnecessary versions)
+  - **Lambda filtering**: Skips CDK custom resource handlers (eliminates false warnings)
+  - **Comprehensive permissions**: Single policy with Secrets Manager, DynamoDB, Browser Tool, and Memory access
+  - Policy name: `StravaAIBoost-AgentCore-AllPermissions`
+  - Configured roles: `AmazonBedrockAgentCoreSDKRuntime-eu-west-1-XXXXXXXXXXXX` (content_gen), `AmazonBedrockAgentCoreSDKRuntime-eu-west-1-XXXXXXXXXXXX` (campus_coach)
+
+### Documentation
+- **Scripts README**: Updated `scripts/README.md` with detailed `configure_agentcore_integration.sh` documentation
+  - Complete description of IAM permissions configured
+  - Explanation of role detection mechanism
+  - Lambda environment variables injected
+  - Optimization strategies (role filtering, policy comparison, CDK handler exclusion)
+  - Troubleshooting section for memory access errors
+
+### Performance
+- **Script Optimization**: Reduced IAM operations and improved execution speed
+  - Role detection: 2 roles instead of 12 (83% reduction)
+  - Policy versions: Only created when content changes (avoids AWS 5-version limit)
+  - Lambda updates: ~14 functions (excludes 2 CDK handlers)
+  - Execution time: ~2-3 minutes (unchanged, but cleaner logs)
+
 ## [1.16.3] - 2026-01-03 - Deployment Order Correction
 
 ### Fixed
