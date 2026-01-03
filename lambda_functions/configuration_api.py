@@ -109,6 +109,14 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 return get_oauth_status(rate_limit_info)
             elif http_method == 'POST':
                 return handle_oauth_callback(event, rate_limit_info)
+            elif http_method == 'DELETE':
+                return revoke_oauth_tokens(rate_limit_info)
+        elif 'strava' in path and 'config' in path:
+            if http_method == 'GET':
+                return get_strava_app_config(rate_limit_info)
+        elif 'test' in path and 'strava-connection' in path:
+            if http_method == 'GET':
+                return test_strava_connection(rate_limit_info)
         elif 'modules' in path:
             if http_method == 'GET':
                 return get_modules(rate_limit_info)
@@ -184,6 +192,237 @@ def create_success_response(data: Dict[str, Any], status_code: int = 200, rate_l
             'timestamp': datetime.now(UTC).isoformat()
         })
     }
+
+
+def get_strava_app_config(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
+    """Get Strava app configuration status (without exposing secrets) - v2"""
+    try:
+        # Check if app config exists in Secrets Manager
+        try:
+            response = secretsmanager.get_secret_value(SecretId='strava-ai-boost-app-config')
+            config = json.loads(response['SecretString'])
+            
+            # Validate config structure
+            client_id = config.get('client_id')
+            client_secret = config.get('client_secret')
+            
+            if client_id and client_secret:
+                # Config exists and is valid
+                return create_success_response({
+                    'configured': True,
+                    'client_id': client_id,  # Safe to expose (public)
+                    'has_client_secret': True,  # Don't expose the secret itself
+                    'redirect_uri': config.get('redirect_uri', 'http://localhost:3000/oauth/callback')
+                }, rate_limit_info=rate_limit_info)
+            else:
+                return create_success_response({
+                    'configured': False,
+                    'message': 'Strava app configuration incomplete'
+                }, rate_limit_info=rate_limit_info)
+                
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ResourceNotFoundException':
+                return create_success_response({
+                    'configured': False,
+                    'message': 'Strava app not configured'
+                }, rate_limit_info=rate_limit_info)
+            else:
+                logger.error(f"Error checking Strava config: {e}")
+                return create_error_response(500, f'Failed to check configuration: {str(e)}', rate_limit_info)
+                
+    except json.JSONDecodeError:
+        return create_success_response({
+            'configured': False,
+            'message': 'Invalid configuration format'
+        }, rate_limit_info=rate_limit_info)
+    except Exception as e:
+        logger.error(f"Strava config check error: {str(e)}")
+        return create_error_response(500, f'Configuration check failed: {str(e)}', rate_limit_info)
+
+
+def test_strava_connection(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
+    """Test Strava API connection with current OAuth tokens"""
+    try:
+        # Get OAuth tokens
+        try:
+            response = secretsmanager.get_secret_value(SecretId=STRAVA_OAUTH_SECRET)
+            tokens = json.loads(response['SecretString'])
+            
+            access_token = tokens.get('access_token')
+            if not access_token:
+                return create_error_response(401, 'No access token available. Please connect to Strava first.', rate_limit_info)
+            
+            # Test Strava API
+            headers = {'Authorization': f'Bearer {access_token}'}
+            strava_response = requests.get('https://www.strava.com/api/v3/athlete', headers=headers, timeout=10)
+            
+            if strava_response.status_code == 200:
+                athlete = strava_response.json()
+                return create_success_response({
+                    'success': True,
+                    'message': 'Connection test successful',
+                    'athlete': {
+                        'id': athlete.get('id'),
+                        'name': f"{athlete.get('firstname', '')} {athlete.get('lastname', '')}".strip(),
+                        'city': athlete.get('city'),
+                        'country': athlete.get('country')
+                    }
+                }, rate_limit_info=rate_limit_info)
+            elif strava_response.status_code == 401:
+                return create_error_response(401, 'Authentication failed. Please reconnect to Strava.', rate_limit_info)
+            else:
+                return create_error_response(500, f'Strava API returned {strava_response.status_code}', rate_limit_info)
+                
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ResourceNotFoundException':
+                return create_error_response(401, 'OAuth tokens not found. Please connect to Strava first.', rate_limit_info)
+            else:
+                raise
+                
+    except Exception as e:
+        logger.error(f"Connection test error: {str(e)}")
+        return create_error_response(500, f'Connection test failed: {str(e)}', rate_limit_info)
+
+
+def revoke_oauth_tokens(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
+    """Revoke Strava OAuth tokens"""
+    try:
+        # Get current tokens
+        try:
+            response = secretsmanager.get_secret_value(SecretId=STRAVA_OAUTH_SECRET)
+            tokens = json.loads(response['SecretString'])
+            
+            access_token = tokens.get('access_token')
+            if not access_token:
+                return create_success_response({
+                    'status': 'already_disconnected',
+                    'message': 'No tokens to revoke'
+                }, rate_limit_info=rate_limit_info)
+            
+            # Revoke token with Strava
+            try:
+                revoke_response = requests.post(
+                    'https://www.strava.com/oauth/deauthorize',
+                    headers={'Authorization': f'Bearer {access_token}'},
+                    timeout=10
+                )
+                logger.info(f"Strava revoke response: {revoke_response.status_code}")
+            except Exception as e:
+                logger.warning(f"Failed to revoke with Strava API: {e}")
+            
+            # Clear tokens by putting empty object
+            secretsmanager.put_secret_value(
+                SecretId=STRAVA_OAUTH_SECRET,
+                SecretString='{}'
+            )
+            
+            return create_success_response({
+                'status': 'revoked',
+                'message': 'OAuth tokens revoked successfully'
+            }, rate_limit_info=rate_limit_info)
+            
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ResourceNotFoundException':
+                return create_success_response({
+                    'status': 'already_disconnected',
+                    'message': 'No tokens found'
+                }, rate_limit_info=rate_limit_info)
+            else:
+                raise
+                
+    except Exception as e:
+        logger.error(f"Revoke tokens error: {str(e)}")
+        return create_error_response(500, f'Failed to revoke tokens: {str(e)}', rate_limit_info)
+
+
+def test_strava_connection(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
+    """Test Strava API connection with current OAuth tokens"""
+    try:
+        # Get OAuth tokens
+        try:
+            response = secretsmanager.get_secret_value(SecretId=STRAVA_OAUTH_SECRET)
+            tokens = json.loads(response['SecretString'])
+            
+            access_token = tokens.get('access_token')
+            if not access_token:
+                return create_error_response(401, 'No access token available. Please connect to Strava first.', rate_limit_info)
+            
+            # Test Strava API
+            headers = {'Authorization': f'Bearer {access_token}'}
+            strava_response = requests.get('https://www.strava.com/api/v3/athlete', headers=headers, timeout=10)
+            
+            if strava_response.status_code == 200:
+                athlete = strava_response.json()
+                return create_success_response({
+                    'success': True,
+                    'message': 'Connection test successful',
+                    'athlete': {
+                        'id': athlete.get('id'),
+                        'name': f"{athlete.get('firstname', '')} {athlete.get('lastname', '')}".strip(),
+                        'city': athlete.get('city'),
+                        'country': athlete.get('country')
+                    }
+                }, rate_limit_info=rate_limit_info)
+            elif strava_response.status_code == 401:
+                return create_error_response(401, 'Authentication failed. Please reconnect to Strava.', rate_limit_info)
+            else:
+                return create_error_response(500, f'Strava API returned {strava_response.status_code}', rate_limit_info)
+                
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ResourceNotFoundException':
+                return create_error_response(401, 'OAuth tokens not found. Please connect to Strava first.', rate_limit_info)
+            else:
+                raise
+                
+    except Exception as e:
+        logger.error(f"Connection test error: {str(e)}")
+        return create_error_response(500, f'Connection test failed: {str(e)}', rate_limit_info)
+
+
+def get_strava_app_config(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
+    """Get Strava app configuration status (without exposing secrets) - v2"""
+    try:
+        # Check if app config exists in Secrets Manager
+        try:
+            response = secretsmanager.get_secret_value(SecretId='strava-ai-boost-app-config')
+            config = json.loads(response['SecretString'])
+            
+            # Validate config structure
+            client_id = config.get('client_id')
+            client_secret = config.get('client_secret')
+            
+            if client_id and client_secret:
+                # Config exists and is valid
+                return create_success_response({
+                    'configured': True,
+                    'client_id': client_id,  # Safe to expose (public)
+                    'has_client_secret': True,  # Don't expose the secret itself
+                    'redirect_uri': config.get('redirect_uri', 'http://localhost:3000/oauth/callback')
+                }, rate_limit_info=rate_limit_info)
+            else:
+                return create_success_response({
+                    'configured': False,
+                    'message': 'Strava app configuration incomplete'
+                }, rate_limit_info=rate_limit_info)
+                
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ResourceNotFoundException':
+                return create_success_response({
+                    'configured': False,
+                    'message': 'Strava app not configured'
+                }, rate_limit_info=rate_limit_info)
+            else:
+                logger.error(f"Error checking Strava config: {e}")
+                return create_error_response(500, f'Failed to check configuration: {str(e)}', rate_limit_info)
+                
+    except json.JSONDecodeError:
+        return create_success_response({
+            'configured': False,
+            'message': 'Invalid configuration format'
+        }, rate_limit_info=rate_limit_info)
+    except Exception as e:
+        logger.error(f"Strava config check error: {str(e)}")
+        return create_error_response(500, f'Configuration check failed: {str(e)}', rate_limit_info)
 
 
 def get_oauth_status(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
@@ -303,7 +542,6 @@ def handle_oauth_callback(event: Dict[str, Any], rate_limit_info: Dict[str, Any]
         state = body.get('state')
         code_verifier = body.get('code_verifier')
         client_id = body.get('client_id')
-        client_secret = body.get('client_secret')
         
         # Validate required parameters
         if not auth_code:
@@ -312,8 +550,20 @@ def handle_oauth_callback(event: Dict[str, Any], rate_limit_info: Dict[str, Any]
         if not code_verifier:
             return create_error_response(400, 'Missing PKCE code verifier', rate_limit_info)
         
-        if not client_id or not client_secret:
-            return create_error_response(400, 'Missing Strava application credentials', rate_limit_info)
+        if not client_id:
+            return create_error_response(400, 'Missing client ID', rate_limit_info)
+        
+        # Get client_secret from Secrets Manager
+        try:
+            secret_response = secretsmanager.get_secret_value(SecretId='strava-ai-boost-app-config')
+            app_config = json.loads(secret_response['SecretString'])
+            client_secret = app_config.get('client_secret')
+            
+            if not client_secret:
+                return create_error_response(400, 'Client secret not configured in Secrets Manager', rate_limit_info)
+        except Exception as e:
+            logger.error(f"Failed to get client_secret: {e}")
+            return create_error_response(500, 'Failed to retrieve application credentials', rate_limit_info)
         
         # Exchange authorization code for tokens with Strava API
         try:

@@ -214,6 +214,18 @@ class ApiGatewayStack(Stack):
         # /config resource for configuration management
         config_resource = self.api.root.add_resource("config")
         
+        # Strava app config endpoint (check if configured)
+        strava_resource = config_resource.add_resource("strava")
+        strava_resource.add_method(
+            "GET",
+            apigateway.LambdaIntegration(self.config_lambda),
+            api_key_required=True,
+            method_responses=[
+                apigateway.MethodResponse(status_code="200"),
+                apigateway.MethodResponse(status_code="500")
+            ]
+        )
+        
         # OAuth endpoints
         oauth_resource = config_resource.add_resource("oauth")
         oauth_resource.add_method(
@@ -230,6 +242,11 @@ class ApiGatewayStack(Stack):
         )
         oauth_resource.add_method(
             "POST",
+            apigateway.LambdaIntegration(self.config_lambda),
+            api_key_required=True
+        )
+        oauth_resource.add_method(
+            "DELETE",
             apigateway.LambdaIntegration(self.config_lambda),
             api_key_required=True
         )
@@ -318,6 +335,15 @@ class ApiGatewayStack(Stack):
         agentcore_health_resource.add_method(
             "GET",
             apigateway.LambdaIntegration(self.agentcore_health_lambda),
+            api_key_required=True
+        )
+        
+        # /test resource for connection testing
+        test_resource = self.api.root.add_resource("test")
+        strava_connection_resource = test_resource.add_resource("strava-connection")
+        strava_connection_resource.add_method(
+            "GET",
+            apigateway.LambdaIntegration(self.config_lambda),
             api_key_required=True
         )
         

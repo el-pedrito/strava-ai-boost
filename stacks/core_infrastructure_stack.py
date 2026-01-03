@@ -338,7 +338,24 @@ class CoreInfrastructureStack(Stack):
     
     def _add_secrets_permissions(self) -> None:
         """Add Secrets Manager permissions after secrets are created"""
-        # Add permissions for Secrets Manager write access (for Campus Coach credentials)
+        # Add permissions for Secrets Manager read access (for all Lambdas)
+        self.webhook_lambda_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "secretsmanager:GetSecretValue",
+                    "secretsmanager:DescribeSecret"
+                ],
+                resources=[
+                    self.campus_coach_secret.secret_arn,
+                    self.strava_oauth_secret.secret_arn,
+                    self.strava_app_secret.secret_arn
+                ]
+            )
+        )
+        
+        # Add permissions for Secrets Manager write access (for configuration)
+        # Updated 2026-01-03: Added strava_app_secret for configuration API
         self.webhook_lambda_role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
@@ -349,7 +366,8 @@ class CoreInfrastructureStack(Stack):
                 ],
                 resources=[
                     self.campus_coach_secret.secret_arn,
-                    self.strava_oauth_secret.secret_arn
+                    self.strava_oauth_secret.secret_arn,
+                    self.strava_app_secret.secret_arn
                 ]
             )
         )

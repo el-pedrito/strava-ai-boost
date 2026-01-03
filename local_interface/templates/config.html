@@ -130,8 +130,9 @@
         </div>
         
         <!-- Connection Details -->
-        {% if oauth_status.scopes %}
-        <div style="margin-bottom: var(--awsui-space-scaled-m, 16px);">
+        {% if oauth_status.scopes and False %}
+        <!-- Granted Permissions section hidden -->
+        <div style="margin-bottom: var(--awsui-space-scaled-m, 16px); display: none;">
             <h4 style="margin: 0 0 var(--awsui-space-scaled-xs, 8px) 0; font-size: var(--awsui-font-body-m-size, 14px); color: var(--awsui-color-text-heading-default, #0d1117);">Granted Permissions</h4>
             <div style="display: flex; flex-wrap: wrap; gap: var(--awsui-space-scaled-xs, 8px);">
                 {% for scope in oauth_status.scopes %}
@@ -377,7 +378,10 @@
                 // Show success message with athlete info
                 let message = 'Connection test successful!';
                 if (data.athlete) {
-                    message += ` Connected as ${data.athlete.firstname} ${data.athlete.lastname}`;
+                    const name = data.athlete.name || `${data.athlete.firstname || ''} ${data.athlete.lastname || ''}`.trim();
+                    if (name) {
+                        message += ` Connected as ${name}`;
+                    }
                     if (data.athlete.city && data.athlete.country) {
                         message += ` from ${data.athlete.city}, ${data.athlete.country}`;
                     }

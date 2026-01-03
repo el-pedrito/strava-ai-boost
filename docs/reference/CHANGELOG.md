@@ -163,6 +163,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Clear documentation for all workflows
   - Simplified deployment process (2 phases instead of 6+ steps)
 
+## [1.16.2] - 2026-01-03 - Local Interface API Gateway Migration
+
+### Changed
+- **Local Interface Architecture**: Migrated to 100% API Gateway
+  - Removed boto3 dependency from local interface
+  - All operations now go through API Gateway + Lambda
+  - No direct AWS SDK access in frontend
+  - Improved security and separation of concerns
+  - File: `local_interface/app.py`
+
+### Removed
+- **strava_config.py**: Removed boto3-based configuration
+  - Replaced with API Gateway calls
+  - Configuration now handled by Lambda
+  - Client secret never exposed to frontend
+  - File: `src/config/strava_config.py` (deleted)
+
+### Added
+- **Configuration API Endpoints**: New Lambda endpoints
+  - `GET /config/strava`: Check Strava app configuration
+  - `DELETE /config/oauth`: Revoke OAuth tokens
+  - `GET /test/strava-connection`: Test Strava API connection
+  - All endpoints secured with API Key
+  - Files: `lambda_functions/configuration_api.py`, `stacks/api_gateway_stack.py`
+
+### Fixed
+- **OAuth Flow**: Fixed client_secret handling
+  - Lambda retrieves client_secret from Secrets Manager
+  - Not passed through frontend for security
+  - OAuth callback now fully API-based
+  - File: `lambda_functions/configuration_api.py`
+
+### Fixed
+- **Secrets Manager Permissions**: Added read permissions
+  - WebhookLambdaRole can now read all secrets
+  - GetSecretValue permission added
+  - Configuration API can access app config
+  - File: `stacks/core_infrastructure_stack.py`
+
+### Changed
+- **UI Improvements**: Cleaner configuration interface
+  - Fixed athlete name display in connection test
+  - Hidden "Granted Permissions" section (not needed)
+  - Better error messages
+  - File: `local_interface/templates/config.html`
+
 ## [1.16.1] - 2026-01-02 - Bug Fixes and Enduraw Integration
 
 ### Fixed
