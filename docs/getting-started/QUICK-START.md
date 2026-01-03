@@ -1,42 +1,31 @@
 # 🚀 Quick Start Guide
 
-**Get Strava AI Boost running in 5 minutes with clear 4-step deployment!**
+**Get Strava AI Boost running with a clear 2-phase deployment!**
 
-This guide uses a **4-step deployment approach** that eliminates circular dependencies and ensures your system is always functional.
+## 📋 Deployment Strategy
 
-## 📋 4-Step Deployment Strategy
+### **Phase 1: Infrastructure (Required)**
+Deploy AWS infrastructure with Bedrock fallback mode. System works immediately!
 
-### **Step 1: AWS Infrastructure (Required)**
-- Deploys CDK stacks with Bedrock fallback mode
-- System works immediately with Claude Sonnet 4.5
-- No AgentCore dependencies
+### **Phase 2: AgentCore Enhancement (Optional)**
+Add advanced personalization with Long-Term Memory and semantic search.
 
-### **Step 2: AgentCore Long-Term Memory (Optional)**
-- Creates LTM memories with semantic search
-- 365-day retention for persistent learning
-- Takes ~3 minutes per memory
-
-### **Step 3: AgentCore Agents (Optional)**
-- Deploys AgentCore agents with LTM
-- Creates AI agents for enhanced content generation
-- Enables personalization capabilities
-
-### **Step 4: AgentCore Integration (Optional)**
-- Configures IAM permissions for AgentCore agents
-- Updates Lambda environment variables with agent ARNs
-- Enables seamless integration between infrastructure and AI agents
+---
 
 ## Prerequisites
 
-- AWS Account with CLI configured
+- AWS Account with CLI configured (`your-aws-profile` profile)
 - Python 3.12+
 - Node.js (for CDK)
-- AgentCore CLI (for Steps 2-3)
+- AgentCore CLI (for Phase 2 only)
 
-## Step 1: Deploy AWS Infrastructure (3 minutes)
+---
+
+## Phase 1: Infrastructure Deployment (Required)
+
+### Step 1: Clone and Setup
 
 ```bash
-# Clone and setup
 git clone <repository-url>
 cd strava-ai-boost
 python -m venv venv
@@ -45,280 +34,200 @@ pip install -r requirements.txt
 
 # Set AWS profile
 export AWS_PROFILE=your-aws-profile
+```
 
-# Deploy AWS infrastructure (Step 1 ONLY)
+### Step 2: Deploy AWS Infrastructure
+
+```bash
 ./scripts/deploy.sh dev
 ```
 
-**What this does:**
-- ✅ Deploys AWS infrastructure (5 CDK stacks)
-- ✅ Creates DynamoDB tables, Lambda functions, Step Functions
-- ✅ Sets up secrets placeholders and IAM roles
-- ✅ Configures system to work with Bedrock fallback mode
+**What this deploys:**
+- ✅ 6 CDK stacks (Core, Security, Content, API, Webhook, Monitoring)
+- ✅ DynamoDB tables, Lambda functions, Step Functions
+- ✅ Secrets Manager placeholders
+- ✅ Bedrock fallback mode (Claude Sonnet 4.5)
 - ✅ **System is immediately functional!**
 
-## Step 2: Create AgentCore Long-Term Memories (3 minutes) - Optional
+### Step 3: Validate Deployment
 
 ```bash
-# Create LTM memories with semantic search
-./scripts/create_agentcore_memories.sh
+./scripts/validate_deployment.sh dev
 ```
 
-**What this does:**
-- ✅ Creates 2 LTM memories with semantic search strategy
-- ✅ 365-day retention for persistent style learning
-- ✅ Enables semantic search for pattern recognition
-- ✅ Takes ~3 minutes per memory to provision
-
-**Memory Features:**
-- **Automatic Integration**: Memory is automatically used by agents via Strands hooks
-- **Context Loading**: Last 5 activities loaded for personalization
-- **Persistent Learning**: User style, preferences, and patterns saved across activities
-- **Semantic Search**: Intelligent retrieval of relevant past context
-
-**Wait for memories to become ACTIVE:**
-```bash
-# Check memory status
-agentcore memory list --region eu-west-1
-```
-
-## Step 3: Deploy AgentCore Agents (2 minutes) - Optional
+### Step 4: Setup Local Environment
 
 ```bash
-# Deploy AgentCore agents with LTM
-./scripts/deploy_agentcore_agents.sh
-```
-
-**What this does:**
-- ✅ Creates 2 AgentCore agents (`content_gen`, `campus_coach`)
-- ✅ Configures agents to use pre-created LTM memories
-- ✅ Uses `direct_code_deploy` (no Docker containers required)
-- ✅ Validates agent deployment and memory configuration
-- ⚠️  Guardrails not yet configured (configured in Step 4)
-
-## Step 4: Configure AgentCore Integration (1 minute) - Optional
-
-```bash
-# Configure IAM permissions and Lambda integration
-./scripts/configure_agentcore_integration.sh
-```
-
-**What this does:**
-- ✅ Detects and configures Bedrock Guardrails from SecurityStack
-- ✅ Updates `.env.agentcore` with guardrail configuration
-- ✅ Configures IAM permissions for AgentCore agents
-- ✅ Updates Lambda environment variables with agent ARNs
-- ✅ Enables seamless integration between infrastructure and AI agents
-
-**Guardrail Detection:**
-- Automatically retrieves GuardrailId from CloudFormation
-- Writes to `.env.agentcore` for agent deployment
-- No manual configuration required
-
-## Step 5: Redeploy Agents with Guardrails (2 minutes) - Recommended
-
-```bash
-# Redeploy agents to enable guardrails
-./scripts/deploy_agentcore_agents.sh
-```
-
-**What this does:**
-- ✅ Reads guardrail configuration from `.env.agentcore`
-- ✅ Deploys agents with Bedrock Guardrails enabled
-- ✅ Protects against prompt injection and harmful content
-- ✅ Enables PII protection and topic boundaries
-
-**After this step:**
-- 🛡️ Both agents protected by Bedrock Guardrails
-- 📊 GenAI Observability Dashboard active
-- 🧠 AgentCore Memory operational
-- ✅ Full security and monitoring enabled
-
-## Step 6: Final CDK Deployment (1 minute)
-# Configure IAM permissions and Lambda integration
-./scripts/configure_agentcore_integration.sh
-```
-
-**What this does:**
-- ✅ Detects deployed agents and memory configuration from `.bedrock_agentcore.yaml`
-- ✅ Reads memory ID for reference and documentation
-- ✅ Updates Lambda IAM permissions for AgentCore invocation
-- ✅ Updates `.env.agentcore` with agent ARNs (memory ID passed to agents via --env)
-- ✅ Enables seamless integration between infrastructure and AI agents
-
-## Step 5: **IMPORTANT - Redeploy After AgentCore Configuration** ⚠️
-
-After deploying AgentCore agents, you **MUST redeploy** the CDK stacks to update the AgentCore Health Check Lambda:
-
-```bash
-# Redeploy to load agent ARNs into Lambda environment variables
-cdk deploy --all --profile your-aws-profile --require-approval never
-```
-
-**Why this is required:**
-- The AgentCore Health Check Lambda tests agent connectivity
-- Agent ARNs are loaded from `.env.agentcore` at CDK deployment time
-- Without redeployment, the dashboard will show "Not Configured" for AgentCore
-
-**When to redeploy:**
-- ✅ After initial AgentCore agent deployment (this step)
-- ✅ After updating agent ARNs in `.env.agentcore`
-- ❌ Not needed for module configuration (Campus Coach, Enduraw)
-
-**Memory Integration:**
-- Memory ID automatically detected from agent configuration
-- Each agent receives its memory ID via `agentcore launch --env`
-- Agent code uses Strands hooks for automatic memory management
-- No manual configuration needed - fully automated
-- ✅ **Updates all 10 Lambda functions** with agent ARNs via AWS API
-- ✅ Updates CDK context with agent information
-- ✅ Creates `.env.agentcore` file for local development
-- ✅ **No CDK redeploy needed - changes are immediately active**
-
-## Configure Strava Integration (2 minutes)
-
-### Step 1: Create Strava App
-1. Go to https://www.strava.com/settings/api
-2. Click "Create App" and fill:
-   - **Application Name**: "My Strava AI Boost"
-   - **Website**: http://localhost:3000
-   - **Authorization Callback Domain**: localhost
-3. **Save your Client ID and Client Secret** (you'll need them next)
-
-### Step 2: Store Credentials in AWS
-```bash
-# Replace YOUR_CLIENT_ID and YOUR_CLIENT_SECRET with actual values
-aws secretsmanager put-secret-value \
-  --secret-id strava-ai-boost-app-config \
-  --secret-string '{"client_id":"YOUR_CLIENT_ID","client_secret":"YOUR_CLIENT_SECRET"}' \
-  --profile your-aws-profile
-```
-
-### Step 3: Setup Local Environment
-```bash
-# Generate .env file with API Gateway URL and API Key
 ./scripts/setup_local_env.sh
 ```
 
-**What this script does:**
+**What this does:**
 - ✅ Retrieves API Gateway URL from CloudFormation
-- ✅ Retrieves API Key from AWS API Gateway
-- ✅ Generates `local_interface/.env` file with configuration
-- ✅ No manual configuration needed
+- ✅ Retrieves API Key from AWS
+- ✅ Generates `local_interface/.env` file
 
-### Step 4: Start Local Interface
+### Step 5: Configure Strava Webhook
+
+```bash
+./scripts/configure_strava_webhook.sh dev --auto-configure
+```
+
+**What this does:**
+- ✅ Retrieves Strava credentials from Secrets Manager (`strava-ai-boost-app-config`)
+- ✅ Creates Strava webhook subscription
+- ✅ Enables real-time activity processing
+- ✅ **Required for automatic processing**
+
+**Note:** Make sure your Strava app credentials are in Secrets Manager:
+```bash
+# If not already configured, add your credentials:
+aws secretsmanager put-secret-value \
+  --secret-id strava-ai-boost-app-config \
+  --secret-string '{"client_id":"YOUR_CLIENT_ID","client_secret":"YOUR_CLIENT_SECRET"}' \
+  --profile your-aws-profile \
+  --region eu-west-1
+```
+
+### Step 6: Start Local Interface (30 sec)
+
 ```bash
 cd local_interface
 python app.py
 ```
 
-**The interface will:**
-- ✅ Load configuration from `.env` file automatically
-- ✅ Connect to API Gateway with API Key
-- ✅ Start on http://localhost:3000
-
 Open http://localhost:3000 in your browser.
 
-### Step 5: Connect via Web Interface
+### Step 7: Connect with Strava
+
 1. Open http://localhost:3000
 2. Click "Connect with Strava"
 3. Authorize the application
+4. Configure your preferences (age, interests, style)
+5. Test with a Strava activity!
 
-### Step 6: Configure Your Preferences (Optional but Recommended) 🎨
-1. Go to http://localhost:3000/preferences
-2. Configure your personal profile:
-   - **Age Range**: Adapts tone and cultural references
-   - **Sport Approach**: health & wellness, performance & competition, social & fun, etc.
-   - **Content Length**: short, medium, detailed, or adaptive
-   - **Content Tone**: technical, motivational, casual, humorous, or authentic
-   - **Emoji Usage**: none, minimal, moderate, or enthusiastic
-   - **Technical Detail**: basic, intermediate, or advanced
-   - **Interests**: Select from technology, music, travel, food, nature, photography, family, competition
-3. Click "Save Preferences"
-4. AI will now generate content tailored to your personality and preferences!
+**🎉 Phase 1 Complete! Your system is fully functional.**
 
-**Why configure preferences?**
-- ✅ Content adapts to your age and life context
-- ✅ Tone matches your personality (fun, technical, motivational, etc.)
-- ✅ Subtle cultural references based on your interests
-- ✅ Technical detail level matches your preference
-- ✅ Emoji usage respects your style
+---
 
-### Step 6: Configure Webhook (Required - for real-time processing)
+## Phase 2: AgentCore Enhancement (Optional)
+
+Add advanced personalization with Long-Term Memory.
+
+### Step 1: Create AgentCore Memories
+
 ```bash
-# Configure webhook subscription (tells Strava to notify us of new activities automatically)
-./scripts/configure_strava_webhook.sh dev --auto-configure
-```
-
-**What this does:**
-- ✅ Creates Strava webhook subscription for automatic activity notifications
-- ✅ Automatically replaces any existing webhook with updated URL
-- ✅ Enables real-time processing when you upload new activities to Strava
-- ✅ **Required for the system to work automatically** - without this, activities won't be processed
-
-## Test Your System (30 seconds)
-
-Upload a new activity to Strava and watch it get enhanced automatically!
-
-## System Architecture
-
-Your deployed system includes:
-
-### 🤖 Phase 1: Bedrock Fallback (Always Available)
-- **Direct AI**: Claude Sonnet 4.5 integration
-- **Smart Prompts**: Enhanced prompts with module insights
-- **Reliability**: 99.9% availability, automatic operation
-- **Performance**: 0.75-0.90 confidence scores
-
-### ⚡ Phase 2: AgentCore Enhancement with LTM (Optional)
-- **Content Generation Agent**: Personalized AI with Long-Term Memory
-- **Campus Coach Agent**: Automated session extraction (optional module)
-- **AgentCore LTM**: Learns your writing style with semantic search (365-day retention)
-- **Semantic Memory**: Pattern recognition and style adaptation
-- **Performance**: 95% availability, 0.85-0.95 confidence scores
-
-> **💡 How it works**: Phase 1 gives you a fully functional system immediately. Phase 2 adds enhanced personalization while maintaining the same reliability through automatic fallback.
-
-## Deployment Architecture Benefits
-
-### **✅ No Circular Dependencies**
-- CDK deploys independently of AgentCore
-- Lambda functions work with empty AgentCore variables
-- Clean separation of infrastructure and AI agents
-
-### **✅ Always Functional**
-- System works immediately after Phase 1
-- Phase 2 failure doesn't break the system
-- Automatic fallback ensures reliability
-
-### **✅ Easy Troubleshooting**
-- Clear separation between infrastructure and enhancement
-- Independent deployment phases
-- Isolated failure domains
-
-## Quick Troubleshooting
-
-### If Phase 1 (CDK) deployment fails:
-```bash
-# Check CloudFormation console for detailed errors
-# Ensure no resource conflicts exist
-# Verify AWS credentials and permissions
-```
-
-### If Phase 2 (AgentCore LTM) deployment fails:
-```bash
-# System still works with Bedrock fallback - no problem!
-# You can retry LTM memory creation:
 ./scripts/create_agentcore_memories.sh
+```
 
-# Then retry agent deployment:
+**What this creates:**
+- ✅ 2 LTM memories with semantic search
+- ✅ 365-day retention
+- ✅ Persistent style learning
+
+**Wait for memories to become ACTIVE:**
+```bash
+agentcore memory list --region eu-west-1
+```
+
+### Step 2: Deploy AgentCore Agents
+
+```bash
 ./scripts/deploy_agentcore_agents.sh
 ```
 
-### If webhook isn't working:
+**What this deploys:**
+- ✅ `content_gen` agent (personalized content)
+- ✅ `campus_coach` agent (session extraction)
+- ✅ Bedrock Guardrails integration
+- ✅ LTM memory configuration
+
+### Step 3: Configure Integration
+
 ```bash
-# Check webhook configuration
-./scripts/configure_strava_webhook.sh dev --check-status
+./scripts/configure_agentcore_integration.sh
+```
+
+**What this configures:**
+- ✅ IAM permissions for AgentCore
+- ✅ Lambda environment variables with agent ARNs
+- ✅ Detects and configures Bedrock Guardrails
+- ✅ Updates `.env.agentcore` with guardrail configuration
+
+### Step 4: Redeploy Agents with Guardrails
+
+```bash
+./scripts/deploy_agentcore_agents.sh
+```
+
+**What this does:**
+- ✅ Redeploys agents with guardrail configuration
+- ✅ Enables AI safety and prompt injection protection
+- ✅ Applies security layer to content generation
+
+### Step 5: Final CDK Deployment
+
+```bash
+cdk deploy --all --profile your-aws-profile --require-approval never
+```
+
+**What this does:**
+- ✅ Updates Lambda environment variables with agent ARNs
+- ✅ Loads configuration from `.env.agentcore`
+- ✅ Completes AgentCore integration
+
+**🎉 Phase 2 Complete! Advanced personalization enabled.**
+
+---
+
+## System Architecture
+
+### Phase 1: Bedrock Fallback (Always Available)
+- **Direct AI**: Claude Sonnet 4.5
+- **Smart Prompts**: Enhanced with module insights
+- **Reliability**: 99.9% availability
+- **Performance**: 0.75-0.90 confidence scores
+
+### Phase 2: AgentCore Enhancement (Optional)
+- **Content Generation Agent**: Personalized AI with LTM
+- **Campus Coach Agent**: Automated session extraction
+- **Semantic Memory**: Pattern recognition and style adaptation
+- **Performance**: 95% availability, 0.85-0.95 confidence scores
+
+> **💡 How it works**: Phase 1 gives you a fully functional system. Phase 2 adds enhanced personalization with automatic fallback.
+
+---
+
+## Quick Troubleshooting
+
+### Phase 1 deployment fails:
+```bash
+# Check CloudFormation console for errors
+# Verify AWS credentials and permissions
+```
+
+### Phase 2 deployment fails:
+```bash
+# System still works with Bedrock fallback!
+# Retry memory creation:
+./scripts/create_agentcore_memories.sh
+
+# Retry agent deployment:
+./scripts/deploy_agentcore_agents.sh
+
+# Retry integration configuration:
+./scripts/configure_agentcore_integration.sh
+
+# Redeploy agents with guardrails:
+./scripts/deploy_agentcore_agents.sh
+
+# Final CDK deployment:
+cdk deploy --all --profile your-aws-profile --require-approval never
+```
+
+### Webhook not working:
+```bash
+# Validate webhook configuration
+./scripts/configure_strava_webhook.sh dev --validate-only
 
 # Reconfigure if needed
 ./scripts/configure_strava_webhook.sh dev --auto-configure
@@ -326,37 +235,46 @@ Your deployed system includes:
 
 ### Check system health:
 ```bash
-# Validate everything is working
-./scripts/validate_strava_setup.sh dev --detailed
+./scripts/validate_deployment.sh dev
 ```
 
-## Alternative: Manual Phase-by-Phase Deployment
+---
 
-For more control, you can run each phase manually:
+## Available Scripts
 
-### Phase 1: CDK Infrastructure Only
-```bash
-# Bootstrap CDK (first time only)
-cdk bootstrap --profile your-aws-profile
+All scripts are documented in **[scripts/README.md](../../scripts/README.md)**.
 
-# Deploy CDK infrastructure
-cdk deploy --all --profile your-aws-profile --require-approval never
-```
+**Deployment (2):**
+- `deploy.sh` - Main infrastructure deployment
+- `deploy_agentcore_agents.sh` - AgentCore agents with LTM
 
-### Phase 2: AgentCore Enhancement Only
-```bash
-# Deploy AgentCore agents and update Lambda environment variables
-./scripts/deploy_agentcore_agents.sh
-```
+**Configuration (4):**
+- `setup_local_env.sh` - Local environment setup
+- `create_agentcore_memories.sh` - LTM memories
+- `configure_agentcore_integration.sh` - IAM and Lambda
+- `configure_strava_webhook.sh` - Webhook setup
+
+**Maintenance (2):**
+- `cleanup_strava_webhook.sh` - Webhook cleanup
+- `reprocess_dlq.sh` - DLQ reprocessing
+
+**Validation (1):**
+- `validate_deployment.sh` - Post-deployment validation
+
+**Uninstall (2):**
+- `uninstall.sh` - Complete removal
+- `verify_uninstall.sh` - Uninstall verification
+
+---
 
 ## Next Steps
 
 - **Enable Modules**: [Configuration Guide](../user-guide/CONFIGURATION.md)
 - **Customize Settings**: [Dashboard Guide](../user-guide/DASHBOARD.md)
 - **Troubleshooting**: [Troubleshooting Guide](../user-guide/TROUBLESHOOTING.md)
-
-## Need Help?
-
-- **Common Issues**: [Troubleshooting Guide](../user-guide/TROUBLESHOOTING.md)
 - **Full Setup**: [Complete Setup Guide](COMPLETE-SETUP.md)
 - **Technical Details**: [Architecture](../reference/ARCHITECTURE.md)
+
+---
+
+**Need Help?** Check the [Troubleshooting Guide](../user-guide/TROUBLESHOOTING.md) or [Complete Setup Guide](COMPLETE-SETUP.md).

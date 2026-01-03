@@ -187,7 +187,38 @@ Strava AI Boost uses **Long-Term Memory (LTM)** with semantic search strategy:
 
 ### Deployment Process
 
-#### Step 1: Create LTM Memories
+#### Complete Deployment Workflow
+
+```bash
+# Step 1: Deploy AWS Infrastructure
+./scripts/deploy.sh dev
+
+# Step 2: Validate Deployment
+./scripts/validate_deployment.sh dev
+
+# Step 3: Setup Local Environment
+./scripts/setup_local_env.sh
+
+# Step 4: Configure Strava Webhook
+./scripts/configure_strava_webhook.sh dev --auto-configure
+
+# Step 5: Create LTM Memories
+./scripts/create_agentcore_memories.sh
+
+# Step 6: Deploy AgentCore Agents
+./scripts/deploy_agentcore_agents.sh
+
+# Step 7: Configure Integration (detects guardrails)
+./scripts/configure_agentcore_integration.sh
+
+# Step 8: Redeploy Agents with Guardrails
+./scripts/deploy_agentcore_agents.sh
+
+# Step 9: Final CDK Deployment
+cdk deploy --all --profile your-aws-profile --require-approval never
+```
+
+#### Step 5: Create LTM Memories
 
 ```bash
 # Create LTM memories with semantic search (~6 minutes total)
@@ -203,7 +234,7 @@ Each memory is configured with:
 - 365-day retention
 - Vector embeddings for similarity search
 
-#### Step 2: Verify Memory Status
+#### Verify Memory Status
 
 ```bash
 # Check that memories are ACTIVE

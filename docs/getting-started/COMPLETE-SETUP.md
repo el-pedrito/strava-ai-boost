@@ -47,23 +47,32 @@ This approach ensures:
 # Step 1: Deploy AWS Infrastructure (includes SecurityStack with Guardrails)
 ./scripts/deploy.sh dev
 
-# Step 2: Create AgentCore Long-Term Memories (~6 minutes)
+# Step 2: Validate Deployment
+./scripts/validate_deployment.sh dev
+
+# Step 3: Setup Local Environment
+./scripts/setup_local_env.sh
+
+# Step 4: Configure Strava Webhook
+./scripts/configure_strava_webhook.sh dev --auto-configure
+
+# Step 5: Create AgentCore Long-Term Memories
 ./scripts/create_agentcore_memories.sh
 
-# Step 3: Deploy AgentCore Agents (initial deployment)
+# Step 6: Deploy AgentCore Agents (initial deployment)
 ./scripts/deploy_agentcore_agents.sh
 
-# Step 4: Configure AgentCore Integration (detects and configures guardrails)
+# Step 7: Configure AgentCore Integration (detects and configures guardrails)
 ./scripts/configure_agentcore_integration.sh
 
-# Step 5: Redeploy Agents with Guardrails
+# Step 8: Redeploy Agents with Guardrails
 ./scripts/deploy_agentcore_agents.sh
 
-# Step 6: Final CDK deployment (load agent ARNs)
+# Step 9: Final CDK deployment (load agent ARNs)
 cdk deploy --all --profile your-aws-profile --require-approval never
 ```
 
-**Why Step 5?** After Step 4 detects guardrails and updates `.env.agentcore`, agents need to be redeployed to receive the guardrail configuration.
+**Why Step 8?** After Step 7 detects guardrails and updates `.env.agentcore`, agents need to be redeployed to receive the guardrail configuration.
 
 ### Option 2: Manual Step-by-Step Deployment
 

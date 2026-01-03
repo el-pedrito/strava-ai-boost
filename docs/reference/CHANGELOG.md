@@ -5,6 +5,34 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.3] - 2026-01-03 - Deployment Order Correction
+
+### Fixed
+- **Deployment Workflow**: Corrected deployment order in all documentation
+  - Phase 1 (Infrastructure): Steps 1-4 (deploy, validate, setup env, webhook)
+  - Phase 2 (AgentCore): Steps 5-9 (memories, agents, integration, redeploy agents, final CDK)
+  - Step 7 (`configure_agentcore_integration.sh`) now correctly placed BEFORE Step 8 (agent redeploy)
+  - Step 7 detects guardrails and updates `.env.agentcore`
+  - Step 8 redeploys agents with guardrail configuration
+  - Step 9 final CDK deployment loads agent ARNs into Lambda environment
+  - Files: `README.md`, `docs/getting-started/QUICK-START.md`, `docs/getting-started/COMPLETE-SETUP.md`
+
+### Changed
+- **Documentation Consistency**: Updated deployment order across all documentation files
+  - `README.md`: Updated complete deployment workflow with 9 steps
+  - `docs/getting-started/QUICK-START.md`: Updated Phase 2 with Steps 3-5 (integration, redeploy, CDK)
+  - `docs/getting-started/COMPLETE-SETUP.md`: Updated automated deployment with Steps 1-9
+  - `docs/advanced/AGENTCORE.md`: Updated deployment process section
+  - `docs/advanced/BEDROCK-GUARDRAILS.md`: Updated flux standard with correct order
+  - Removed all time estimates to avoid confusion and outdated information
+
+### Documentation
+- **Deployment Clarity**: Improved explanation of why each step is necessary
+  - Step 7 explanation: Detects guardrails, updates `.env.agentcore`, configures IAM
+  - Step 8 explanation: Redeploys agents with guardrail configuration from Step 7
+  - Step 9 explanation: Updates Lambda environment variables with agent ARNs
+  - Clear separation between infrastructure setup and AgentCore enhancement
+
 ## [1.16.2] - 2025-01-02 - Scripts Cleanup and Corrections
 
 ### Fixed

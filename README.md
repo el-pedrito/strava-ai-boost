@@ -24,67 +24,87 @@ Strava AI Boost is a production-ready, modular serverless application that autom
 
 ### Complete Deployment Workflow
 
-**Step 1: Infrastructure (2 min)** ✅
+**Phase 1: Infrastructure Deployment (Required)**
+
 ```bash
+# 1. Deploy CDK Infrastructure (~10-15 min)
+export AWS_PROFILE=your-aws-profile
 ./scripts/deploy.sh dev
-# Deploys: 6 CDK stacks (Core, Security, Content, API, Webhook, Monitoring)
-# Includes: Bedrock Guardrails + GenAI Observability configuration
-```
 
-**Step 2: AgentCore Long-Term Memory (3 min)** ✅
-```bash
-./scripts/create_agentcore_memories.sh
-# Creates: LTM memories with semantic search (~3 min per memory)
-```
+# 2. Validate Deployment (~2 min)
+./scripts/validate_deployment.sh dev
 
-**Step 3: AgentCore Agents - Initial (2 min)** ✅
-```bash
-./scripts/deploy_agentcore_agents.sh
-# Deploys: AI agents with LTM (without guardrails yet)
-```
-
-**Step 4: AgentCore Integration (1 min)** ✅
-```bash
-./scripts/configure_agentcore_integration.sh
-# Configures: IAM permissions + Lambda env vars + Guardrail detection
-# Detects: Bedrock Guardrails from SecurityStack
-# Updates: .env.agentcore with guardrail configuration
-```
-
-**Step 5: AgentCore Agents - With Security (2 min)** ✅
-```bash
-./scripts/deploy_agentcore_agents.sh
-# Redeploys: Agents with Bedrock Guardrails enabled
-# Enables: Prompt injection protection + content safety
-```
-
-**Step 6: Final CDK Deployment (1 min)** ✅
-```bash
-cdk deploy --all --profile your-aws-profile --require-approval never
-# Updates: Lambda functions with agent ARNs
-```
-
-**Step 7: Local Environment Setup (30 sec)** ✅
-```bash
+# 3. Setup Local Environment (~30 sec)
 ./scripts/setup_local_env.sh
-# Generates: .env file with API Gateway URL + API Key
+
+# 4. Configure Strava Webhook (~1 min)
+./scripts/configure_strava_webhook.sh dev --auto-configure
 ```
 
-**Ready to Use** ✅ OPERATIONAL
+**Phase 2: AgentCore Enhancement (Optional - for advanced personalization)**
+
 ```bash
+# 5. Create AgentCore Memories (~3 min)
+./scripts/create_agentcore_memories.sh
+
+# 6. Deploy AgentCore Agents (~5-10 min)
+./scripts/deploy_agentcore_agents.sh
+
+# 7. Configure Integration (~2 min)
+./scripts/configure_agentcore_integration.sh
+
+# 8. Redeploy Agents with Guardrails (~5 min)
+./scripts/deploy_agentcore_agents.sh
+
+# 9. Final CDK Deployment (~5 min)
+cdk deploy --all --profile your-aws-profile --require-approval never
+```
+
+**Start Using the System**
+
+```bash
+# Launch local web interface
 cd local_interface && python app.py
-# Open http://localhost:3000 → Connect with Strava → Configure Preferences → Process activities
-# No AWS_PROFILE needed - all configuration in .env file
+
+# Open http://localhost:3000
+# - Connect with Strava OAuth
+# - Configure your preferences
+# - Enable modules (Campus Coach, Enduraw)
+# - Process your activities!
 ```
 
-**Step 6: Configure Your Preferences (Optional, 1 min)** 🎨 RECOMMENDED
-```bash
-# Open http://localhost:3000/preferences
-# Configure: Age, sport approach, content style, interests, language
-# AI will adapt content to your personality and preferences
-```
+**Deployment Phases:**
+- Phase 1 only: Fully functional system with Bedrock fallback
+- Phase 1 + 2: Advanced personalization with AgentCore Memory
 
-**🎯 Next Step:** Connect via OAuth at http://localhost:3000, configure your preferences, and test with a Strava activity!
+---
+
+### Available Scripts
+
+All deployment and maintenance scripts are documented in **[scripts/README.md](scripts/README.md)**.
+
+**Deployment Scripts (2):**
+- `deploy.sh` - Main CDK infrastructure deployment
+- `deploy_agentcore_agents.sh` - AgentCore agents with LTM
+
+**Configuration Scripts (4):**
+- `setup_local_env.sh` - Local environment variables
+- `create_agentcore_memories.sh` - LTM memories creation
+- `configure_agentcore_integration.sh` - IAM and Lambda configuration
+- `configure_strava_webhook.sh` - Strava webhook setup
+
+**Maintenance Scripts (2):**
+- `cleanup_strava_webhook.sh` - Webhook cleanup
+- `reprocess_dlq.sh` - DLQ message reprocessing
+
+**Validation Scripts (1):**
+- `validate_deployment.sh` - Post-deployment validation
+
+**Uninstall Scripts (2):**
+- `uninstall.sh` - Complete system removal
+- `verify_uninstall.sh` - Uninstall verification
+
+For detailed usage, examples, and troubleshooting, see **[scripts/README.md](scripts/README.md)**.
 
 ## 📚 Documentation
 
