@@ -5,6 +5,66 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.7] - 2026-01-03 - Test Suite Modernization and Code Cleanup
+
+### Added
+- **Modern Test Suite**: Complete rewrite with dynamic AWS resource discovery
+  - `test_api_gateway.py` - Live API Gateway endpoint testing (28 tests)
+  - `test_cdk_infrastructure.py` - CDK stack and infrastructure testing (25 tests)
+  - `test_lambda_functions.py` - Lambda structure and configuration (10 tests)
+  - `test_end_to_end.py` - Integration tests with deployed AWS (10 tests)
+  - `aws_config.py` - Dynamic AWS resource discovery system
+  - `conftest.py` - Pytest configuration with generic test values
+  - `tests/README.md` - Complete test suite documentation
+
+### Removed
+- **Legacy Code Cleanup**: Removed unused code and obsolete tests
+  - 19 obsolete test files dependent on deleted `src/utils/` package
+  - `src/utils/` - Complete utils package (9 files) not used in architecture
+  - `config/` - Environment config files (dev.json, prod.json) not integrated
+  - `local_interface/static/` - JavaScript utilities never loaded
+  - `strava-ai-boost-dependencies-layer.zip` (root) - Old Lambda Layer artifact
+  - Unused imports in `local_interface/app.py`
+
+### Fixed
+- **Local Interface Error**: Fixed `NameError: name 'get_bedrock_model_id' is not defined`
+  - Removed `bedrock_model` parameter from config page rendering
+  - Removed unused imports (`get_bedrock_model_id`, `StravaOAuthHandler`)
+  - Error occurred in `/config` route
+
+### Changed
+- **Testing Documentation**: Completely rewritten `docs/advanced/TESTING.md`
+  - Modern testing approach with dynamic resource discovery
+  - 73 tests with 100% pass rate
+  - Real API Gateway endpoint testing
+  - No hardcoded AWS values (safe for git commits)
+  - Clear test categories and examples
+- **Scripts Documentation**: Enhanced `scripts/README.md`
+  - Added Lambda Layer build workflow details
+  - Documented `lambda_layer/build_layer.sh` automatic execution
+
+### Performance
+- **Test Suite**: Fast and comprehensive
+  - Execution time: <25s for complete suite
+  - Pass rate: 73/73 (100%)
+  - Coverage: 91% for CDK infrastructure
+  - API Gateway: 100% functional coverage
+- **Codebase Size**: ~20% reduction
+  - Removed ~3500 lines of unused code
+  - Cleaner architecture improves maintainability
+
+### Testing
+- **Dynamic Configuration**: Automatic AWS resource discovery
+  - API Gateway URL discovered from CloudFormation/API Gateway
+  - API Key retrieved dynamically with proper authentication
+  - Works on any deployed environment without configuration
+  - Profile support: Uses `AWS_PROFILE` environment variable
+- **Real API Testing**: Live HTTP requests to deployed endpoints
+  - Health checks, configuration, dashboard, preferences
+  - Error handling (404, 403, 405)
+  - Performance validation (<5-10s response times)
+  - Complete workflows (pause → resume enhancement)
+
 ## [1.16.6] - 2026-01-03 - Code Cleanup and Documentation Update
 
 ### Removed

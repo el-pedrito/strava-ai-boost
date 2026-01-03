@@ -1,4 +1,0 @@
-# file: ./stacks/webhook_processing_stack.py
-# hypothesis_version: 6.148.7
-
-[128, 256, 300, 512, '200', '400', '500', 'ACTIVITIES_TABLE', 'ActivityProcessor', 'GET', 'POST', 'PROCESSING_QUEUE_URL', 'RATE_LIMITS_TABLE', 'RateLimiter', 'STRAVA_OAUTH_SECRET', 'StravaWebhookAPI', 'WebhookHandler', 'WebhookValidator', 'activities', 'lambda_functions', 'rate_limiter.handler', 'rate_limits', 'webhook']
