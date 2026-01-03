@@ -5,6 +5,34 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.6] - 2026-01-03 - Code Cleanup and Documentation Update
+
+### Removed
+- **Legacy Code Cleanup**: Removed unused code and legacy artifacts
+  - `src/utils/` - Complete utils package (9 files) - not used in current architecture
+  - `config/` - Environment config files (dev.json, prod.json) - not integrated in CDK
+  - `local_interface/static/` - JavaScript utilities never loaded in templates
+  - `strava-ai-boost-dependencies-layer.zip` (root) - Old Lambda Layer artifact
+  - Unused imports in `local_interface/app.py` (get_bedrock_model_id, StravaOAuthHandler)
+
+### Fixed
+- **Local Interface Error**: Fixed `NameError: name 'get_bedrock_model_id' is not defined`
+  - Removed `bedrock_model` parameter from config page template rendering
+  - Error occurred in `/config` route when displaying configuration page
+  - Impact: Local web interface now loads without errors
+
+### Changed
+- **Documentation Enhancement**: Updated `scripts/README.md` with Lambda Layer build details
+  - Added explanation of `lambda_layer/build_layer.sh` automatic execution
+  - Documented dependency installation workflow (requirements.txt → python/ → .zip)
+  - Clarified CDK deployment process for Lambda Layer
+
+### Performance
+- **Codebase Size Reduction**: ~15% reduction in repository size
+  - Removed 9 unused utility files (~3000 lines of code)
+  - Removed 2 config files and 1 static JavaScript file
+  - Cleaner codebase improves maintainability and reduces confusion
+
 ## [1.16.5] - 2026-01-03 - Guardrail Throttling Fix with Targeted Input Validation
 
 ### Fixed

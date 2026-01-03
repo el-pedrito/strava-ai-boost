@@ -23,18 +23,8 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-# Add src directory to path for config imports
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
-
-try:
-    from config.llm_config import get_bedrock_model_id
-    from utils.oauth_handler import StravaOAuthHandler
-except ImportError as e:
-    logging.error(f"Failed to import configuration modules: {e}")
-    # Fallback functions for development
-    def get_bedrock_model_id(): 
-        import os
-        return os.environ.get('BEDROCK_MODEL_ID', 'global.anthropic.claude-sonnet-4-5-20250929-v1:0')
+# Note: src/utils imports removed - no longer needed in local interface
+# All functionality now handled via API Gateway
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -243,8 +233,7 @@ def config():
                              strava_configured=strava_configured,
                              oauth_status=oauth_status,
                              modules=modules,
-                             setup_instructions=setup_instructions,
-                             bedrock_model=get_bedrock_model_id())
+                             setup_instructions=setup_instructions)
     except Exception as e:
         logger.error(f"Configuration error: {str(e)}")
         return render_template('error.html', error=str(e)), 500

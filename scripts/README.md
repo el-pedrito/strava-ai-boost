@@ -63,6 +63,10 @@ export AWS_REGION=eu-west-1
 - ✅ Valide les prérequis AWS
 - ✅ Bootstrap CDK si nécessaire
 - ✅ Build Lambda Layer avec dépendances
+  - Exécute `lambda_layer/build_layer.sh` automatiquement
+  - Installe les dépendances Python depuis `lambda_layer/requirements.txt`
+  - Crée `lambda_layer/strava-ai-boost-dependencies-layer.zip`
+  - CDK déploie ensuite le layer depuis le répertoire `lambda_layer/`
 - ✅ Déploie tous les stacks CDK (Core, Content, Webhook, API, Monitoring)
 - ✅ Crée les secrets Secrets Manager (placeholders)
 - ✅ Vérifie les ressources déployées (DynamoDB, Lambda, SQS)
