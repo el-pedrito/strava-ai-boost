@@ -8,7 +8,7 @@ Strava AI Boost is a production-ready, modular serverless application that autom
 - ✅ **Phase 1 (Infrastructure)**: 6 CDK stacks deployed (Core, Security, Content, API, Webhook, Monitoring)
 - ✅ **Phase 2 (LTM Memory)**: 2 LTM memories with semantic search (365-day retention)
 - ✅ **Phase 3 (AgentCore)**: 2 AI agents deployed (`content_gen`, `campus_coach`)
-- ✅ **Integration**: All 10 Lambda functions configured with agent ARNs
+- ✅ **Integration**: All 13 Lambda functions configured with agent ARNs
 - ✅ **Content Generation**: Enhanced with semantic memory for style learning
 - ✅ **Structured Tools**: Proper tool architecture for Strands framework
 - ✅ **Strava Integration**: Webhook active with complete OAuth flow
@@ -186,7 +186,166 @@ The system uses a local web interface approach to avoid complexity of user manag
 - AgentCore CLI
 - Node.js (for CDK)
 
-## Architecture
+## Architecture Overview
+
+### System Components
+
+Strava AI Boost is built on 4 main layers:
+
+```mermaid
+graph TB
+    subgraph "🖥️ User Layer"
+        User[User]
+        Browser[Web Browser]
+        LocalUI[Local Flask Interface<br/>localhost:3000]
+    end
+    
+    subgraph "☁️ AWS Infrastructure - 6 CDK Stacks"
+        subgraph "1️⃣ Core Stack"
+            DDB[(DynamoDB<br/>4 Tables)]
+            Secrets[Secrets Manager<br/>OAuth & Credentials]
+        end
+        
+        subgraph "2️⃣ Security Stack"
+            Guardrails[Bedrock Guardrails<br/>AI Safety]
+        end
+        
+        subgraph "3️⃣ Webhook Stack"
+            WebhookAPI[Webhook API<br/>Strava Events]
+            SQS[SQS Queue<br/>+ DLQ]
+        end
+        
+        subgraph "4️⃣ Content Stack"
+            SF[Step Functions<br/>Workflow]
+            Lambda13[13 Lambda Functions<br/>Processing Pipeline]
+        end
+        
+        subgraph "5️⃣ API Stack"
+            APIGW[API Gateway<br/>Local Interface API]
+        end
+        
+        subgraph "6️⃣ Monitoring Stack"
+            CW[CloudWatch<br/>Logs & Metrics]
+            GenAI[GenAI Dashboard<br/>Agent Observability]
+        end
+    end
+    
+    subgraph "🤖 AI Services"
+        AgentCore[AgentCore<br/>2 Agents + 2 Memories]
+        Bedrock[Bedrock<br/>Claude Sonnet 4.5]
+    end
+    
+    subgraph "🌐 External Services"
+        Strava[Strava API<br/>Activities]
+        Campus[Campus Coach<br/>Training Platform]
+        Nominatim[Nominatim<br/>Location Data]
+        OpenMeteo[Open-Meteo<br/>Weather Data]
+    end
+    
+    User --> Browser
+    Browser --> LocalUI
+    LocalUI --> APIGW
+    APIGW --> Lambda13
+    Lambda13 --> DDB
+    Lambda13 --> Secrets
+    
+    Strava --> WebhookAPI
+    WebhookAPI --> SQS
+    SQS --> SF
+    SF --> Lambda13
+    
+    Lambda13 --> Guardrails
+    Guardrails --> Bedrock
+    Lambda13 --> AgentCore
+    Lambda13 --> Strava
+    Lambda13 --> Campus
+    Lambda13 --> Nominatim
+    Lambda13 --> OpenMeteo
+    
+    AgentCore --> GenAI
+    Lambda13 --> CW
+```
+
+### Key Architecture Decisions
+
+1. **Local Interface** - No cloud hosting complexity, runs on localhost
+2. **Zero AWS SDK in Frontend** - All AWS operations via API Gateway + Lambda
+3. **Modular Design** - Extensible module system (Campus Coach, Enduraw, future modules)
+4. **Dual-Mode AI** - AgentCore (primary) + Bedrock fallback (always available)
+5. **Serverless** - Pay-per-use, auto-scaling, no server management
+6. **Security First** - Guardrails, encryption, least privilege IAM
+
+### Data Flow: Activity Enhancement
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Strava
+    participant Webhook
+    participant SQS
+    participant StepFunctions
+    participant ActivityFetcher
+    participant ContentGen
+    participant StravaUpdater
+    participant AgentCore
+    participant DynamoDB
+    
+    User->>Strava: Upload Activity
+    Strava->>Webhook: Webhook Notification
+    Webhook->>DynamoDB: Check Enhancement Status
+    Webhook->>SQS: Queue Activity
+    SQS->>StepFunctions: Trigger Workflow
+    
+    StepFunctions->>ActivityFetcher: Fetch Activity Data
+    ActivityFetcher->>Strava: Get Activity + Streams
+    ActivityFetcher->>Nominatim: Get Location (if needed)
+    ActivityFetcher->>OpenMeteo: Get Weather (if needed)
+    ActivityFetcher->>DynamoDB: Store Original Data
+    
+    StepFunctions->>ContentGen: Generate Enhanced Content
+    ContentGen->>DynamoDB: Get User Config & Modules
+    ContentGen->>AgentCore: Invoke Content Agent
+    AgentCore->>AgentCore: Retrieve Memory (style, expressions)
+    AgentCore->>Bedrock: Generate with Claude
+    AgentCore->>AgentCore: Store New Patterns
+    ContentGen->>DynamoDB: Store Enhanced Content
+    
+    StepFunctions->>StravaUpdater: Update Activity
+    StravaUpdater->>Strava: Update Title & Description
+    StravaUpdater->>DynamoDB: Mark Completed
+    
+    User->>Strava: View Enhanced Activity ✨
+```
+
+### Infrastructure Components
+
+**6 CDK Stacks**:
+1. **Core** - DynamoDB (4 tables), Secrets Manager (3 secrets), Lambda Layer
+2. **Security** - Bedrock Guardrails for AI safety
+3. **Webhook** - SQS queues, webhook handler, activity processor
+4. **Content** - Step Functions, 5 processing Lambdas
+5. **API** - API Gateway for local interface (3 API Lambdas)
+6. **Monitoring** - CloudWatch alarms, GenAI dashboard
+
+**13 Lambda Functions**:
+- **Processing Pipeline** (5): webhook_handler, activity_processor, activity_fetcher, content_generator, strava_updater
+- **API Endpoints** (3): configuration_api, dashboard_api, user_preferences_api
+- **Utilities** (4): rate_limiter, campus_coach_invoker, agentcore_health_check, stepfunctions_error_handler
+- **Dependencies** (1): Lambda Layer with shared code
+
+**4 DynamoDB Tables**:
+- `activities` - Activity data and processing status (with GSI)
+- `user_config` - User preferences and module configuration
+- `rate_limits` - Strava API rate limit tracking (with TTL)
+- `coaching_sessions` - Campus Coach training sessions (with GSI)
+
+**2 AgentCore Agents**:
+- `content_gen` - Content generation with LTM memory
+- `campus_coach` - Session extraction with Browser Tool
+
+**2 External APIs** (Free):
+- Nominatim (OpenStreetMap) - Reverse geocoding
+- Open-Meteo - Historical weather data
 
 ### High-Level System Flow
 
@@ -280,8 +439,8 @@ sequenceDiagram
 - AgentCore CLI: Shell script deployment
 
 **AWS Services:**
-- Lambda: Python 3.12 runtime
-- DynamoDB: Core tables (activities, config, rate-limits, sessions)
+- Lambda: 13 functions (Python 3.12)
+- DynamoDB: 4 tables with GSI
 - Step Functions: Activity processing workflow
 - SQS: Message queuing with DLQ
 - Bedrock: Claude Sonnet 4.5
@@ -290,9 +449,13 @@ sequenceDiagram
 
 **AI/ML Framework:**
 - Strands Agents: Agent orchestration framework
-- AgentCore Memory: Persistent personalization
+- AgentCore Memory: Persistent personalization (2 LTM memories)
 - AgentCore Browser Tool: Campus Coach scraping
 - Claude Sonnet 4.5: Content generation and analysis
+
+**External APIs** (Free):
+- Nominatim (OpenStreetMap): Reverse geocoding
+- Open-Meteo: Historical weather data
 
 ## Performance Targets
 

@@ -199,6 +199,680 @@ AWS Services (DynamoDB, SQS, Secrets Manager, Step Functions)
 cd local_interface && python app.py  # No AWS_PROFILE needed
 ```
 
+### Lambda Functions Reference
+
+The system uses 13 Lambda functions organized by responsibility:
+
+| Function | Purpose | Timeout | Memory | Trigger |
+|----------|---------|---------|--------|---------|
+| **webhook_handler** | Webhook validation & SQS queuing | 30s | 256MB | API Gateway |
+| **activity_processor** | SQS processing & Step Functions trigger | 300s | 512MB | SQS Queue |
+| **activity_fetcher** | Strava API data fetching + enrichment | 180s | 512MB | Step Functions |
+| **content_generator** | AI content generation (AgentCore/Bedrock) | 300s | 1024MB | Step Functions |
+| **strava_updater** | Update Strava with enhanced content | 120s | 256MB | Step Functions |
+| **configuration_api** | OAuth & module configuration | 30s | 256MB | API Gateway |
+| **dashboard_api** | Dashboard statistics & metrics | 30s | 512MB | API Gateway |
+| **user_preferences_api** | User preferences management | 30s | 256MB | API Gateway |
+| **rate_limiter** | Shared rate limiting logic | 60s | 128MB | Imported module |
+| **campus_coach_invoker** | Daily session extraction | 600s | 512MB | EventBridge |
+| **agentcore_health_check** | Agent health monitoring | 60s | 256MB | EventBridge |
+| **stepfunctions_error_handler** | Step Functions failure handling | 60s | 256MB | EventBridge |
+| **Lambda Layer** | Shared dependencies (boto3, strands, modules) | N/A | N/A | All Lambdas |
+
+**Key Environment Variables** (Common):
+- `ACTIVITIES_TABLE` - strava-ai-boost-activities
+- `USER_CONFIG_TABLE` - strava-ai-boost-user-configuration
+- `RATE_LIMITS_TABLE` - strava-ai-boost-rate-limits
+- `COACHING_SESSIONS_TABLE` - strava-ai-boost-campus-coaching-sessions
+- `STRAVA_OAUTH_SECRET` - strava-ai-boost-oauth-tokens
+- `CAMPUS_COACH_SECRET` - strava-ai-boost-campus-coach-credentials
+- `CONTENT_GENERATION_AGENT_ARN` - AgentCore content agent ARN
+- `CAMPUS_COACH_AGENT_ARN` - AgentCore campus coach agent ARN
+
+**Detailed documentation**: See individual Lambda sections below for complete details on each function.
+
+### Location & Weather Enrichment
+
+**Purpose**: Enrich activity data with location and weather context when Strava doesn't provide it.
+
+**Implementation**: `activity_fetcher.py`
+
+#### Reverse Geocoding (Nominatim/OpenStreetMap)
+
+**When Used**: Outdoor activities with GPS coordinates but no city/country from Strava
+
+**API**: Nominatim (OpenStreetMap) - Free, no API key required
+
+**Usage Policy Compliance**:
+- Maximum 1 request per second (Lambda single-threaded = compliant)
+- Valid User-Agent header required
+- Results cached in DynamoDB (no repeated requests)
+
+**Implementation**:
+```python
+def reverse_geocode_location(latitude: float, longitude: float) -> Dict[str, Optional[str]]:
+    url = "https://nominatim.openstreetmap.org/reverse"
+    params = {'lat': latitude, 'lon': longitude, 'format': 'json', 'zoom': 10}
+    headers = {'User-Agent': 'StravaAIBoost/1.0 (contact@example.com)'}
+    response = requests.get(url, params=params, headers=headers, timeout=10)
+    # Returns: {'city': 'Périgueux', 'country': 'France'}
+```
+
+#### Weather Data (Open-Meteo)
+
+**When Used**: Outdoor activities with GPS coordinates
+
+**API**: Open-Meteo Archive API - Free, no API key required
+
+**Data Provided**:
+- Temperature (°C)
+- Wind speed and direction (km/h, degrees)
+- Relative humidity (%)
+- Precipitation (mm)
+
+**Implementation**:
+```python
+def fetch_weather_data(latitude: float, longitude: float, date_time: str) -> Dict[str, Any]:
+    url = "https://archive-api.open-meteo.com/v1/archive"
+    params = {
+        'latitude': latitude, 'longitude': longitude,
+        'start_date': date_str, 'end_date': date_str,
+        'hourly': 'temperature_2m,wind_speed_10m,relative_humidity_2m',
+        'timezone': 'auto'
+    }
+    response = requests.get(url, params=params, timeout=10)
+    # Returns: {'temperature': 13.1, 'wind_speed': 13.5, 'humidity': 75}
+```
+
+**Performance**:
+- Nominatim: ~200-500ms per request
+- Open-Meteo: ~200-400ms per request
+- Total added latency: ~400-900ms
+- Zero cost (free APIs)
+
+**Integration with Enduraw**:
+- **Base layer**: Nominatim + Open-Meteo (always available)
+- **Advanced layer**: Enduraw wind-corrected pace (optional, when module enabled)
+- Both layers complement each other for richer content
+
+### Module System Architecture
+
+**Purpose**: Extensible integration framework for external services (Campus Coach, Enduraw, future modules).
+
+**Location**: `src/modules/`
+
+#### Module Registry Pattern
+
+**Components**:
+- `base_module.py` - Abstract base class defining module interface
+- `registry.py` - Central registry and factory for module instances
+- `campus_coach_module.py` - Campus Coach implementation
+- `enduraw_module.py` - Enduraw implementation
+
+**Key Classes**:
+```python
+@dataclass
+class ModuleConfig:
+    module_id: str
+    enabled: bool
+    credentials: Optional[Dict[str, str]] = None
+    settings: Dict[str, Any] = None
+
+@dataclass
+class ModuleInsight:
+    module_id: str
+    insights: Dict[str, Any]
+    confidence: float
+    processing_time_ms: int
+    error_message: Optional[str] = None
+
+class BaseModule(ABC):
+    @abstractmethod
+    async def analyze_activity(self, activity_data, streams_data) -> ModuleInsight:
+        pass
+```
+
+**Module Lifecycle**:
+1. **Registration**: Automatic at startup via `ModuleRegistry`
+2. **Configuration**: User enables via local interface → stored in DynamoDB
+3. **Instantiation**: Created per activity processing via factory pattern
+4. **Analysis**: `analyze_activity()` called with activity data
+5. **Deactivation**: User disables → module not instantiated
+
+**Adding New Modules**:
+1. Create class extending `BaseModule` in `src/modules/`
+2. Register in `registry.py`: `self._modules['new_module'] = NewModule`
+3. Add UI toggle in local interface
+4. Deploy: `cdk deploy --all`
+
+### AgentCore Agents Structure
+
+**Purpose**: AI agents for content generation and Campus Coach scraping.
+
+**Location**: `src/agents/`
+
+#### Agent Components
+
+**Files**:
+- `content_agent.py` - Content generation with structured tools
+- `campus_coach_agent.py` - Campus Coach session extraction
+- `embedded_prompts.py` - Centralized prompt management
+- `content_generation_agent.yaml` - AgentCore configuration
+- `campus_coach_agent.yaml` - AgentCore configuration
+
+**Deployment**: Via `scripts/deploy_agentcore_agents.sh`
+
+**Key Features**:
+- **Structured Tools**: JSON-based tool responses
+- **Embedded Prompts**: Centralized prompt system
+- **Memory Integration**: Automatic via Strands hooks
+- **Guardrails**: Content Gen only (validates user inputs)
+
+**Configuration** (`.yaml`):
+```yaml
+agent:
+  framework: strands
+  prompt_file: ../prompts/content_generation_agent_prompt.md
+  memory:
+    mode: STM_AND_LTM
+    memory_id: content_gen_mem-<ID>
+    event_expiry_days: 365
+```
+
+### Step Functions Workflow
+
+**State Machine**: `StravaAIBoost-ActivityProcessing`
+
+**Workflow States**:
+1. **TransformInput** - Validate and transform webhook data
+2. **FetchActivityData** - Call activity_fetcher Lambda
+3. **CheckFetchSuccess** - Verify fetch succeeded
+4. **StoreBackup** - Save original description
+5. **CheckCampusCoachEnabled** - Conditional Campus Coach processing
+6. **ExtractCampusSessions** - Call campus_coach_invoker (if enabled)
+7. **SkipCampusCoach** - Skip extraction (if disabled)
+8. **GenerateContent** - Call content_generator Lambda
+9. **UpdateStrava** - Call strava_updater Lambda
+10. **ProcessingComplete** - Success state
+
+**Timeout**: 30 minutes  
+**Error Handling**: Catch-all with EventBridge rule → stepfunctions_error_handler → DLQ
+
+**Conditional Logic**:
+```json
+{
+  "CheckCampusCoachEnabled": {
+    "Type": "Choice",
+    "Choices": [{
+      "And": [
+        {"IsPresent": "$.user_config.modules_config.campus_coach.enabled"},
+        {"BooleanEquals": "$.user_config.modules_config.campus_coach.enabled", true}
+      ],
+      "Next": "ExtractCampusSessions"
+    }],
+    "Default": "SkipCampusCoach"
+  }
+}
+```
+
+### Deployment Scripts Workflow
+
+**Location**: `scripts/` (11 scripts)
+
+**Deployment Order**:
+1. `deploy.sh` - CDK infrastructure (6 stacks)
+2. `validate_deployment.sh` - Post-deployment validation
+3. `setup_local_env.sh` - Generate `.env` for local interface
+4. `configure_strava_webhook.sh` - Strava webhook subscription
+5. `create_agentcore_memories.sh` - LTM memories (2 memories)
+6. `deploy_agentcore_agents.sh` - AgentCore agents (2 agents)
+7. `configure_agentcore_integration.sh` - IAM + Lambda env vars + guardrails detection
+8. `deploy_agentcore_agents.sh` - Redeploy with guardrails
+9. `cdk deploy --all` - Final deployment with agent ARNs
+
+**Maintenance Scripts**:
+- `cleanup_strava_webhook.sh` - Remove webhook subscription
+- `reprocess_dlq.sh` - Reprocess failed messages
+
+**Uninstall Scripts**:
+- `uninstall.sh` - Complete system removal
+- `verify_uninstall.sh` - Verify cleanup
+
+**Script Dependencies**: Each script checks prerequisites and provides clear error messages.
+
+### Configuration System
+
+**Purpose**: Centralized LLM and model configuration.
+
+**Location**: `src/config/llm_config.py`
+
+**Key Functions**:
+```python
+def get_bedrock_model_id() -> str:
+    """Returns: global.anthropic.claude-sonnet-4-5-20250929-v1:0"""
+
+def get_model_arn(region: str = "eu-west-1") -> str:
+    """Returns: arn:aws:bedrock:eu-west-1::foundation-model/..."""
+
+def get_bedrock_params() -> Dict[str, Any]:
+    """Returns: {modelId, body: {anthropic_version, max_tokens, temperature}}"""
+```
+
+**Usage**: Imported by Lambda functions and CDK stacks for consistent model configuration.
+
+#### Local Interface Components
+
+**File Structure**:
+```
+local_interface/
+├── app.py                 # Flask application entry point
+├── .env                   # Generated by setup script (API Gateway URL + Key)
+├── .env.example           # Template for environment variables
+└── templates/             # HTML templates (if using server-side rendering)
+    ├── index.html         # Dashboard homepage
+    ├── config.html        # Configuration page
+    └── preferences.html   # User preferences page
+```
+
+**Flask Application** (`app.py`):
+- **Port**: 8000 (configurable)
+- **Host**: 127.0.0.1 (localhost only for security)
+- **Routes**:
+  - `/` - Dashboard homepage
+  - `/config` - Configuration interface
+  - `/preferences` - User preferences
+  - `/oauth/callback` - OAuth callback handler
+- **Session Management**: Flask sessions for OAuth state
+- **CORS**: Not needed (same-origin)
+- **Security**: Local-only access, no external exposure
+
+**Environment Variables** (`.env`):
+```bash
+API_GATEWAY_URL=https://xxxxx.execute-api.eu-west-1.amazonaws.com/prod
+API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+STRAVA_CLIENT_ID=xxxxx
+STRAVA_REDIRECT_URI=http://localhost:8000/oauth/callback
+```
+
+**API Integration Pattern**:
+```python
+# Example: Fetch dashboard stats
+import requests
+import os
+
+api_url = os.getenv('API_GATEWAY_URL')
+api_key = os.getenv('API_KEY')
+
+response = requests.get(
+    f"{api_url}/dashboard/stats",
+    headers={'x-api-key': api_key}
+)
+
+if response.status_code == 200:
+    stats = response.json()
+    # Render dashboard with stats
+else:
+    # Handle error
+    pass
+```
+
+**Benefits of This Architecture**:
+1. **No AWS Credentials Needed**: Local app doesn't need AWS profile
+2. **Simplified Deployment**: No credential management in frontend
+3. **Better Security**: API Key rotation without code changes
+4. **Easier Testing**: Mock API Gateway responses
+5. **Clear Separation**: UI logic vs business logic
+
+## Module System Architecture
+
+The module system provides extensible integration with external services (Campus Coach, Enduraw, etc.).
+
+### Module Registry Pattern
+
+**File Structure**:
+```
+src/modules/
+├── __init__.py           # Module exports
+├── base_module.py        # Abstract base class
+├── registry.py           # Module registry and factory
+├── campus_coach_module.py # Campus Coach implementation
+└── enduraw_module.py     # Enduraw implementation
+```
+
+### Base Module Interface
+
+**Abstract Base Class** (`base_module.py`):
+```python
+from abc import ABC, abstractmethod
+from typing import Dict, Any, Optional
+from dataclasses import dataclass
+
+@dataclass
+class ModuleConfig:
+    """Module configuration"""
+    module_id: str
+    enabled: bool
+    credentials: Optional[Dict[str, str]] = None
+    settings: Dict[str, Any] = None
+
+@dataclass
+class ModuleInsight:
+    """Module analysis result"""
+    module_id: str
+    insights: Dict[str, Any]
+    confidence: float
+    metadata: Dict[str, Any]
+    processing_time_ms: int
+    error_message: Optional[str] = None
+
+class BaseModule(ABC):
+    """Abstract base class for all modules"""
+    
+    def __init__(self, config: ModuleConfig):
+        self.config = config
+        self.module_id = config.module_id
+    
+    @abstractmethod
+    async def analyze_activity(
+        self, 
+        activity_data: Dict[str, Any],
+        streams_data: Optional[Dict[str, Any]] = None
+    ) -> ModuleInsight:
+        """Analyze activity and return insights"""
+        pass
+    
+    @abstractmethod
+    def validate_configuration(self) -> bool:
+        """Validate module configuration"""
+        pass
+    
+    @abstractmethod
+    def get_module_info(self) -> Dict[str, Any]:
+        """Get module metadata"""
+        pass
+```
+
+### Module Registry
+
+**Registry Implementation** (`registry.py`):
+```python
+class ModuleRegistry:
+    """Central registry for all modules"""
+    
+    def __init__(self):
+        self._modules = {}
+        self._register_builtin_modules()
+    
+    def _register_builtin_modules(self):
+        """Register built-in modules"""
+        from .campus_coach_module import CampusCoachModule
+        from .enduraw_module import EndurawModule
+        
+        self._modules['campus_coach'] = CampusCoachModule
+        self._modules['enduraw'] = EndurawModule
+    
+    def get_available_modules(self) -> List[str]:
+        """Get list of available module IDs"""
+        return list(self._modules.keys())
+    
+    def get_module_info(self, module_id: str) -> Optional[Dict[str, Any]]:
+        """Get module metadata"""
+        module_class = self._modules.get(module_id)
+        if module_class:
+            return module_class.get_static_info()
+        return None
+    
+    def create_module_instance(
+        self, 
+        module_id: str, 
+        config: ModuleConfig
+    ) -> Optional[BaseModule]:
+        """Create module instance from registry"""
+        module_class = self._modules.get(module_id)
+        if module_class:
+            return module_class(config)
+        return None
+
+# Global registry instance
+module_registry = ModuleRegistry()
+```
+
+### Campus Coach Module
+
+**Implementation** (`campus_coach_module.py`):
+```python
+class CampusCoachModule(BaseModule):
+    """Campus Coach training session integration"""
+    
+    @staticmethod
+    def get_static_info() -> Dict[str, Any]:
+        return {
+            'id': 'campus_coach',
+            'name': 'Campus Coach',
+            'description': 'Intelligent training session matching',
+            'requires_credentials': True,
+            'external_service': True,
+            'website': 'https://campus.coach'
+        }
+    
+    async def analyze_activity(
+        self, 
+        activity_data: Dict[str, Any],
+        streams_data: Optional[Dict[str, Any]] = None
+    ) -> ModuleInsight:
+        """Match activity with Campus Coach sessions"""
+        
+        start_time = time.time()
+        
+        try:
+            # Get recent sessions from DynamoDB
+            sessions = await self._get_recent_sessions()
+            
+            # Intelligent matching using Claude Sonnet 4.5
+            match_result = await self._match_session(
+                activity_data, 
+                streams_data, 
+                sessions
+            )
+            
+            processing_time = int((time.time() - start_time) * 1000)
+            
+            return ModuleInsight(
+                module_id='campus_coach',
+                insights=match_result,
+                confidence=match_result.get('confidence', 0.0),
+                metadata={'sessions_analyzed': len(sessions)},
+                processing_time_ms=processing_time
+            )
+            
+        except Exception as e:
+            logger.error(f"Campus Coach analysis failed: {e}")
+            return ModuleInsight(
+                module_id='campus_coach',
+                insights={},
+                confidence=0.0,
+                metadata={},
+                processing_time_ms=int((time.time() - start_time) * 1000),
+                error_message=str(e)
+            )
+```
+
+### Enduraw Module
+
+**Implementation** (`enduraw_module.py`):
+```python
+class EndurawModule(BaseModule):
+    """Enduraw enhanced analytics integration"""
+    
+    @staticmethod
+    def get_static_info() -> Dict[str, Any]:
+        return {
+            'id': 'enduraw',
+            'name': 'Enduraw Report',
+            'description': 'Enhanced pace and weather analytics',
+            'requires_credentials': False,
+            'external_service': True,
+            'website': 'https://enduraw-report-strava.onrender.com',
+            'wait_time': '2 minutes'
+        }
+    
+    async def analyze_activity(
+        self, 
+        activity_data: Dict[str, Any],
+        streams_data: Optional[Dict[str, Any]] = None
+    ) -> ModuleInsight:
+        """Extract Enduraw Report from activity description"""
+        
+        start_time = time.time()
+        
+        try:
+            # Extract Enduraw Report from description
+            enduraw_data = self._extract_enduraw_report(
+                activity_data.get('description', '')
+            )
+            
+            if enduraw_data:
+                insights = {
+                    'enduraw_available': True,
+                    'adjusted_pace': enduraw_data.get('adjusted_pace'),
+                    'wind_impact': enduraw_data.get('wind_cost'),
+                    'elevation_impact': enduraw_data.get('elevation_cost'),
+                    'weather_analysis': self._analyze_weather_impact(enduraw_data)
+                }
+                confidence = 0.9
+            else:
+                insights = {
+                    'enduraw_available': False,
+                    'reason': 'No Enduraw Report found in description'
+                }
+                confidence = 0.0
+            
+            processing_time = int((time.time() - start_time) * 1000)
+            
+            return ModuleInsight(
+                module_id='enduraw',
+                insights=insights,
+                confidence=confidence,
+                metadata={'report_found': enduraw_data is not None},
+                processing_time_ms=processing_time
+            )
+            
+        except Exception as e:
+            logger.error(f"Enduraw analysis failed: {e}")
+            return ModuleInsight(
+                module_id='enduraw',
+                insights={'enduraw_available': False},
+                confidence=0.0,
+                metadata={},
+                processing_time_ms=int((time.time() - start_time) * 1000),
+                error_message=str(e)
+            )
+```
+
+### Module Lifecycle
+
+**1. Module Registration** (Startup):
+```python
+# Automatic registration of built-in modules
+module_registry = ModuleRegistry()
+available_modules = module_registry.get_available_modules()
+# ['campus_coach', 'enduraw']
+```
+
+**2. Module Configuration** (User Action):
+```python
+# User enables Campus Coach module via local interface
+config = ModuleConfig(
+    module_id='campus_coach',
+    enabled=True,
+    credentials={'username': 'user@example.com', 'password': 'xxx'},
+    settings={'auto_extract': True}
+)
+
+# Store in DynamoDB user_config_table
+user_config['modules_config']['campus_coach'] = {
+    'enabled': True,
+    'configured': True,
+    'credentials_stored': True
+}
+```
+
+**3. Module Instantiation** (Activity Processing):
+```python
+# content_generator.py
+from modules import module_registry
+
+# Get user's active modules
+active_modules = get_active_modules(user_config)
+
+# Create module instances
+for module_config in active_modules:
+    module_instance = module_registry.create_module_instance(
+        module_config['module_id'],
+        ModuleConfig(**module_config)
+    )
+    
+    # Analyze activity
+    insight = await module_instance.analyze_activity(
+        activity_data,
+        streams_data
+    )
+    
+    # Use insights in content generation
+    enhanced_modules.append({
+        'module_id': module_config['module_id'],
+        'insight': insight
+    })
+```
+
+**4. Module Deactivation** (User Action):
+```python
+# User disables module via local interface
+user_config['modules_config']['campus_coach']['enabled'] = False
+
+# Module will not be instantiated in future processing
+```
+
+### Adding New Modules
+
+**Step 1**: Create module class:
+```python
+# src/modules/new_module.py
+class NewModule(BaseModule):
+    @staticmethod
+    def get_static_info():
+        return {
+            'id': 'new_module',
+            'name': 'New Module',
+            'description': 'Description',
+            'requires_credentials': False,
+            'external_service': False
+        }
+    
+    async def analyze_activity(self, activity_data, streams_data):
+        # Implementation
+        pass
+```
+
+**Step 2**: Register in registry:
+```python
+# src/modules/registry.py
+def _register_builtin_modules(self):
+    from .new_module import NewModule
+    self._modules['new_module'] = NewModule
+```
+
+**Step 3**: Update local interface:
+```python
+# Add module to configuration UI
+# Add module toggle in dashboard
+```
+
+**Step 4**: Deploy:
+```bash
+cdk deploy --all --profile your-aws-profile
+```
+
 ### DynamoDB Tables
 
 #### 1. strava-ai-boost-activities
@@ -288,37 +962,326 @@ GSI: WeekNumberIndex
 
 ### Lambda Functions
 
-#### 1. WebhookHandler
+The system uses 13 Lambda functions organized by responsibility:
+
+#### 1. webhook_handler.py
+**Purpose**: Handle incoming Strava webhook notifications  
+**Trigger**: API Gateway POST /webhook  
+**Runtime**: Python 3.12  
+**Memory**: 256 MB  
+**Timeout**: 30 seconds  
+
+**Environment Variables**:
+- `PROCESSING_QUEUE_URL` - SQS queue for activity processing
+- `ACTIVITIES_TABLE` - DynamoDB activities table
+- `RATE_LIMITS_TABLE` - DynamoDB rate limits table
+- `USER_CONFIG_TABLE` - DynamoDB user configuration table
+- `STRAVA_OAUTH_SECRET` - Secrets Manager secret name
+
+**Key Functions**:
+- Webhook verification (GET requests)
+- Webhook signature validation
+- Activity event queuing to SQS
+- Enhancement pause/resume check
+- Rate limit validation
+
+#### 2. activity_processor.py
+**Purpose**: Process activities from SQS and trigger Step Functions  
+**Trigger**: SQS queue messages  
+**Runtime**: Python 3.12  
+**Memory**: 512 MB  
+**Timeout**: 300 seconds (5 minutes)  
+
+**Environment Variables**:
+- `ACTIVITIES_TABLE` - DynamoDB activities table
+- `RATE_LIMITS_TABLE` - DynamoDB rate limits table
+- `USER_CONFIG_TABLE` - DynamoDB user configuration table
+- `STRAVA_OAUTH_SECRET` - Secrets Manager secret name
+- `STEP_FUNCTIONS_ARN` - Step Functions state machine ARN
+- `PROCESSING_QUEUE_URL` - SQS queue URL for requeuing
+
+**Key Functions**:
+- Webhook loop prevention (skip already processed activities)
+- Enduraw 2-minute wait logic (SQS delay pattern)
+- User configuration fetching
+- Rate limit checking
+- Step Functions workflow initiation
+- Batch item failure handling for SQS retry
+
+#### 3. activity_fetcher.py
+**Purpose**: Fetch complete activity data from Strava API  
+**Trigger**: Step Functions workflow  
+**Runtime**: Python 3.12  
+**Memory**: 512 MB  
+**Timeout**: 300 seconds (5 minutes)  
+
+**Environment Variables**:
+- `ACTIVITIES_TABLE` - DynamoDB activities table
+- `RATE_LIMITS_TABLE` - DynamoDB rate limits table
+- `STRAVA_OAUTH_SECRET` - Secrets Manager secret name
+- `USER_CONFIG_TABLE` - DynamoDB user configuration table
+
+**Key Functions**:
+- OAuth token management with automatic refresh
+- Activity data fetching (67+ Strava fields)
+- Streams data fetching (velocity, HR, altitude, etc.)
+- Athlete stats fetching (yearly totals, records)
+- Athlete profile fetching (FTP, weight, gear)
+- Gear details fetching
+- Location enrichment (Nominatim reverse geocoding)
+- Weather data fetching (Open-Meteo API)
+- Rate limit tracking
+
+**External APIs**:
+- **Nominatim (OpenStreetMap)**: Reverse geocoding for city/country
+  - Free, no API key required
+  - 1 request per second limit (compliant)
+  - User-Agent required
+- **Open-Meteo**: Historical weather data
+  - Free, no API key required
+  - Temperature, wind, humidity, precipitation
+
+#### 4. content_generator.py
+**Purpose**: Generate enhanced content using AI  
+**Trigger**: Step Functions workflow  
+**Runtime**: Python 3.12  
+**Memory**: 1024 MB  
+**Timeout**: 300 seconds (5 minutes)  
+
+**Environment Variables**:
+- `ACTIVITIES_TABLE` - DynamoDB activities table
+- `USER_CONFIG_TABLE` - DynamoDB user configuration table
+- `COACHING_SESSIONS_TABLE` - DynamoDB Campus Coach sessions
+- `STRAVA_OAUTH_SECRET` - Secrets Manager secret name
+- `CAMPUS_COACH_SECRET` - Secrets Manager secret name
+- `CONTENT_GENERATION_AGENT_ARN` - AgentCore agent ARN (optional)
+- `BEDROCK_AGENTCORE_MEMORY_ID` - AgentCore memory ID (optional)
+- `BEDROCK_MODEL_ID` - Bedrock model ID for fallback
+
+**Key Functions**:
+- Dual-mode content generation (AgentCore + Bedrock fallback)
+- User profile building from configuration
+- Module processing (Campus Coach, Enduraw)
+- Enduraw Report extraction from activity description
+- Campus Coach session matching
+- Streams data analysis for patterns
+- Bedrock Guardrails validation (user inputs only)
+- Content attribution signature
+
+**AI Integration**:
+- **Primary**: AgentCore agent with Long-Term Memory
+- **Fallback**: Direct Bedrock Claude Sonnet 4.5 invocation
+- **Guardrails**: Applied to user inputs (title/description) only
+
+#### 5. strava_updater.py
+**Purpose**: Update Strava activity with enhanced content  
+**Trigger**: Step Functions workflow  
+**Runtime**: Python 3.12  
+**Memory**: 256 MB  
+**Timeout**: 60 seconds  
+
+**Environment Variables**:
+- `ACTIVITIES_TABLE` - DynamoDB activities table
+- `STRAVA_OAUTH_SECRET` - Secrets Manager secret name
+- `RATE_LIMITS_TABLE` - DynamoDB rate limits table
+
+**Key Functions**:
+- Strava API update with enhanced title/description
+- OAuth token validation
+- Rate limit checking
+- Update status tracking in DynamoDB
+
+#### 6. configuration_api.py
+**Purpose**: Handle configuration requests from local interface  
+**Trigger**: API Gateway /config/* endpoints  
+**Runtime**: Python 3.12  
+**Memory**: 256 MB  
+**Timeout**: 30 seconds  
+
+**Environment Variables**:
+- `USER_CONFIG_TABLE` - DynamoDB user configuration table
+- `STRAVA_OAUTH_SECRET` - Secrets Manager secret name
+- `CAMPUS_COACH_SECRET` - Secrets Manager secret name
+
+**Key Functions**:
+- OAuth status checking
+- OAuth callback handling (token exchange)
+- OAuth token revocation
+- Strava app configuration retrieval
+- Strava connection testing
+- Module configuration (enable/disable)
+- Enhancement pause/resume
+- Rate limiting per client IP
+
+**Endpoints**:
+- `GET /config/oauth` - Get OAuth status
+- `POST /config/oauth` - Handle OAuth callback
+- `DELETE /config/oauth` - Revoke tokens
+- `GET /config/strava/config` - Get Strava app config
+- `GET /config/test/strava-connection` - Test connection
+- `GET /config/modules` - Get module configuration
+- `POST /config/modules` - Update module configuration
+- `GET /config/enhancement` - Get enhancement status
+- `POST /config/enhancement` - Toggle enhancement
+
+#### 7. dashboard_api.py
+**Purpose**: Provide dashboard data for local interface  
+**Trigger**: API Gateway /dashboard/* endpoints  
+**Runtime**: Python 3.12  
+**Memory**: 512 MB  
+**Timeout**: 30 seconds  
+
+**Environment Variables**:
+- `ACTIVITIES_TABLE` - DynamoDB activities table
+- `USER_CONFIG_TABLE` - DynamoDB user configuration table
+- `COACHING_SESSIONS_TABLE` - DynamoDB Campus Coach sessions
+
+**Key Functions**:
+- Activity processing statistics (with GSI optimization)
+- System performance metrics (CloudWatch)
+- Module usage statistics
+- Engagement metrics (kudos, comments)
+- Recent activity history with pagination
+- In-memory caching (5-minute TTL)
+- Rate limiting per client IP
+
+**Endpoints**:
+- `GET /dashboard/stats` - Get dashboard statistics
+- `GET /dashboard/activities` - Get activity history
+- `GET /dashboard/system` - Get system performance metrics
+
+**Performance Optimizations**:
+- GSI queries for faster status filtering
+- In-memory cache with TTL
+- Fallback to table scan if GSI unavailable
+- Batch processing for multiple statuses
+
+#### 8. user_preferences_api.py
+**Purpose**: Handle user preferences for personalization  
+**Trigger**: API Gateway /preferences endpoint  
+**Runtime**: Python 3.12  
+**Memory**: 256 MB  
+**Timeout**: 30 seconds  
+
+**Environment Variables**:
+- `USER_CONFIG_TABLE` - DynamoDB user configuration table
+
+**Key Functions**:
+- Get user preferences (age, interests, style)
+- Update user preferences
+- Default preferences handling
+
+**Preferences Schema**:
 ```python
-Runtime: Python 3.12
-Memory: 256 MB
-Timeout: 30 seconds
-Environment Variables:
-- PROCESSING_QUEUE_URL
-- ACTIVITIES_TABLE
-- RATE_LIMITS_TABLE
-- STRAVA_OAUTH_SECRET
+{
+    'age_range': '26-35',
+    'interests': ['running', 'technology'],
+    'sport_approach': 'health & wellness',
+    'content_length': 'medium',
+    'content_tone': 'motivational & energetic',
+    'emoji_usage': 'moderate',
+    'technical_detail': 'intermediate',
+    'content_language': 'french'
+}
 ```
 
-#### 2. ActivityProcessor
-```python
-Runtime: Python 3.12
-Memory: 512 MB
-Timeout: 300 seconds (5 minutes)
-Environment Variables:
-- ACTIVITIES_TABLE
-- RATE_LIMITS_TABLE
-- STRAVA_OAUTH_SECRET
+#### 9. rate_limiter.py
+**Purpose**: Shared rate limiting logic for API endpoints  
+**Type**: Utility module (imported by other Lambdas)  
+**Runtime**: Python 3.12  
+
+**Key Functions**:
+- Client IP extraction from API Gateway events
+- Rate limit checking per client IP and endpoint
+- Rate limit response creation
+- Rate limit headers addition
+- DynamoDB-based rate limit tracking
+
+**Rate Limits**:
+- Configuration API: 100 req/hour per IP
+- Dashboard API: 200 req/hour per IP
+- Preferences API: 50 req/hour per IP
+
+#### 10. campus_coach_invoker.py
+**Purpose**: Invoke Campus Coach agent for session extraction  
+**Trigger**: EventBridge Scheduler (daily 6 AM Paris time)  
+**Runtime**: Python 3.12  
+**Memory**: 512 MB  
+**Timeout**: 600 seconds (10 minutes)  
+
+**Environment Variables**:
+- `COACHING_SESSIONS_TABLE` - DynamoDB Campus Coach sessions
+- `CAMPUS_COACH_AGENT_ARN` - AgentCore agent ARN
+- `CAMPUS_COACH_SECRET` - Secrets Manager secret name
+
+**Key Functions**:
+- AgentCore Browser Tool agent invocation
+- Campus Coach website scraping
+- Session data extraction and parsing
+- DynamoDB storage with status tracking
+- Automatic retry on cold start failures
+
+**Scheduling**:
+- **Trigger**: EventBridge Scheduler rule
+- **Schedule**: Daily at 6:00 AM Paris time (cron: `0 5 * * ? *` UTC)
+- **Activation**: Automatically enabled/disabled with Campus Coach module
+
+#### 11. agentcore_health_check.py
+**Purpose**: Monitor AgentCore agent health and availability  
+**Trigger**: EventBridge Scheduler (every 5 minutes)  
+**Runtime**: Python 3.12  
+**Memory**: 256 MB  
+**Timeout**: 60 seconds  
+
+**Environment Variables**:
+- `CONTENT_GENERATION_AGENT_ARN` - Content generation agent ARN
+- `CAMPUS_COACH_AGENT_ARN` - Campus Coach agent ARN
+
+**Key Functions**:
+- Agent availability checking
+- Agent response time monitoring
+- CloudWatch metrics publishing
+- Alert triggering on failures
+
+#### 12. stepfunctions_error_handler.py
+**Purpose**: Handle Step Functions workflow failures  
+**Trigger**: EventBridge rule on Step Functions failures  
+**Runtime**: Python 3.12  
+**Memory**: 256 MB  
+**Timeout**: 60 seconds  
+
+**Environment Variables**:
+- `ACTIVITIES_TABLE` - DynamoDB activities table
+- `PROCESSING_QUEUE_URL` - SQS DLQ URL
+
+**Key Functions**:
+- Step Functions failure event processing
+- Activity status update to 'failed'
+- DLQ message creation with full context
+- Error logging and metrics
+
+**EventBridge Pattern**:
+```json
+{
+  "source": ["aws.states"],
+  "detail-type": ["Step Functions Execution Status Change"],
+  "detail": {
+    "status": ["FAILED", "TIMED_OUT", "ABORTED"]
+  }
+}
 ```
 
-#### 3. RateLimiter
-```python
-Runtime: Python 3.12
-Memory: 128 MB
-Timeout: 60 seconds
-Environment Variables:
-- RATE_LIMITS_TABLE
-```
+#### 13. Lambda Layer (strava-ai-boost-dependencies)
+**Purpose**: Shared dependencies for all Lambda functions  
+**Contents**:
+- boto3 (AWS SDK)
+- requests (HTTP client)
+- strands (Agent framework)
+- pydantic (Data validation)
+- Module system (`src/modules/`)
+- Configuration (`src/config/`)
+
+**Build Script**: `lambda_layer/build_layer.sh`
 
 ### SQS Configuration
 
