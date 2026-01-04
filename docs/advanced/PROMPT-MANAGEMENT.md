@@ -1,349 +1,317 @@
 # Prompt Management System
 
-Centralized prompt management for Strava AI Boost agents and Bedrock fallbacks.
+Centralized prompt management for Strava AI Boost AgentCore agents.
+
+**Version**: 1.17.0  
+**Last Updated**: 2026-01-04
 
 ## Overview
 
-The Strava AI Boost prompt management system provides centralized, externalized prompts for both AgentCore agents and Bedrock fallback operations. This system ensures consistency, maintainability, and easy updates without code changes.
-
-**NEW in v1.8.0**: Added explicit tool usage instructions for AgentCore agents with structured JSON responses.
+The Strava AI Boost prompt management system uses **embedded prompts** directly in the agent code for maximum reliability and simplicity. All prompts are centralized in `src/agents/embedded_prompts.py`.
 
 ## Architecture
 
 ### System Components
 
 ```
-agentcore/prompts/
-├── system_prompts.py           # Core prompt management system
-├── campus_coach_agent_prompt.md    # Campus Coach agent prompt
-└── content_generation_agent_prompt.md  # Content generation agent prompt (UPDATED)
+src/agents/
+├── embedded_prompts.py              # ALL prompts centralized here
+├── content_agent.py                 # Content generation agent (uses CONTENT_GENERATION_PROMPT)
+├── campus_coach_agent.py            # Campus Coach extraction agent (uses CAMPUS_COACH_PROMPT)
+└── content_generation_agent.yaml   # AgentCore configuration
 ```
 
-### Integration Points
+### Why Embedded Prompts?
 
-- **AgentCore Agent Tools**: Reference prompts for consistency in tool implementations
-- **Structured Tools**: NEW - Explicit tool usage instructions for JSON responses
-- **Lambda Fallbacks**: Use Bedrock-optimized versions of the same prompts
-- **Automatic Fallback**: Hardcoded prompts if external files unavailable
+- ✅ **Reliability**: No file loading errors, no path issues
+- ✅ **Simplicity**: Single source of truth
+- ✅ **Deployment**: Prompts deployed with agent code
+- ✅ **Version Control**: Prompts versioned with code
+- ✅ **Performance**: No file I/O overhead
 
-## Tool Integration (NEW v1.8.0)
+## Prompt Structure
 
-### Content Generation Agent Tool Instructions
+### CONTENT_GENERATION_PROMPT
 
-The content generation prompt now includes explicit tool usage instructions:
+Located in `src/agents/embedded_prompts.py`, this prompt contains:
 
-```markdown
-## Tool Usage Instructions
+#### ⚠️ RÈGLES CRITIQUES (Priority #1)
 
-**CRITICAL**: You have access to the `generate_strava_content` tool that handles all content generation logic. When processing a request:
+1. **PRÉSERVATION DU CONTENU ORIGINAL**
+   - ALL elements from original title/description MUST be present
+   - Reformulate clearly but preserve all information
+   - Tone original = tone generated
 
-1. **Always use the `generate_strava_content` tool** to generate content
-2. **Pass all available data** to the tool (activity_data, streams_data, user_id, etc.)
-3. **Return the tool's response directly** - do not modify the JSON structure
-4. **The tool handles all analysis, personalization, and formatting**
+2. **CAMPUS COACH - MATCHING INTELLIGENT UNIQUEMENT**
+   - Do NOT force matching if doesn't correspond
+   - When match identified: RECALL planned session + COMPARE + ANALYZE + CELEBRATE
+   - Detect off-program activities (muscu, vélo, etc.)
 
-**DO NOT** generate content manually - always use the tool to ensure proper JSON formatting and consistency.
-```
+3. **STREAMS COMPRESSÉS (30s blocks)**
+   - Receives compressed blocks instead of raw streams
+   - Includes route_landmarks for geographical context
+   - 50K+ tokens → 2K tokens
 
-### AgentCore YAML Configuration
+#### Personalization Sections
 
-```yaml
-# agentcore/agents/content_generation_agent.yaml
-agent:
-  framework: strands
-  prompt_file: ../prompts/content_generation_agent_prompt.md
+- **User Profile Configuration**: age_range, interests, sport_approach, content_preferences
+- **Age-Appropriate References**: 18-25, 26-35, 36-45, 46-55, 55+ with examples
+- **Interest-Based Content**: Technology, Music, Nature, Competition, etc.
+- **Sport Approach Adaptation**: Health & Wellness, Performance & Competition, Social & Fun
+- **Content Structure Templates**: Short, Medium, Detailed formats
+- **Module Integration**: Campus Coach, Enduraw
+- **Quality Assurance**: Authenticity, Precision, NO HASHTAGS, NO MARKDOWN
 
-tools:
-  - name: generate_strava_content
-    description: "Generate enhanced Strava activity content with personalization and memory integration"
-    function: generate_strava_content
-```
+### CAMPUS_COACH_PROMPT
 
-## Architecture Note
+Located in `src/agents/embedded_prompts.py`, this prompt contains:
 
-**Important**: The current AgentCore agents in `src/agents/` are **tool implementations** for AgentCore runtime, not standalone Strands agents. The prompt system is primarily used by:
+- Authentication flow for Campus Coach website
+- Session extraction logic
+- Data structuring rules
+- Error handling guidelines
 
-1. **AgentCore Tools**: NEW - Structured tools with explicit usage instructions
-2. **Lambda Fallbacks**: Direct Bedrock calls when AgentCore is unavailable
-3. **Tool Reference**: AgentCore tools can reference prompts for consistency
-4. **Future Extensions**: Framework for when full agent implementations are needed
+## Usage in Agents
 
-## Core Classes
-
-### PromptManager
-
-Central class for loading and caching prompt files.
+### Content Generation Agent
 
 ```python
-from agentcore.prompts.system_prompts import PromptManager
+# src/agents/content_agent.py
+from embedded_prompts import CONTENT_GENERATION_PROMPT
 
-# Initialize
-prompt_manager = PromptManager()
-
-# Load specific prompt
-prompt = prompt_manager.load_prompt('content_generation_agent_prompt')
-
-# Get system prompt for agent type
-system_prompt = prompt_manager.get_system_prompt('content_generation')
-
-# Get Bedrock-optimized prompt
-bedrock_prompt = prompt_manager.get_bedrock_prompt('content_generation')
+@app.entrypoint
+def invoke(payload, context=None):
+    # Use embedded prompt as system prompt
+    system_prompt = CONTENT_GENERATION_PROMPT
+    
+    agent = Agent(
+        model=MODEL_ID,
+        system_prompt=system_prompt,  # All logic is here
+        hooks=[AgentCoreMemoryHook()] if MEMORY_ID else []
+    )
+    
+    # Build simple JSON data prompt (no rules duplication)
+    prompt = f"""Generate content for this activity.
+    
+    **DONNÉES JSON:**
+    ```json
+    {{
+      "activity": {{...}},
+      "original_input": {{...}},
+      "user_profile": {{...}},
+      "streams_compressed": {{...}}
+    }}
+    ```
+    
+    Return ONLY JSON: {{"title": "...", "description": "...", "confidence": 0.85}}
+    """
+    
+    result = agent(prompt)
+    return result
 ```
 
-### Key Methods
-
-| Method | Purpose | Returns |
-|--------|---------|---------|
-| `load_prompt(name)` | Load prompt file with caching | Prompt content string |
-| `get_system_prompt(agent_type)` | Get prompt for specific agent | System prompt string |
-| `get_bedrock_prompt(agent_type)` | Get Bedrock-optimized prompt | Bedrock prompt string |
-| `clear_cache()` | Clear prompt cache | None |
-
-## Usage Patterns
-
-### AgentCore Agent Tools
+### Campus Coach Agent
 
 ```python
-# In src/agents/content_agent.py (AgentCore tools)
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'agentcore', 'prompts'))
+# src/agents/campus_coach_agent.py
+from embedded_prompts import CAMPUS_COACH_PROMPT
 
-try:
-    from system_prompts import get_content_generation_prompt
-except ImportError:
-    def get_content_generation_prompt():
-        return "Content generation prompt not available"
-
-# Tools can reference prompts for consistency
-def generate_strava_content(activity_data, **kwargs):
-    """Tool that uses externalized prompts for guidance"""
-    # Tool implementation here
-    pass
+@app.entrypoint
+def invoke(payload, context=None):
+    system_prompt = CAMPUS_COACH_PROMPT
+    
+    agent = Agent(
+        model=MODEL_ID,
+        system_prompt=system_prompt
+    )
+    
+    # Simple extraction request
+    prompt = "Extract Campus Coach sessions from the dashboard."
+    result = agent(prompt)
+    return result
 ```
 
-### Lambda Fallbacks
+## Updating Prompts
 
-```python
-# In lambda_functions/content_generator.py
-try:
-    from system_prompts import get_bedrock_content_generation_prompt
-    base_prompt = get_bedrock_content_generation_prompt()
-except ImportError:
-    # Fallback to hardcoded prompt
-    base_prompt = "Default Bedrock prompt..."
-
-# Use in Bedrock API call
-prompt = f"{base_prompt}\n\nCURRENT TASK: {task_description}"
-```
-
-## Prompt Types
-
-### Agent Types Supported
-
-| Agent Type | Prompt File | Usage |
-|------------|-------------|-------|
-| `campus_coach` | `campus_coach_agent_prompt.md` | Campus Coach session extraction |
-| `content_generation` | `content_generation_agent_prompt.md` | Activity content generation |
-
-### Bedrock Optimizations
-
-Bedrock prompts include additional markers:
-
-```markdown
-BEDROCK DIRECT MODE: You are operating in direct Bedrock mode without AgentCore tools.
-Provide complete responses based on the input data without tool calls.
-Return structured JSON responses when appropriate.
-
-[Original prompt content follows...]
-```
-
-## Deployment and Updates
-
-### Initial Deployment
+### Step 1: Edit embedded_prompts.py
 
 ```bash
-# Deploy with CDK (includes Lambda functions)
-cdk deploy --profile your-aws-profile
-
-# Deploy AgentCore agents
-agentcore agent deploy --name content_gen
-agentcore agent deploy --name campus_coach
+# Edit the centralized prompt file
+vim src/agents/embedded_prompts.py
 ```
 
-### Updating Prompts
+### Step 2: Deploy AgentCore Agents
 
-1. **Edit Prompt File**:
-   ```bash
-   # Edit the prompt file
-   vim agentcore/prompts/content_generation_agent_prompt.md
-   ```
+```bash
+# Navigate to agents directory
+cd src/agents
 
-2. **Deploy Changes**:
-   ```bash
-   # For Lambda functions (primary usage)
-   cdk deploy --profile your-aws-profile
-   
-   # For AgentCore agents (if using prompts in tools)
-   agentcore agent deploy --name content_gen
-   ```
+# Deploy content generation agent
+agentcore deploy --env region=eu-west-1
 
-3. **Verify Deployment**:
-   ```bash
-   # Check Lambda logs for prompt loading
-   aws logs tail /aws/lambda/StravaAIBoost-ContentGenerator --follow --profile your-aws-profile
-   
-   # Test AgentCore agent
-   agentcore invoke content_gen --input '{"test": true}'
-   ```
-
-## Error Handling
-
-### Fallback Mechanisms
-
-The system includes multiple fallback layers:
-
-1. **Primary**: Load from external `.md` files
-2. **Secondary**: Use hardcoded prompts in code
-3. **Tertiary**: Basic error handling with minimal prompts
-
-### Common Issues
-
-| Issue | Symptoms | Solution |
-|-------|----------|----------|
-| File not found | `FileNotFoundError` in logs | Check file exists in `agentcore/prompts/` |
-| Import error | `ImportError` in logs | Verify path configuration |
-| Cache issues | Stale prompts | Call `prompt_manager.clear_cache()` |
-| Permission error | Access denied | Check file permissions |
-
-### Debugging
-
-```python
-# Enable debug logging
-import logging
-logging.basicConfig(level=logging.DEBUG)
-
-# Test prompt loading
-from system_prompts import PromptManager
-pm = PromptManager()
-try:
-    prompt = pm.load_prompt('content_generation_agent_prompt')
-    print(f"Loaded prompt: {len(prompt)} characters")
-except Exception as e:
-    print(f"Error: {e}")
+# Verify deployment
+agentcore list
 ```
+
+### Step 3: Verify Changes
+
+```bash
+# Test agent invocation
+agentcore invoke content_gen --input '{"activity_data": {...}}'
+
+# Check logs
+aws logs tail /aws/bedrock-agentcore/runtimes/content_gen-* --follow --profile your-aws-profile
+```
+
+## Input Data Structure
+
+### Content Generation Agent Input
+
+```json
+{
+  "activity": {
+    "type": "Run",
+    "distance_km": 10.5,
+    "duration_min": 52,
+    "elevation_m": 150,
+    "avg_speed_kmh": 12.1,
+    "avg_hr": 155,
+    "achievements": 2,
+    "prs": 1
+  },
+  "original_input": {
+    "title": "sortie tranquille",
+    "description": "fatigue mais ça fait du bien"
+  },
+  "location": {
+    "city": "Paris",
+    "country": "France",
+    "weather": {"temperature": 15, "wind_speed": 10}
+  },
+  "user_profile": {
+    "age_range": "26-35",
+    "interests": ["competition"],
+    "sport_approach": "performance & competition",
+    "content_preferences": {
+      "length": "detailed",
+      "tone": "technical & analytical",
+      "emoji_usage": "moderate",
+      "technical_detail": "advanced",
+      "language": "french"
+    }
+  },
+  "athlete_context": "Power-to-Weight: 3.2 W/kg...",
+  "gear_context": "Equipment: Nike Vaporfly...",
+  "achievements_context": "2 PRs, 1 achievement...",
+  "athlete_stats_context": "YTD: 450km in 45 runs...",
+  "campus_coach_session": {...},
+  "enduraw_data": {...},
+  "streams_compressed": {
+    "blocks": [...],
+    "route_landmarks": [...]
+  },
+  "active_modules": ["campus_coach", "enduraw"]
+}
+```
+
+## Output Format
+
+### Content Generation Output
+
+```json
+{
+  "title": "Enhanced activity title (max 50 chars)",
+  "description": "Enhanced activity description\n\n@Generated by Strava AI Boost",
+  "confidence": 0.85
+}
+```
+
+**CRITICAL**: 
+- Return ONLY JSON, no explanations
+- Title max 50 characters
+- Description ends with "\n\n@Generated by Strava AI Boost"
 
 ## Best Practices
 
 ### Prompt Development
 
-1. **Version Control**: Always commit prompt changes with descriptive messages
-2. **Testing**: Test prompts in both AgentCore and Bedrock modes
-3. **Consistency**: Maintain consistent terminology across prompts
-4. **Documentation**: Document prompt changes in CHANGELOG.md
+1. **Centralization**: All prompts in `embedded_prompts.py`
+2. **Testing**: Test changes locally before deploying
+3. **Consistency**: Maintain consistent terminology
+4. **Documentation**: Document changes in CHANGELOG.md
+5. **Examples**: Include concrete examples for each rule
 
-### File Management
+### Code Organization
 
-1. **Naming**: Use descriptive, consistent file names
-2. **Structure**: Keep prompts well-organized with clear sections
-3. **Size**: Keep prompts reasonable in size (< 10KB recommended)
-4. **Encoding**: Use UTF-8 encoding for all prompt files
+1. **Separation**: Prompts in `embedded_prompts.py`, logic in agent files
+2. **No Duplication**: Agent code passes JSON data, doesn't duplicate rules
+3. **Maintainability**: Update prompt once, affects all agents
+4. **Version Control**: Commit prompt changes with descriptive messages
 
 ### Performance
 
-1. **Caching**: Prompts are cached automatically for performance
-2. **Loading**: Prompts are loaded once per Lambda cold start
-3. **Memory**: Cached prompts consume minimal memory
-4. **Latency**: No significant impact on response times
-
-## Security Considerations
-
-### Access Control
-
-- Prompt files are deployed with Lambda functions (read-only)
-- No sensitive information should be stored in prompts
-- AgentCore agents load prompts from secure runtime environment
-
-### Content Safety
-
-- Prompts should include appropriate safety guidelines
-- Avoid prompts that could generate harmful content
-- Include content filtering instructions where appropriate
+1. **No File I/O**: Embedded prompts = no loading overhead
+2. **Memory**: Prompts loaded once per Lambda cold start
+3. **Caching**: DynamoDB caches processed data (streams, landmarks)
+4. **Token Optimization**: Compressed data reduces token usage
 
 ## Monitoring
 
-### CloudWatch Metrics
+### CloudWatch Logs
 
-Monitor prompt loading through Lambda logs:
+Monitor agent behavior through logs:
 
 ```bash
-# Search for prompt loading errors
+# Content generation agent logs
+aws logs tail /aws/lambda/StravaAIBoost-ContentGenerator --follow --profile your-aws-profile
+
+# AgentCore runtime logs
+aws logs tail /aws/bedrock-agentcore/runtimes/content_gen-* --follow --profile your-aws-profile
+
+# Search for specific patterns
 aws logs filter-log-events \
   --log-group-name "/aws/lambda/StravaAIBoost-ContentGenerator" \
-  --filter-pattern "prompt" \
+  --filter-pattern "RÈGLE CRITIQUE" \
   --profile your-aws-profile
 ```
 
-### Key Metrics to Track
+### Key Metrics
 
-- Prompt loading success rate
+- Prompt length (characters)
+- Token usage (input + output)
+- Content generation success rate
 - Fallback usage frequency
-- Content generation quality scores
-- Error rates by prompt type
+- Campus Coach matching accuracy
 
 ## Troubleshooting
 
-### Common Problems
+### Common Issues
 
-**Problem**: Prompts not updating after deployment
+**Issue**: Agent not following new rules
 ```bash
-# Solution: Clear Lambda cache by updating environment variable
-aws lambda update-function-configuration \
-  --function-name StravaAIBoost-ContentGenerator \
-  --environment Variables='{PROMPT_VERSION="'$(date +%s)'"}' \
-  --profile your-aws-profile
+# Solution: Redeploy agent
+cd src/agents
+agentcore deploy --env region=eu-west-1
 ```
 
-**Problem**: AgentCore agents using old prompts
+**Issue**: Prompt too long (context overflow)
 ```bash
-# Solution: Redeploy agents
-agentcore agent deploy --name content_gen --force
+# Solution: Reduce examples in embedded_prompts.py
+# Keep rules, reduce examples to 1-2 per section
 ```
 
-**Problem**: Import errors in Lambda
+**Issue**: Content not preserving original input
 ```bash
-# Solution: Check Lambda layer includes prompt files
-aws lambda get-layer-version \
-  --layer-name strava-ai-boost-dependencies \
-  --version-number 1 \
-  --profile your-aws-profile
+# Solution: Check RÈGLE #1 in CONTENT_GENERATION_PROMPT
+# Verify original_input is passed in JSON data
 ```
-
-## Future Enhancements
-
-### Planned Features
-
-1. **Dynamic Prompt Loading**: Hot-reload prompts without redeployment
-2. **A/B Testing**: Support for multiple prompt versions
-3. **Prompt Analytics**: Detailed metrics on prompt performance
-4. **Template System**: Parameterized prompts with variables
-
-### Migration Path
-
-When adding new prompt types:
-
-1. Create new `.md` file in `agentcore/prompts/`
-2. Add mapping in `system_prompts.py`
-3. Update agents/lambdas to use new prompt
-4. Deploy and test
 
 ## Related Documentation
 
 - [AgentCore Integration Guide](AGENTCORE.md)
-- [Content Generation System](../user-guide/CONTENT-GENERATION.md)
-- [Campus Coach Module](../user-guide/CAMPUS-COACH.md)
 - [Architecture Overview](../reference/ARCHITECTURE.md)
+- [Changelog](../reference/CHANGELOG.md)
 
 ---
 
-**Note**: This prompt management system is designed for production use with automatic fallbacks and comprehensive error handling. Always test prompt changes in development before deploying to production.
+**Note**: This system uses embedded prompts for maximum reliability. All prompt logic is centralized in `src/agents/embedded_prompts.py` for easy maintenance.

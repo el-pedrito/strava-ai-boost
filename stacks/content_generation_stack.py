@@ -247,7 +247,7 @@ class ContentGenerationStack(Stack):
             handler="content_generator.handler",
             code=lambda_.Code.from_asset("lambda_functions"),
             layers=[self.core_stack.dependencies_layer],
-            timeout=Duration.minutes(5),
+            timeout=Duration.minutes(10),
             memory_size=1024,
             role=content_lambda_role,
             environment={
@@ -446,40 +446,11 @@ class ContentGenerationStack(Stack):
             }
         )
 
-        # Check if Campus Coach module is enabled
-        check_campus_coach = sfn.Choice(
-            self, "CheckCampusCoachEnabled",
-            comment="Check if Campus Coach module is enabled for this user"
-        )
-
-        # Campus Coach session extraction task (conditional)
-        extract_campus_sessions = sfn_tasks.LambdaInvoke(
-            self, "ExtractCampusSessions",
-            lambda_function=self.campus_coach_invoker,
-            comment="Extract Campus Coach sessions using AgentCore Browser Tool",
-            payload_response_only=True,
-            retry_on_service_exceptions=True,
-            input_path="$",
-            result_path="$.campus_coach_result"
-        )
-
-        # Skip Campus Coach extraction
-        skip_campus_coach = sfn.Pass(
-            self, "SkipCampusCoach",
-            comment="Skip Campus Coach extraction - module not enabled",
-            result_path="$.campus_coach_result",
-            result=sfn.Result.from_object({
-                "statusCode": 200,
-                "skipped": True,
-                "reason": "Campus Coach module not enabled"
-            })
-        )
-
-        # Generate content task
+        # Generate content task (Campus Coach sessions already in DynamoDB via daily EventBridge)
         generate_content = sfn_tasks.LambdaInvoke(
             self, "GenerateContent",
             lambda_function=self.content_generator,
-            comment="Generate enhanced content using Bedrock AI and AgentCore Memory",
+            comment="Generate enhanced content using Bedrock AI and AgentCore Memory (Campus Coach sessions from DynamoDB)",
             payload_response_only=True,
             retry_on_service_exceptions=True
         )
@@ -512,11 +483,6 @@ class ContentGenerationStack(Stack):
             errors=["States.ALL"]
         )
 
-        extract_campus_sessions.add_catch(
-            failure,
-            errors=["States.ALL"]
-        )
-
         generate_content.add_catch(
             failure,
             errors=["States.ALL"]
@@ -529,23 +495,12 @@ class ContentGenerationStack(Stack):
 
         # Define workflow with error handling and Campus Coach conditional logic
         
-        # Configure fetch success check
+        # Configure fetch success check - go directly to content generation
         check_fetch_success.when(
             sfn.Condition.number_equals("$.statusCode", 200),
-            store_backup.next(check_campus_coach)
+            generate_content
         ).otherwise(
             fetch_failed
-        )
-        
-        # Configure Campus Coach choice conditions
-        check_campus_coach.when(
-            sfn.Condition.and_(
-                sfn.Condition.is_present("$.user_config.modules_config.campus_coach.enabled"),
-                sfn.Condition.boolean_equals("$.user_config.modules_config.campus_coach.enabled", True)
-            ),
-            extract_campus_sessions.next(generate_content)
-        ).otherwise(
-            skip_campus_coach.next(generate_content)
         )
         
         definition = (
@@ -554,7 +509,7 @@ class ContentGenerationStack(Stack):
             .next(check_fetch_success)
         )
         
-        # Both Campus Coach paths lead to content generation, then update, then success
+        # Content generation leads to update, then success
         generate_content.next(update_strava).next(success)
 
         # Create Step Functions state machine

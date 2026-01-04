@@ -93,16 +93,27 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         activity_id = event.get('activity_id')
         user_id = event.get('user_id')
-        activity_data = event.get('activity_data', {})
-        
-        logger.info(f"Processing - activity_id: {activity_id}, user_id: {user_id}")
-        logger.info(f"Activity data: distance={activity_data.get('distance')}, type={activity_data.get('sport_type')}")
         
         if not activity_id or not user_id:
             logger.error(f"Missing parameters - activity_id: {activity_id}, user_id: {user_id}")
             raise ValueError("Missing required parameters: activity_id, user_id")
         
         logger.info(f"Generating content for activity {activity_id}, user {user_id}")
+        
+        # Retrieve ALL activity data from DynamoDB (stored by ActivityFetcher)
+        activity_data_full = retrieve_activity_data_from_dynamodb(activity_id)
+        
+        if not activity_data_full:
+            raise ValueError(f"Activity data not found in DynamoDB for activity {activity_id}")
+        
+        # Extract components from stored data
+        activity_data = activity_data_full.get('activity_data', {})
+        streams_data = activity_data_full.get('streams_data')
+        athlete_stats = activity_data_full.get('athlete_stats')
+        athlete_profile = activity_data_full.get('athlete_profile')
+        gear_details = activity_data_full.get('gear_details')
+        
+        logger.info(f"Retrieved activity data from DynamoDB - distance: {activity_data.get('distance')}, type: {activity_data.get('sport_type')}")
         
         # Get user configuration and active modules
         user_config = get_user_configuration(user_id)
@@ -115,17 +126,16 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         else:
             logger.info("No user profile configured, using default generation")
         
-        # Get streams data if available
-        streams_data = event.get('streams_data')
-        
-        # Get athlete stats if available
-        athlete_stats = event.get('athlete_stats')
-        
-        # Get athlete profile if available
-        athlete_profile = event.get('athlete_profile')
-        
-        # Get gear details if available
-        gear_details = event.get('gear_details')
+        # Compress streams data into 30s blocks (no interpretation, just data reduction)
+        # This replaces sending raw streams (50K+ tokens) with compressed blocks (~2K tokens)
+        streams_compressed = None
+        if streams_data:
+            logger.info("Compressing streams data into 30s blocks...")
+            streams_compressed = compress_streams_to_blocks(streams_data, activity_data, activity_id)
+            if streams_compressed:
+                logger.info(f"✅ Streams compressed: {streams_compressed.get('compression_ratio', 'N/A')}")
+            else:
+                logger.warning("⚠️ Streams compression failed, will use basic activity data only")
         
         # Extract Enduraw Report from activity description if available
         enduraw_data = extract_enduraw_report(activity_data)
@@ -140,7 +150,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Generate enhanced content using Strands Agent with user_profile
         enhanced_content = generate_enhanced_content_with_agent(
             activity_data, 
-            streams_data, 
+            streams_compressed,  # Pass compressed 30s blocks instead of raw streams
             user_id, 
             enhanced_modules,
             user_profile,  # Pass user_profile to agent
@@ -169,6 +179,240 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'activity_id': event.get('activity_id'),
             'user_id': event.get('user_id')
         }
+
+
+def reverse_geocode_location(latitude: float, longitude: float) -> Dict[str, Optional[str]]:
+    """
+    Reverse geocode coordinates to get city and country using Nominatim (OpenStreetMap)
+    
+    API Documentation: https://nominatim.org/release-docs/latest/api/Reverse/
+    Usage Policy: https://operations.osmfoundation.org/policies/nominatim/
+    
+    Args:
+        latitude: Latitude coordinate
+        longitude: Longitude coordinate
+        
+    Returns:
+        Dict with 'city' and 'country' keys
+    """
+    try:
+        import requests
+        
+        # Nominatim API endpoint (official OpenStreetMap service)
+        url = "https://nominatim.openstreetmap.org/reverse"
+        
+        # Parameters according to Nominatim documentation
+        params = {
+            'lat': latitude,
+            'lon': longitude,
+            'format': 'json',
+            'addressdetails': 1,
+            'zoom': 10  # City level
+        }
+        
+        # Headers according to Nominatim usage policy
+        headers = {
+            'User-Agent': 'StravaAIBoost/1.0 (https://github.com/strava-ai-boost; contact@strava-ai-boost.com)'
+        }
+        
+        # Make request with timeout
+        response = requests.get(url, params=params, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            address = data.get('address', {})
+            
+            # Extract city (try multiple fields as per Nominatim docs)
+            city = (
+                address.get('city') or 
+                address.get('town') or 
+                address.get('village') or 
+                address.get('municipality') or
+                address.get('county') or
+                address.get('suburb')  # For neighborhoods
+            )
+            
+            # Extract country
+            country = address.get('country')
+            
+            logger.info(f"Reverse geocoded: {city}, {country}")
+            
+            return {
+                'city': city,
+                'country': country
+            }
+        else:
+            logger.warning(f"Nominatim returned status {response.status_code}")
+            return {'city': None, 'country': None}
+            
+    except Exception as e:
+        logger.error(f"Reverse geocoding failed: {str(e)}")
+        return {'city': None, 'country': None}
+
+
+def compress_streams_to_blocks(streams_data: Dict[str, Any], activity_data: Dict[str, Any], activity_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Compress streams data into 30-second blocks without interpretation
+    
+    This function:
+    1. Checks if compressed data already exists in DynamoDB (cached)
+    2. If not, compresses raw streams into 30s blocks with avg pace/HR
+    3. Extracts key GPS points and reverse geocodes them to identify route landmarks
+    4. Stores the compressed data in DynamoDB for future use
+    5. Returns structured blocks ready for agent analysis
+    
+    NO INTERPRETATION - just data compression. The agent will do the matching with Campus Coach.
+    
+    Args:
+        streams_data: Raw streams from Strava (velocity_smooth, heartrate, time, distance, latlng)
+        activity_data: Activity metadata for context
+        activity_id: Activity ID for caching in DynamoDB
+        
+    Returns:
+        Compressed streams as 30s blocks + route landmarks, or None if no streams available
+    """
+    if not streams_data or not streams_data.get('velocity_smooth'):
+        logger.info("No streams data available for compression")
+        return None
+    
+    try:
+        # Check if compressed data already exists in DynamoDB
+        table = dynamodb.Table(ACTIVITIES_TABLE)
+        response = table.get_item(Key={'activity_id': activity_id})
+        
+        if 'Item' in response and response['Item'].get('streams_analysis_json'):
+            logger.info("✅ Using cached compressed streams from DynamoDB")
+            cached_data = json.loads(response['Item']['streams_analysis_json'])
+            return cached_data
+        
+        logger.info("No cached data found, compressing streams into 30s blocks...")
+        
+        # Extract key streams
+        velocity = streams_data.get('velocity_smooth', {}).get('data', [])
+        heartrate = streams_data.get('heartrate', {}).get('data', [])
+        time_series = streams_data.get('time', {}).get('data', [])
+        distance = streams_data.get('distance', {}).get('data', [])
+        latlng = streams_data.get('latlng', {}).get('data', [])  # GPS coordinates
+        
+        if not velocity or len(velocity) < 10:
+            logger.info("Insufficient streams data for compression")
+            return None
+        
+        # Compress into 30-second blocks
+        block_duration = 30  # seconds
+        blocks = []
+        
+        i = 0
+        while i < len(velocity):
+            # Find all points in this 30s block
+            start_time = time_series[i] if i < len(time_series) else i
+            end_time = start_time + block_duration
+            
+            block_velocities = []
+            block_hrs = []
+            block_end_idx = i
+            
+            # Collect all data points in this 30s window
+            while block_end_idx < len(velocity):
+                current_time = time_series[block_end_idx] if block_end_idx < len(time_series) else block_end_idx
+                if current_time >= end_time:
+                    break
+                
+                if velocity[block_end_idx] > 0:
+                    block_velocities.append(velocity[block_end_idx])
+                
+                if block_end_idx < len(heartrate) and heartrate[block_end_idx]:
+                    block_hrs.append(heartrate[block_end_idx])
+                
+                block_end_idx += 1
+            
+            # Calculate averages for this block
+            if block_velocities:
+                avg_velocity = sum(block_velocities) / len(block_velocities)
+                avg_pace_min_km = 1000 / (avg_velocity * 60) if avg_velocity > 0 else 0
+                avg_speed_kmh = avg_velocity * 3.6
+                
+                block = {
+                    'time_min': round(start_time / 60, 1),
+                    'duration_s': block_duration,
+                    'pace_min_km': round(avg_pace_min_km, 2),
+                    'speed_kmh': round(avg_speed_kmh, 1)
+                }
+                
+                if block_hrs:
+                    block['hr_bpm'] = int(sum(block_hrs) / len(block_hrs))
+                
+                blocks.append(block)
+            
+            # Move to next block
+            i = block_end_idx if block_end_idx > i else i + 1
+        
+        # Extract key GPS points and identify route landmarks
+        route_landmarks = []
+        if latlng and len(latlng) > 0:
+            logger.info(f"Extracting route landmarks from {len(latlng)} GPS points...")
+            
+            # Sample key points: start, 25%, 50%, 75%, end
+            key_indices = [
+                0,  # Start
+                len(latlng) // 4,  # 25%
+                len(latlng) // 2,  # 50% (midpoint)
+                3 * len(latlng) // 4,  # 75%
+                len(latlng) - 1  # End
+            ]
+            
+            for idx in key_indices:
+                if idx < len(latlng) and latlng[idx]:
+                    lat, lng = latlng[idx]
+                    
+                    # Reverse geocode to get location name
+                    location = reverse_geocode_location(lat, lng)
+                    
+                    if location.get('city') or location.get('country'):
+                        landmark = {
+                            'position': 'start' if idx == 0 else 'end' if idx == len(latlng) - 1 else f'{int(100 * idx / len(latlng))}%',
+                            'time_min': round(time_series[idx] / 60, 1) if idx < len(time_series) else 0,
+                            'city': location.get('city'),
+                            'country': location.get('country')
+                        }
+                        route_landmarks.append(landmark)
+                        
+                        logger.info(f"   Landmark at {landmark['position']}: {landmark['city']}, {landmark['country']}")
+            
+            logger.info(f"✅ Identified {len(route_landmarks)} route landmarks")
+        
+        # Create compressed data structure
+        compressed_data = {
+            'blocks': blocks,
+            'block_duration_s': block_duration,
+            'total_blocks': len(blocks),
+            'total_duration_min': round(blocks[-1]['time_min'] if blocks else 0, 1),
+            'compression_ratio': f"{len(velocity)} points → {len(blocks)} blocks",
+            'route_landmarks': route_landmarks if route_landmarks else None
+        }
+        
+        # Store compressed data in DynamoDB for future use
+        table.update_item(
+            Key={'activity_id': activity_id},
+            UpdateExpression="SET streams_analysis_json = :data, updated_at = :updated",
+            ExpressionAttributeValues={
+                ':data': json.dumps(compressed_data),
+                ':updated': datetime.utcnow().isoformat()
+            }
+        )
+        
+        logger.info(f"✅ Streams compressed and cached in DynamoDB")
+        logger.info(f"   Compression: {len(velocity)} points → {len(blocks)} blocks (30s each)")
+        logger.info(f"   Total duration: {compressed_data['total_duration_min']:.1f} minutes")
+        logger.info(f"   Route landmarks: {len(route_landmarks)} identified")
+        logger.info(f"   Data size reduction: ~{100 * (1 - len(blocks) / len(velocity)):.0f}%")
+        
+        return compressed_data
+        
+    except Exception as e:
+        logger.error(f"Failed to compress streams: {str(e)}")
+        logger.error(f"   This is not critical - will proceed without compressed streams")
+        return None
 
 
 def extract_enduraw_report(activity_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -239,6 +483,72 @@ def extract_enduraw_report(activity_data: Dict[str, Any]) -> Optional[Dict[str, 
         
     except Exception as e:
         logger.error(f"Failed to extract Enduraw Report: {str(e)}")
+        return None
+
+
+def retrieve_activity_data_from_dynamodb(activity_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Retrieve complete activity data from DynamoDB
+    
+    This retrieves all data stored by ActivityFetcher to avoid Step Functions payload limits
+    """
+    try:
+        table = dynamodb.Table(ACTIVITIES_TABLE)
+        
+        response = table.get_item(Key={'activity_id': activity_id})
+        
+        if 'Item' not in response:
+            logger.error(f"Activity {activity_id} not found in DynamoDB")
+            return None
+        
+        item = response['Item']
+        
+        # Parse JSON strings back to dictionaries
+        activity_data = json.loads(item.get('activity_data_json', '{}'))
+        streams_data = json.loads(item.get('streams_data_json', 'null')) if item.get('streams_data_json') else None
+        athlete_stats = json.loads(item.get('athlete_stats_json', 'null')) if item.get('athlete_stats_json') else None
+        athlete_profile = json.loads(item.get('athlete_profile_json', 'null')) if item.get('athlete_profile_json') else None
+        gear_details = json.loads(item.get('gear_details_json', 'null')) if item.get('gear_details_json') else None
+        
+        # CRITICAL FIX: Convert numeric string values back to numbers
+        # JSON serialization converts Decimal to string, we need to convert back
+        def convert_numeric_strings(obj):
+            """Recursively convert numeric strings to float/int"""
+            if isinstance(obj, dict):
+                return {k: convert_numeric_strings(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_numeric_strings(item) for item in obj]
+            elif isinstance(obj, str):
+                # Try to convert string to number if it looks numeric
+                try:
+                    # Check if it's an integer
+                    if '.' not in obj and 'e' not in obj.lower():
+                        return int(obj)
+                    else:
+                        return float(obj)
+                except (ValueError, AttributeError):
+                    return obj
+            return obj
+        
+        # Apply conversion to all data
+        activity_data = convert_numeric_strings(activity_data)
+        streams_data = convert_numeric_strings(streams_data) if streams_data else None
+        athlete_stats = convert_numeric_strings(athlete_stats) if athlete_stats else None
+        athlete_profile = convert_numeric_strings(athlete_profile) if athlete_profile else None
+        gear_details = convert_numeric_strings(gear_details) if gear_details else None
+        
+        logger.info(f"Retrieved activity data from DynamoDB for {activity_id}")
+        
+        return {
+            'activity_data': activity_data,
+            'streams_data': streams_data,
+            'athlete_stats': athlete_stats,
+            'athlete_profile': athlete_profile,
+            'gear_details': gear_details
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to retrieve activity data from DynamoDB: {str(e)}")
         return None
 
 
@@ -573,68 +883,6 @@ def apply_campus_coach_processing(
         return enhanced_module
 
 
-def apply_campus_coach_processing(
-    activity_data: Dict[str, Any],
-    user_id: str,
-    module: Dict[str, Any]
-) -> Dict[str, Any]:
-    """
-    Apply Campus Coach session matching processing
-    
-    Retrieves recent Campus Coach sessions from DynamoDB.
-    The intelligent matching and compliance analysis is done by the content generation agent
-    using Claude Sonnet 4.5 with detailed stream analysis.
-    """
-    try:
-        logger.info("Retrieving Campus Coach sessions for intelligent matching...")
-        
-        # Get activity details
-        activity_date = activity_data.get('start_date_local', activity_data.get('start_date', ''))
-        distance_km = activity_data.get('distance', 0) / 1000
-        duration_min = activity_data.get('moving_time', 0) / 60
-        activity_type = activity_data.get('type', '').lower()
-        
-        logger.info(f"Activity: {activity_type}, {distance_km:.1f}km, {duration_min:.0f}min, date: {activity_date}")
-        
-        # Get all recent Campus Coach sessions from DynamoDB
-        sessions = get_recent_campus_sessions()
-        
-        enhanced_module = module.copy()
-        
-        if sessions and len(sessions) > 0:
-            logger.info(f"✅ Retrieved {len(sessions)} Campus Coach sessions for agent analysis")
-            
-            # Pass all sessions to the agent for intelligent matching
-            # The agent will analyze streams, intervals, pace zones, and heart rate
-            # to find the best match and calculate detailed compliance
-            enhanced_module['campus_coach_sessions'] = sessions
-            enhanced_module['sessions_available'] = True
-            enhanced_module['session_count'] = len(sessions)
-            
-            # Add activity context for agent matching
-            enhanced_module['activity_context'] = {
-                'date': activity_date,
-                'distance_km': distance_km,
-                'duration_min': duration_min,
-                'type': activity_type
-            }
-        else:
-            logger.info("❌ No Campus Coach sessions available")
-            enhanced_module['campus_coach_sessions'] = []
-            enhanced_module['sessions_available'] = False
-            enhanced_module['note'] = 'No recent Campus Coach sessions found'
-        
-        return enhanced_module
-            
-    except Exception as e:
-        logger.error(f"Campus Coach processing error: {str(e)}")
-        enhanced_module = module.copy()
-        enhanced_module['campus_coach_sessions'] = []
-        enhanced_module['sessions_available'] = False
-        enhanced_module['error'] = str(e)
-        return enhanced_module
-
-
 def get_recent_campus_sessions() -> List[Dict[str, Any]]:
     """Get recent Campus Coach sessions from DynamoDB (only 'À faire' sessions)"""
     try:
@@ -688,7 +936,7 @@ def get_recent_campus_sessions() -> List[Dict[str, Any]]:
 
 def generate_enhanced_content_with_agent(
     activity_data: Dict[str, Any],
-    streams_data: Optional[Dict[str, Any]],
+    streams_compressed: Optional[Dict[str, Any]],  # Compressed 30s blocks instead of raw streams
     user_id: str,
     modules: List[Dict[str, Any]],
     user_profile: Optional[Dict[str, Any]] = None,
@@ -722,7 +970,7 @@ def generate_enhanced_content_with_agent(
                 logger.error(f"No suitable AgentCore client available: {str(e2)}")
                 # Fallback to direct Bedrock generation
                 return generate_enhanced_content_fallback(
-                    activity_data, streams_data, user_id, modules, user_profile
+                    activity_data, streams_compressed, user_id, modules, user_profile
                 )
         
         # Create session ID for this invocation (minimum 33 characters required)
@@ -749,7 +997,7 @@ def generate_enhanced_content_with_agent(
         agent_input = {
             'action': 'generate_content',
             'activity_data': activity_data,
-            'streams_data': streams_data,
+            'streams_compressed': streams_compressed,  # Compressed 30s blocks instead of raw streams
             'athlete_stats': athlete_stats,
             'athlete_profile': athlete_profile,
             'gear_details': gear_details,
@@ -780,36 +1028,17 @@ def generate_enhanced_content_with_agent(
         # Invoke AgentCore Content Generation Agent using correct API
         try:
             response = bedrock_agentcore_client.invoke_agent_runtime(
-                agentRuntimeArn=agent_arn,  # Use full ARN with correct parameter name
+                agentRuntimeArn=agent_arn,
                 runtimeSessionId=session_id,
                 payload=payload
             )
         except Exception as invoke_error:
-            logger.error(f"AgentCore agent invocation failed with error: {str(invoke_error)}")
+            logger.error(f"AgentCore agent invocation failed: {str(invoke_error)}")
             logger.error(f"Error type: {type(invoke_error).__name__}")
-            
-            # Check if it's a method not found error
-            if "has no attribute" in str(invoke_error) or "Unknown operation" in str(invoke_error):
-                logger.warning("invoke_agent_runtime method not available, trying alternative approaches")
-                
-                # Try alternative method names
-                try:
-                    response = bedrock_agentcore_client.invoke_runtime(
-                        runtimeArn=agent_arn,
-                        sessionId=session_id,
-                        payload=payload
-                    )
-                except Exception as alt_error:
-                    logger.error(f"Alternative invocation method also failed: {str(alt_error)}")
-                    # Fallback to direct Bedrock generation
-                    return generate_enhanced_content_fallback(
-                        activity_data, streams_data, user_id, modules, user_profile
-                    )
-            else:
-                # Other types of errors, fallback
-                return generate_enhanced_content_fallback(
-                    activity_data, streams_data, user_id, modules, user_profile
-                )
+            # Go directly to fallback on any error
+            return generate_enhanced_content_fallback(
+                activity_data, streams_compressed, user_id, modules, user_profile
+            )
         
         # Process streaming response from AgentCore
         completion = ""
@@ -963,7 +1192,7 @@ def generate_enhanced_content_with_agent(
 
 def generate_enhanced_content_fallback(
     activity_data: Dict[str, Any],
-    streams_data: Optional[Dict[str, Any]],
+    streams_compressed: Optional[Dict[str, Any]],  # Compressed 30s blocks instead of raw streams
     user_id: str,
     modules: List[Dict[str, Any]],
     user_profile: Optional[Dict[str, Any]] = None
@@ -978,7 +1207,7 @@ def generate_enhanced_content_fallback(
         logger.info(f"Content generation mode: Bedrock fallback (direct Claude Sonnet 4.5)")
         
         # Analyze streams data for effort patterns
-        patterns = analyze_streams_data_fallback(streams_data, activity_data)
+        patterns = analyze_streams_data_fallback(streams_compressed, activity_data)
         
         # Extract module insights
         module_insights = extract_module_insights(modules)
@@ -1006,55 +1235,43 @@ def generate_enhanced_content_fallback(
 
 
 def analyze_streams_data_fallback(
-    streams_data: Optional[Dict[str, Any]], 
+    streams_compressed: Optional[Dict[str, Any]],  # Compressed 30s blocks instead of raw streams
     activity_data: Dict[str, Any]
 ) -> Dict[str, Any]:
     """
     Fallback streams data analysis for effort patterns and heart rate zones
+    
+    Uses compressed 30s blocks to identify patterns
     """
     try:
-        if not streams_data:
+        if not streams_compressed or not streams_compressed.get('blocks'):
             return analyze_basic_activity_patterns(activity_data)
         
-        # Extract actual data arrays from streams structure
-        # Streams data has format: {"velocity_smooth": {"data": [...], "series_type": "distance"}}
-        velocity_stream = streams_data.get('velocity_smooth', {})
-        heartrate_stream = streams_data.get('heartrate', {})
-        
-        # Handle both dict format (with 'data' key) and direct list format
-        if isinstance(velocity_stream, dict):
-            velocity_data = velocity_stream.get('data', [])
-        else:
-            velocity_data = velocity_stream if isinstance(velocity_stream, list) else []
-        
-        if isinstance(heartrate_stream, dict):
-            heartrate_data = heartrate_stream.get('data', [])
-        else:
-            heartrate_data = heartrate_stream if isinstance(heartrate_stream, list) else []
+        # Extract compressed blocks
+        blocks = streams_compressed.get('blocks', [])
         
         patterns = []
         effort_zones = []
         intervals_count = 0
         
-        # Analyze velocity patterns for intervals
-        if velocity_data and len(velocity_data) > 10:
-            # Simple interval detection based on velocity variation
-            velocity_changes = []
-            for i in range(1, len(velocity_data)):
+        # Analyze pace patterns for intervals using compressed blocks
+        if blocks and len(blocks) > 10:
+            # Simple interval detection based on pace variation
+            pace_changes = []
+            for i in range(1, len(blocks)):
                 try:
-                    # Ensure both values are numeric
-                    prev_vel = float(velocity_data[i-1]) if velocity_data[i-1] is not None else 0
-                    curr_vel = float(velocity_data[i]) if velocity_data[i] is not None else 0
+                    prev_pace = float(blocks[i-1].get('pace_min_km', 0))
+                    curr_pace = float(blocks[i].get('pace_min_km', 0))
                     
-                    if prev_vel > 0:  # Avoid division by zero
-                        change = abs(curr_vel - prev_vel) / prev_vel
-                        velocity_changes.append(change)
-                except (ValueError, TypeError):
-                    # Skip invalid data points
+                    if prev_pace > 0 and curr_pace > 0:
+                        # Calculate pace change (faster pace = lower number)
+                        change = abs(curr_pace - prev_pace) / prev_pace
+                        pace_changes.append(change)
+                except (ValueError, TypeError, KeyError):
                     continue
             
-            # Count significant velocity changes (potential intervals)
-            significant_changes = [c for c in velocity_changes if c > 0.2]  # 20% change
+            # Count significant pace changes (potential intervals)
+            significant_changes = [c for c in pace_changes if c > 0.15]  # 15% pace change
             intervals_count = len(significant_changes) // 2  # Pairs of up/down changes
             
             if intervals_count > 3:
@@ -1064,32 +1281,40 @@ def analyze_streams_data_fallback(
             else:
                 patterns.append('steady_effort')
         
-        # Analyze heart rate zones
-        if heartrate_data:
+        # Analyze heart rate zones from compressed blocks
+        hr_values = [block.get('hr_bpm') for block in blocks if block.get('hr_bpm')]
+        if hr_values:
             try:
-                # Filter out None values and convert to float
-                valid_hr_data = [float(hr) for hr in heartrate_data if hr is not None]
+                avg_hr = sum(hr_values) / len(hr_values)
+                max_hr = max(hr_values)
                 
-                if valid_hr_data:
-                    avg_hr = sum(valid_hr_data) / len(valid_hr_data)
-                    max_hr = max(valid_hr_data)
-                    
-                    # Simple zone estimation (assuming max HR ~190 for average athlete)
-                    estimated_max_hr = 190
-                    hr_percentage = avg_hr / estimated_max_hr
-                    
-                    if hr_percentage < 0.6:
-                        effort_zones.append('zone1')
-                    elif hr_percentage < 0.7:
-                        effort_zones.append('zone2')
-                    elif hr_percentage < 0.8:
-                        effort_zones.append('zone3')
-                    elif hr_percentage < 0.9:
-                        effort_zones.append('zone4')
-                    else:
-                        effort_zones.append('zone5')
+                # Simple zone estimation (assuming max HR ~190 for average athlete)
+                estimated_max_hr = 190
+                hr_percentage = avg_hr / estimated_max_hr
+                
+                if hr_percentage < 0.6:
+                    effort_zones.append('zone1')
+                elif hr_percentage < 0.7:
+                    effort_zones.append('zone2')
+                elif hr_percentage < 0.8:
+                    effort_zones.append('zone3')
+                elif hr_percentage < 0.9:
+                    effort_zones.append('zone4')
+                else:
+                    effort_zones.append('zone5')
             except (ValueError, TypeError, ZeroDivisionError):
-                # Skip heart rate analysis if data is invalid
+                pass
+                if hr_percentage < 0.6:
+                    effort_zones.append('zone1')
+                elif hr_percentage < 0.7:
+                    effort_zones.append('zone2')
+                elif hr_percentage < 0.8:
+                    effort_zones.append('zone3')
+                elif hr_percentage < 0.9:
+                    effort_zones.append('zone4')
+                else:
+                    effort_zones.append('zone5')
+            except (ValueError, TypeError, ZeroDivisionError):
                 pass
         
         return {

@@ -73,23 +73,28 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Fetch user configuration for module decisions
         user_config = fetch_user_configuration(user_id)
         
-        # Store original description backup
-        store_activity_backup(activity_id, activity_data)
+        # Store ALL data in DynamoDB to avoid Step Functions 256KB payload limit
+        store_activity_data(
+            activity_id=activity_id,
+            activity_data=activity_data,
+            streams_data=streams_data,
+            athlete_stats=athlete_stats,
+            athlete_profile=athlete_profile,
+            gear_details=gear_details,
+            user_config=user_config
+        )
         
         # Update rate limit usage
         update_rate_limits(5)  # Activity + streams + stats + profile + gear API calls
         
+        # Return minimal payload - only references, no large data
         return {
             'statusCode': 200,
             'activity_id': activity_id,
             'user_id': user_id,
-            'activity_data': activity_data,
-            'streams_data': streams_data,
-            'athlete_stats': athlete_stats,
-            'athlete_profile': athlete_profile,
-            'gear_details': gear_details,
-            'user_config': user_config,
-            'fetched_at': datetime.utcnow().isoformat()
+            'user_config': user_config,  # Keep user_config for workflow decisions
+            'fetched_at': datetime.utcnow().isoformat(),
+            'data_stored_in_dynamodb': True
         }
         
     except Exception as e:
@@ -328,6 +333,12 @@ def fetch_activity_data(activity_id: str, access_token: str) -> Dict[str, Any]:
         
         activity_data = response.json()
         
+        # Log activity title and description (CRITICAL for content generation)
+        activity_name = activity_data.get('name', 'Untitled')
+        activity_description = activity_data.get('description', '')
+        logger.info(f"📝 Activity Title: {activity_name}")
+        logger.info(f"📝 Activity Description: {activity_description[:200] if activity_description else '(empty)'}{'...' if len(activity_description) > 200 else ''}")
+        
         logger.info(f"Fetched activity data: {len(activity_data)} fields")
         
         # Log location data for debugging
@@ -508,16 +519,31 @@ def fetch_gear_details(gear_id: str, access_token: str) -> Optional[Dict[str, An
         return None
 
 
-def store_activity_backup(activity_id: str, activity_data: Dict[str, Any]) -> None:
-    """Store original activity description in DynamoDB for backup"""
+def store_activity_data(
+    activity_id: str,
+    activity_data: Dict[str, Any],
+    streams_data: Optional[Dict[str, Any]],
+    athlete_stats: Optional[Dict[str, Any]],
+    athlete_profile: Optional[Dict[str, Any]],
+    gear_details: Optional[Dict[str, Any]],
+    user_config: Dict[str, Any]
+) -> None:
+    """
+    Store ALL activity data in DynamoDB to avoid Step Functions 256KB payload limit
+    
+    This stores the complete fetched data so downstream Lambdas can retrieve it
+    without passing large payloads through Step Functions
+    """
     try:
+        from decimal import Decimal
+        import json
+        
         table = dynamodb.Table(ACTIVITIES_TABLE)
         
         original_description = activity_data.get('description', '')
         original_name = activity_data.get('name', '')
         
         # Convert floats to Decimal for DynamoDB
-        from decimal import Decimal
         distance = activity_data.get('distance', 0)
         elevation = activity_data.get('total_elevation_gain', 0)
         
@@ -548,6 +574,17 @@ def store_activity_backup(activity_id: str, activity_data: Dict[str, Any]) -> No
                 if weather_data:
                     activity_data['fetched_weather'] = weather_data
         
+        # Helper function to convert floats to Decimal recursively
+        def convert_floats(obj):
+            if isinstance(obj, float):
+                return Decimal(str(obj))
+            elif isinstance(obj, dict):
+                return {k: convert_floats(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_floats(item) for item in obj]
+            return obj
+        
+        # Build DynamoDB item with ALL data
         item = {
             'activity_id': activity_id,
             'original_name': original_name,
@@ -559,7 +596,13 @@ def store_activity_backup(activity_id: str, activity_data: Dict[str, Any]) -> No
             'start_date': activity_data.get('start_date', ''),
             'processing_status': 'fetched',
             'created_at': datetime.utcnow().isoformat(),
-            'updated_at': datetime.utcnow().isoformat()
+            'updated_at': datetime.utcnow().isoformat(),
+            # Store complete data as JSON strings to avoid DynamoDB item size limits
+            'activity_data_json': json.dumps(convert_floats(activity_data), default=str),
+            'streams_data_json': json.dumps(convert_floats(streams_data), default=str) if streams_data else None,
+            'athlete_stats_json': json.dumps(convert_floats(athlete_stats), default=str) if athlete_stats else None,
+            'athlete_profile_json': json.dumps(convert_floats(athlete_profile), default=str) if athlete_profile else None,
+            'gear_details_json': json.dumps(convert_floats(gear_details), default=str) if gear_details else None
         }
         
         # Add location data if available
@@ -573,11 +616,12 @@ def store_activity_backup(activity_id: str, activity_data: Dict[str, Any]) -> No
         
         table.put_item(Item=item)
         
-        logger.info(f"Stored activity backup for {activity_id}")
+        logger.info(f"Stored complete activity data for {activity_id} in DynamoDB")
         
     except Exception as e:
-        logger.error(f"Failed to store activity backup: {str(e)}")
-        # Don't raise - backup is important but not critical for processing
+        logger.error(f"Failed to store activity data: {str(e)}")
+        # Raise because this is critical - downstream Lambdas need this data
+        raise
 
 
 def update_rate_limits(api_calls_made: int) -> None:
