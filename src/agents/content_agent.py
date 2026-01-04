@@ -290,7 +290,7 @@ def invoke(payload, context=None):
         agent.callback_handler = reasoning_callback_handler
         
         # Extract remaining parameters from payload
-        streams_data = payload.get('streams_data')
+        streams_compressed = payload.get('streams_compressed')  # Compressed 30s blocks (no interpretation)
         user_profile = payload.get('user_profile')
         active_modules = payload.get('active_modules', [])
         campus_coach_session = payload.get('campus_coach_session')
@@ -328,7 +328,7 @@ def invoke(payload, context=None):
         logger.info(f"Active Modules: {[m.get('name') for m in active_modules]}")
         logger.info(f"Campus Coach Session: {'Yes' if campus_coach_session else 'No'}")
         logger.info(f"Enduraw Data: {'Yes' if enduraw_data else 'No'}")
-        logger.info(f"Streams Data: {'Yes' if streams_data else 'No'}")
+        logger.info(f"Streams Compressed: {'Yes' if streams_compressed else 'No'}")
         logger.info(f"Memory Enabled: {MEMORY_ID is not None}")
         logger.info(f"Achievements: {activity_data.get('achievement_count', 0)}, PRs: {activity_data.get('pr_count', 0)}, Kudos: {activity_data.get('kudos_count', 0)}")
         logger.info(f"Segment Efforts: {len(activity_data.get('segment_efforts', []))}, Best Efforts: {len(activity_data.get('best_efforts', []))}")
@@ -467,12 +467,12 @@ def invoke(payload, context=None):
         splits_standard = activity_data.get('splits_standard', [])
         laps = activity_data.get('laps', [])
         
-        # Build comprehensive prompt with user preferences
+        # Build data payload for agent (system_prompt already has all instructions)
         user_profile_str = json.dumps(user_profile, indent=2) if user_profile else 'No user profile provided'
         active_modules_str = ', '.join([m.get('name', 'unknown') for m in active_modules]) if active_modules else 'No active modules'
         campus_session_str = json.dumps(campus_coach_session, indent=2) if campus_coach_session else 'No Campus Coach session matched'
         enduraw_str = json.dumps(enduraw_data, indent=2) if enduraw_data else 'No Enduraw data available'
-        streams_str = json.dumps(streams_data, indent=2) if streams_data else 'No streams data available'
+        streams_compressed_str = json.dumps(streams_compressed, indent=2) if streams_compressed else 'No compressed streams data available'
         
         # Extract location and weather data (always used when available)
         location_city = activity_data.get('location_city', '')
@@ -555,7 +555,18 @@ def invoke(payload, context=None):
         if not athlete_stats_context:
             athlete_stats_context = "No athlete stats available"
         
-        prompt = f"""Generate personalized Strava content for this activity.
+        # Build data-only prompt (instructions are in system_prompt from CONTENT_GENERATION_PROMPT)
+        # BUT add explicit size reminder since model ignores system prompt limits
+        content_length_pref = user_profile.get('content_preferences', {}).get('length', 'medium')
+        size_limits = {
+            'short': 300,
+            'medium': 800,
+            'detailed': 1500
+        }
+        max_chars = size_limits.get(content_length_pref, 800)
+        
+        prompt = f"""⚠️ CRITICAL SIZE LIMIT: User preference is "{content_length_pref}" = MAX {max_chars} characters for description (including signature)!
+If you exceed {max_chars} chars, CUT content to fit. Keep most important elements, preserve signature.
 
 ACTIVITY DATA:
 - Type: {activity_type}
@@ -581,7 +592,7 @@ EQUIPMENT CONTEXT (Gear Mileage):
 ACHIEVEMENTS & PERFORMANCE HIGHLIGHTS:
 {achievements_context}
 
-ATHLETE CONTEXT (Yearly Progress & Records):
+ATHLETE STATS (Yearly Progress & Records):
 {athlete_stats_context}
 
 SPLITS & LAPS:
@@ -589,25 +600,17 @@ SPLITS & LAPS:
 {f"- Standard Splits: {len(splits_standard)} mile splits available" if splits_standard else ""}
 {f"- Laps: {len(laps)} lap(s) recorded" if laps else ""}
 
-ORIGINAL USER INPUT (IMPORTANT - Use as context):
+ORIGINAL USER INPUT:
 - Original Title: "{validated_title}"
 - Original Description: "{validated_description}"
 {f"⚠️ Note: Title was sanitized by security filters" if title_blocked else ""}
 {f"⚠️ Note: Description was sanitized by security filters" if desc_blocked else ""}
 
-LOCATION & WEATHER (from Strava - use when Enduraw not active):
+LOCATION & WEATHER:
 {location_context}
 
-CRITICAL: If the user provided an original title or description, USE THEM as context and inspiration.
-The user's original input contains personal notes, feelings, or context that should be PRESERVED and ENRICHED.
-- If original description has specific details (weather, feelings, context), INTEGRATE them into enhanced content
-- If original title has specific focus (tempo, recovery, interval, etc.), RESPECT and ENHANCE that intent
-- ENHANCE and ENRICH the user's input, don't ignore or replace it
-- If original content is generic (just activity name), then create from scratch using data
-
-USER PREFERENCES:
-User ID: {user_id}
-User Profile: {user_profile_str}
+USER PROFILE:
+{user_profile_str}
 
 ACTIVE MODULES:
 {active_modules_str}
@@ -618,36 +621,10 @@ CAMPUS COACH SESSION:
 ENDURAW DATA:
 {enduraw_str}
 
-STREAMS DATA (for detailed analysis):
-{streams_str}
+STREAMS DATA (compressed 30s blocks):
+{streams_compressed_str}
 
-INSTRUCTIONS:
-Generate a personalized, engaging title and description that:
-1. Matches the user's style and preferences from their profile
-2. Incorporates performance analysis from activity data and streams
-3. Highlights achievements, PRs, and best efforts when present (celebrate victories!)
-4. Uses athlete context (yearly progress, records) to add perspective and motivation
-5. Integrates available module insights (Campus Coach, Enduraw) appropriately
-6. Uses technical precision with fun, motivational elements
-7. Mentions segment performances if notable
-8. Contextualizes performance within yearly goals and progress
-5. Leverages AgentCore Memory to avoid repetitive expressions
-6. Adapts to user's age, interests, and sport approach
-7. Creates authentic content in user's preferred language with appropriate emojis
-8. **Uses location and weather data** (always when available):
-   - Location (city/country): Mention if interesting or adds context
-   - Weather (Open-Meteo): Temperature, wind, humidity - use subtly
-   - Enduraw data: Bonus advanced analysis (wind-corrected pace, detailed impact)
-   - Keep it brief and authentic (1-2 sentences max)
-   - Examples: "Sortie matinale à Paris sous un ciel parfait ☀️"
-   - Examples: "Session à Madrid avec 15km/h de vent - conditions challengeantes ! 💨"
-
-Return ONLY a JSON response in this exact format:
-{{
-  "title": "Generated title here (max 50 chars)",
-  "description": "Generated description here\\n\\n@Generated by Strava AI Boost",
-  "confidence": 0.85
-}}"""
+Generate content now."""
         
         # Invoke agent
         logger.info(f"Invoking agent with prompt length: {len(prompt)} characters")

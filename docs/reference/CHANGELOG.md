@@ -5,6 +5,31 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.1] - 2026-01-04 - Content Size Enforcement Fix
+
+### Fixed
+- **Content Generation Size Limits**: Agent now strictly respects user content_length preferences
+  - **Problem**: Generated descriptions exceeded limits (3900+ chars for "medium" instead of 800 max)
+  - **Root Cause**: Model ignored size rules in system prompt, rules not visible enough
+  - **Solution**: Added RÈGLE #0 at top of critical rules + explicit size reminder in user prompt with exact char limit
+  - **Impact**: Descriptions now respect: short=300 chars, medium=800 chars, detailed=1500 chars
+  - **Files Modified**: 
+    - `src/agents/embedded_prompts.py`: Added RÈGLE #0 with size enforcement examples
+    - `src/agents/content_agent.py`: Added critical size reminder at start of user prompt with calculated max_chars
+
+- **Variable Name Bug**: Fixed undefined variable `streams_str` in content agent
+  - **Problem**: Agent crashed with "name 'streams_str' is not defined"
+  - **Root Cause**: Variable defined as `streams_compressed_str` but used as `streams_str` in prompt
+  - **Solution**: Corrected variable name to `streams_compressed_str`
+  - **Files Modified**: `src/agents/content_agent.py`
+
+### Changed
+- **Prompt Simplification**: Removed duplicate instructions from user prompt
+  - **Before**: User prompt contained full instructions + data (redundant with system prompt)
+  - **After**: User prompt contains only data + critical size reminder (instructions in system prompt)
+  - **Benefit**: Cleaner separation, less token usage, more focused prompts
+  - **Files Modified**: `src/agents/content_agent.py`
+
 ## [1.17.0] - 2026-01-04 - Streams Compression & Content Fidelity
 
 ### Added
@@ -58,6 +83,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Original Content Preservation**: ALL elements from original title/description MUST be present in generated content
   - **Reformulation**: Improve grammar, clarity, structure while keeping all information
   - **Tone Matching**: Generated content tone must match original content tone
+  - **Length Limits**: Adaptive limits based on user preference (short: 300 chars, medium: 800 chars, detailed: 1500 chars)
   - **Examples**:
     - "sortie tranquille fatigue" → Must contain "tranquille" AND "fatigue" (reformulated)
     - "intervalles dur" → Must contain "intervalles" AND "dur" (reformulated)
