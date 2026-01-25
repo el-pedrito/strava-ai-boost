@@ -30,7 +30,9 @@ graph TB
             StepFunctions[Step Functions<br/>Activity Workflow]
             ProcessorLambda[Activity Processor<br/>Lambda Function]
             EventBridge[EventBridge Scheduler<br/>Daily 6 AM]
+            EventBridgeFeedback[EventBridge Scheduler<br/>Daily 3 AM - Feedback]
             CampusInvoker[Campus Coach Invoker<br/>Lambda Function]
+            FeedbackAnalyzer[Feedback Analyzer<br/>Lambda Function]
         end
         
         subgraph "AI & Content Generation"
@@ -88,6 +90,13 @@ graph TB
     EventBridge -.->|Daily 6 AM| CampusInvoker
     CampusInvoker --> AgentCoreBrowser
     CampusInvoker --> SessionsTable
+    
+    %% Feedback Loop (v1.19.0)
+    EventBridgeFeedback -.->|Daily 3 AM| FeedbackAnalyzer
+    FeedbackAnalyzer --> StravaAPI
+    FeedbackAnalyzer --> ActivitiesTable
+    FeedbackAnalyzer --> Bedrock
+    FeedbackAnalyzer --> AgentCoreMemory
     
     %% Data Flow
     ProcessorLambda --> ActivitiesTable

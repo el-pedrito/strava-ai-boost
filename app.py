@@ -13,6 +13,7 @@ from stacks.api_gateway_stack import ApiGatewayStack
 from stacks.webhook_processing_stack import WebhookProcessingStack
 from stacks.content_generation_stack import ContentGenerationStack
 from stacks.monitoring_stack import MonitoringStack
+from stacks.feedback_loop_stack import FeedbackLoopStack
 
 app = cdk.App()
 
@@ -90,6 +91,20 @@ monitoring_stack.add_dependency(core_stack)
 monitoring_stack.add_dependency(content_stack)
 monitoring_stack.add_dependency(webhook_stack)
 monitoring_stack.add_dependency(api_stack)
+
+# Feedback loop stack - Automatic learning from user modifications
+feedback_stack = FeedbackLoopStack(
+    app,
+    "StravaAIBoost-Feedback",
+    activities_table=core_stack.activities_table,
+    strava_oauth_secret=core_stack.strava_oauth_secret,
+    strava_app_secret=core_stack.strava_app_secret,
+    dependencies_layer=core_stack.dependencies_layer,
+    env=env,
+    description="Feedback loop infrastructure for learning from user modifications"
+)
+# Explicit dependency on core stack
+feedback_stack.add_dependency(core_stack)
 
 # Synthesize the CDK app
 app.synth()

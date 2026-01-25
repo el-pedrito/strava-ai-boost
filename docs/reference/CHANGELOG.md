@@ -5,6 +5,56 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.0] - 2026-01-25 - Feedback Loop & Automatic Learning
+
+### Added
+- **Feedback Loop Infrastructure**: Automatic learning from user modifications on Strava
+  - **Lambda**: `feedback_analyzer` - Analyzes modifications nightly at 3 AM UTC
+  - **EventBridge Schedule**: Daily trigger for automatic analysis
+  - **Workflow**: Fetch final content from Strava → Compare (95% threshold) → Extract patterns via Bedrock → Write to AgentCore Memory
+  - **Immediate Learning**: Patterns with 1+ occurrences applied (no 3+ threshold)
+  - **Files Added**: 
+    - `lambda_functions/feedback_analyzer.py`
+    - `stacks/feedback_loop_stack.py`
+    - `docs/FEEDBACK_LOOP_FINAL.md`
+
+- **AgentCore Memory Integration**: Patterns stored and retrieved automatically
+  - **Storage**: boto3 bedrock-agentcore API (create_event)
+  - **Location**: actor_id="system", session_id="feedback_learning" (fixed)
+  - **Format**: JSON with patterns_by_type (length, expression, emoji, structure, tone)
+  - **Retrieval**: content_agent reads patterns at startup and applies to prompt
+  - **No SDK dependencies**: Uses boto3 directly (no bedrock-agentcore package needed)
+
+- **Quality Metrics Tracking**: Monitor feedback loop effectiveness
+  - **Modification rate**: % of activities modified manually
+  - **Quality trend**: Improving/stable/degrading over 30 days
+  - **Similarity score**: Stored per activity for analysis
+  - **Best Practice**: "Monitor business impact metrics"
+
+### Changed
+- **AgentCore Memory Write Strategy**: Disabled immediate writes during generation
+  - **Before**: Agent wrote to memory immediately after generation
+  - **After**: Memory writes only after feedback validation (nightly)
+  - **Reason**: Prevent memory pollution with unvalidated content
+  - **Best Practice**: "When an agent writes a faulty fact to memory, every future reasoning step inherits that flaw"
+  - **Files Modified**: `src/agents/content_agent.py`
+
+- **DynamoDB Schema**: New fields for feedback tracking
+  - `final_description`: Content retrieved from Strava
+  - `description_modified`: Boolean flag (similarity < 95%)
+  - `description_modified_at`: Timestamp
+  - `feedback_analyzed`: Boolean flag
+  - `feedback_analyzed_at`: Timestamp
+  - `similarity_score`: Similarity between generated and final (0.0-1.0)
+
+### Performance
+- **Learning Efficiency**: Automatic improvement without manual intervention
+  - Nightly analysis: ~5-10s per activity
+  - Pattern extraction: Bedrock invoke_model (direct, no agent overhead)
+  - Memory updates: boto3 API (no SDK dependencies)
+  - Token refresh: Automatic when expired
+  - Cost: ~$0.01 per day (50 activities × $0.0002 per analysis)
+
 ## [1.18.0] - 2026-01-25 - Progressive Adaptive Streams Compression & Pace Formatting
 
 ### Fixed

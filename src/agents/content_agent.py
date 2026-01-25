@@ -236,6 +236,79 @@ def invoke(payload, context=None):
         # Use the embedded complete prompt
         system_prompt = CONTENT_GENERATION_PROMPT
         
+        # Load user feedback patterns from AgentCore Memory (if available)
+        feedback_instructions = ""
+        if MEMORY_ID and memory_client:
+            try:
+                # Get feedback patterns from system actor (written by feedback_analyzer)
+                # Use fixed session_id for feedback to make it easier to retrieve
+                feedback_turns = memory_client.get_last_k_turns(
+                    memory_id=MEMORY_ID,
+                    actor_id="system",
+                    session_id="feedback_learning",  # Fixed session_id for feedback
+                    k=1  # Latest feedback update
+                )
+                
+                if feedback_turns:
+                    # Parse feedback data
+                    for turn in feedback_turns:
+                        for message in turn:
+                            if 'content' in message:
+                                try:
+                                    content_text = message['content'].get('text', '') if isinstance(message.get('content'), dict) else str(message.get('content', ''))
+                                    feedback_data = json.loads(content_text)
+                                    patterns = feedback_data.get('patterns_by_type', {})
+                                    
+                                    if patterns:
+                                        feedback_instructions = "\n\n## 🎯 FEEDBACK UTILISATEUR (Préférences Apprises)\n\n"
+                                        feedback_instructions += "**Ces préférences ont été détectées depuis tes modifications manuelles. RESPECTE-LES.**\n\n"
+                                        
+                                        # Length preferences
+                                        if 'length_preferences' in patterns:
+                                            length_pref = patterns['length_preferences'][0]
+                                            feedback_instructions += f"**Longueur** : {length_pref.get('pattern', 'N/A')} (avg: {length_pref.get('avg_reduction', 0)} chars)\n"
+                                        
+                                        # Expression preferences
+                                        if 'expression_preference' in patterns:
+                                            feedback_instructions += "\n**Expressions à éviter/préférer** :\n"
+                                            for expr in patterns['expression_preference'][:5]:
+                                                feedback_instructions += f"- Évite '{expr.get('avoid')}' → Préfère '{expr.get('prefer')}' (fréquence: {expr.get('frequency')})\n"
+                                        
+                                        # Emoji preferences
+                                        if 'emoji_preferences' in patterns:
+                                            emoji_pref = patterns['emoji_preferences'][0]
+                                            removed = [e['emoji'] for e in emoji_pref.get('frequently_removed', [])]
+                                            added = [e['emoji'] for e in emoji_pref.get('frequently_added', [])]
+                                            if removed:
+                                                feedback_instructions += f"\n**Emojis à éviter** : {' '.join(removed)}\n"
+                                            if added:
+                                                feedback_instructions += f"**Emojis préférés** : {' '.join(added)}\n"
+                                        
+                                        # Structure preferences
+                                        if 'structure_preference' in patterns:
+                                            struct_pref = patterns['structure_preference'][0]
+                                            feedback_instructions += f"\n**Structure préférée** : {struct_pref.get('pattern', 'N/A')}\n"
+                                        
+                                        # Tone preferences
+                                        if 'tone_preference' in patterns:
+                                            tone_pref = patterns['tone_preference'][0]
+                                            feedback_instructions += f"**Ton préféré** : {tone_pref.get('pattern', 'N/A')}\n"
+                                        
+                                        logger.info(f"✅ Loaded feedback patterns from AgentCore Memory")
+                                        logger.info(f"   Patterns types: {list(patterns.keys())}")
+                                        break
+                                except json.JSONDecodeError as e:
+                                    logger.warning(f"Failed to parse feedback data from memory: {e}")
+                                    continue
+                else:
+                    logger.info("No feedback patterns found in memory yet")
+            except Exception as e:
+                logger.warning(f"Failed to load feedback patterns from memory: {e}")
+        
+        # Append feedback instructions if available
+        if feedback_instructions:
+            system_prompt += feedback_instructions
+        
         # Create Strands agent WITHOUT guardrails on the model
         # Guardrails are applied manually on user inputs only (title/description)
         from strands.models import BedrockModel
@@ -244,7 +317,7 @@ def invoke(payload, context=None):
         agent = Agent(
             model=MODEL_ID,  # No guardrails on model - we validate inputs manually
             system_prompt=system_prompt,
-            hooks=[AgentCoreMemoryHook()] if MEMORY_ID else [],
+            hooks=[],  # Disabled: AgentCoreMemoryHook() - Memory writes only after feedback validation
             state={
                 "session_id": f"activity-{activity_id}",
                 "actor_id": str(user_id)
@@ -252,7 +325,8 @@ def invoke(payload, context=None):
         )
         
         if MEMORY_ID:
-            logger.info(f"Agent created with AgentCore Memory (LTM) for user {user_id}, activity {activity_id}")
+            logger.info(f"Agent created with AgentCore Memory (LTM) READ-ONLY for user {user_id}, activity {activity_id}")
+            logger.info(f"⚠️ Memory writes disabled - will be written after feedback validation")
         else:
             logger.info(f"Agent created without memory (MEMORY_ID not configured)")
         

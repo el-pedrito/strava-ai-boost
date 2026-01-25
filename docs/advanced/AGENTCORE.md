@@ -283,6 +283,79 @@ def invoke(payload, context=None):
     return result
 ```
 
+### Feedback Loop & Automatic Learning (v1.19.0)
+
+**Purpose**: Learn automatically from your manual modifications on Strava to improve future generations.
+
+**How it works:**
+1. Agent generates content → stored as `enhanced_description`
+2. You modify on Strava (optional)
+3. **Nightly at 3 AM UTC**: System analyzes modifications
+4. Patterns extracted → written to AgentCore Memory
+5. Next generation: Agent reads patterns and applies them
+
+**Detection:**
+- Similarity calculated with `difflib.SequenceMatcher`
+- Threshold: < 95% = modified (ignores typos)
+- Example: 88% similarity = significant modification
+
+**Pattern Extraction:**
+- Uses Bedrock (invoke_model direct) to analyze differences
+- Extracts 5 types: length, expressions, emojis, structure, tone
+- Immediate learning: 1+ occurrences applied (no waiting)
+
+**Storage in AgentCore Memory:**
+```python
+# Written by feedback_analyzer Lambda
+bedrock_agentcore.create_event(
+    memoryId='content_gen_mem-XXXXXXXXXX',
+    actorId="system",
+    sessionId="feedback_learning",  # Fixed session for easy retrieval
+    payload=[{
+        'conversational': {
+            'content': {'text': json.dumps(patterns)},
+            'role': 'USER'
+        }
+    }]
+)
+```
+
+**Retrieval by content_agent:**
+```python
+# Read patterns at agent startup
+feedback_turns = memory_client.get_last_k_turns(
+    memory_id=MEMORY_ID,
+    actor_id="system",
+    session_id="feedback_learning",
+    k=1
+)
+
+# Apply to system_prompt
+system_prompt += format_feedback_instructions(patterns)
+```
+
+**Example patterns stored:**
+```json
+{
+  "length_preferences": {"pattern": "prefers_shorter", "avg_reduction": -50},
+  "expression_preference": [{"avoid": "atomise", "prefer": "belle"}],
+  "emoji_preferences": {"frequently_removed": ["🚀"]},
+  "structure_preference": {"pattern": "context_first"},
+  "tone_preference": {"pattern": "softened"}
+}
+```
+
+**Metrics tracked:**
+- Modification rate: % of activities modified
+- Quality trend: improving/stable/degrading
+- Similarity scores: stored per activity
+
+**Infrastructure:**
+- Lambda: `feedback_analyzer` (5min timeout, 512MB)
+- EventBridge: Daily at 3 AM UTC
+- No SDK dependencies: Uses boto3 directly
+- Cost: ~$0.01/day for 50 activities
+
 ## AgentCore Browser Tool
 
 ### Purpose
