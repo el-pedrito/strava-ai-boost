@@ -181,85 +181,24 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         }
 
 
-def reverse_geocode_location(latitude: float, longitude: float) -> Dict[str, Optional[str]]:
-    """
-    Reverse geocode coordinates to get city and country using Nominatim (OpenStreetMap)
-    
-    API Documentation: https://nominatim.org/release-docs/latest/api/Reverse/
-    Usage Policy: https://operations.osmfoundation.org/policies/nominatim/
-    
-    Args:
-        latitude: Latitude coordinate
-        longitude: Longitude coordinate
-        
-    Returns:
-        Dict with 'city' and 'country' keys
-    """
-    try:
-        import requests
-        
-        # Nominatim API endpoint (official OpenStreetMap service)
-        url = "https://nominatim.openstreetmap.org/reverse"
-        
-        # Parameters according to Nominatim documentation
-        params = {
-            'lat': latitude,
-            'lon': longitude,
-            'format': 'json',
-            'addressdetails': 1,
-            'zoom': 10  # City level
-        }
-        
-        # Headers according to Nominatim usage policy
-        headers = {
-            'User-Agent': 'StravaAIBoost/1.0 (https://github.com/strava-ai-boost; contact@strava-ai-boost.com)'
-        }
-        
-        # Make request with timeout
-        response = requests.get(url, params=params, headers=headers, timeout=10)
-        
-        if response.status_code == 200:
-            data = response.json()
-            address = data.get('address', {})
-            
-            # Extract city (try multiple fields as per Nominatim docs)
-            city = (
-                address.get('city') or 
-                address.get('town') or 
-                address.get('village') or 
-                address.get('municipality') or
-                address.get('county') or
-                address.get('suburb')  # For neighborhoods
-            )
-            
-            # Extract country
-            country = address.get('country')
-            
-            logger.info(f"Reverse geocoded: {city}, {country}")
-            
-            return {
-                'city': city,
-                'country': country
-            }
-        else:
-            logger.warning(f"Nominatim returned status {response.status_code}")
-            return {'city': None, 'country': None}
-            
-    except Exception as e:
-        logger.error(f"Reverse geocoding failed: {str(e)}")
-        return {'city': None, 'country': None}
-
-
 def compress_streams_to_blocks(streams_data: Dict[str, Any], activity_data: Dict[str, Any], activity_id: str) -> Optional[Dict[str, Any]]:
     """
-    Compress streams data into 30-second blocks without interpretation
+    Compress streams data into adaptive blocks based on activity duration
     
     This function:
     1. Checks if compressed data already exists in DynamoDB (cached)
-    2. If not, compresses raw streams into 30s blocks with avg pace/HR
-    3. Extracts key GPS points and reverse geocodes them to identify route landmarks
-    4. Stores the compressed data in DynamoDB for future use
-    5. Returns structured blocks ready for agent analysis
+    2. If not, compresses raw streams into adaptive blocks with avg pace/HR
+    3. Adapts block duration based on activity length (less compression for short activities)
+    4. Extracts key GPS points and reverse geocodes them to identify route landmarks
+    5. Stores the compressed data in DynamoDB for future use
+    6. Returns structured blocks ready for agent analysis
+    
+    Adaptive compression strategy (progressive):
+    - < 60 min: NO compression (raw streams work perfectly)
+    - 60-75 min: 5s blocks (very light compression)
+    - 75-90 min: 10s blocks (light compression)
+    - 90-120 min: 20s blocks (moderate compression)
+    - > 120 min: 30s blocks (standard compression)
     
     NO INTERPRETATION - just data compression. The agent will do the matching with Campus Coach.
     
@@ -269,7 +208,7 @@ def compress_streams_to_blocks(streams_data: Dict[str, Any], activity_data: Dict
         activity_id: Activity ID for caching in DynamoDB
         
     Returns:
-        Compressed streams as 30s blocks + route landmarks, or None if no streams available
+        Compressed streams as adaptive blocks + route landmarks, or None if no streams available
     """
     if not streams_data or not streams_data.get('velocity_smooth'):
         logger.info("No streams data available for compression")
@@ -285,7 +224,7 @@ def compress_streams_to_blocks(streams_data: Dict[str, Any], activity_data: Dict
             cached_data = json.loads(response['Item']['streams_analysis_json'])
             return cached_data
         
-        logger.info("No cached data found, compressing streams into 30s blocks...")
+        logger.info("No cached data found, compressing streams with adaptive blocks...")
         
         # Extract key streams
         velocity = streams_data.get('velocity_smooth', {}).get('data', [])
@@ -298,8 +237,33 @@ def compress_streams_to_blocks(streams_data: Dict[str, Any], activity_data: Dict
             logger.info("Insufficient streams data for compression")
             return None
         
-        # Compress into 30-second blocks
-        block_duration = 30  # seconds
+        # Calculate activity duration in minutes
+        activity_duration_seconds = activity_data.get('elapsed_time', 0)
+        activity_duration_minutes = activity_duration_seconds / 60
+        
+        # Adaptive block duration based on activity length
+        # Strategy: Progressive compression - smooth transition starting at 5s blocks
+        if activity_duration_minutes < 60:
+            # No compression needed - raw data works perfectly
+            block_duration = None
+            compression_level = "none"
+            logger.info(f"Activity duration: {activity_duration_minutes:.1f} min → No compression (raw streams)")
+            return None
+        elif activity_duration_minutes < 75:
+            block_duration = 5  # Very light compression for 60-75min (5s blocks)
+            compression_level = "very_light"
+        elif activity_duration_minutes < 90:
+            block_duration = 10  # Light compression for 75-90min (10s blocks)
+            compression_level = "light"
+        elif activity_duration_minutes < 120:
+            block_duration = 20  # Moderate compression for 90-120min (20s blocks)
+            compression_level = "moderate"
+        else:
+            block_duration = 30  # Standard compression for 120min+ (30s blocks)
+            compression_level = "standard"
+        
+        logger.info(f"Activity duration: {activity_duration_minutes:.1f} min → Block duration: {block_duration}s ({compression_level})")
+        
         blocks = []
         
         i = 0
@@ -347,47 +311,63 @@ def compress_streams_to_blocks(streams_data: Dict[str, Any], activity_data: Dict
             # Move to next block
             i = block_end_idx if block_end_idx > i else i + 1
         
-        # Extract key GPS points and identify route landmarks
+        # Extract route landmarks from Strava segments (no reverse geocoding)
         route_landmarks = []
-        if latlng and len(latlng) > 0:
-            logger.info(f"Extracting route landmarks from {len(latlng)} GPS points...")
+        
+        # Use Strava segment_efforts (reliable, free, already has city names)
+        segment_efforts = activity_data.get('segment_efforts', [])
+        if segment_efforts and len(segment_efforts) > 0:
+            logger.info(f"Extracting route landmarks from {len(segment_efforts)} Strava segments...")
             
-            # Sample key points: start, 25%, 50%, 75%, end
-            key_indices = [
-                0,  # Start
-                len(latlng) // 4,  # 25%
-                len(latlng) // 2,  # 50% (midpoint)
-                3 * len(latlng) // 4,  # 75%
-                len(latlng) - 1  # End
-            ]
+            # Sample key segments: start, middle, end
+            # Sort by start_index to get chronological order
+            sorted_segments = sorted(segment_efforts, key=lambda s: s.get('start_index', 0))
+            
+            # Select key segments (start, middle, end)
+            key_indices = []
+            if len(sorted_segments) >= 3:
+                key_indices = [0, len(sorted_segments) // 2, len(sorted_segments) - 1]
+            elif len(sorted_segments) == 2:
+                key_indices = [0, 1]
+            else:
+                key_indices = [0]
             
             for idx in key_indices:
-                if idx < len(latlng) and latlng[idx]:
-                    lat, lng = latlng[idx]
+                segment_effort = sorted_segments[idx]
+                segment = segment_effort.get('segment', {})
+                
+                segment_name = segment.get('name')
+                city = segment.get('city')
+                country = segment.get('country')
+                
+                if city or segment_name:
+                    # Calculate position in activity
+                    position = 'start' if idx == 0 else 'end' if idx == len(key_indices) - 1 else 'middle'
                     
-                    # Reverse geocode to get location name
-                    location = reverse_geocode_location(lat, lng)
+                    landmark = {
+                        'position': position,
+                        'segment_name': segment_name,
+                        'city': city,
+                        'country': country,
+                        'distance_m': segment_effort.get('distance', 0)
+                    }
+                    route_landmarks.append(landmark)
                     
-                    if location.get('city') or location.get('country'):
-                        landmark = {
-                            'position': 'start' if idx == 0 else 'end' if idx == len(latlng) - 1 else f'{int(100 * idx / len(latlng))}%',
-                            'time_min': round(time_series[idx] / 60, 1) if idx < len(time_series) else 0,
-                            'city': location.get('city'),
-                            'country': location.get('country')
-                        }
-                        route_landmarks.append(landmark)
-                        
-                        logger.info(f"   Landmark at {landmark['position']}: {landmark['city']}, {landmark['country']}")
+                    logger.info(f"   ✅ Landmark at {position}: {segment_name} ({city}, {country})")
             
-            logger.info(f"✅ Identified {len(route_landmarks)} route landmarks")
+            logger.info(f"✅ Identified {len(route_landmarks)} route landmarks from Strava segments")
+        else:
+            logger.info("No Strava segments available for route landmarks")
         
         # Create compressed data structure
         compressed_data = {
             'blocks': blocks,
             'block_duration_s': block_duration,
+            'compression_level': compression_level,
+            'activity_duration_min': round(activity_duration_minutes, 1),
             'total_blocks': len(blocks),
             'total_duration_min': round(blocks[-1]['time_min'] if blocks else 0, 1),
-            'compression_ratio': f"{len(velocity)} points → {len(blocks)} blocks",
+            'compression_ratio': f"{len(velocity)} points → {len(blocks)} blocks ({block_duration}s blocks)",
             'route_landmarks': route_landmarks if route_landmarks else None
         }
         

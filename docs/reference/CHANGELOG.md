@@ -5,6 +5,61 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.0] - 2026-01-25 - Progressive Adaptive Streams Compression & Pace Formatting
+
+### Fixed
+- **Pace Formatting Validation**: Added RÈGLE #4 to prevent invalid pace formats
+  - **Problem**: Agent generated invalid paces like "4:87/km" (seconds > 59 impossible)
+  - **Root Cause**: `pace_min_km` stored as decimal (4.87) without formatting instructions
+  - **Solution**: Added explicit formatting rule with conversion examples and validation
+  - **Format Required**: Always `min:sec/km` (e.g., 4:52/km), never decimal (4.87/km)
+  - **Validation**: Seconds must be 00-59, with leading zero if < 10
+  - **Files Modified**: `src/agents/embedded_prompts.py`
+
+- **Route Landmarks Usage**: Reinforced instructions to use route_landmarks in descriptions
+  - **Problem**: Agent not mentioning locations despite route_landmarks being available
+  - **Root Cause**: Instructions not explicit enough, landmarks buried in JSON
+  - **Solution**: Added IMPORTANT marker in RÈGLE #3 + concrete example in format section
+  - **Example Added**: "Départ Montmartre, passage Champs-Élysées, arrivée Tour Eiffel"
+  - **Files Modified**: `src/agents/embedded_prompts.py`
+
+- **Route Landmarks Extraction**: Switched from reverse geocoding to Strava segments
+  - **Problem**: Nominatim reverse geocoding failing (timeouts, rate limits) → 0 landmarks
+  - **Root Cause**: External API dependency unreliable in Lambda environment
+  - **Solution**: Use Strava `segment_efforts` data (already includes segment names + cities)
+  - **Benefits**: Faster, more reliable, free, better landmark names
+  - **Example Output**: "Pont de Puteaux (Puteaux) → Boulevard Richard Wallace (Paris)"
+  - **Removed**: `reverse_geocode_location()` function and Nominatim dependency
+  - **Files Modified**: `lambda_functions/content_generator.py`, `src/agents/embedded_prompts.py`
+
+### Changed
+- **Progressive Adaptive Streams Compression**: Gradual compression increase based on activity duration
+  - **Observation**: Raw streams work perfectly up to 60min, need progressive compression beyond
+  - **Solution**: Progressive compression strategy with 5 levels based on activity duration
+  - **Compression Strategy**:
+    - < 60 min: NO compression (raw streams - maximum detail)
+    - 60-75 min: 5s blocks (very light compression, ~720-900 blocks)
+    - 75-90 min: 10s blocks (light compression, ~450-540 blocks)
+    - 90-120 min: 20s blocks (moderate compression, ~270-360 blocks)
+    - > 120 min: 30s blocks (standard compression, ~240+ blocks)
+  - **Benefits**: 
+    - Maximum detail for most activities (< 60min covers ~80% of runs)
+    - Ultra-smooth transition starting at 5s blocks (minimal compression)
+    - Context stays manageable even for ultra-long runs
+    - Better interval detection with very fine granularity
+  - **Strava API Context**: Strava streams = ~1 point/second, activities > 5-6h cause API errors
+  - **Files Modified**: `lambda_functions/content_generator.py`
+
+### Performance
+- **Context Optimization**: Progressive compression adapts smoothly to activity length
+  - Activities < 60min: Full raw streams data (~3600 points for 60min)
+  - Activities 60-75min: Minimal compression (5s blocks, ~720-900 blocks)
+  - Activities 75-90min: Light compression (10s blocks, ~450-540 blocks)
+  - Activities 90-120min: Moderate compression (20s blocks, ~270-360 blocks)
+  - Activities > 120min: Standard compression (30s blocks, ~240+ blocks)
+  - Cache still used: Compressed data stored in DynamoDB `streams_analysis_json`
+  - No cost impact: Compression happens once, cached for future use
+
 ## [1.17.1] - 2026-01-04 - Content Size Enforcement Fix
 
 ### Fixed
