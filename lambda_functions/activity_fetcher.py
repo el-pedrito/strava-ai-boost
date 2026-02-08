@@ -337,15 +337,12 @@ def fetch_activity_data(activity_id: str, access_token: str) -> Dict[str, Any]:
         activity_name = activity_data.get('name', 'Untitled')
         activity_description = activity_data.get('description', '')
         logger.info(f"📝 Activity Title: {activity_name}")
-        logger.info(f"📝 Activity Description: {activity_description[:200] if activity_description else '(empty)'}{'...' if len(activity_description) > 200 else ''}")
-        
-        logger.info(f"Fetched activity data: {len(activity_data)} fields")
         
         # Log location data for debugging
         location_city = activity_data.get('location_city')
         location_country = activity_data.get('location_country')
         start_latlng = activity_data.get('start_latlng', [])
-        logger.info(f"Location data - City: {location_city}, Country: {location_country}, GPS: {len(start_latlng) > 0}")
+        logger.info(f"Location data - City: {location_city}, Country: {location_country}")
         
         # Log available fields for debugging
         logger.debug(f"Activity fields: {list(activity_data.keys())}")
