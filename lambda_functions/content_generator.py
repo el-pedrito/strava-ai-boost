@@ -1036,11 +1036,15 @@ def generate_enhanced_content_with_agent(
         workout_phases = detect_workout_phases(streams_compressed) if streams_compressed else []
         route_landmarks = streams_compressed.get('route_landmarks', []) if streams_compressed else []
         
+        # Also pass compressed blocks for fine-grained analysis if needed
+        compressed_blocks = streams_compressed.get('blocks', []) if streams_compressed else []
+        
         # Prepare input for AgentCore Content Generation Agent
         agent_input = {
             'action': 'generate_content',
             'activity_data': activity_data,
             'workout_phases': workout_phases,  # Compact phase summary for matching
+            'compressed_blocks': compressed_blocks,  # Fine-grained 30s blocks if agent needs details
             'route_landmarks': route_landmarks,
             'athlete_stats': athlete_stats,
             'athlete_profile': athlete_profile,
