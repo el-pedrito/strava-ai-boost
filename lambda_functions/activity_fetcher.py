@@ -13,6 +13,7 @@ import boto3
 from botocore.exceptions import ClientError
 import requests
 from datetime import datetime, timedelta
+from strava_rate_limit import check_and_consume, record_usage
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -46,9 +47,10 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         logger.info(f"Fetching activity data for activity {activity_id}")
         
-        # Check rate limits before making API calls
-        if not check_rate_limits():
-            raise Exception("Strava API rate limits exceeded")
+        # Check rate limits before making API calls (need ~5 calls)
+        is_allowed, rate_info = check_and_consume(5)
+        if not is_allowed:
+            raise Exception(f"Strava API rate limits exceeded: {rate_info}")
         
         # Get OAuth tokens
         access_token = get_access_token(user_id)
@@ -84,8 +86,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             user_config=user_config
         )
         
-        # Update rate limit usage
-        update_rate_limits(5)  # Activity + streams + stats + profile + gear API calls
+        # Rate limits already consumed upfront via check_and_consume(5)
         
         # Return minimal payload - only references, no large data
         return {
@@ -105,65 +106,6 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'activity_id': event.get('activity_id'),
             'user_id': event.get('user_id')
         }
-
-
-def check_rate_limits() -> bool:
-    """Check if we're within Strava API rate limits"""
-    try:
-        table = dynamodb.Table(RATE_LIMITS_TABLE)
-        
-        # Check short-term limit (100/15min)
-        response = table.get_item(Key={'limit_type': 'short_term'})
-        if 'Item' in response:
-            usage = response['Item'].get('current_usage', 0)
-            reset_time = response['Item'].get('reset_time')
-            
-            # Check if reset time has passed
-            if reset_time and datetime.fromisoformat(reset_time) <= datetime.utcnow():
-                # Reset the counter
-                table.update_item(
-                    Key={'limit_type': 'short_term'},
-                    UpdateExpression="SET current_usage = :zero, reset_time = :reset",
-                    ExpressionAttributeValues={
-                        ':zero': 0,
-                        ':reset': (datetime.utcnow() + timedelta(minutes=15)).isoformat()
-                    }
-                )
-                usage = 0
-            
-            if usage >= 95:  # Leave buffer for other operations
-                logger.warning(f"Short-term rate limit near threshold: {usage}/100")
-                return False
-        
-        # Check daily limit (1000/day)
-        response = table.get_item(Key={'limit_type': 'daily'})
-        if 'Item' in response:
-            usage = response['Item'].get('current_usage', 0)
-            reset_time = response['Item'].get('reset_time')
-            
-            # Check if reset time has passed (daily reset)
-            if reset_time and datetime.fromisoformat(reset_time) <= datetime.utcnow():
-                # Reset the counter
-                table.update_item(
-                    Key={'limit_type': 'daily'},
-                    UpdateExpression="SET current_usage = :zero, reset_time = :reset",
-                    ExpressionAttributeValues={
-                        ':zero': 0,
-                        ':reset': (datetime.utcnow() + timedelta(days=1)).isoformat()
-                    }
-                )
-                usage = 0
-            
-            if usage >= 950:  # Leave buffer for other operations
-                logger.warning(f"Daily rate limit near threshold: {usage}/1000")
-                return False
-        
-        return True
-        
-    except Exception as e:
-        logger.error(f"Rate limit check error: {str(e)}")
-        # Assume we're at limit if we can't check
-        return False
 
 
 def get_access_token(user_id: str) -> str:
@@ -619,39 +561,6 @@ def store_activity_data(
         logger.error(f"Failed to store activity data: {str(e)}")
         # Raise because this is critical - downstream Lambdas need this data
         raise
-
-
-def update_rate_limits(api_calls_made: int) -> None:
-    """Update rate limit counters in DynamoDB"""
-    try:
-        table = dynamodb.Table(RATE_LIMITS_TABLE)
-        current_time = datetime.utcnow()
-        
-        # Update short-term limit
-        table.update_item(
-            Key={'limit_type': 'short_term'},
-            UpdateExpression="ADD current_usage :calls SET last_request = :time",
-            ExpressionAttributeValues={
-                ':calls': api_calls_made,
-                ':time': current_time.isoformat()
-            }
-        )
-        
-        # Update daily limit
-        table.update_item(
-            Key={'limit_type': 'daily'},
-            UpdateExpression="ADD current_usage :calls SET last_request = :time",
-            ExpressionAttributeValues={
-                ':calls': api_calls_made,
-                ':time': current_time.isoformat()
-            }
-        )
-        
-        logger.info(f"Updated rate limits: +{api_calls_made} API calls")
-        
-    except Exception as e:
-        logger.error(f"Failed to update rate limits: {str(e)}")
-        # Don't raise - rate limit tracking is important but not critical
 
 
 def fetch_user_configuration(user_id: str) -> Dict[str, Any]:

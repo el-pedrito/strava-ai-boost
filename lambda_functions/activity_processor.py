@@ -14,6 +14,7 @@ from botocore.exceptions import ClientError
 from datetime import datetime, UTC
 import time
 import random
+from strava_rate_limit import check_and_consume, seconds_until_available
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -131,15 +132,13 @@ def process_activity_record(record: Dict[str, Any]) -> None:
             enduraw_delay_started = message_body.get('enduraw_delay_started_at', 'unknown')
             logger.info(f"Enduraw wait completed for activity {activity_id} (started at {enduraw_delay_started})")
         
-        # Check rate limits BEFORE processing
-        if not check_rate_limits():
-            logger.warning(f"Rate limits exceeded for activity {activity_id}, delaying processing")
-            # Update activity status to indicate rate limit delay
+        # Check rate limits BEFORE processing (activity needs ~6 Strava API calls)
+        is_allowed, rate_info = check_and_consume(6)
+        if not is_allowed:
+            logger.warning(f"Rate limits exceeded for activity {activity_id}: {rate_info}")
             update_activity_status(activity_id, 'rate_limited', 'Waiting for rate limits to reset', critical=False)
-            
-            # Use SQS delay to retry later instead of throwing exception
             delay_message_processing(record, activity_id, user_id, message_body)
-            return  # Exit successfully so SQS deletes the original message
+            return
         
         # Update activity status to processing
         update_activity_status(activity_id, 'processing', critical=True)
@@ -172,31 +171,7 @@ def process_activity_record(record: Dict[str, Any]) -> None:
         raise
 
 
-def check_rate_limits() -> bool:
-    """Check if we're within Strava API rate limits"""
-    try:
-        table = dynamodb.Table(RATE_LIMITS_TABLE)
-        
-        # Check short-term limit (100/15min)
-        response = table.get_item(Key={'limit_type': 'short_term'})
-        if 'Item' in response:
-            usage = response['Item'].get('current_usage', 0)
-            if usage >= 90:  # Leave some buffer
-                return False
-        
-        # Check daily limit (1000/day)
-        response = table.get_item(Key={'limit_type': 'daily'})
-        if 'Item' in response:
-            usage = response['Item'].get('current_usage', 0)
-            if usage >= 950:  # Leave some buffer
-                return False
-        
-        return True
-        
-    except Exception as e:
-        logger.error(f"Rate limit check error: {str(e)}")
-        # Assume we're at limit if we can't check
-        return False
+# check_rate_limits removed - using centralized strava_rate_limit module
 
 
 def should_skip_processing(activity_id: str, message_body: Dict[str, Any]) -> bool:
@@ -473,48 +448,8 @@ def fetch_user_configuration(user_id: str) -> Dict[str, Any]:
 
 
 def calculate_rate_limit_delay() -> int:
-    """
-    Calculate intelligent delay based on current rate limit status
-    
-    Returns delay in seconds
-    """
-    try:
-        table = dynamodb.Table(RATE_LIMITS_TABLE)
-        
-        # Check which limit is exceeded
-        short_term_exceeded = False
-        daily_exceeded = False
-        
-        # Check short-term limit
-        response = table.get_item(Key={'limit_type': 'short_term'})
-        if 'Item' in response:
-            usage = response['Item'].get('current_usage', 0)
-            if usage >= 90:
-                short_term_exceeded = True
-        
-        # Check daily limit  
-        response = table.get_item(Key={'limit_type': 'daily'})
-        if 'Item' in response:
-            usage = response['Item'].get('current_usage', 0)
-            if usage >= 950:
-                daily_exceeded = True
-        
-        # Calculate delay based on which limit is exceeded
-        if daily_exceeded:
-            # Daily limit exceeded - wait longer (1-2 hours with jitter)
-            base_delay = 3600  # 1 hour
-            jitter = random.randint(0, 3600)  # Up to 1 hour additional
-            return base_delay + jitter
-        elif short_term_exceeded:
-            # Short-term limit exceeded - wait for 15-minute window to reset
-            base_delay = 900  # 15 minutes
-            jitter = random.randint(0, 300)  # Up to 5 minutes additional
-            return base_delay + jitter
-        else:
-            # Default delay if we can't determine the specific limit
-            return 600 + random.randint(0, 300)  # 10-15 minutes
-            
-    except Exception as e:
-        logger.error(f"Failed to calculate rate limit delay: {str(e)}")
-        # Default delay with jitter
-        return 900 + random.randint(0, 300)  # 15-20 minutes
+    """Calculate delay based on current rate limit status. Returns seconds."""
+    wait = seconds_until_available()
+    jitter = random.randint(0, 300)
+    # SQS max delay is 900s, so cap accordingly
+    return min(wait + jitter, 900) if wait > 0 else 600 + jitter
