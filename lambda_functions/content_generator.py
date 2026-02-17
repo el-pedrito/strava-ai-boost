@@ -181,6 +181,86 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         }
 
 
+def detect_workout_phases(streams_compressed: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Pre-compute workout phases from compressed blocks.
+    Groups consecutive blocks with similar pace into phases (warmup, tempo, intervals, cooldown).
+    Returns a compact summary the agent can easily match against Campus Coach sessions.
+    """
+    if not streams_compressed:
+        return []
+    
+    blocks = streams_compressed.get('blocks', [])
+    if not blocks:
+        return []
+    
+    # Group consecutive blocks with similar pace (±0.5 min/km tolerance)
+    phases = []
+    current_phase = None
+    
+    for block in blocks:
+        pace = block.get('pace_min_km', 0)
+        hr = block.get('hr_bpm', 0)
+        duration = block.get('duration_s', 30)
+        
+        if pace <= 0 or pace > 15:  # Skip stopped/invalid blocks
+            continue
+        
+        if current_phase is None:
+            current_phase = {'paces': [pace], 'hrs': [hr], 'duration_s': duration}
+        elif abs(pace - (sum(current_phase['paces']) / len(current_phase['paces']))) < 0.5:
+            # Same phase — similar pace
+            current_phase['paces'].append(pace)
+            current_phase['hrs'].append(hr)
+            current_phase['duration_s'] += duration
+        else:
+            # New phase — pace changed significantly
+            phases.append(current_phase)
+            current_phase = {'paces': [pace], 'hrs': [hr], 'duration_s': duration}
+    
+    if current_phase:
+        phases.append(current_phase)
+    
+    # Summarize each phase
+    summary = []
+    for p in phases:
+        avg_pace = sum(p['paces']) / len(p['paces'])
+        avg_hr = sum(p['hrs']) / len(p['hrs']) if any(p['hrs']) else 0
+        dur_min = p['duration_s'] / 60
+        
+        if dur_min < 0.5:  # Skip very short phases (<30s)
+            continue
+        
+        # Classify phase
+        if avg_pace > 6.5:
+            phase_type = "recovery"
+        elif avg_pace > 5.5:
+            phase_type = "easy"
+        elif avg_pace > 4.5:
+            phase_type = "tempo"
+        elif avg_pace > 3.8:
+            phase_type = "threshold"
+        else:
+            phase_type = "sprint"
+        
+        pace_min = int(avg_pace)
+        pace_sec = int((avg_pace - pace_min) * 60)
+        
+        summary.append({
+            'type': phase_type,
+            'duration_min': round(dur_min, 1),
+            'avg_pace': f"{pace_min}:{pace_sec:02d}/km",
+            'avg_hr': round(avg_hr) if avg_hr else None,
+            'blocks_count': len(p['paces'])
+        })
+    
+    logger.info(f"Detected {len(summary)} workout phases from {len(blocks)} blocks")
+    for s in summary:
+        logger.info(f"  {s['type']}: {s['duration_min']}min at {s['avg_pace']} (HR {s['avg_hr']})")
+    
+    return summary
+
+
 def compress_streams_to_blocks(streams_data: Dict[str, Any], activity_data: Dict[str, Any], activity_id: str) -> Optional[Dict[str, Any]]:
     """
     Compress streams data into adaptive blocks based on activity duration
@@ -242,24 +322,15 @@ def compress_streams_to_blocks(streams_data: Dict[str, Any], activity_data: Dict
         activity_duration_minutes = activity_duration_seconds / 60
         
         # Adaptive block duration based on activity length
-        # Strategy: Progressive compression - smooth transition starting at 5s blocks
+        # Strategy: Always use 30s blocks for agent readability, raw for short activities
         if activity_duration_minutes < 60:
             # No compression needed - raw data works perfectly
             block_duration = None
             compression_level = "none"
             logger.info(f"Activity duration: {activity_duration_minutes:.1f} min → No compression (raw streams)")
             return None
-        elif activity_duration_minutes < 75:
-            block_duration = 5  # Very light compression for 60-75min (5s blocks)
-            compression_level = "very_light"
-        elif activity_duration_minutes < 90:
-            block_duration = 10  # Light compression for 75-90min (10s blocks)
-            compression_level = "light"
-        elif activity_duration_minutes < 120:
-            block_duration = 20  # Moderate compression for 90-120min (20s blocks)
-            compression_level = "moderate"
         else:
-            block_duration = 30  # Standard compression for 120min+ (30s blocks)
+            block_duration = 30  # 30s blocks for all compressed activities
             compression_level = "standard"
         
         logger.info(f"Activity duration: {activity_duration_minutes:.1f} min → Block duration: {block_duration}s ({compression_level})")
@@ -980,11 +1051,15 @@ def generate_enhanced_content_with_agent(
         if not campus_coach_sessions:
             logger.info("ℹ️ No Campus Coach sessions to pass to agent")
         
+        # Pre-compute workout phases for the agent (compact summary instead of raw blocks)
+        workout_phases = detect_workout_phases(streams_compressed)
+        
         # Prepare input for AgentCore Content Generation Agent
         agent_input = {
             'action': 'generate_content',
             'activity_data': activity_data,
-            'streams_compressed': streams_compressed,  # Compressed 30s blocks instead of raw streams
+            'workout_phases': workout_phases,  # Compact phase summary for matching
+            'route_landmarks': streams_compressed.get('route_landmarks', []) if streams_compressed else [],
             'athlete_stats': athlete_stats,
             'athlete_profile': athlete_profile,
             'gear_details': gear_details,
