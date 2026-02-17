@@ -225,7 +225,7 @@ def detect_workout_phases(streams_compressed: Dict[str, Any]) -> List[Dict[str, 
             continue
         
         pace_min = int(avg_pace)
-        pace_sec = int((avg_pace - avg_min) * 60)
+        pace_sec = int((avg_pace - pace_min) * 60)
         
         summary.append({
             'duration_min': round(dur_min, 1),
