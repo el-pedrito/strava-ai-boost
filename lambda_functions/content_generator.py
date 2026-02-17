@@ -930,22 +930,22 @@ def get_recent_campus_sessions(activity_date: str = None) -> List[Dict[str, Any]
         else:
             act_dt = datetime.utcnow()
         
-        week_num = act_dt.isocalendar()[1]
-        week_key = f"week-{week_num}"
+        # Get sessions updated in the last 14 days (covers current + previous week)
+        cutoff_date = (act_dt - timedelta(days=14)).isoformat()
         
-        logger.info(f"Filtering sessions: session_date begins_with '{week_key}', status = 'À faire'")
+        logger.info(f"Filtering sessions: updated_at >= '{cutoff_date}', status = 'À faire'")
         
         response = table.scan(
-            FilterExpression='begins_with(session_date, :week) AND #status = :status',
+            FilterExpression='updated_at >= :cutoff AND #status = :status',
             ExpressionAttributeNames={'#status': 'status'},
             ExpressionAttributeValues={
-                ':week': week_key,
+                ':cutoff': cutoff_date,
                 ':status': 'À faire'
             }
         )
         
         sessions = response.get('Items', [])
-        logger.info(f"📊 Found {len(sessions)} 'À faire' sessions for {week_key}")
+        logger.info(f"📊 Found {len(sessions)} 'À faire' sessions updated since {cutoff_date}")
         
         # Cap at 6 (typical max sessions per week)
         sessions = sessions[:6]
