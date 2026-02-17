@@ -12,8 +12,7 @@ from typing import Dict, Any
 import boto3
 from botocore.exceptions import ClientError
 import requests
-from datetime import datetime, timedelta
-from strava_rate_limit import check_and_consume
+from datetime import datetime
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -24,7 +23,6 @@ secretsmanager = boto3.client('secretsmanager')
 
 # Environment variables
 ACTIVITIES_TABLE = os.environ['ACTIVITIES_TABLE']
-RATE_LIMITS_TABLE = os.environ['RATE_LIMITS_TABLE']
 STRAVA_OAUTH_SECRET = os.environ['STRAVA_OAUTH_SECRET']
 
 # Strava API configuration
@@ -54,11 +52,6 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         logger.info(f"Updating Strava activity {activity_id}")
         
-        # Check rate limits before making API call
-        is_allowed, rate_info = check_and_consume(1)
-        if not is_allowed:
-            raise Exception(f"Strava API rate limits exceeded: {rate_info}")
-        
         # Get OAuth tokens
         access_token = get_access_token(user_id)
         
@@ -71,8 +64,6 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         # Update activity status in DynamoDB
         update_activity_status(activity_id, 'completed', enhanced_content)
-        
-        # Rate limits already consumed upfront via check_and_consume(1)
         
         return {
             'statusCode': 200,

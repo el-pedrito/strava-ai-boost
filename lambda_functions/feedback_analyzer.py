@@ -14,9 +14,7 @@ import boto3
 from botocore.exceptions import ClientError
 from datetime import datetime, timedelta, UTC
 import requests
-import uuid
 import difflib
-from strava_rate_limit import check_and_consume
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -72,12 +70,6 @@ def lambda_handler(event, context):
             if not activity.get('enhanced_description'):
                 logger.info(f"Activity {activity_id} has no enhanced description, skipping")
                 continue
-            
-            # Check rate limit before Strava API call
-            is_allowed, _ = check_and_consume(1)
-            if not is_allowed:
-                logger.warning(f"Rate limit reached during feedback analysis, stopping at activity {activity_id}")
-                break
             
             # Fetch final description from Strava
             final_description = fetch_final_description(activity_id, access_token)

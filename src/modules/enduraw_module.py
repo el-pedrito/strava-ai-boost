@@ -9,22 +9,11 @@ from typing import Dict, Any, Optional, List
 import logging
 import asyncio
 import json
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 import boto3
 from botocore.exceptions import ClientError
 import requests
 
-# Import centralized Strava rate limiter
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'lambda_functions'))
-try:
-    from strava_rate_limit import check_and_consume as _strava_check_and_consume
-except ImportError:
-    # Fallback when running inside Lambda (strava_rate_limit is in same directory)
-    try:
-        from strava_rate_limit import check_and_consume as _strava_check_and_consume
-    except ImportError:
-        _strava_check_and_consume = None
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -281,13 +270,6 @@ class EndurawModule(BaseModule):
         Fetch enhanced Strava data that might include Enduraw enhancements
         """
         try:
-            # Check rate limit before Strava API calls (activity + streams = 2)
-            if _strava_check_and_consume:
-                is_allowed, rate_info = _strava_check_and_consume(2)
-                if not is_allowed:
-                    logger.warning(f"Enduraw: Strava rate limit exceeded, skipping enhanced data fetch: {rate_info}")
-                    return None
-
             # Fetch activity with all available fields
             url = f"https://www.strava.com/api/v3/activities/{activity_id}"
             headers = {
@@ -353,13 +335,6 @@ class EndurawModule(BaseModule):
     async def get_enduraw_processing_status(self, activity_id: str, access_token: str) -> Dict[str, Any]:
         """Get real-time Enduraw processing status for the activity"""
         try:
-            # Check rate limit before Strava API call
-            if _strava_check_and_consume:
-                is_allowed, rate_info = _strava_check_and_consume(1)
-                if not is_allowed:
-                    logger.warning(f"Enduraw: Strava rate limit exceeded, skipping status check")
-                    return {'processing_stage': 'rate_limited', 'error': 'Strava rate limit exceeded'}
-
             # Check activity modification timestamps to infer processing status
             url = f"https://www.strava.com/api/v3/activities/{activity_id}"
             headers = {

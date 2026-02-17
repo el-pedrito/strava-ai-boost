@@ -8,13 +8,10 @@ Handles rate limiting and error recovery.
 import json
 import os
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any
 import boto3
 from botocore.exceptions import ClientError
 from datetime import datetime, UTC
-import time
-import random
-from strava_rate_limit import check_and_consume, seconds_until_available
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -26,7 +23,6 @@ sqs = boto3.client('sqs')
 
 # Environment variables
 ACTIVITIES_TABLE = os.environ['ACTIVITIES_TABLE']
-RATE_LIMITS_TABLE = os.environ['RATE_LIMITS_TABLE']
 STRAVA_OAUTH_SECRET = os.environ['STRAVA_OAUTH_SECRET']
 STEP_FUNCTIONS_ARN = os.environ['STEP_FUNCTIONS_ARN']
 
@@ -132,14 +128,6 @@ def process_activity_record(record: Dict[str, Any]) -> None:
             enduraw_delay_started = message_body.get('enduraw_delay_started_at', 'unknown')
             logger.info(f"Enduraw wait completed for activity {activity_id} (started at {enduraw_delay_started})")
         
-        # Check rate limits BEFORE processing (activity needs ~6 Strava API calls)
-        is_allowed, rate_info = check_and_consume(6)
-        if not is_allowed:
-            logger.warning(f"Rate limits exceeded for activity {activity_id}: {rate_info}")
-            update_activity_status(activity_id, 'rate_limited', 'Waiting for rate limits to reset', critical=False)
-            delay_message_processing(record, activity_id, user_id, message_body)
-            return
-        
         # Update activity status to processing
         update_activity_status(activity_id, 'processing', critical=True)
         
@@ -171,7 +159,6 @@ def process_activity_record(record: Dict[str, Any]) -> None:
         raise
 
 
-# check_rate_limits removed - using centralized strava_rate_limit module
 
 
 def should_skip_processing(activity_id: str, message_body: Dict[str, Any]) -> bool:
@@ -343,49 +330,6 @@ def update_activity_execution_arn(activity_id: str, execution_arn: str) -> None:
     except Exception as e:
         logger.error(f"Failed to update execution ARN: {str(e)}")
 
-
-def delay_message_processing(
-    record: Dict[str, Any], 
-    activity_id: str, 
-    user_id: str, 
-    message_body: Dict[str, Any]
-) -> None:
-    """
-    Delay message processing by sending it back to SQS with a delay
-    
-    This allows rate-limited messages to be processed later without losing them
-    """
-    try:
-        # Calculate intelligent delay based on rate limit type
-        delay_seconds = calculate_rate_limit_delay()
-        
-        # Add retry count to prevent infinite loops
-        retry_count = message_body.get('rate_limit_retry_count', 0)
-        max_retries = 5  # Maximum retries for rate limiting
-        
-        if retry_count >= max_retries:
-            logger.error(f"Activity {activity_id} exceeded max rate limit retries ({max_retries})")
-            update_activity_status(activity_id, 'failed', f'Exceeded max rate limit retries ({max_retries})', critical=False)
-            return  # Don't requeue, let it be processed normally (will likely fail but won't loop)
-        
-        # Increment retry count
-        message_body['rate_limit_retry_count'] = retry_count + 1
-        message_body['rate_limit_delayed_at'] = datetime.now(UTC).isoformat()
-        
-        # Send delayed message back to SQS
-        sqs.send_message(
-            QueueUrl=PROCESSING_QUEUE_URL,
-            MessageBody=json.dumps(message_body),
-            DelaySeconds=min(delay_seconds, 900)  # SQS max delay is 15 minutes
-        )
-        
-        logger.info(f"Delayed activity {activity_id} processing by {delay_seconds} seconds (retry {retry_count + 1}/{max_retries})")
-        
-    except Exception as e:
-        logger.error(f"Failed to delay message processing for activity {activity_id}: {str(e)}")
-        # If we can't delay, let the original processing continue (will likely hit rate limits but won't loop)
-
-
 def fetch_user_configuration(user_id: str) -> Dict[str, Any]:
     """
     Fetch user configuration from DynamoDB
@@ -446,10 +390,3 @@ def fetch_user_configuration(user_id: str) -> Dict[str, Any]:
             'enhancement_enabled': True
         }
 
-
-def calculate_rate_limit_delay() -> int:
-    """Calculate delay based on current rate limit status. Returns seconds."""
-    wait = seconds_until_available()
-    jitter = random.randint(0, 300)
-    # SQS max delay is 900s, so cap accordingly
-    return min(wait + jitter, 900) if wait > 0 else 600 + jitter

@@ -16,7 +16,6 @@ from botocore.exceptions import ClientError
 from datetime import datetime, UTC, timedelta
 import requests
 from rate_limiter import check_rate_limit, create_rate_limit_response, add_rate_limit_headers, extract_client_info
-from strava_rate_limit import record_usage as record_strava_usage
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -256,7 +255,6 @@ def test_strava_connection(rate_limit_info: Dict[str, Any] = None) -> Dict[str, 
             # Test Strava API
             headers = {'Authorization': f'Bearer {access_token}'}
             strava_response = requests.get('https://www.strava.com/api/v3/athlete', headers=headers, timeout=10)
-            record_strava_usage(1)
             
             if strava_response.status_code == 200:
                 athlete = strava_response.json()
@@ -352,7 +350,6 @@ def test_strava_connection(rate_limit_info: Dict[str, Any] = None) -> Dict[str, 
             # Test Strava API
             headers = {'Authorization': f'Bearer {access_token}'}
             strava_response = requests.get('https://www.strava.com/api/v3/athlete', headers=headers, timeout=10)
-            record_strava_usage(1)
             
             if strava_response.status_code == 200:
                 athlete = strava_response.json()

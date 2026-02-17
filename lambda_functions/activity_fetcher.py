@@ -8,12 +8,11 @@ Handles rate limiting and comprehensive data retrieval for analysis.
 import json
 import os
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 import boto3
 from botocore.exceptions import ClientError
 import requests
 from datetime import datetime, timedelta
-from strava_rate_limit import check_and_consume, record_usage
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -25,7 +24,6 @@ secretsmanager = boto3.client('secretsmanager', region_name=REGION)
 
 # Environment variables
 ACTIVITIES_TABLE = os.environ['ACTIVITIES_TABLE']
-RATE_LIMITS_TABLE = os.environ['RATE_LIMITS_TABLE']
 STRAVA_OAUTH_SECRET = os.environ['STRAVA_OAUTH_SECRET']
 
 # Strava API configuration
@@ -46,11 +44,6 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             raise ValueError("Missing required parameters: activity_id, user_id")
         
         logger.info(f"Fetching activity data for activity {activity_id}")
-        
-        # Check rate limits before making API calls (need ~5 calls)
-        is_allowed, rate_info = check_and_consume(5)
-        if not is_allowed:
-            raise Exception(f"Strava API rate limits exceeded: {rate_info}")
         
         # Get OAuth tokens
         access_token = get_access_token(user_id)
@@ -85,8 +78,6 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             gear_details=gear_details,
             user_config=user_config
         )
-        
-        # Rate limits already consumed upfront via check_and_consume(5)
         
         # Return minimal payload - only references, no large data
         return {
