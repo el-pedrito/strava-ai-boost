@@ -2,7 +2,7 @@
 Strava Webhook Handler Lambda Function
 
 Handles incoming Strava webhook notifications and queues them for processing.
-Validates webhook signatures and manages rate limiting.
+Validates webhook signatures.
 """
 
 import json
@@ -21,7 +21,6 @@ logger.setLevel(logging.INFO)
 # Environment variables
 PROCESSING_QUEUE_URL = os.environ['PROCESSING_QUEUE_URL']
 ACTIVITIES_TABLE = os.environ['ACTIVITIES_TABLE']
-RATE_LIMITS_TABLE = os.environ['RATE_LIMITS_TABLE']
 STRAVA_OAUTH_SECRET = os.environ['STRAVA_OAUTH_SECRET']
 
 

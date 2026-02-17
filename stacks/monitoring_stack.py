@@ -146,7 +146,6 @@ class MonitoringStack(Stack):
         dynamodb_tables = [
             ("Activities", self.core_stack.table_names["activities"]),
             ("UserConfig", self.core_stack.table_names["user_config"]),
-            ("RateLimits", self.core_stack.table_names["rate_limits"]),
             ("CoachingSessions", self.core_stack.table_names["coaching_sessions"])
         ]
 
@@ -314,13 +313,7 @@ class MonitoringStack(Stack):
                     statistic="Sum",
                     label="Activities Throttles"
                 ),
-                cloudwatch.Metric(
-                    namespace="AWS/DynamoDB",
-                    metric_name="ThrottledRequests",
-                    dimensions_map={"TableName": self.core_stack.table_names["rate_limits"]},
-                    statistic="Sum",
-                    label="Rate Limits Throttles"
-                )
+
             ]
         )
 

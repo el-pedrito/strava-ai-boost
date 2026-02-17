@@ -11,7 +11,6 @@ from typing import Dict, Any
 import boto3
 from botocore.exceptions import ClientError
 from datetime import datetime
-from rate_limiter import check_rate_limit, create_rate_limit_response, add_rate_limit_headers, extract_client_info
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -37,20 +36,13 @@ CORS_HEADERS = {
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Lambda handler for AgentCore health check"""
     try:
-        # Extract client information for rate limiting
-        client_ip, user_agent = extract_client_info(event)
-        
-        # Check rate limit
-        is_allowed, rate_limit_info = check_rate_limit(client_ip, 'health_check', user_agent)
-        
-        if not is_allowed:
-            return create_rate_limit_response(rate_limit_info)
+        rate_limit_info = None
         
         http_method = event.get('httpMethod', 'GET')
         
         # Handle CORS preflight
         if http_method == 'OPTIONS':
-            headers = add_rate_limit_headers(CORS_HEADERS.copy(), rate_limit_info)
+            headers = CORS_HEADERS.copy()
             return {
                 'statusCode': 200,
                 'headers': headers,
@@ -67,11 +59,10 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         return create_error_response(500, 'Health check failed')
 
 
-def create_error_response(status_code: int, message: str, rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
+def create_error_response(status_code: int, message: str, rate_limit_info=None) -> Dict[str, Any]:
     """Create standardized error response"""
     headers = CORS_HEADERS.copy()
-    if rate_limit_info:
-        headers = add_rate_limit_headers(headers, rate_limit_info)
+
     
     return {
         'statusCode': status_code,
@@ -83,11 +74,10 @@ def create_error_response(status_code: int, message: str, rate_limit_info: Dict[
     }
 
 
-def create_success_response(data: Dict[str, Any], status_code: int = 200, rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
+def create_success_response(data: Dict[str, Any], status_code: int = 200, rate_limit_info=None) -> Dict[str, Any]:
     """Create standardized success response"""
     headers = CORS_HEADERS.copy()
-    if rate_limit_info:
-        headers = add_rate_limit_headers(headers, rate_limit_info)
+
     
     return {
         'statusCode': status_code,

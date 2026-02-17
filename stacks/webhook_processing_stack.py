@@ -97,7 +97,6 @@ class WebhookProcessingStack(Stack):
             environment={
                 "PROCESSING_QUEUE_URL": self.processing_queue.queue_url,
                 "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
-                "RATE_LIMITS_TABLE": self.core_stack.table_names["rate_limits"],
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
                 "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name
             }
@@ -108,7 +107,6 @@ class WebhookProcessingStack(Stack):
         
         # Grant DynamoDB permissions to webhook handler
         self.core_stack.activities_table.grant_read_write_data(self.webhook_handler)
-        self.core_stack.rate_limits_table.grant_read_write_data(self.webhook_handler)
         self.core_stack.user_config_table.grant_read_data(self.webhook_handler)
         
         # Grant Secrets Manager permissions to webhook handler
@@ -118,7 +116,6 @@ class WebhookProcessingStack(Stack):
         # This Lambda now handles Step Functions failures by NOT deleting the SQS message on SF error
         activity_processor_env = {
             "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
-            "RATE_LIMITS_TABLE": self.core_stack.table_names["rate_limits"],
             "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
             "PROCESSING_QUEUE_URL": self.processing_queue.queue_url,
             "DLQ_URL": self.dlq.queue_url  # Add DLQ URL for manual error handling
@@ -152,7 +149,6 @@ class WebhookProcessingStack(Stack):
         
         # Grant DynamoDB permissions to activity processor
         self.core_stack.activities_table.grant_read_write_data(self.activity_processor)
-        self.core_stack.rate_limits_table.grant_read_write_data(self.activity_processor)
         self.core_stack.user_config_table.grant_read_data(self.activity_processor)  # For Enduraw module config
         
         # Grant Secrets Manager permissions to activity processor
@@ -174,7 +170,7 @@ class WebhookProcessingStack(Stack):
                 )
             )
         
-        # Grant SQS send permissions for rate limit delays and DLQ
+        # Grant SQS send permissions for DLQ
         self.activity_processor.add_to_role_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
@@ -200,24 +196,6 @@ class WebhookProcessingStack(Stack):
             )
         )
 
-        # Rate limiter Lambda for Strava API management
-        self.rate_limiter = lambda_.Function(
-            self, "RateLimiter",
-            function_name="StravaAIBoost-RateLimiter",
-            runtime=lambda_.Runtime.PYTHON_3_12,
-            handler="rate_limiter.handler",
-            code=lambda_.Code.from_asset("lambda_functions"),
-            layers=[self.core_stack.dependencies_layer],
-            timeout=Duration.seconds(60),
-            memory_size=128,
-            # Create role locally instead of using core stack role
-            environment={
-                "RATE_LIMITS_TABLE": self.core_stack.table_names["rate_limits"]
-            }
-        )
-        
-        # Grant DynamoDB permissions to rate limiter
-        self.core_stack.rate_limits_table.grant_read_write_data(self.rate_limiter)
 
     def _create_stepfunctions_error_handler(self) -> None:
         """

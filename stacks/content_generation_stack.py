@@ -218,7 +218,6 @@ class ContentGenerationStack(Stack):
                 resources=[
                     self.core_stack.activities_table.table_arn,
                     self.core_stack.user_config_table.table_arn,
-                    self.core_stack.rate_limits_table.table_arn,
                     f"{self.core_stack.activities_table.table_arn}/index/*"
                 ]
             )
@@ -325,7 +324,6 @@ class ContentGenerationStack(Stack):
             environment={
                 "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
-                "RATE_LIMITS_TABLE": self.core_stack.table_names["rate_limits"],
                 "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
                 "STRAVA_APP_SECRET": self.core_stack.strava_app_secret.secret_name,
                 "BEDROCK_MODEL_ID": get_bedrock_model_id()
@@ -345,7 +343,6 @@ class ContentGenerationStack(Stack):
             role=strava_lambda_role,
             environment={
                 "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
-                "RATE_LIMITS_TABLE": self.core_stack.table_names["rate_limits"],
                 "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
                 "BEDROCK_MODEL_ID": get_bedrock_model_id()
             }

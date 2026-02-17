@@ -2,7 +2,7 @@
 Activity Fetcher Lambda Function
 
 Fetches complete activity data from Strava API including streams data.
-Handles rate limiting and comprehensive data retrieval for analysis.
+Handles comprehensive data retrieval for analysis.
 """
 
 import json

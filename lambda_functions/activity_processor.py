@@ -2,7 +2,7 @@
 Activity Processor Lambda Function
 
 Processes activities from SQS queue and triggers Step Functions workflow.
-Handles rate limiting and error recovery.
+Handles error recovery.
 """
 
 import json

@@ -60,7 +60,6 @@ class ApiGatewayStack(Stack):
             environment={
                 "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
-                "RATE_LIMITS_TABLE": self.core_stack.table_names["rate_limits"],
                 "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
                 "CAMPUS_COACH_SECRET": self.core_stack.campus_coach_secret.secret_name
             }
@@ -126,7 +125,6 @@ class ApiGatewayStack(Stack):
         
         # AgentCore Health Check Lambda
         agentcore_env = {
-            "RATE_LIMITS_TABLE": self.core_stack.table_names["rate_limits"]
         }
         
         # Load AgentCore agent ARNs from .env.agentcore if available

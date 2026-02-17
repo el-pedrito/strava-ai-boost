@@ -107,21 +107,6 @@ class CoreInfrastructureStack(Stack):
             removal_policy=RemovalPolicy.DESTROY
         )
 
-        # Strava Rate Limits table - tracks API usage
-        self.rate_limits_table = dynamodb.Table(
-            self, "StravaRateLimitsTable",
-            table_name="strava-ai-boost-rate-limits",
-            partition_key=dynamodb.Attribute(
-                name="limit_type",
-                type=dynamodb.AttributeType.STRING
-            ),
-            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
-            encryption=dynamodb.TableEncryption.AWS_MANAGED,
-            removal_policy=RemovalPolicy.DESTROY,
-            # TTL for automatic cleanup of old rate limit data
-            time_to_live_attribute="ttl"
-        )
-
         # Campus Coaching Sessions table - stores extracted training sessions
         self.coaching_sessions_table = dynamodb.Table(
             self, "CampusCoachingSessionsTable",
@@ -195,7 +180,6 @@ class CoreInfrastructureStack(Stack):
                 ],
                 resources=[
                     self.activities_table.table_arn,
-                    self.rate_limits_table.table_arn,
                     self.user_config_table.table_arn,
                     self.coaching_sessions_table.table_arn,
                     f"{self.activities_table.table_arn}/index/*"
@@ -321,7 +305,6 @@ class CoreInfrastructureStack(Stack):
         return {
             "activities": self.activities_table.table_name,
             "user_config": self.user_config_table.table_name,
-            "rate_limits": self.rate_limits_table.table_name,
             "coaching_sessions": self.coaching_sessions_table.table_name
         }
 
@@ -331,7 +314,6 @@ class CoreInfrastructureStack(Stack):
         return {
             "activities": self.activities_table.table_arn,
             "user_config": self.user_config_table.table_arn,
-            "rate_limits": self.rate_limits_table.table_arn,
             "coaching_sessions": self.coaching_sessions_table.table_arn
         }
 
