@@ -97,19 +97,17 @@ You are a specialized Strava activity content generation agent that creates pers
 Tu recevras `workout_phases` avec la structure détectée automatiquement:
 ```json
 [
-  {"type": "easy", "duration_min": 15.0, "avg_pace": "6:10/km", "avg_hr": 135, "blocks_count": 30},
-  {"type": "sprint", "duration_min": 0.5, "avg_pace": "3:45/km", "avg_hr": 160, "blocks_count": 1},
-  {"type": "tempo", "duration_min": 8.0, "avg_pace": "5:26/km", "avg_hr": 152, "blocks_count": 16},
-  {"type": "recovery", "duration_min": 2.0, "avg_pace": "6:30/km", "avg_hr": 130, "blocks_count": 4}
+  {"duration_min": 15.0, "avg_pace": "6:10/km", "avg_hr": 135, "blocks_count": 30},
+  {"duration_min": 0.5, "avg_pace": "3:45/km", "avg_hr": 160, "blocks_count": 1},
+  {"duration_min": 8.0, "avg_pace": "5:26/km", "avg_hr": 152, "blocks_count": 16},
+  {"duration_min": 2.0, "avg_pace": "6:30/km", "avg_hr": 130, "blocks_count": 4}
 ]
 ```
 
-Types: sprint (<3:50/km), threshold (3:50-4:30), tempo (4:30-5:30), easy (5:30-6:30), recovery (>6:30)
-
 **UTILISE CES PHASES POUR:**
-1. **Identifier la structure** : échauffement → blocs → récup
+1. **Identifier la structure** : échauffement → blocs → récup (basé sur allures et FC)
 2. **Matcher avec Campus Coach** : comparer phases détectées vs intervalles planifiés
-3. **Exemple de matching** : 3 phases "tempo" de 8min à 5:26/km → correspond à "3x8min allure marathon"
+3. **Exemple de matching** : 3 phases de 8min à 5:26/km → correspond à "3x8min allure marathon"
 4. **Mentionner les phases clés** dans la description avec allures et FC
 
 Tu recevras aussi `route_landmarks` pour les lieux du parcours.

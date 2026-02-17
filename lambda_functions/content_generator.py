@@ -108,7 +108,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         # Extract components from stored data
         activity_data = activity_data_full.get('activity_data', {})
-        streams_data = activity_data_full.get('streams_data')
+        streams_compressed = activity_data_full.get('streams_compressed')  # Already compressed in DynamoDB
         athlete_stats = activity_data_full.get('athlete_stats')
         athlete_profile = activity_data_full.get('athlete_profile')
         gear_details = activity_data_full.get('gear_details')
@@ -126,25 +126,18 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         else:
             logger.info("No user profile configured, using default generation")
         
-        # Compress streams data into 30s blocks (no interpretation, just data reduction)
-        # This replaces sending raw streams (50K+ tokens) with compressed blocks (~2K tokens)
-        streams_compressed = None
-        if streams_data:
-            logger.info("Compressing streams data into 30s blocks...")
-            streams_compressed = compress_streams_to_blocks(streams_data, activity_data, activity_id)
-            if streams_compressed:
-                logger.info(f"✅ Streams compressed: {streams_compressed.get('compression_ratio', 'N/A')}")
-            else:
-                logger.warning("⚠️ Streams compression failed, will use basic activity data only")
+        # Streams are already compressed in DynamoDB for long activities
+        if streams_compressed:
+            logger.info(f"✅ Using pre-compressed streams: {streams_compressed.get('compression_ratio', 'N/A')}")
         
         # Extract Enduraw Report from activity description if available
         enduraw_data = extract_enduraw_report(activity_data)
         if enduraw_data:
             logger.info(f"Enduraw Report detected: {enduraw_data['metrics']}")
         
-        # Apply module-specific processing
+        # Apply module-specific processing (no streams_data needed)
         enhanced_modules = apply_module_processing(
-            activity_data, streams_data, user_id, active_modules
+            activity_data, None, user_id, active_modules
         )
         
         # Generate enhanced content using Strands Agent with user_profile
@@ -231,23 +224,10 @@ def detect_workout_phases(streams_compressed: Dict[str, Any]) -> List[Dict[str, 
         if dur_min < 0.5:  # Skip very short phases (<30s)
             continue
         
-        # Classify phase
-        if avg_pace > 6.5:
-            phase_type = "recovery"
-        elif avg_pace > 5.5:
-            phase_type = "easy"
-        elif avg_pace > 4.5:
-            phase_type = "tempo"
-        elif avg_pace > 3.8:
-            phase_type = "threshold"
-        else:
-            phase_type = "sprint"
-        
         pace_min = int(avg_pace)
-        pace_sec = int((avg_pace - pace_min) * 60)
+        pace_sec = int((avg_pace - avg_min) * 60)
         
         summary.append({
-            'type': phase_type,
             'duration_min': round(dur_min, 1),
             'avg_pace': f"{pace_min}:{pace_sec:02d}/km",
             'avg_hr': round(avg_hr) if avg_hr else None,
@@ -256,7 +236,7 @@ def detect_workout_phases(streams_compressed: Dict[str, Any]) -> List[Dict[str, 
     
     logger.info(f"Detected {len(summary)} workout phases from {len(blocks)} blocks")
     for s in summary:
-        logger.info(f"  {s['type']}: {s['duration_min']}min at {s['avg_pace']} (HR {s['avg_hr']})")
+        logger.info(f"  Phase: {s['duration_min']}min at {s['avg_pace']} (HR {s['avg_hr']})")
     
     return summary
 
@@ -556,7 +536,8 @@ def retrieve_activity_data_from_dynamodb(activity_id: str) -> Optional[Dict[str,
         
         # Parse JSON strings back to dictionaries
         activity_data = json.loads(item.get('activity_data_json', '{}'))
-        streams_data = json.loads(item.get('streams_data_json', 'null')) if item.get('streams_data_json') else None
+        # For long activities, streams are already compressed in DynamoDB
+        streams_compressed = json.loads(item.get('streams_compressed_json', 'null')) if item.get('streams_compressed_json') else None
         athlete_stats = json.loads(item.get('athlete_stats_json', 'null')) if item.get('athlete_stats_json') else None
         athlete_profile = json.loads(item.get('athlete_profile_json', 'null')) if item.get('athlete_profile_json') else None
         gear_details = json.loads(item.get('gear_details_json', 'null')) if item.get('gear_details_json') else None
@@ -592,7 +573,7 @@ def retrieve_activity_data_from_dynamodb(activity_id: str) -> Optional[Dict[str,
         
         return {
             'activity_data': activity_data,
-            'streams_data': streams_data,
+            'streams_compressed': streams_compressed,  # Pre-compressed from DynamoDB
             'athlete_stats': athlete_stats,
             'athlete_profile': athlete_profile,
             'gear_details': gear_details
