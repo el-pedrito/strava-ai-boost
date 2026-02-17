@@ -818,7 +818,7 @@ def apply_campus_coach_processing(
         logger.info(f"Activity: {activity_type}, {distance_km:.1f}km, {duration_min:.0f}min, date: {activity_date}")
         
         # Get all recent Campus Coach sessions from DynamoDB
-        sessions = get_recent_campus_sessions()
+        sessions = get_recent_campus_sessions(activity_date)
         
         enhanced_module = module.copy()
         
@@ -863,37 +863,44 @@ def apply_campus_coach_processing(
         return enhanced_module
 
 
-def get_recent_campus_sessions() -> List[Dict[str, Any]]:
-    """Get recent Campus Coach sessions from DynamoDB (only 'À faire' sessions)"""
+def get_recent_campus_sessions(activity_date: str = None) -> List[Dict[str, Any]]:
+    """Get Campus Coach sessions for the current week only (max 6)"""
     try:
         logger.info("🔍 Querying Campus Coach sessions from DynamoDB...")
         table = dynamodb.Table(COACHING_SESSIONS_TABLE)
         
-        # Get sessions from last 14 days that are still "À faire" (to do)
         from datetime import datetime, timedelta
-        cutoff_date = (datetime.utcnow() - timedelta(days=14)).isoformat()
+        if activity_date:
+            try:
+                act_dt = datetime.fromisoformat(activity_date.replace('Z', '+00:00'))
+            except Exception:
+                act_dt = datetime.utcnow()
+        else:
+            act_dt = datetime.utcnow()
         
-        logger.info(f"Filtering sessions: updated_at > {cutoff_date} AND status = 'À faire'")
+        week_num = act_dt.isocalendar()[1]
+        week_key = f"week-{week_num}"
+        
+        logger.info(f"Filtering sessions: session_date begins_with '{week_key}', status = 'À faire'")
         
         response = table.scan(
-            FilterExpression='updated_at > :cutoff AND #status = :status',
-            ExpressionAttributeNames={
-                '#status': 'status'  # 'status' is a reserved word in DynamoDB
-            },
+            FilterExpression='begins_with(session_date, :week) AND #status = :status',
+            ExpressionAttributeNames={'#status': 'status'},
             ExpressionAttributeValues={
-                ':cutoff': cutoff_date,
-                ':status': 'À faire'  # Only get sessions that are not yet completed
+                ':week': week_key,
+                ':status': 'À faire'
             }
         )
         
         sessions = response.get('Items', [])
-        logger.info(f"📊 DynamoDB returned {len(sessions)} sessions")
+        logger.info(f"📊 Found {len(sessions)} 'À faire' sessions for {week_key}")
         
-        # Log session details for debugging
+        # Cap at 6 (typical max sessions per week)
+        sessions = sessions[:6]
+        
         for session in sessions:
-            logger.info(f"  - {session.get('title', 'Unknown')} (week {session.get('week_number', '?')}, {session.get('session_number', '?')})")
+            logger.info(f"  - {session.get('title', 'Unknown')} ({session.get('session_date', '?')})")
         
-        # Convert Decimal to float for JSON serialization
         from decimal import Decimal
         def decimal_to_float(obj):
             if isinstance(obj, Decimal):
@@ -906,7 +913,7 @@ def get_recent_campus_sessions() -> List[Dict[str, Any]]:
         
         sessions = decimal_to_float(sessions)
         
-        logger.info(f"✅ Retrieved {len(sessions)} 'À faire' Campus Coach sessions from DynamoDB")
+        logger.info(f"✅ Retrieved {len(sessions)} Campus Coach sessions for agent matching")
         return sessions
         
     except Exception as e:
