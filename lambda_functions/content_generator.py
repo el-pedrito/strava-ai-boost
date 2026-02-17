@@ -564,7 +564,7 @@ def retrieve_activity_data_from_dynamodb(activity_id: str) -> Optional[Dict[str,
         
         # Apply conversion to all data
         activity_data = convert_numeric_strings(activity_data)
-        streams_data = convert_numeric_strings(streams_data) if streams_data else None
+        streams_compressed = convert_numeric_strings(streams_compressed) if streams_compressed else None
         athlete_stats = convert_numeric_strings(athlete_stats) if athlete_stats else None
         athlete_profile = convert_numeric_strings(athlete_profile) if athlete_profile else None
         gear_details = convert_numeric_strings(gear_details) if gear_details else None
