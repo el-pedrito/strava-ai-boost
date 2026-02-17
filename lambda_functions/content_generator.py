@@ -687,7 +687,10 @@ def get_active_modules(user_config: Dict[str, Any]) -> List[Dict[str, Any]]:
         modules_config = user_config.get('modules_config', {})
         active_modules = []
         
+        logger.info(f"Checking modules_config: {list(modules_config.keys())}")
+        
         for module_id, config in modules_config.items():
+            logger.info(f"Module {module_id}: enabled={config.get('enabled', False)}")
             if config.get('enabled', False):
                 active_modules.append({
                     'name': module_id,
@@ -823,6 +826,7 @@ def apply_legacy_module_processing(
     """Apply legacy module processing for backward compatibility"""
     try:
         module_name = module['name']
+        logger.info(f"🔧 Legacy processing for module: {module_name}, enabled: {module.get('enabled', False)}")
         
         if module_name == 'campus_coach' and module.get('enabled', False):
             # Apply Campus Coach session matching
@@ -947,11 +951,14 @@ def get_recent_campus_sessions(activity_date: str = None) -> List[Dict[str, Any]
         sessions = response.get('Items', [])
         logger.info(f"📊 Found {len(sessions)} 'À faire' sessions updated since {cutoff_date}")
         
+        # Sort by updated_at DESC to get most recent sessions first
+        sessions = sorted(sessions, key=lambda x: x.get('updated_at', ''), reverse=True)
+        
         # Cap at 6 (typical max sessions per week)
         sessions = sessions[:6]
         
         for session in sessions:
-            logger.info(f"  - {session.get('title', 'Unknown')} ({session.get('session_date', '?')})")
+            logger.info(f"  - {session.get('title', 'Unknown')} (week {session.get('week_number', '?')}, updated: {session.get('updated_at', '?')})")
         
         from decimal import Decimal
         def decimal_to_float(obj):
