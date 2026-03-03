@@ -4,7 +4,7 @@
 
 set -e
 
-PROFILE="your-aws-profile"
+PROFILE="${AWS_PROFILE:-your-aws-profile}"
 REGION="eu-west-1"
 STACK_NAME="StravaAIBoost-API"
 
@@ -74,8 +74,8 @@ API_GATEWAY_KEY=$API_KEY
 AWS_REGION=$REGION
 AWS_PROFILE=$PROFILE
 
-# User Configuration
-DEFAULT_USER_ID=YOUR_USER_ID
+# User Configuration (set via Strava OAuth connection, or override with DEFAULT_USER_ID env var)
+DEFAULT_USER_ID=${DEFAULT_USER_ID:-}
 EOF
 
 echo "✅ Environment file created: $ENV_FILE"

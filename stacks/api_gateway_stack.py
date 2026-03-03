@@ -7,6 +7,8 @@ This stack creates the REST API endpoints for the local web interface:
 - Status endpoints for real-time processing updates
 """
 
+import os
+
 from aws_cdk import (
     Stack,
     aws_apigateway as apigateway,
@@ -119,7 +121,7 @@ class ApiGatewayStack(Stack):
             role=self.core_stack.webhook_lambda_role,
             environment={
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
-                "DEFAULT_USER_ID": "YOUR_USER_ID"
+                "DEFAULT_USER_ID": os.environ.get("DEFAULT_USER_ID", "12345678")
             }
         )
         

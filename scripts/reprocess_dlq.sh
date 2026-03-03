@@ -5,7 +5,7 @@
 
 set -e
 
-PROFILE="your-aws-profile"
+PROFILE="${AWS_PROFILE:-your-aws-profile}"
 REGION="eu-west-1"
 
 echo "🔄 DLQ Reprocessing Tool"

@@ -43,6 +43,11 @@ cdk.context.json
 *~
 .DS_Store
 
+# AI assistants
+.claude/
+.kiro/
+filter-repo-replacements.txt
+
 # AWS
 .aws-sam/
 samconfig.toml

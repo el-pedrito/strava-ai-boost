@@ -1,7 +1,7 @@
 # AGENTS.md - AI Assistant Context for Strava AI Boost
 
-**Version:** 2.2.1  
-**Last Updated:** 2026-02-17  
+**Version:** 2.3.0
+**Last Updated:** 2026-03-03
 **Purpose:** Comprehensive context for AI coding assistants
 
 ---
@@ -29,7 +29,7 @@ Strava AI Boost is a **serverless AWS application** that automatically enhances 
 - **~23,051 LOC** in core components
 - **13 Lambda functions**
 - **2 AgentCore agents**
-- **6 CDK stacks**
+- **7 CDK stacks**
 - **Python 3.12** runtime
 
 ### Architecture Pattern
@@ -44,11 +44,12 @@ Strava Webhook → SQS → Step Functions → Lambda Pipeline → Strava Update
 
 ```
 strava-ai-boost/
-├── scripts/                    # Deployment and maintenance (11 scripts)
+├── scripts/                    # Deployment and maintenance (12 scripts)
 │   ├── deploy.sh              # Main CDK deployment
 │   ├── deploy_agentcore_agents.sh
 │   ├── configure_agentcore_integration.sh
 │   ├── create_agentcore_memories.sh
+│   ├── configure_memory_strategy.py  # Memory UserPreferenceStrategy config
 │   ├── configure_strava_webhook.sh
 │   ├── setup_local_env.sh
 │   ├── validate_deployment.sh
@@ -59,7 +60,7 @@ strava-ai-boost/
 │
 ├── stacks/                     # CDK infrastructure (7 stacks)
 │   ├── core_infrastructure_stack.py    # DynamoDB, Secrets, Layer
-│   ├── security_stack.py               # Guardrails, Observability
+│   ├── security_stack.py               # Guardrails, Memory Execution Role, Observability
 │   ├── webhook_processing_stack.py     # Webhook, SQS, Processor
 │   ├── content_generation_stack.py     # Step Functions, Lambdas
 │   ├── api_gateway_stack.py            # REST API, API Lambdas
@@ -489,64 +490,31 @@ class TestMyModule:
 
 ## AgentCore Integration
 
-### Agent Configuration Files
+### Agents
 
 **Location:** `src/agents/`
 
-**Content Agent:** `content_agent.py`
-- Purpose: Generate enhanced activity content
-- Memory: Long-Term Memory (365 days)
-- Model: Claude Sonnet 4.5
-- Guardrails: Enabled
+**Content Agent** (`content_agent.py`): Generate enhanced activity content with LTM memory, Claude Sonnet 4.5, Guardrails enabled.
 
-**Campus Coach Agent:** `campus_coach_agent.py`
-- Purpose: Extract training sessions
-- Memory: Long-Term Memory (365 days)
-- Model: Claude Sonnet 4.5
-- Tools: Browser Tool
+**Campus Coach Agent** (`campus_coach_agent.py`): Extract training sessions via Browser Tool, Claude Sonnet 4.5.
 
-### Deploying Agents
+### Memory Strategy
 
-**Step 1: Create Memories**
+The content generation memory (`content_gen_mem`) uses 2 strategies:
+- **Semantic** (`ComprehensiveLearning`): Semantic search over conversation history
+- **UserPreference** (`StravaContentPreferences`): Automatic extraction/consolidation of user content preferences from feedback diffs
+
+The feedback analyzer writes before/after diffs as conversational events (ASSISTANT=generated, USER=edited). The UserPreferenceStrategy automatically extracts preferences (length, tone, emojis, structure, technical detail) and consolidates them over time.
+
+The content agent reads preferences via `RetrieveMemoryRecords` semantic search across user-specific namespaces.
+
+### Deployment
+
 ```bash
-./scripts/create_agentcore_memories.sh
-```
-
-**Step 2: Deploy Agents**
-```bash
-./scripts/deploy_agentcore_agents.sh
-```
-
-**Step 3: Configure Integration**
-```bash
-./scripts/configure_agentcore_integration.sh
-```
-
-### Agent Invocation Pattern
-
-```python
-import boto3
-import json
-
-# Initialize AgentCore client
-agentcore = boto3.client('bedrock-agent-runtime', region_name='eu-west-1')
-
-# Invoke agent
-response = agentcore.invoke_agent(
-    agentId='agent-id',
-    agentAliasId='agent-alias-id',
-    sessionId='session-id',
-    inputText=json.dumps({
-        'activity_data': {...},
-        'user_profile': {...}
-    })
-)
-
-# Process response
-for event in response['completion']:
-    if 'chunk' in event:
-        chunk = event['chunk']
-        # Process chunk
+./scripts/create_agentcore_memories.sh          # Step 1: Create LTM memories
+./scripts/deploy_agentcore_agents.sh            # Step 2: Deploy agents
+./scripts/configure_agentcore_integration.sh    # Step 3: Configure IAM + Lambda
+python scripts/configure_memory_strategy.py     # Step 4: Configure UserPreferenceStrategy
 ```
 
 ---

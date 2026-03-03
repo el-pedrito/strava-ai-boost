@@ -195,7 +195,7 @@ The system automatically identifies users through:
   "access_token": "...",
   "refresh_token": "...",
   "athlete": {
-    "id": YOUR_USER_ID  // Used as user_id
+    "id": 12345678  // Your Strava athlete ID (used as user_id)
   }
 }
 ```

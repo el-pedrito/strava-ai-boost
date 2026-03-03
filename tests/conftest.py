@@ -112,7 +112,7 @@ def sample_activity_data():
         "start_date": "2025-01-03T08:00:00Z",
         "start_date_local": "2025-01-03T09:00:00+01:00",
         "timezone": "Europe/Paris",
-        "athlete": {"id": YOUR_USER_ID}
+        "athlete": {"id": 12345678}
     }
 
 
@@ -123,7 +123,7 @@ def sample_webhook_event():
         "object_type": "activity",
         "object_id": 12345678,
         "aspect_type": "create",
-        "owner_id": YOUR_USER_ID,
+        "owner_id": 12345678,
         "subscription_id": 123456,
         "event_time": 1704268800
     }
@@ -133,7 +133,7 @@ def sample_webhook_event():
 def sample_user_config():
     """Sample user configuration for testing"""
     return {
-        "user_id": "YOUR_USER_ID",
+        "user_id": "12345678",
         "enhancement_enabled": True,
         "modules_config": {
             "campus_coach": {

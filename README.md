@@ -4,17 +4,14 @@ Strava AI Boost is a production-ready, modular serverless application that autom
 
 ## ✅ System Status
 
-**🎉 FULLY OPERATIONAL** - AgentCore content generation with Long-Term Memory + Security:
-- ✅ **Phase 1 (Infrastructure)**: 6 CDK stacks deployed (Core, Security, Content, API, Webhook, Monitoring)
-- ✅ **Phase 2 (LTM Memory)**: 2 LTM memories with semantic search (365-day retention)
-- ✅ **Phase 3 (AgentCore)**: 2 AI agents deployed (`content_gen`, `campus_coach`)
-- ✅ **Integration**: All 13 Lambda functions configured with agent ARNs
-- ✅ **Content Generation**: Enhanced with semantic memory for style learning
-- ✅ **Structured Tools**: Proper tool architecture for Strands framework
-- ✅ **Strava Integration**: Webhook active with complete OAuth flow
-- ✅ **Local Interface**: Running with real-time dashboard and configuration
-- ✅ **AI Memory**: Long-term personalization with semantic search
-- ✅ **Security**: Bedrock Guardrails + GenAI Observability Dashboard
+**🎉 FULLY OPERATIONAL** - AgentCore content generation with Long-Term Memory + Feedback Loop:
+- ✅ **Infrastructure**: 7 CDK stacks (Core, Security, Content, API, Webhook, Monitoring, Feedback)
+- ✅ **AI Agents**: 2 AgentCore agents (`content_gen`, `campus_coach`) with LTM memory
+- ✅ **Memory Strategy**: UserPreferenceStrategy for automatic preference learning from user edits
+- ✅ **Feedback Loop**: Nightly analysis of user modifications, conversational diffs to memory
+- ✅ **Security**: Bedrock Guardrails + Memory Execution Role + GenAI Observability
+- ✅ **Strava Integration**: Webhook + OAuth + real-time processing
+- ✅ **Local Interface**: Flask dashboard with configuration and monitoring
 
 ## 🚀 Quick Start
 
@@ -319,13 +316,14 @@ sequenceDiagram
 
 ### Infrastructure Components
 
-**6 CDK Stacks**:
+**7 CDK Stacks**:
 1. **Core** - DynamoDB (4 tables), Secrets Manager (3 secrets), Lambda Layer
-2. **Security** - Bedrock Guardrails for AI safety
+2. **Security** - Bedrock Guardrails, Memory Execution Role, GenAI Observability
 3. **Webhook** - SQS queues, webhook handler, activity processor
 4. **Content** - Step Functions, 5 processing Lambdas
 5. **API** - API Gateway for local interface (3 API Lambdas)
-6. **Monitoring** - CloudWatch alarms, GenAI dashboard
+6. **Monitoring** - CloudWatch alarms, dashboards
+7. **Feedback** - Feedback analyzer Lambda, EventBridge schedule
 
 **13 Lambda Functions**:
 - **Processing Pipeline** (5): webhook_handler, activity_processor, activity_fetcher, content_generator, strava_updater

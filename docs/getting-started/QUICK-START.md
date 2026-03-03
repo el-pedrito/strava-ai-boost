@@ -153,21 +153,27 @@ agentcore memory list --region eu-west-1
 - ✅ Detects and configures Bedrock Guardrails
 - ✅ Updates `.env.agentcore` with guardrail configuration
 
-### Step 4: Redeploy Agents with Guardrails
+### Step 4: Configure Memory Strategy
+
+```bash
+python scripts/configure_memory_strategy.py
+```
+
+**What this does:**
+- ✅ Adds UserPreferenceStrategy to content generation memory
+- ✅ Automatic extraction of user preferences from feedback diffs
+- ✅ Custom prompts for preference consolidation over time
+
+### Step 5: Redeploy Agents with Guardrails
 
 ```bash
 ./scripts/deploy_agentcore_agents.sh
 ```
 
-**What this does:**
-- ✅ Redeploys agents with guardrail configuration
-- ✅ Enables AI safety and prompt injection protection
-- ✅ Applies security layer to content generation
-
-### Step 5: Final CDK Deployment
+### Step 6: Final CDK Deployment
 
 ```bash
-cdk deploy --all --profile your-aws-profile --require-approval never
+cdk deploy --all --require-approval never
 ```
 
 **What this does:**

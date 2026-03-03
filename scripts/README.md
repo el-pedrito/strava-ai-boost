@@ -238,6 +238,30 @@ agentcore memory list --region eu-west-1
 
 ---
 
+### 4b. `configure_memory_strategy.py` - Configuration UserPreferenceStrategy
+
+**Description:** Configure la stratégie UserPreferenceStrategy sur la mémoire AgentCore pour l'extraction/consolidation automatique des préférences utilisateur.
+
+**Prérequis:**
+- Mémoires AgentCore créées (`create_agentcore_memories.sh`)
+- Security stack déployé (Memory Execution Role)
+
+**Usage:**
+```bash
+python scripts/configure_memory_strategy.py
+```
+
+**Ce qu'il fait:**
+- ✅ Charge la configuration depuis `.bedrock_agentcore.yaml`
+- ✅ Récupère le Memory Execution Role depuis CloudFormation
+- ✅ Configure la stratégie `StravaContentPreferences` (UserPreferenceOverride)
+- ✅ Prompts personnalisés pour extraction (LENGTH, EXPRESSIONS, EMOJIS, STRUCTURE, TONE, TECHNICAL_DETAIL)
+- ✅ Prompts personnalisés pour consolidation (REINFORCE, CONTRADICT, ADD)
+
+**Temps d'exécution:** ~10 secondes
+
+---
+
 ### 5. `configure_agentcore_integration.sh` - Configuration IAM et Lambda
 
 **Description:** Configure automatiquement les permissions IAM et les variables d'environnement Lambda pour l'intégration AgentCore.

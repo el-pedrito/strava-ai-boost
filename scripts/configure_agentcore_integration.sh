@@ -14,7 +14,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-AWS_PROFILE="your-aws-profile"
+AWS_PROFILE="${AWS_PROFILE:-your-aws-profile}"
 AWS_REGION="eu-west-1"
 PROJECT_NAME="strava-ai-boost"
 
@@ -581,7 +581,7 @@ verify_agentcore_iam_permissions() {
         
         # Fallback: use known pattern for content generation agent
         if [ -z "$content_role_arn" ] || [ "$content_role_arn" = "None" ]; then
-            content_role_arn="arn:aws:iam::${account_id}:role/AmazonBedrockAgentCoreSDKRuntime-eu-west-1-XXXXXXXXXXXX"
+            content_role_arn="arn:aws:iam::${account_id}:role/AmazonBedrockAgentCoreSDKRuntime-${AWS_REGION}-XXXXXXXXXXXX"
         fi
     fi
     
@@ -597,7 +597,7 @@ verify_agentcore_iam_permissions() {
         
         # Fallback: use known pattern for campus coach agent
         if [ -z "$campus_role_arn" ] || [ "$campus_role_arn" = "None" ]; then
-            campus_role_arn="arn:aws:iam::${account_id}:role/AmazonBedrockAgentCoreSDKRuntime-eu-west-1-XXXXXXXXXXXX"
+            campus_role_arn="arn:aws:iam::${account_id}:role/AmazonBedrockAgentCoreSDKRuntime-${AWS_REGION}-XXXXXXXXXXXX"
         fi
     fi
     
