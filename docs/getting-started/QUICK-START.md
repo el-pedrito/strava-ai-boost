@@ -43,7 +43,7 @@ export AWS_PROFILE=your-aws-profile
 ```
 
 **What this deploys:**
-- ✅ 6 CDK stacks (Core, Security, Content, API, Webhook, Monitoring)
+- ✅ 7 CDK stacks (Core, Security, Webhook, Content, API, Monitoring, Feedback)
 - ✅ DynamoDB tables, Lambda functions, Step Functions
 - ✅ Secrets Manager placeholders
 - ✅ Bedrock fallback mode (Claude Sonnet 4.5)

@@ -197,7 +197,7 @@ graph TB
         LocalUI[Local Flask Interface<br/>localhost:3000]
     end
     
-    subgraph "☁️ AWS Infrastructure - 6 CDK Stacks"
+    subgraph "☁️ AWS Infrastructure - 7 CDK Stacks"
         subgraph "1️⃣ Core Stack"
             DDB[(DynamoDB<br/>4 Tables)]
             Secrets[Secrets Manager<br/>OAuth & Credentials]

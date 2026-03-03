@@ -759,19 +759,10 @@ aws stepfunctions describe-execution \
 
 ### Documentation
 - **User Documentation:** `docs/`
-- **AI Documentation:** `.agents/summary/`
+- **Scripts Documentation:** `scripts/README.md`
 - **README:** `README.md`
 
 ### External Links
 - **AWS CDK:** https://docs.aws.amazon.com/cdk/
 - **Strava API:** https://developers.strava.com/
-- **AgentCore:** Internal AWS documentation
-
----
-
-**For detailed technical information, refer to:**
-- `.agents/summary/index.md` - Knowledge base index
-- `.agents/summary/architecture.md` - System architecture
-- `.agents/summary/components.md` - Component details
-- `.agents/summary/interfaces.md` - API specifications
-- `.agents/summary/workflows.md` - Process flows
+- **AgentCore:** https://docs.aws.amazon.com/bedrock/latest/userguide/agents-core.html
