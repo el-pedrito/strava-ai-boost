@@ -5,11 +5,9 @@ Infrastructure for automatic feedback analysis and learning from user modificati
 """
 
 import os
-import yaml
 from aws_cdk import (
     Stack,
     Duration,
-    RemovalPolicy,
     Aws,
     aws_lambda as lambda_,
     aws_dynamodb as dynamodb,
@@ -63,7 +61,6 @@ class FeedbackLoopStack(Stack):
             environment={
                 'ACTIVITIES_TABLE': activities_table.table_name,
                 'STRAVA_OAUTH_SECRET': strava_oauth_secret.secret_name,
-                'BEDROCK_MODEL_ID': os.environ.get('BEDROCK_MODEL_ID', 'global.anthropic.claude-sonnet-4-5-20250929-v1:0'),
                 'BEDROCK_AGENTCORE_MEMORY_ID': memory_id  # Loaded from .env.agentcore
                 # AWS_REGION is automatically set by Lambda runtime
             },
@@ -82,21 +79,7 @@ class FeedbackLoopStack(Stack):
         strava_oauth_secret.grant_write(feedback_analyzer)  # For token refresh
         strava_app_secret.grant_read(feedback_analyzer)  # For client credentials
         
-        # Bedrock permissions (for pattern analysis via Bedrock)
-        feedback_analyzer.add_to_role_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=["bedrock:InvokeModel"],
-                resources=[
-                    # Foundation models in all regions
-                    "arn:aws:bedrock:*::foundation-model/*",
-                    # Inference profiles (for global models like Claude Sonnet 4.5)
-                    f"arn:aws:bedrock:{Aws.REGION}:{Aws.ACCOUNT_ID}:inference-profile/*"
-                ]
-            )
-        )
-        
-        # AgentCore Memory permissions (for writing feedback patterns)
+        # AgentCore Memory permissions (for writing feedback diffs as conversational events)
         feedback_analyzer.add_to_role_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,

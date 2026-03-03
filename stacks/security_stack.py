@@ -27,7 +27,10 @@ class SecurityStack(Stack):
 
         # Create Bedrock Guardrail
         self._create_guardrail()
-        
+
+        # Create IAM role for AgentCore Memory built-in strategies
+        self._create_memory_execution_role()
+
         # Enable AgentCore Observability
         self._enable_agentcore_observability()
 
@@ -87,6 +90,50 @@ class SecurityStack(Stack):
         self.guardrail_id = self.content_guardrail.attr_guardrail_id
         self.guardrail_version_number = self.guardrail_version.attr_version
     
+    def _create_memory_execution_role(self) -> None:
+        """
+        Create IAM role for AgentCore Memory built-in strategies.
+
+        This role is assumed by bedrock-agentcore.amazonaws.com to invoke
+        Bedrock models for extraction and consolidation (UserPreferenceStrategy).
+        """
+        self.memory_execution_role = iam.Role(
+            self, "AgentCoreMemoryExecutionRole",
+            assumed_by=iam.ServicePrincipal(
+                "bedrock-agentcore.amazonaws.com",
+                conditions={
+                    "StringEquals": {
+                        "aws:SourceAccount": Aws.ACCOUNT_ID
+                    },
+                    "ArnLike": {
+                        "aws:SourceArn": f"arn:aws:bedrock-agentcore:{Aws.REGION}:{Aws.ACCOUNT_ID}:*"
+                    }
+                }
+            ),
+            description="IAM role for AgentCore Memory strategy extraction/consolidation"
+        )
+
+        self.memory_execution_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "bedrock:InvokeModel",
+                    "bedrock:InvokeModelWithResponseStream"
+                ],
+                resources=[
+                    "arn:aws:bedrock:*::foundation-model/*",
+                    f"arn:aws:bedrock:{Aws.REGION}:{Aws.ACCOUNT_ID}:inference-profile/*"
+                ]
+            )
+        )
+
+        CfnOutput(
+            self, "MemoryExecutionRoleArn",
+            value=self.memory_execution_role.role_arn,
+            description="IAM role ARN for AgentCore Memory strategy execution",
+            export_name="StravaAIBoost-MemoryExecutionRoleArn"
+        )
+
     def _enable_agentcore_observability(self) -> None:
         """Enable AgentCore Observability with Transaction Search"""
         

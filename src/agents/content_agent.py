@@ -17,7 +17,7 @@ import boto3
 from bedrock_agentcore import BedrockAgentCoreApp
 from bedrock_agentcore.memory import MemoryClient
 from strands import Agent, tool
-from strands.hooks import AgentInitializedEvent, HookProvider, MessageAddedEvent
+from strands.hooks import HookProvider, MessageAddedEvent
 
 # Import embedded prompts
 from embedded_prompts import CONTENT_GENERATION_PROMPT
@@ -47,91 +47,125 @@ GUARDRAIL_ENABLED = os.getenv("GUARDRAIL_ENABLED", "false").lower() == "true"
 # Initialize Bedrock Runtime client for guardrail validation
 bedrock_runtime = boto3.client('bedrock-runtime', region_name=REGION) if GUARDRAIL_ENABLED and GUARDRAIL_ID else None
 
-# Initialize memory client if memory is configured
+# Initialize memory clients if memory is configured
 memory_client = None
+agentcore_client = None  # boto3 client for RetrieveMemoryRecords
 if MEMORY_ID:
     try:
         memory_client = MemoryClient(region_name=REGION)
-        logger.info(f"AgentCore Memory client initialized: {MEMORY_ID}")
+        agentcore_client = boto3.client('bedrock-agentcore', region_name=REGION)
+        logger.info(f"AgentCore Memory clients initialized: {MEMORY_ID}")
     except Exception as e:
-        logger.warning(f"Failed to initialize memory client: {e}")
+        logger.warning(f"Failed to initialize memory clients: {e}")
         memory_client = None
+        agentcore_client = None
+
+
+def retrieve_user_preferences(user_id: str, query: str, max_results: int = 10) -> List[Dict]:
+    """
+    Retrieve user preferences from AgentCore Memory using semantic search.
+
+    Uses RetrieveMemoryRecords to find preferences relevant to the current
+    activity context, instead of fetching all preferences with get_last_k_turns.
+    """
+    if not MEMORY_ID or not agentcore_client:
+        return []
+
+    try:
+        # Try with strategy-specific namespace first, then broader namespace
+        for namespace in [
+            f"/strategy/StravaContentPreferences/actors/{user_id}/",
+            f"/actors/{user_id}/",
+            "/"
+        ]:
+            try:
+                response = agentcore_client.retrieve_memory_records(
+                    memoryId=MEMORY_ID,
+                    namespace=namespace,
+                    searchCriteria={
+                        'searchQuery': query
+                    },
+                    maxResults=max_results
+                )
+
+                records = response.get('memoryRecordSummaries', [])
+                if records:
+                    logger.info(f"Retrieved {len(records)} preference records (namespace={namespace})")
+                    for i, record in enumerate(records[:5]):
+                        content = record.get('content', {}).get('text', '')[:200]
+                        score = record.get('score', 0)
+                        logger.info(f"  Record {i+1} (score={score:.3f}): {content}...")
+                    return records
+            except Exception as ns_err:
+                logger.debug(f"Namespace {namespace} failed: {ns_err}")
+                continue
+
+        logger.info("No preference records found in any namespace")
+        return []
+
+    except Exception as e:
+        logger.warning(f"Failed to retrieve memory records: {e}")
+        # Fallback: try get_last_k_turns for backward compatibility
+        return _fallback_get_preferences(user_id)
+
+
+def _fallback_get_preferences(user_id: str) -> List[Dict]:
+    """Fallback to get_last_k_turns if RetrieveMemoryRecords is not available."""
+    if not memory_client:
+        return []
+
+    try:
+        # Try with user_id first, then fall back to "system" for old-format events
+        for actor_id in [user_id, "system"]:
+            turns = memory_client.get_last_k_turns(
+                memory_id=MEMORY_ID,
+                actor_id=actor_id,
+                session_id="feedback_learning" if actor_id == "system" else None,
+                k=3
+            )
+            if turns:
+                logger.info(f"Fallback: loaded {len(turns)} turns from memory (actor={actor_id})")
+                return [{'content': {'text': json.dumps(turns)}, '_fallback': True}]
+        return []
+    except Exception as e:
+        logger.warning(f"Fallback memory read also failed: {e}")
+        return []
 
 
 class AgentCoreMemoryHook(HookProvider):
     """
-    Hook for AgentCore Memory integration with Strands Agent
-    
-    Based on official AgentCore documentation example.
-    Automatically handles:
-    - Loading previous conversation/activity context when agent starts
-    - Saving each interaction to memory for long-term learning
+    Hook for AgentCore Memory — saves generated content to STM for
+    UserPreferenceStrategy to process alongside feedback diffs.
     """
-    
-    def on_agent_initialized(self, event):
-        """Load previous context from memory when agent starts"""
-        if not MEMORY_ID or not memory_client:
-            return
-        
-        try:
-            session_id = event.agent.state.get("session_id") or "default"
-            actor_id = event.agent.state.get("actor_id") or "default_user"
-            
-            # Get last 5 conversation turns from memory
-            turns = memory_client.get_last_k_turns(
-                memory_id=MEMORY_ID,
-                actor_id=actor_id,
-                session_id=session_id,
-                k=5  # Last 5 activities for context
-            )
-            
-            if turns:
-                # Add conversation history to agent's context
-                context = "\n".join([
-                    f"{m['role']}: {m['content']['text']}" 
-                    for t in turns for m in t
-                ])
-                event.agent.system_prompt += f"\n\nPREVIOUS ACTIVITIES CONTEXT (from AgentCore LTM):\n{context}"
-                logger.info(f"Loaded {len(turns)} previous turns from memory for actor {actor_id}")
-        except Exception as e:
-            logger.warning(f"Failed to load memory context: {e}")
-    
+
     def on_message_added(self, event):
-        """Save interaction to memory after processing"""
+        """Save assistant responses to memory for context."""
         if not MEMORY_ID or not memory_client:
             return
-        
+
         try:
             session_id = event.agent.state.get("session_id") or "default"
             actor_id = event.agent.state.get("actor_id") or "default_user"
-            
-            # Save only assistant messages (responses) to memory, not user prompts
+
             msg = event.agent.messages[-1]
-            
-            # Only save assistant messages (skip user prompts which are too long)
             if msg.get("role") != "assistant":
-                logger.debug(f"Skipping memory save for non-assistant message (role: {msg.get('role')})")
                 return
-            
-            # Extract content and limit size to 9000 characters (AgentCore Memory limit)
+
             content = str(msg.get("content", ""))
             if len(content) > 9000:
                 content = content[:9000] + "... [truncated]"
-                logger.info(f"Truncated message content from {len(str(msg.get('content')))} to 9000 chars for memory")
-            
+
             memory_client.create_event(
                 memory_id=MEMORY_ID,
                 actor_id=actor_id,
                 session_id=session_id,
                 messages=[(content, msg["role"])]
             )
-            logger.info(f"Saved message to memory for actor {actor_id}, session {session_id} ({len(content)} chars)")
+            logger.info(f"Saved response to memory for actor {actor_id}, session {session_id}")
         except Exception as e:
             logger.warning(f"Failed to save to memory: {e}")
-    
+
     def register_hooks(self, registry):
-        """Register hooks with the agent"""
-        registry.add_callback(AgentInitializedEvent, self.on_agent_initialized)
         registry.add_callback(MessageAddedEvent, self.on_message_added)
 
 
@@ -302,75 +336,38 @@ def invoke(payload, context=None):
         # Use the embedded complete prompt
         system_prompt = CONTENT_GENERATION_PROMPT
         
-        # Load user feedback patterns from AgentCore Memory (if available)
+        # Load user preferences from AgentCore Memory via semantic search
         feedback_instructions = ""
-        if MEMORY_ID and memory_client:
+        if MEMORY_ID:
             try:
-                # Get feedback patterns from system actor (written by feedback_analyzer)
-                # Use fixed session_id for feedback to make it easier to retrieve
-                feedback_turns = memory_client.get_last_k_turns(
-                    memory_id=MEMORY_ID,
-                    actor_id="system",
-                    session_id="feedback_learning",  # Fixed session_id for feedback
-                    k=1  # Latest feedback update
+                # Build a contextual query based on current activity
+                sport_type = activity_data.get('sport_type', 'Run')
+                distance_km = activity_data.get('distance', 0) / 1000
+                query = f"content preferences for {sport_type} activity {distance_km:.0f}km"
+
+                # Retrieve preferences via semantic search (UserPreferenceStrategy records)
+                records = retrieve_user_preferences(
+                    user_id=str(user_id),
+                    query=query,
+                    max_results=10
                 )
-                
-                if feedback_turns:
-                    # Parse feedback data
-                    for turn in feedback_turns:
-                        for message in turn:
-                            if 'content' in message:
-                                try:
-                                    content_text = message['content'].get('text', '') if isinstance(message.get('content'), dict) else str(message.get('content', ''))
-                                    feedback_data = json.loads(content_text)
-                                    patterns = feedback_data.get('patterns_by_type', {})
-                                    
-                                    if patterns:
-                                        feedback_instructions = "\n\n## 🎯 FEEDBACK UTILISATEUR (Préférences Apprises)\n\n"
-                                        feedback_instructions += "**Ces préférences ont été détectées depuis tes modifications manuelles. RESPECTE-LES.**\n\n"
-                                        
-                                        # Length preferences
-                                        if 'length_preferences' in patterns:
-                                            length_pref = patterns['length_preferences'][0]
-                                            feedback_instructions += f"**Longueur** : {length_pref.get('pattern', 'N/A')} (avg: {length_pref.get('avg_reduction', 0)} chars)\n"
-                                        
-                                        # Expression preferences
-                                        if 'expression_preference' in patterns:
-                                            feedback_instructions += "\n**Expressions à éviter/préférer** :\n"
-                                            for expr in patterns['expression_preference'][:5]:
-                                                feedback_instructions += f"- Évite '{expr.get('avoid')}' → Préfère '{expr.get('prefer')}' (fréquence: {expr.get('frequency')})\n"
-                                        
-                                        # Emoji preferences
-                                        if 'emoji_preferences' in patterns:
-                                            emoji_pref = patterns['emoji_preferences'][0]
-                                            removed = [e['emoji'] for e in emoji_pref.get('frequently_removed', [])]
-                                            added = [e['emoji'] for e in emoji_pref.get('frequently_added', [])]
-                                            if removed:
-                                                feedback_instructions += f"\n**Emojis à éviter** : {' '.join(removed)}\n"
-                                            if added:
-                                                feedback_instructions += f"**Emojis préférés** : {' '.join(added)}\n"
-                                        
-                                        # Structure preferences
-                                        if 'structure_preference' in patterns:
-                                            struct_pref = patterns['structure_preference'][0]
-                                            feedback_instructions += f"\n**Structure préférée** : {struct_pref.get('pattern', 'N/A')}\n"
-                                        
-                                        # Tone preferences
-                                        if 'tone_preference' in patterns:
-                                            tone_pref = patterns['tone_preference'][0]
-                                            feedback_instructions += f"**Ton préféré** : {tone_pref.get('pattern', 'N/A')}\n"
-                                        
-                                        logger.info(f"✅ Loaded feedback patterns from AgentCore Memory")
-                                        logger.info(f"   Patterns types: {list(patterns.keys())}")
-                                        break
-                                except json.JSONDecodeError as e:
-                                    logger.warning(f"Failed to parse feedback data from memory: {e}")
-                                    continue
+
+                if records:
+                    feedback_instructions = "\n\n## FEEDBACK UTILISATEUR (Préférences Apprises)\n\n"
+                    feedback_instructions += "**Ces préférences ont été extraites automatiquement depuis tes modifications. RESPECTE-LES.**\n\n"
+
+                    for record in records:
+                        content = record.get('content', {})
+                        text = content.get('text', '') if isinstance(content, dict) else str(content)
+                        if text:
+                            feedback_instructions += f"- {text}\n"
+
+                    logger.info(f"Loaded {len(records)} preference records from AgentCore Memory")
                 else:
-                    logger.info("No feedback patterns found in memory yet")
+                    logger.info("No user preferences found in memory yet")
             except Exception as e:
-                logger.warning(f"Failed to load feedback patterns from memory: {e}")
-        
+                logger.warning(f"Failed to load user preferences from memory: {e}")
+
         # Append feedback instructions if available
         if feedback_instructions:
             system_prompt += feedback_instructions
