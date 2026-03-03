@@ -514,12 +514,13 @@ def store_activity_data(
                 return [convert_floats(item) for item in obj]
             return obj
         
-        # Compress streams if activity is long (>60min) to avoid DynamoDB size limits
+        # Compress streams for all activities (light 10s blocks for <60min, 30s blocks for longer)
+        # This enables workout phase detection for interval sessions of any duration
         streams_compressed = None
-        if streams_data and activity_data.get('moving_time', 0) > 3600:
+        if streams_data:
             from content_generator import compress_streams_to_blocks
             streams_compressed = compress_streams_to_blocks(streams_data, activity_data, activity_id)
-            logger.info(f"Compressed streams for long activity ({activity_data.get('moving_time', 0)/60:.0f}min)")
+            logger.info(f"Compressed streams for activity ({activity_data.get('moving_time', 0)/60:.0f}min)")
         
         # Build DynamoDB item with ALL data
         item = {
@@ -536,7 +537,7 @@ def store_activity_data(
             'updated_at': datetime.utcnow().isoformat(),
             # Store complete data as JSON strings
             'activity_data_json': json.dumps(convert_floats(activity_data), default=str),
-            # Only store compressed streams for long activities (avoid 400KB DynamoDB limit)
+            # Store compressed streams (10s blocks for <60min, 30s for longer)
             'streams_compressed_json': json.dumps(convert_floats(streams_compressed), default=str) if streams_compressed else None,
             'athlete_stats_json': json.dumps(convert_floats(athlete_stats), default=str) if athlete_stats else None,
             'athlete_profile_json': json.dumps(convert_floats(athlete_profile), default=str) if athlete_profile else None,

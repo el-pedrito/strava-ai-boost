@@ -254,10 +254,8 @@ def compress_streams_to_blocks(streams_data: Dict[str, Any], activity_data: Dict
     6. Returns structured blocks ready for agent analysis
     
     Adaptive compression strategy (progressive):
-    - < 60 min: NO compression (raw streams work perfectly)
-    - 60-75 min: 5s blocks (very light compression)
-    - 75-90 min: 10s blocks (light compression)
-    - 90-120 min: 20s blocks (moderate compression)
+    - < 60 min: 10s blocks (light compression, enables phase detection)
+    - 60-120 min: 30s blocks (standard compression)
     - > 120 min: 30s blocks (standard compression)
     
     NO INTERPRETATION - just data compression. The agent will do the matching with Campus Coach.
@@ -302,15 +300,13 @@ def compress_streams_to_blocks(streams_data: Dict[str, Any], activity_data: Dict
         activity_duration_minutes = activity_duration_seconds / 60
         
         # Adaptive block duration based on activity length
-        # Strategy: Always use 30s blocks for agent readability, raw for short activities
+        # Strategy: Light compression for short activities (phase detection), standard for long
         if activity_duration_minutes < 60:
-            # No compression needed - raw data works perfectly
-            block_duration = None
-            compression_level = "none"
-            logger.info(f"Activity duration: {activity_duration_minutes:.1f} min → No compression (raw streams)")
-            return None
+            block_duration = 10  # 10s blocks for short activities (enables workout phase detection)
+            compression_level = "light"
+            logger.info(f"Activity duration: {activity_duration_minutes:.1f} min → Light compression (10s blocks)")
         else:
-            block_duration = 30  # 30s blocks for all compressed activities
+            block_duration = 30  # 30s blocks for long activities
             compression_level = "standard"
         
         logger.info(f"Activity duration: {activity_duration_minutes:.1f} min → Block duration: {block_duration}s ({compression_level})")
@@ -433,7 +429,7 @@ def compress_streams_to_blocks(streams_data: Dict[str, Any], activity_data: Dict
         )
         
         logger.info(f"✅ Streams compressed and cached in DynamoDB")
-        logger.info(f"   Compression: {len(velocity)} points → {len(blocks)} blocks (30s each)")
+        logger.info(f"   Compression: {len(velocity)} points → {len(blocks)} blocks ({block_duration}s each)")
         logger.info(f"   Total duration: {compressed_data['total_duration_min']:.1f} minutes")
         logger.info(f"   Route landmarks: {len(route_landmarks)} identified")
         logger.info(f"   Data size reduction: ~{100 * (1 - len(blocks) / len(velocity)):.0f}%")

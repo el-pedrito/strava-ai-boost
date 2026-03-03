@@ -215,6 +215,72 @@ def validate_user_input_with_guardrail(text: str, field_name: str) -> tuple[str,
         return text, False
 
 
+def format_workout_phases_for_prompt(workout_phases):
+    """Format workout_phases into a readable string for the LLM prompt"""
+    if not workout_phases:
+        return "No workout phases detected"
+
+    lines = [f"{len(workout_phases)} phases detected:\n"]
+    for i, phase in enumerate(workout_phases, 1):
+        duration = phase.get('duration_min', 0)
+        pace = phase.get('avg_pace', 'N/A')
+        hr = phase.get('avg_hr')
+        blocks = phase.get('blocks_count', 0)
+
+        line = f"  Phase {i}: {duration:.1f} min at {pace}"
+        if hr:
+            line += f", HR {hr:.0f} bpm"
+        line += f" ({blocks} blocks)"
+        lines.append(line)
+
+    return "\n".join(lines)
+
+
+def resolve_adaptive_content_length(workout_phases, duration_min, user_profile):
+    """
+    Resolve 'adaptive' content_length to a concrete value.
+
+    Rules:
+    - If intervals detected (>=5 phases with pace variation >30s/km) + technical profile → detailed (1500)
+    - If long activity (>60min) or technical_detail: advanced → detailed (1500)
+    - If short activity (<30min) without intervals → medium (800)
+    - Otherwise → medium (800)
+    """
+    content_prefs = user_profile.get('content_preferences', {}) if user_profile else {}
+    technical_detail = content_prefs.get('technical_detail', 'basic')
+    content_tone = content_prefs.get('tone', '')
+
+    # Check for interval structure: >=5 phases with significant pace variation
+    has_intervals = False
+    if len(workout_phases) >= 5:
+        paces = []
+        for phase in workout_phases:
+            pace_str = phase.get('avg_pace', '')
+            if pace_str and '/km' in pace_str:
+                try:
+                    parts = pace_str.replace('/km', '').split(':')
+                    pace_seconds = int(parts[0]) * 60 + int(parts[1])
+                    paces.append(pace_seconds)
+                except (ValueError, IndexError):
+                    continue
+
+        if len(paces) >= 4:
+            pace_variation = max(paces) - min(paces)
+            has_intervals = pace_variation > 30  # >30 seconds/km variation
+
+    is_technical = technical_detail == 'advanced' or 'technical' in content_tone.lower()
+
+    # Resolve
+    if has_intervals and is_technical:
+        return 'detailed', 1500
+    if duration_min > 60 or technical_detail == 'advanced':
+        return 'detailed', 1500
+    if duration_min < 30 and not has_intervals:
+        return 'medium', 800
+
+    return 'medium', 800
+
+
 @app.entrypoint
 def invoke(payload, context=None):
     """
@@ -365,6 +431,7 @@ def invoke(payload, context=None):
         
         # Extract remaining parameters from payload
         streams_compressed = payload.get('streams_compressed')  # Compressed 30s blocks (no interpretation)
+        workout_phases = payload.get('workout_phases', [])
         user_profile = payload.get('user_profile')
         active_modules = payload.get('active_modules', [])
         campus_coach_session = payload.get('campus_coach_session')
@@ -403,6 +470,7 @@ def invoke(payload, context=None):
         logger.info(f"Campus Coach Session: {'Yes' if campus_coach_session else 'No'}")
         logger.info(f"Enduraw Data: {'Yes' if enduraw_data else 'No'}")
         logger.info(f"Streams Compressed: {'Yes' if streams_compressed else 'No'}")
+        logger.info(f"Workout Phases: {len(workout_phases)} phases detected")
         logger.info(f"Memory Enabled: {MEMORY_ID is not None}")
         logger.info(f"Achievements: {activity_data.get('achievement_count', 0)}, PRs: {activity_data.get('pr_count', 0)}, Kudos: {activity_data.get('kudos_count', 0)}")
         logger.info(f"Segment Efforts: {len(activity_data.get('segment_efforts', []))}, Best Efforts: {len(activity_data.get('best_efforts', []))}")
@@ -637,7 +705,17 @@ def invoke(payload, context=None):
             'medium': 800,
             'detailed': 1500
         }
-        max_chars = size_limits.get(content_length_pref, 800)
+
+        # Resolve "adaptive" content_length intelligently
+        if content_length_pref == 'adaptive':
+            resolved_length, max_chars = resolve_adaptive_content_length(
+                workout_phases, duration, user_profile
+            )
+            logger.info(f"Adaptive content_length resolved to '{resolved_length}' ({max_chars} chars)")
+            logger.info(f"  Phases: {len(workout_phases)}, Duration: {duration:.0f}min")
+            content_length_pref = resolved_length
+        else:
+            max_chars = size_limits.get(content_length_pref, 800)
         
         prompt = f"""⚠️ CRITICAL SIZE LIMIT: User preference is "{content_length_pref}" = MAX {max_chars} characters for description (including signature)!
 If you exceed {max_chars} chars, CUT content to fit. Keep most important elements, preserve signature.
@@ -694,6 +772,9 @@ CAMPUS COACH SESSION:
 
 ENDURAW DATA:
 {enduraw_str}
+
+WORKOUT PHASES (pre-computed phase detection from streams):
+{format_workout_phases_for_prompt(workout_phases)}
 
 STREAMS DATA (compressed 30s blocks):
 {streams_compressed_str}
