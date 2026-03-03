@@ -33,20 +33,20 @@ MODEL_ID = os.environ.get('BEDROCK_MODEL_ID', 'global.anthropic.claude-sonnet-4-
 # Configuration
 MIN_PATTERN_FREQUENCY = 1  # Pattern must appear 1+ times (immediate learning)
 MIN_PATTERN_RATE = 0.10    # Pattern must be in 10%+ of activities
-ANALYSIS_WINDOW_HOURS = 24  # Analyze last 24 hours
+ANALYSIS_WINDOW_HOURS = 24  # Minimum delay before analyzing (give user time to edit)
 
 
 def lambda_handler(event, context):
     """
     Main handler for feedback analysis
-    
+
     Triggered nightly by EventBridge to analyze user modifications
     """
     try:
         logger.info("=== Feedback Analyzer Started ===")
-        
-        # Get activities from last 24 hours
-        activities = get_recent_activities(hours=ANALYSIS_WINDOW_HOURS)
+
+        # Get all completed activities not yet analyzed (with min delay for user to edit)
+        activities = get_unanalyzed_activities(min_age_hours=ANALYSIS_WINDOW_HOURS)
         logger.info(f"Found {len(activities)} activities to analyze")
         
         if not activities:
@@ -61,15 +61,7 @@ def lambda_handler(event, context):
         for activity in activities:
             activity_id = activity['activity_id']
             
-            # Skip if already analyzed
-            if activity.get('feedback_analyzed'):
-                logger.info(f"Activity {activity_id} already analyzed, skipping")
-                continue
-            
-            # Skip if no enhanced description
-            if not activity.get('enhanced_description'):
-                logger.info(f"Activity {activity_id} has no enhanced description, skipping")
-                continue
+            # Note: already filtered by get_unanalyzed_activities (completed + not analyzed + has enhanced_description)
             
             # Fetch final description from Strava
             final_description = fetch_final_description(activity_id, access_token)
@@ -160,36 +152,49 @@ def lambda_handler(event, context):
         }
 
 
-def get_recent_activities(hours: int = 24) -> List[Dict[str, Any]]:
-    """Get activities from last N hours"""
+def get_unanalyzed_activities(min_age_hours: int = 24) -> List[Dict[str, Any]]:
+    """
+    Get completed activities that haven't been feedback-analyzed yet.
+
+    Only includes activities older than min_age_hours to give the user
+    time to edit their description before we analyze it.
+    """
     try:
         table = dynamodb.Table(ACTIVITIES_TABLE)
-        
-        # Calculate cutoff time
-        cutoff = datetime.now(UTC) - timedelta(hours=hours)
+
+        # Only analyze activities created at least min_age_hours ago
+        cutoff = datetime.now(UTC) - timedelta(hours=min_age_hours)
         cutoff_str = cutoff.isoformat()
-        
-        # Scan for recent activities
+
+        # Scan for completed, unanalyzed activities older than cutoff
         response = table.scan(
-            FilterExpression='created_at > :cutoff',
-            ExpressionAttributeValues={':cutoff': cutoff_str}
+            FilterExpression='processing_status = :completed AND (attribute_not_exists(feedback_analyzed) OR feedback_analyzed = :false) AND attribute_exists(enhanced_description) AND created_at < :cutoff',
+            ExpressionAttributeValues={
+                ':completed': 'completed',
+                ':false': False,
+                ':cutoff': cutoff_str
+            }
         )
-        
+
         activities = response.get('Items', [])
-        
+
         # Handle pagination
         while 'LastEvaluatedKey' in response:
             response = table.scan(
-                FilterExpression='created_at > :cutoff',
-                ExpressionAttributeValues={':cutoff': cutoff_str},
+                FilterExpression='processing_status = :completed AND (attribute_not_exists(feedback_analyzed) OR feedback_analyzed = :false) AND attribute_exists(enhanced_description) AND created_at < :cutoff',
+                ExpressionAttributeValues={
+                    ':completed': 'completed',
+                    ':false': False,
+                    ':cutoff': cutoff_str
+                },
                 ExclusiveStartKey=response['LastEvaluatedKey']
             )
             activities.extend(response.get('Items', []))
-        
+
         return activities
-        
+
     except Exception as e:
-        logger.error(f"Failed to get recent activities: {str(e)}")
+        logger.error(f"Failed to get unanalyzed activities: {str(e)}")
         return []
 
 
