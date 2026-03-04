@@ -78,7 +78,7 @@ export AWS_REGION=eu-west-1
 - `StravaAIBoost-Security` - Secrets Manager, encryption
 - `StravaAIBoost-Content` - Content generation Lambda
 - `StravaAIBoost-Webhook` - Webhook handler, SQS queues
-- `StravaAIBoost-API` - API Gateway pour interface locale
+- `StravaAIBoost-API` - API Gateway pour le frontend
 - `StravaAIBoost-Monitoring` - CloudWatch dashboards, alarms
 
 **Sortie:**
@@ -149,7 +149,7 @@ export AWS_PROFILE=your-aws-profile
 
 ### 3. `setup_local_env.sh` - Configuration Environnement Local
 
-**Description:** Configure les variables d'environnement pour l'interface web locale.
+**Description:** Configure les variables d'environnement pour le frontend React.
 
 **Prérequis:**
 - Infrastructure CDK déployée (`deploy.sh`)
@@ -163,22 +163,19 @@ export AWS_PROFILE=your-aws-profile
 **Ce qu'il fait:**
 - ✅ Récupère l'URL de l'API Gateway depuis CloudFormation
 - ✅ Récupère l'API Key depuis AWS
-- ✅ Crée le fichier `.env` dans `local_interface/`
+- ✅ Affiche les valeurs à configurer dans `frontend/.env.local`
 - ✅ Configure les variables AWS (region, profile)
 - ✅ Configure l'ID utilisateur par défaut
 
-**Variables d'environnement créées:**
+**Variables d'environnement pour `frontend/.env.local`:**
 ```bash
-API_GATEWAY_URL=https://xxx.execute-api.eu-west-1.amazonaws.com/prod
-API_GATEWAY_KEY=xxx
-AWS_REGION=eu-west-1
-AWS_PROFILE=your-aws-profile
-DEFAULT_USER_ID=YOUR_USER_ID
+VITE_API_GATEWAY_URL=https://your-api-id.execute-api.eu-west-1.amazonaws.com/prod
+VITE_API_GATEWAY_KEY=your-api-key
+VITE_DEFAULT_USER_ID=YOUR_USER_ID
 ```
 
 **Sortie:**
-- Fichier: `local_interface/.env`
-- Configuration prête pour l'interface web
+- Configuration prête pour le frontend
 
 **Exemple:**
 ```bash
@@ -186,9 +183,11 @@ DEFAULT_USER_ID=YOUR_USER_ID
 ./scripts/deploy.sh dev
 ./scripts/setup_local_env.sh
 
-# Démarrer l'interface locale
-cd local_interface
-python app.py
+# Démarrer le frontend
+cd frontend
+cp .env.example .env.local  # Edit with values from setup_local_env.sh output
+npm install
+npm run dev
 # Ouvrir http://localhost:3000
 ```
 
@@ -675,11 +674,13 @@ export AWS_PROFILE=your-aws-profile
 # 3. Configuration webhook Strava
 ./scripts/configure_strava_webhook.sh dev --auto-configure
 
-# 4. Démarrer l'interface locale
-cd local_interface
-python app.py
+# 4. Démarrer le frontend
+cd frontend
+cp .env.example .env.local  # Configurer les variables
+npm install
+npm run dev
 # Ouvrir http://localhost:3000
-# Configurer OAuth Strava via l'interface web
+# Configurer OAuth Strava via le frontend
 ```
 
 **Temps total:** ~15-20 minutes
@@ -702,9 +703,9 @@ python app.py
 # 5. Validation AgentCore
 ./scripts/validate_deployment.sh dev
 
-# 6. Démarrer l'interface locale
-cd local_interface
-python app.py
+# 6. Démarrer le frontend
+cd frontend
+npm run dev
 ```
 
 **Temps total:** ~25-30 minutes

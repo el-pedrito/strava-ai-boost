@@ -11,7 +11,7 @@ Strava AI Boost is a production-ready, modular serverless application that autom
 - ✅ **Feedback Loop**: Nightly analysis of user modifications, conversational diffs to memory
 - ✅ **Security**: Bedrock Guardrails + Memory Execution Role + GenAI Observability
 - ✅ **Strava Integration**: Webhook + OAuth + real-time processing
-- ✅ **Local Interface**: Flask dashboard with configuration and monitoring
+- ✅ **Frontend**: React + Cloudscape dashboard with configuration and monitoring
 
 ## 🚀 Quick Start
 
@@ -60,11 +60,13 @@ cdk deploy --all --profile your-aws-profile --require-approval never
 **Start Using the System**
 
 ```bash
-# Launch local web interface
-cd local_interface && python app.py
+# Launch frontend
+cd frontend
+npm install
+npm run dev
 
 # Open http://localhost:3000
-# - Connect with Strava OAuth
+# - Connect with Strava OAuth (PKCE)
 # - Configure your preferences
 # - Enable modules (Campus Coach, Enduraw)
 # - Process your activities!
@@ -134,11 +136,11 @@ For detailed usage, examples, and troubleshooting, see **[scripts/README.md](scr
 
 ## Overview
 
-The system uses a local web interface approach to avoid complexity of user management, authentication systems, and secure web hosting. This prioritizes simplicity and rapid deployment for individual users who can install the system in their own AWS environment.
+The system uses a React frontend that calls API Gateway directly with an API key. This prioritizes simplicity and rapid deployment for individual users who can install the system in their own AWS environment.
 
 ### Key Features
 
-- **Local Web Interface**: Python Flask application with AWS Cloudscape components
+- **React Frontend**: React 18 + TypeScript + Vite + @cloudscape-design/components
 - **User Preferences & Personalization**: Configure age, interests, sport approach, content style for tailored AI generation
 - **Modular Architecture**: Extensible module system starting with Campus Coach integration  
 - **AI-Powered Enhancement**: Amazon Bedrock Claude Sonnet 4.5 for intelligent content generation
@@ -194,7 +196,7 @@ graph TB
     subgraph "🖥️ User Layer"
         User[User]
         Browser[Web Browser]
-        LocalUI[Local Flask Interface<br/>localhost:3000]
+        LocalUI[React Frontend<br/>localhost:3000]
     end
     
     subgraph "☁️ AWS Infrastructure - 7 CDK Stacks"
@@ -218,7 +220,7 @@ graph TB
         end
         
         subgraph "5️⃣ API Stack"
-            APIGW[API Gateway<br/>Local Interface API]
+            APIGW[API Gateway<br/>Frontend API]
         end
         
         subgraph "6️⃣ Monitoring Stack"
@@ -265,7 +267,7 @@ graph TB
 
 ### Key Architecture Decisions
 
-1. **Local Interface** - No cloud hosting complexity, runs on localhost
+1. **React Frontend** - No cloud hosting complexity, runs on localhost
 2. **Zero AWS SDK in Frontend** - All AWS operations via API Gateway + Lambda
 3. **Modular Design** - Extensible module system (Campus Coach, Enduraw, future modules)
 4. **Dual-Mode AI** - AgentCore (primary) + Bedrock fallback (always available)
@@ -321,7 +323,7 @@ sequenceDiagram
 2. **Security** - Bedrock Guardrails, Memory Execution Role, GenAI Observability
 3. **Webhook** - SQS queues, webhook handler, activity processor
 4. **Content** - Step Functions, 5 processing Lambdas
-5. **API** - API Gateway for local interface (3 API Lambdas)
+5. **API** - API Gateway for frontend (3 API Lambdas)
 6. **Monitoring** - CloudWatch alarms, dashboards
 7. **Feedback** - Feedback analyzer Lambda, EventBridge schedule
 
@@ -350,7 +352,7 @@ sequenceDiagram
 ```mermaid
 graph TB
     subgraph "Local Environment"
-        UI[Local Web Interface<br/>Flask + Cloudscape<br/>Zero AWS SDK]
+        UI[React Frontend<br/>Vite + Cloudscape<br/>Zero AWS SDK]
         Browser[Web Browser<br/>localhost:3000]
     end
     
@@ -443,7 +445,7 @@ sequenceDiagram
 - SQS: Message queuing with DLQ
 - Bedrock: Claude Sonnet 4.5
 - Secrets Manager: OAuth tokens and credentials
-- API Gateway: Local interface REST API
+- API Gateway: Frontend REST API
 
 **AI/ML Framework:**
 - Strands Agents: Agent orchestration framework
@@ -470,7 +472,7 @@ sequenceDiagram
 - **Secure Communication**: HTTPS for all API endpoints
 - **Credential Management**: AWS Secrets Manager with automatic rotation
 - **IAM**: Least privilege principle with AWS managed policies
-- **Local Interface**: Local-only access (127.0.0.1)
+- **Frontend**: Local-only access (localhost:3000)
 - **User Isolation**: Per-user configuration for future multi-user support
 
 ## Testing and Validation
@@ -479,7 +481,7 @@ The system includes a comprehensive testing suite that validates all core functi
 
 - **End-to-End Pipeline Testing**: Complete webhook → SQS → Step Functions → Bedrock → Strava flow validation
 - **Security Compliance Testing**: 100% encryption and IAM compliance verification  
-- **Local Web Interface Testing**: Flask application component validation
+- **Frontend Testing**: React application component validation
 - **Property-Based Testing**: Universal properties validation across all system components
 
 Run the complete test suite:
@@ -490,8 +492,8 @@ python tests/test_end_to_end_pipeline.py
 # Security compliance test (100% compliance achieved)
 python tests/test_security_compliance.py
 
-# Local web interface test
-python tests/test_local_web_interface.py
+# Frontend test
+cd frontend && npm test
 ```
 
 For detailed testing procedures, see the **[Testing Guide](docs/advanced/TESTING.md)**.

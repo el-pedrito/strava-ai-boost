@@ -1,6 +1,6 @@
 # Configuration Guide
 
-Complete guide to configuring Strava AI Boost via the local web interface.
+Complete guide to configuring Strava AI Boost via the React frontend.
 
 ## Strava OAuth Setup
 
@@ -16,19 +16,18 @@ Complete guide to configuring Strava AI Boost via the local web interface.
    - **Application Description**: "Personal Strava activity enhancement"
    - **Authorization Callback Domain**: localhost
 
-### 2. Configure in Web Interface
+### 2. Configure Frontend Environment
 
-1. Open http://localhost:3000
-2. Go to Configuration tab
-3. Click "Configure Strava App"
-4. Enter your Client ID and Client Secret from Strava
-5. Click "Save Configuration"
+1. Copy `.env.example` to `.env.local` in the `frontend/` directory
+2. Set your `VITE_API_GATEWAY_URL`, `VITE_API_GATEWAY_KEY`, and `VITE_DEFAULT_USER_ID`
+3. Start the frontend: `cd frontend && npm install && npm run dev`
 
 ### 3. Connect Your Account
 
-1. Click "Connect with Strava"
-2. Authorize the application on Strava
-3. You'll be redirected back with a success message
+1. Open http://localhost:3000
+2. Click "Connect with Strava"
+3. Complete the OAuth 2.0 PKCE flow
+4. You'll be redirected back with a success message
 
 ## Module Configuration
 
@@ -151,7 +150,7 @@ Customize how AI generates content for your activities:
 
 ### API Gateway Endpoints
 
-The local interface connects to these AWS API Gateway endpoints:
+The frontend connects to these AWS API Gateway endpoints:
 - Dashboard stats: `/dashboard/stats`
 - Module configuration: `/config/modules`
 - Enhancement control: `/config/enhancement`
@@ -159,10 +158,11 @@ The local interface connects to these AWS API Gateway endpoints:
 
 ### Environment Variables
 
-Configure these in your local environment:
+Configure these in `frontend/.env.local` (copy from `.env.example`):
 ```bash
-export API_GATEWAY_URL=https://your-api-gateway-url
-export SECRET_KEY=your-flask-secret-key
+VITE_API_GATEWAY_URL=https://your-api-id.execute-api.eu-west-1.amazonaws.com/prod
+VITE_API_GATEWAY_KEY=your-api-key
+VITE_DEFAULT_USER_ID=YOUR_USER_ID
 ```
 
 ### Database Configuration
@@ -204,6 +204,6 @@ The system automatically identifies users through:
 
 - OAuth tokens are stored securely in AWS Secrets Manager
 - Campus Coach credentials are encrypted at rest
-- Local interface only accepts connections from localhost
+- Frontend runs locally on localhost:3000
 - All API communication uses HTTPS
 - No sensitive data is logged or cached locally
