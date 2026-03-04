@@ -19,6 +19,35 @@ function statusType(s: string): 'success' | 'in-progress' | 'error' | 'info' {
   return 'info';
 }
 
+const ACTIVITY_TYPE_ICONS: Record<string, string> = {
+  Run: '\u{1F3C3}',
+  Ride: '\u{1F6B4}',
+  Swim: '\u{1F3CA}',
+  Walk: '\u{1F6B6}',
+  Hike: '\u26F0\uFE0F',
+  WeightTraining: '\u{1F3CB}\uFE0F',
+  Workout: '\u{1F4AA}',
+  Yoga: '\u{1F9D8}',
+  VirtualRide: '\u{1F6B4}',
+  VirtualRun: '\u{1F3C3}',
+  TrailRun: '\u26F0\uFE0F',
+};
+
+function getActivityIcon(type?: string): string {
+  if (!type) return '';
+  return ACTIVITY_TYPE_ICONS[type] || '';
+}
+
+function formatModuleName(name: string): { label: string; className: string } {
+  if (name === 'campus_coach' || name.toLowerCase().includes('campus')) {
+    return { label: 'Campus Coach', className: 'badge-campus' };
+  }
+  if (name === 'enduraw' || name.toLowerCase().includes('enduraw')) {
+    return { label: 'Enduraw', className: 'badge-enduraw' };
+  }
+  return { label: name, className: '' };
+}
+
 export function RecentActivities({ activities, loading, onRefresh }: Props) {
   return (
     <Container
@@ -44,7 +73,13 @@ export function RecentActivities({ activities, loading, onRefresh }: Props) {
           {
             id: 'name',
             header: 'Name',
-            cell: (item) => item.name,
+            cell: (item) => (
+              <span>
+                {getActivityIcon(item.activity_type)}
+                {item.activity_type ? ' ' : ''}
+                {item.name}
+              </span>
+            ),
             sortingField: 'name',
           },
           {
@@ -62,7 +97,20 @@ export function RecentActivities({ activities, loading, onRefresh }: Props) {
             id: 'modules',
             header: 'Modules',
             cell: (item) =>
-              item.modules_used?.length ? item.modules_used.join(', ') : '-',
+              item.modules_used?.length ? (
+                <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {item.modules_used.map((m) => {
+                    const { label, className } = formatModuleName(m);
+                    return (
+                      <span key={m} className={`badge-module ${className}`}>
+                        {label}
+                      </span>
+                    );
+                  })}
+                </span>
+              ) : (
+                '-'
+              ),
           },
           {
             id: 'status',

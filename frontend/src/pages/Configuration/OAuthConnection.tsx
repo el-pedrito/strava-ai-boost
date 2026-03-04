@@ -7,6 +7,7 @@ import SpaceBetween from '@cloudscape-design/components/space-between';
 import Box from '@cloudscape-design/components/box';
 import Alert from '@cloudscape-design/components/alert';
 import Modal from '@cloudscape-design/components/modal';
+import { StravaLogo } from '../../components/icons/StravaLogo.tsx';
 import { api } from '../../api/client.ts';
 import { useFlash } from '../../layouts/AppLayout.tsx';
 import type { OAuthStatus } from '../../types/index.ts';
@@ -27,19 +28,16 @@ export function OAuthConnection({ oauthStatus, stravaConfigured, onDisconnected 
   const handleConnect = async () => {
     setConnecting(true);
     try {
-      // Get client_id from API Gateway
       const config = await api.get<{ configured: boolean; client_id: string; redirect_uri: string }>('/config/strava');
       if (!config.configured || !config.client_id) {
         flash('error', 'Strava app not configured. Please configure first.');
         return;
       }
 
-      // Generate PKCE state
       const state = crypto.randomUUID();
       const codeVerifier = crypto.randomUUID() + crypto.randomUUID();
       const codeChallenge = await sha256Hex(codeVerifier);
 
-      // Store PKCE params in sessionStorage for callback
       sessionStorage.setItem('oauth_state', state);
       sessionStorage.setItem('oauth_code_verifier', codeVerifier);
       sessionStorage.setItem('oauth_client_id', config.client_id);
@@ -140,9 +138,14 @@ export function OAuthConnection({ oauthStatus, stravaConfigured, onDisconnected 
               <Box color="text-body-secondary">
                 Connect your Strava account to enable automatic activity enhancement
               </Box>
-              <Button variant="primary" onClick={handleConnect} loading={connecting}>
-                Connect with Strava
-              </Button>
+              <button
+                className="strava-connect-btn"
+                onClick={handleConnect}
+                disabled={connecting}
+              >
+                <StravaLogo size={18} />
+                {connecting ? 'Connecting...' : 'Connect with Strava'}
+              </button>
             </SpaceBetween>
           </Box>
         ) : (

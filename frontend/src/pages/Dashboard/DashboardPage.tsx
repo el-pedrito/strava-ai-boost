@@ -18,6 +18,7 @@ interface RawActivity {
   updated_at?: string;
   processing_status?: string;
   modules_used?: string[];
+  activity_type?: string;
 }
 
 function transformActivities(raw: RawActivity[]): Activity[] {
@@ -45,8 +46,40 @@ function transformActivities(raw: RawActivity[]): Activity[] {
       processing_time: processingTime,
       status: (act.processing_status as Activity['status']) || 'unknown',
       modules_used: act.modules_used || [],
+      activity_type: act.activity_type,
     };
   });
+}
+
+function computeAvgProcessingTime(activities: Activity[]): string {
+  const times = activities
+    .map((a) => parseInt(a.processing_time, 10))
+    .filter((t) => !isNaN(t));
+  if (times.length === 0) return 'N/A';
+  const avg = Math.round(times.reduce((sum, t) => sum + t, 0) / times.length);
+  return `${avg}s`;
+}
+
+function computeStatsFromActivities(raw: RawActivity[]): DashboardStats {
+  const now = new Date();
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+  const recent = raw.filter((a) => {
+    if (!a.created_at) return false;
+    try { return new Date(a.created_at) >= thirtyDaysAgo; } catch { return false; }
+  });
+
+  const completed = recent.filter((a) => a.processing_status === 'completed').length;
+  const failed = recent.filter((a) => a.processing_status === 'failed').length;
+  const total = recent.length;
+  const successRate = total > 0 ? (completed / total) * 100 : 0;
+
+  return {
+    total_activities: total,
+    success_rate: Math.round(successRate * 10) / 10,
+    completed_activities: completed,
+    failed_activities: failed,
+  };
 }
 
 export function DashboardPage() {
@@ -59,24 +92,14 @@ export function DashboardPage() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [sysRes, actRes, enhRes, modRes] = await Promise.all([
-        api.get<{ total_activities: number; success_rate: number; recent_activities_24h: number }>(
-          '/dashboard/system'
-        ).catch(() => null),
-        api.get<{ activities: RawActivity[] }>('/dashboard/activities').catch(() => null),
+      const [actRes, enhRes, modRes] = await Promise.all([
+        api.get<{ activities: RawActivity[] }>('/dashboard/activities?limit=100').catch(() => null),
         api.get<{ enhancement_enabled: boolean; status: string }>('/config/enhancement').catch(() => null),
         api.get<{ modules: ModulesMap }>('/config/modules').catch(() => null),
       ]);
 
-      if (sysRes) {
-        setStats({
-          total_activities: sysRes.total_activities ?? 0,
-          success_rate_24h: sysRes.success_rate ?? 0,
-          recent_activities_24h: sysRes.recent_activities_24h ?? 0,
-        });
-      }
-
       if (actRes?.activities) {
+        setStats(computeStatsFromActivities(actRes.activities));
         setActivities(transformActivities(actRes.activities));
       }
 
@@ -137,6 +160,8 @@ export function DashboardPage() {
     }
   };
 
+  const avgProcessingTime = computeAvgProcessingTime(activities);
+
   return (
     <ContentLayout
       header={
@@ -146,7 +171,7 @@ export function DashboardPage() {
       }
     >
       <SpaceBetween size="l">
-        <SystemOverview stats={stats} loading={loading} />
+        <SystemOverview stats={stats} loading={loading} avgProcessingTime={avgProcessingTime} />
         <ConnectionStatus
           status={status}
           loading={loading}

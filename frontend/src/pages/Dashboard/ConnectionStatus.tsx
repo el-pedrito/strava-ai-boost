@@ -5,6 +5,8 @@ import StatusIndicator from '@cloudscape-design/components/status-indicator';
 import Button from '@cloudscape-design/components/button';
 import Box from '@cloudscape-design/components/box';
 import SpaceBetween from '@cloudscape-design/components/space-between';
+import { StravaLogo } from '../../components/icons/StravaLogo.tsx';
+import { AgentCoreLogo } from '../../components/icons/AgentCoreLogo.tsx';
 import type { SystemStatus } from '../../types/index.ts';
 
 interface Props {
@@ -26,44 +28,79 @@ function agentcoreLabel(s: string): string {
 export function ConnectionStatus({ status, loading, onToggleEnhancement }: Props) {
   if (loading || !status) {
     return (
-      <Container header={<Header variant="h2">Connection Status</Header>}>
+      <Container header={<Header variant="h2">Connections</Header>}>
         <StatusIndicator type="loading">Loading...</StatusIndicator>
       </Container>
     );
   }
 
+  const stravaAccent = status.strava_connected ? 'card-accent-green' : 'card-accent-red';
+
   return (
-    <Container header={<Header variant="h2">Connection Status</Header>}>
-      <ColumnLayout columns={3} variant="text-grid">
-        <SpaceBetween size="xs">
-          <Box variant="awsui-key-label">Strava API</Box>
-          <Box color="text-body-secondary" fontSize="body-s">OAuth connection status</Box>
-          <StatusIndicator type={status.strava_connected ? 'success' : 'error'}>
-            {status.strava_connected ? 'Connected' : 'Disconnected'}
-          </StatusIndicator>
-        </SpaceBetween>
+    <ColumnLayout columns={3}>
+      <div className={`card-accent ${stravaAccent}`}>
+        <Container
+          header={
+            <Header variant="h2">
+              <span className="section-header-with-logo">
+                <StravaLogo size={20} />
+                Strava API
+              </span>
+            </Header>
+          }
+        >
+          <SpaceBetween size="xs">
+            <Box color="text-body-secondary" fontSize="body-s">OAuth connection to Strava</Box>
+            <StatusIndicator type={status.strava_connected ? 'success' : 'error'}>
+              {status.strava_connected ? 'Connected' : 'Disconnected'}
+            </StatusIndicator>
+          </SpaceBetween>
+        </Container>
+      </div>
 
-        <SpaceBetween size="xs">
-          <Box variant="awsui-key-label">AgentCore</Box>
-          <Box color="text-body-secondary" fontSize="body-s">AI agents and memory</Box>
-          <StatusIndicator type={agentcoreType(status.agentcore_status)}>
-            {agentcoreLabel(status.agentcore_status)}
-          </StatusIndicator>
-        </SpaceBetween>
+      <div className="card-accent card-accent-purple">
+        <Container
+          header={
+            <Header variant="h2">
+              <span className="section-header-with-logo">
+                <AgentCoreLogo size={20} />
+                AgentCore
+              </span>
+            </Header>
+          }
+        >
+          <SpaceBetween size="xs">
+            <Box color="text-body-secondary" fontSize="body-s">AI agents and memory</Box>
+            <StatusIndicator type={agentcoreType(status.agentcore_status)}>
+              {agentcoreLabel(status.agentcore_status)}
+            </StatusIndicator>
+          </SpaceBetween>
+        </Container>
+      </div>
 
-        <SpaceBetween size="xs">
-          <Box variant="awsui-key-label">Enhancement</Box>
-          <Box color="text-body-secondary" fontSize="body-s">Activity processing</Box>
-          <SpaceBetween direction="horizontal" size="xs">
+      <div className="card-accent card-accent-blue">
+        <Container
+          header={
+            <Header
+              variant="h2"
+              actions={
+                <Button variant="normal" onClick={onToggleEnhancement}>
+                  {status.enhancement_enabled ? 'Pause' : 'Resume'}
+                </Button>
+              }
+            >
+              Enhancement
+            </Header>
+          }
+        >
+          <SpaceBetween size="xs">
+            <Box color="text-body-secondary" fontSize="body-s">Activity processing pipeline</Box>
             <StatusIndicator type={status.enhancement_enabled ? 'success' : 'stopped'}>
               {status.enhancement_status === 'active' ? 'Active' : 'Paused'}
             </StatusIndicator>
-            <Button variant="normal" onClick={onToggleEnhancement}>
-              {status.enhancement_enabled ? 'Pause' : 'Resume'}
-            </Button>
           </SpaceBetween>
-        </SpaceBetween>
-      </ColumnLayout>
-    </Container>
+        </Container>
+      </div>
+    </ColumnLayout>
   );
 }

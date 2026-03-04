@@ -5,7 +5,10 @@ import StatusIndicator from '@cloudscape-design/components/status-indicator';
 import Button from '@cloudscape-design/components/button';
 import Box from '@cloudscape-design/components/box';
 import SpaceBetween from '@cloudscape-design/components/space-between';
+import Link from '@cloudscape-design/components/link';
 import { useNavigate } from 'react-router-dom';
+import { CampusCoachLogo } from '../../components/icons/CampusCoachLogo.tsx';
+import { EndurawLogo } from '../../components/icons/EndurawLogo.tsx';
 import type { ModulesMap } from '../../types/index.ts';
 
 interface Props {
@@ -16,28 +19,36 @@ interface Props {
 export function ModuleStatus({ modules, loading }: Props) {
   const navigate = useNavigate();
 
-  return (
-    <Container
-      header={
-        <Header
-          variant="h2"
-          actions={<Button onClick={() => navigate('/config')}>Configure Modules</Button>}
-        >
-          Module Status
-        </Header>
-      }
-    >
-      {loading || !modules ? (
+  if (loading || !modules) {
+    return (
+      <Container header={<Header variant="h2">Modules</Header>}>
         <StatusIndicator type="loading">Loading...</StatusIndicator>
-      ) : (
-        <ColumnLayout columns={2}>
+      </Container>
+    );
+  }
+
+  return (
+    <ColumnLayout columns={2}>
+      <div className="card-accent card-accent-campus">
+        <Container
+          header={
+            <Header
+              variant="h2"
+              actions={<Button onClick={() => navigate('/config')}>Configure</Button>}
+            >
+              <span className="section-header-with-logo">
+                <CampusCoachLogo size={22} />
+                <Link href="https://app.campus.coach" external variant="secondary" fontSize="heading-m">
+                  Campus Coach
+                </Link>
+              </span>
+            </Header>
+          }
+        >
           <SpaceBetween size="xs">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Box variant="awsui-key-label">Campus Coach</Box>
-              <StatusIndicator type={modules.campus_coach?.enabled ? 'success' : 'stopped'}>
-                {modules.campus_coach?.enabled ? 'Enabled' : 'Disabled'}
-              </StatusIndicator>
-            </SpaceBetween>
+            <span className={`badge-module ${modules.campus_coach?.enabled ? 'badge-enabled' : 'badge-disabled'}`}>
+              {modules.campus_coach?.enabled ? 'Enabled' : 'Disabled'}
+            </span>
             <Box color="text-body-secondary" fontSize="body-s">
               Training session matching and performance analysis
             </Box>
@@ -47,14 +58,29 @@ export function ModuleStatus({ modules, loading }: Props) {
                 : 'No recent extractions'}
             </Box>
           </SpaceBetween>
+        </Container>
+      </div>
 
+      <div className="card-accent card-accent-enduraw">
+        <Container
+          header={
+            <Header
+              variant="h2"
+              actions={<Button onClick={() => navigate('/config')}>Configure</Button>}
+            >
+              <span className="section-header-with-logo">
+                <EndurawLogo size={22} />
+                <Link href="https://enduraw-report-strava.onrender.com" external variant="secondary" fontSize="heading-m">
+                  Enduraw
+                </Link>
+              </span>
+            </Header>
+          }
+        >
           <SpaceBetween size="xs">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Box variant="awsui-key-label">Enduraw</Box>
-              <StatusIndicator type={modules.enduraw?.enabled ? 'success' : 'stopped'}>
-                {modules.enduraw?.enabled ? 'Enabled' : 'Disabled'}
-              </StatusIndicator>
-            </SpaceBetween>
+            <span className={`badge-module ${modules.enduraw?.enabled ? 'badge-enabled' : 'badge-disabled'}`}>
+              {modules.enduraw?.enabled ? 'Enabled' : 'Disabled'}
+            </span>
             <Box color="text-body-secondary" fontSize="body-s">
               Enhanced analytics with weather and wind impact
             </Box>
@@ -62,8 +88,8 @@ export function ModuleStatus({ modules, loading }: Props) {
               Wait time: {modules.enduraw?.wait_time ?? '2-7 minutes'}
             </Box>
           </SpaceBetween>
-        </ColumnLayout>
-      )}
-    </Container>
+        </Container>
+      </div>
+    </ColumnLayout>
   );
 }

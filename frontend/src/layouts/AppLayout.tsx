@@ -1,6 +1,6 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import AppLayout from '@cloudscape-design/components/app-layout';
-import SideNavigation from '@cloudscape-design/components/side-navigation';
+import TopNavigation from '@cloudscape-design/components/top-navigation';
 import Flashbar from '@cloudscape-design/components/flashbar';
 import BreadcrumbGroup from '@cloudscape-design/components/breadcrumb-group';
 import { useFlashMessages } from '../hooks/useFlashMessages.ts';
@@ -13,12 +13,6 @@ const FlashContext = createContext<AddMessageFn>(() => {});
 export function useFlash() {
   return useContext(FlashContext);
 }
-
-const NAV_ITEMS = [
-  { type: 'link' as const, text: 'Dashboard', href: '/' },
-  { type: 'link' as const, text: 'Configuration', href: '/config' },
-  { type: 'link' as const, text: 'Preferences', href: '/preferences' },
-];
 
 const BREADCRUMB_MAP: Record<string, string> = {
   '/': 'Dashboard',
@@ -40,20 +34,28 @@ export function Shell() {
 
   return (
     <FlashContext.Provider value={addMessage}>
+      <div id="top-nav">
+        <TopNavigation
+          identity={{
+            href: '/',
+            title: 'AI Boost for Strava',
+            logo: {
+              src: '/logo.png',
+              alt: 'Strava AI Boost',
+            },
+          }}
+          utilities={[
+            { type: 'button', text: 'Dashboard', onClick: () => navigate('/') },
+            { type: 'button', text: 'Configuration', onClick: () => navigate('/config') },
+            { type: 'button', text: 'Preferences', onClick: () => navigate('/preferences') },
+          ]}
+          i18nStrings={{ overflowMenuTriggerText: 'More', overflowMenuTitleText: 'All' }}
+        />
+      </div>
       <AppLayout
         toolsHide
-        navigationHide={false}
-        navigation={
-          <SideNavigation
-            header={{ text: 'Strava AI Boost', href: '/' }}
-            activeHref={location.pathname}
-            items={NAV_ITEMS}
-            onFollow={(e) => {
-              e.preventDefault();
-              navigate(e.detail.href);
-            }}
-          />
-        }
+        navigationHide
+        headerSelector="#top-nav"
         breadcrumbs={
           <BreadcrumbGroup
             items={breadcrumbs}
