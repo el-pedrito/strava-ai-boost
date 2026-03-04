@@ -290,6 +290,8 @@ def compress_streams_to_blocks(streams_data: Dict[str, Any], activity_data: Dict
         time_series = streams_data.get('time', {}).get('data', [])
         distance = streams_data.get('distance', {}).get('data', [])
         latlng = streams_data.get('latlng', {}).get('data', [])  # GPS coordinates
+        cadence_stream = streams_data.get('cadence', {}).get('data', [])
+        watts_stream = streams_data.get('watts', {}).get('data', [])
         
         if not velocity or len(velocity) < 10:
             logger.info("Insufficient streams data for compression")
@@ -321,6 +323,8 @@ def compress_streams_to_blocks(streams_data: Dict[str, Any], activity_data: Dict
             
             block_velocities = []
             block_hrs = []
+            block_cadences = []
+            block_watts = []
             block_end_idx = i
             
             # Collect all data points in this 30s window
@@ -334,7 +338,13 @@ def compress_streams_to_blocks(streams_data: Dict[str, Any], activity_data: Dict
                 
                 if block_end_idx < len(heartrate) and heartrate[block_end_idx]:
                     block_hrs.append(heartrate[block_end_idx])
-                
+
+                if block_end_idx < len(cadence_stream) and cadence_stream[block_end_idx]:
+                    block_cadences.append(cadence_stream[block_end_idx])
+
+                if block_end_idx < len(watts_stream) and watts_stream[block_end_idx]:
+                    block_watts.append(watts_stream[block_end_idx])
+
                 block_end_idx += 1
             
             # Calculate averages for this block
@@ -352,7 +362,13 @@ def compress_streams_to_blocks(streams_data: Dict[str, Any], activity_data: Dict
                 
                 if block_hrs:
                     block['hr_bpm'] = int(sum(block_hrs) / len(block_hrs))
-                
+
+                if block_cadences:
+                    block['cadence'] = int(sum(block_cadences) / len(block_cadences))
+
+                if block_watts:
+                    block['watts'] = int(sum(block_watts) / len(block_watts))
+
                 blocks.append(block)
             
             # Move to next block
@@ -396,7 +412,9 @@ def compress_streams_to_blocks(streams_data: Dict[str, Any], activity_data: Dict
                         'segment_name': segment_name,
                         'city': city,
                         'country': country,
-                        'distance_m': segment_effort.get('distance', 0)
+                        'distance_m': segment_effort.get('distance', 0),
+                        'elapsed_time_s': segment_effort.get('elapsed_time', 0),
+                        'pr_rank': segment_effort.get('pr_rank'),
                     }
                     route_landmarks.append(landmark)
                     
@@ -405,7 +423,47 @@ def compress_streams_to_blocks(streams_data: Dict[str, Any], activity_data: Dict
             logger.info(f"✅ Identified {len(route_landmarks)} route landmarks from Strava segments")
         else:
             logger.info("No Strava segments available for route landmarks")
-        
+
+        # Extract segment PRs (top 3 personal performances across ALL segments)
+        segment_prs = []
+        for se in segment_efforts:
+            pr_rank = se.get('pr_rank')
+            if pr_rank and pr_rank <= 3:
+                segment_prs.append({
+                    'name': se.get('segment', {}).get('name', ''),
+                    'pr_rank': pr_rank,
+                    'elapsed_time_s': se.get('elapsed_time', 0),
+                    'distance_m': se.get('distance', 0),
+                })
+
+        # Build performance_summary from streams (more granular than Strava activity averages)
+        performance_summary = {}
+        if heartrate:
+            performance_summary['avg_hr_bpm'] = int(sum(heartrate) / len(heartrate))
+            performance_summary['max_hr_bpm'] = max(heartrate)
+        if velocity:
+            non_zero_vel = [v for v in velocity if v > 0]
+            if non_zero_vel:
+                avg_vel = sum(non_zero_vel) / len(non_zero_vel)
+                performance_summary['avg_speed_kmh'] = round(avg_vel * 3.6, 1)
+                performance_summary['max_speed_kmh'] = round(max(non_zero_vel) * 3.6, 1)
+                performance_summary['avg_pace_min_km'] = round(1000 / (avg_vel * 60), 2) if avg_vel > 0 else None
+        if cadence_stream:
+            non_zero_cad = [c for c in cadence_stream if c > 0]
+            if non_zero_cad:
+                performance_summary['avg_cadence'] = int(sum(non_zero_cad) / len(non_zero_cad))
+                performance_summary['max_cadence'] = max(non_zero_cad)
+        if watts_stream:
+            non_zero_watts = [w for w in watts_stream if w > 0]
+            if non_zero_watts:
+                performance_summary['avg_watts'] = int(sum(non_zero_watts) / len(non_zero_watts))
+                performance_summary['max_watts'] = max(non_zero_watts)
+        # Add Strava-provided scalar metrics
+        for key in ('workout_type', 'suffer_score', 'pr_count', 'achievement_count'):
+            val = activity_data.get(key)
+            if val is not None:
+                performance_summary[key] = val
+
         # Create compressed data structure
         compressed_data = {
             'blocks': blocks,
@@ -415,7 +473,9 @@ def compress_streams_to_blocks(streams_data: Dict[str, Any], activity_data: Dict
             'total_blocks': len(blocks),
             'total_duration_min': round(blocks[-1]['time_min'] if blocks else 0, 1),
             'compression_ratio': f"{len(velocity)} points → {len(blocks)} blocks ({block_duration}s blocks)",
-            'route_landmarks': route_landmarks if route_landmarks else None
+            'route_landmarks': route_landmarks if route_landmarks else None,
+            'performance_summary': performance_summary if performance_summary else None,
+            'segment_prs': segment_prs if segment_prs else None
         }
         
         # Store compressed data in DynamoDB for future use
@@ -1057,6 +1117,7 @@ def generate_enhanced_content_with_agent(
             'active_modules': modules,  # Changed from 'modules' to 'active_modules' for consistency
             'campus_coach_session': campus_coach_sessions,  # Pass Campus Coach sessions for intelligent matching
             'enduraw_data': enduraw_data,  # Pass extracted Enduraw Report
+            'workout_type': activity_data.get('workout_type'),
             'use_memory': True,
             'personalization': True
         }
