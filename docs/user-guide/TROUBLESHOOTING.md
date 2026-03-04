@@ -10,8 +10,8 @@ Common issues and solutions for Strava AI Boost.
 # Check AWS connectivity
 aws sts get-caller-identity --profile your-aws-profile
 
-# Check local interface
-curl http://localhost:3000/api/processing/status
+# Check frontend is running
+curl http://localhost:3000
 
 # Check recent Lambda logs
 aws logs tail /aws/lambda/StravaAIBoost-WebhookHandler --follow --profile your-aws-profile
@@ -181,24 +181,21 @@ curl -X GET 'https://www.strava.com/api/v3/push_subscriptions' \
     --profile your-aws-profile
   ```
 
-## Local Interface Issues
+## Frontend Issues
 
 ### "Dashboard won't load"
 
-**Check Local Server**:
+**Check Dev Server**:
 ```bash
-# Verify Flask app is running
-ps aux | grep python | grep app.py
-
-# Check port availability
+# Verify Vite dev server is running
 lsof -i :3000
 ```
 
 **Solutions**:
-1. **Restart Interface**: `cd local_interface && ./start_dashboard.sh`
+1. **Restart Frontend**: `cd frontend && npm run dev`
 2. **Check Port**: Ensure port 3000 is available
-3. **Check Dependencies**: `pip install -r requirements.txt`
-4. **Verify AWS Profile**: Ensure `your-aws-profile` profile is configured
+3. **Check Dependencies**: `cd frontend && npm install`
+4. **Verify Environment**: Ensure `frontend/.env.local` is configured (copy from `.env.example`)
 
 ### "API Gateway connection failed"
 
@@ -362,11 +359,11 @@ aws logs filter-log-events --log-group-name /aws/lambda/StravaAIBoost-ContentGen
 ### System Information
 
 ```bash
-# System status
-curl http://localhost:3000/api/processing/status > troubleshooting-logs/status.json
+# System status (via API Gateway directly)
+curl -H "x-api-key: your-api-key" https://your-api-id.execute-api.eu-west-1.amazonaws.com/prod/dashboard/stats > troubleshooting-logs/status.json
 
 # Configuration
-curl http://localhost:3000/api/modules > troubleshooting-logs/modules.json
+curl -H "x-api-key: your-api-key" https://your-api-id.execute-api.eu-west-1.amazonaws.com/prod/config/modules > troubleshooting-logs/modules.json
 ```
 
 ### Support Checklist
@@ -378,7 +375,7 @@ When reporting issues, include:
 - [ ] Recent activity processing attempts
 - [ ] Module configuration
 - [ ] AWS region and profile
-- [ ] Local interface logs
+- [ ] Frontend browser console logs
 - [ ] Lambda function logs (if accessible)
 
 ## Prevention

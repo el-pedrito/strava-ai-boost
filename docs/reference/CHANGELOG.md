@@ -5,6 +5,25 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-03-04 - Frontend Migration: Flask to React + Cloudscape
+
+### Changed
+- **Frontend Architecture**: Migrated from `local_interface/` (Flask + Jinja2 templates) to `frontend/` (React 18 + TypeScript + Vite + @cloudscape-design/components)
+  - Removed Flask dependency entirely
+  - Frontend now calls API Gateway directly with `x-api-key` header
+  - Client-side OAuth 2.0 with PKCE flow
+  - Configuration via `.env.local` (copy from `.env.example`): `VITE_API_GATEWAY_URL`, `VITE_API_GATEWAY_KEY`, `VITE_DEFAULT_USER_ID`
+  - 3 pages: Dashboard (`/`), Configuration (`/config`), Preferences (`/preferences`)
+  - Dev server: `cd frontend && npm install && npm run dev` (port 3000)
+
+### Removed
+- **Flask Application**: Removed `local_interface/` directory (Flask app, Jinja2 templates, static assets)
+- **Python Frontend Dependencies**: No more Flask, Jinja2, or server-side rendering dependencies
+- **`start_dashboard.sh`**: Replaced by standard `npm run dev` workflow
+
+### Updated
+- **Documentation**: Updated all references from `local_interface`/Flask to `frontend`/React across AGENTS.md, README.md, QUICK-START.md, FIRST-STEPS.md, CONFIGURATION.md, TROUBLESHOOTING.md, scripts/README.md
+
 ## [1.19.0] - 2026-01-25 - Feedback Loop & Automatic Learning
 
 ### Added

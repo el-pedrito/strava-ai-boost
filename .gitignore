@@ -25,6 +25,10 @@ ENV/
 env/
 .venv
 
+# Frontend (React)
+node_modules/
+frontend/dist/
+
 # Lambda Layer build artifacts
 lambda_layer/python/
 lambda_layer/*.zip

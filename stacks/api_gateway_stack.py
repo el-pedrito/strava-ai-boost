@@ -175,7 +175,7 @@ class ApiGatewayStack(Stack):
             rest_api_name="Strava AI Boost Local Interface API",
             description="REST API for Strava AI Boost local web interface (API Key required)",
             default_cors_preflight_options=apigateway.CorsOptions(
-                allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+                allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:5173", "http://127.0.0.1:5173"],
                 allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
                 allow_headers=["Content-Type", "Authorization", "X-Requested-With", "X-API-Key"]
             ),

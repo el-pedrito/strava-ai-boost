@@ -8,42 +8,24 @@
 
 - ✅ **AWS Infrastructure**: All 5 stacks deployed successfully
 - ✅ **Strava Webhook**: Active (ID: 322419) and receiving events
-- ✅ **Local Interface**: Running on http://localhost:3000
+- ✅ **Frontend**: Running on http://localhost:3000
 - ✅ **Processing Pipeline**: Ready for automatic enhancement
 
 After completing the [Quick Start Guide](QUICK-START.md), follow these steps to enhance your first Strava activity.
 
-## 1. Start Local Dashboard
-
-**IMPORTANT**: Use the provided startup script for reliable AWS configuration:
+## 1. Start Frontend
 
 ```bash
-cd local_interface
-./local_interface/start_dashboard.sh
+cd frontend
+cp .env.example .env.local  # Edit with your VITE_API_GATEWAY_URL, VITE_API_GATEWAY_KEY, VITE_DEFAULT_USER_ID
+npm install
+npm run dev
 ```
 
-**What this script does:**
-- ✅ **Configures AWS Profile**: Sets `your-aws-profile` profile automatically
-- ✅ **Verifies Credentials**: Checks AWS access before starting Flask
-- ✅ **Sets Environment**: Configures Flask development mode and debugging
-- ✅ **Starts Server**: Launches dashboard on http://localhost:3000
-
-**Alternative Manual Method** (not recommended):
-```bash
-cd local_interface
-export AWS_PROFILE=your-aws-profile
-python3 app.py
-```
-
-**Why use the script?**
-- Prevents AWS credential errors (`UnrecognizedClientException`)
-- Ensures proper access to DynamoDB, Secrets Manager, and SQS
-- Provides clear error messages if AWS setup is incorrect
-- Simplifies development workflow with one command
-
-**Dashboard URLs:**
-- **Main Dashboard**: http://localhost:3000
+**Frontend URLs:**
+- **Dashboard**: http://localhost:3000
 - **Configuration**: http://localhost:3000/config
+- **Preferences**: http://localhost:3000/preferences
 
 ## 2. Complete OAuth Connection
 

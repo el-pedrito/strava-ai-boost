@@ -22,7 +22,7 @@
 
 ## Project Overview
 
-Strava AI Boost is a **serverless AWS application** that automatically enhances Strava activity titles and descriptions using AI. The system uses a **local Flask interface** to avoid cloud hosting complexity.
+Strava AI Boost is a **serverless AWS application** that automatically enhances Strava activity titles and descriptions using AI. The system uses a **React + Cloudscape frontend** that calls API Gateway directly.
 
 ### Key Statistics
 - **1,701 files** total
@@ -97,10 +97,11 @@ strava-ai-boost/
 │   └── config/                 # Configuration
 │       └── llm_config.py               # LLM configuration
 │
-├── local_interface/            # Flask web application
-│   ├── app.py                          # Main Flask app
-│   ├── templates/                      # HTML templates
-│   └── static/                         # CSS, JS, images
+├── frontend/                   # React web application
+│   ├── src/                            # React + TypeScript source
+│   ├── public/                         # Static assets
+│   ├── package.json                    # Dependencies
+│   └── vite.config.ts                  # Vite configuration
 │
 ├── tests/                      # Test suite
 │   ├── test_cdk_infrastructure.py      # Stack tests

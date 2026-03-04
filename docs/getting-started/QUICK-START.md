@@ -64,7 +64,7 @@ export AWS_PROFILE=your-aws-profile
 **What this does:**
 - ✅ Retrieves API Gateway URL from CloudFormation
 - ✅ Retrieves API Key from AWS
-- ✅ Generates `local_interface/.env` file
+- ✅ Generates configuration for the frontend
 
 ### Step 5: Configure Strava Webhook
 
@@ -88,11 +88,13 @@ aws secretsmanager put-secret-value \
   --region eu-west-1
 ```
 
-### Step 6: Start Local Interface (30 sec)
+### Step 6: Start Frontend (30 sec)
 
 ```bash
-cd local_interface
-python app.py
+cd frontend
+cp .env.example .env.local  # Edit with your API Gateway URL, API key, and user ID
+npm install
+npm run dev
 ```
 
 Open http://localhost:3000 in your browser.
