@@ -1,7 +1,8 @@
 export interface DashboardStats {
   total_activities: number;
-  success_rate_24h: number;
-  recent_activities_24h: number;
+  success_rate: number;
+  completed_activities: number;
+  failed_activities: number;
 }
 
 export interface Activity {
@@ -10,6 +11,7 @@ export interface Activity {
   processing_time: string;
   status: 'completed' | 'processing' | 'error' | 'unknown';
   modules_used: string[];
+  activity_type?: string;
 }
 
 export interface OAuthStatus {

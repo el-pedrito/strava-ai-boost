@@ -161,24 +161,17 @@ export function PreferencesPage() {
   return (
     <ContentLayout
       header={
-        <Header variant="h1" description="Configure how AI generates your activity descriptions">
+        <Header variant="h1" description="Personalize how AI generates your activity titles and descriptions. These preferences shape the tone, detail level, and style of every enhanced activity.">
           Content Personalization Preferences
         </Header>
       }
     >
-      <Container
-        header={
-          <Header variant="h2" description="Help AI adapt content to your style and preferences">
-            Personal Profile
-          </Header>
-        }
-      >
-        <Form
-          actions={
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button onClick={loadPreferences}>Reset to Current</Button>
-              <Button variant="primary" onClick={handleSave} loading={saving}>Save Preferences</Button>
-            </SpaceBetween>
+      <SpaceBetween size="l">
+        <Container
+          header={
+            <Header variant="h2" description="Tell the AI about yourself so it can tailor content to your profile">
+              Personal Profile
+            </Header>
           }
         >
           <SpaceBetween size="l">
@@ -198,46 +191,6 @@ export function PreferencesPage() {
               />
             </FormField>
 
-            <FormField label="Description Length" description="Preferred length for activity descriptions">
-              <Select
-                selectedOption={contentLength}
-                onChange={({ detail }) => setContentLength(detail.selectedOption)}
-                options={LENGTH_OPTIONS}
-              />
-            </FormField>
-
-            <FormField label="Content Tone" description="Communication style for descriptions">
-              <Select
-                selectedOption={contentTone}
-                onChange={({ detail }) => setContentTone(detail.selectedOption)}
-                options={TONE_OPTIONS}
-              />
-            </FormField>
-
-            <FormField label="Emoji Usage" description="How many emojis to include">
-              <Select
-                selectedOption={emojiUsage}
-                onChange={({ detail }) => setEmojiUsage(detail.selectedOption)}
-                options={EMOJI_OPTIONS}
-              />
-            </FormField>
-
-            <FormField label="Technical Detail Level" description="Level of technical detail in descriptions">
-              <Select
-                selectedOption={technicalDetail}
-                onChange={({ detail }) => setTechnicalDetail(detail.selectedOption)}
-                options={DETAIL_OPTIONS}
-              />
-            </FormField>
-
-            <FormField label="Content Language" description="Language for titles and descriptions">
-              <Select
-                selectedOption={contentLanguage}
-                onChange={({ detail }) => setContentLanguage(detail.selectedOption)}
-                options={LANGUAGE_OPTIONS}
-              />
-            </FormField>
-
             <FormField label="Interests (Optional)" description="AI will use these to add relevant references in content">
               <Multiselect
                 selectedOptions={interests}
@@ -247,8 +200,67 @@ export function PreferencesPage() {
               />
             </FormField>
           </SpaceBetween>
-        </Form>
-      </Container>
+        </Container>
+
+        <Container
+          header={
+            <Header variant="h2" description="Control the output format, tone, and language of generated descriptions">
+              Content Style
+            </Header>
+          }
+        >
+          <Form
+            actions={
+              <SpaceBetween direction="horizontal" size="xs">
+                <Button onClick={loadPreferences}>Reset to Current</Button>
+                <Button variant="primary" onClick={handleSave} loading={saving}>Save Preferences</Button>
+              </SpaceBetween>
+            }
+          >
+            <SpaceBetween size="l">
+              <FormField label="Description Length" description="Preferred length for activity descriptions">
+                <Select
+                  selectedOption={contentLength}
+                  onChange={({ detail }) => setContentLength(detail.selectedOption)}
+                  options={LENGTH_OPTIONS}
+                />
+              </FormField>
+
+              <FormField label="Content Tone" description="Communication style for descriptions">
+                <Select
+                  selectedOption={contentTone}
+                  onChange={({ detail }) => setContentTone(detail.selectedOption)}
+                  options={TONE_OPTIONS}
+                />
+              </FormField>
+
+              <FormField label="Emoji Usage" description="How many emojis to include">
+                <Select
+                  selectedOption={emojiUsage}
+                  onChange={({ detail }) => setEmojiUsage(detail.selectedOption)}
+                  options={EMOJI_OPTIONS}
+                />
+              </FormField>
+
+              <FormField label="Technical Detail Level" description="Level of technical detail in descriptions">
+                <Select
+                  selectedOption={technicalDetail}
+                  onChange={({ detail }) => setTechnicalDetail(detail.selectedOption)}
+                  options={DETAIL_OPTIONS}
+                />
+              </FormField>
+
+              <FormField label="Content Language" description="Language for titles and descriptions">
+                <Select
+                  selectedOption={contentLanguage}
+                  onChange={({ detail }) => setContentLanguage(detail.selectedOption)}
+                  options={LANGUAGE_OPTIONS}
+                />
+              </FormField>
+            </SpaceBetween>
+          </Form>
+        </Container>
+      </SpaceBetween>
     </ContentLayout>
   );
 }

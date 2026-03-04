@@ -8,6 +8,7 @@ import Button from '@cloudscape-design/components/button';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import StatusIndicator from '@cloudscape-design/components/status-indicator';
 import Alert from '@cloudscape-design/components/alert';
+import { StravaLogo } from '../../components/icons/StravaLogo.tsx';
 import { api } from '../../api/client.ts';
 import { useFlash } from '../../layouts/AppLayout.tsx';
 
@@ -50,7 +51,10 @@ export function StravaAppSetup({ configured, onConfigured }: Props) {
             </StatusIndicator>
           }
         >
-          Strava Application Setup
+          <span className="section-header-with-logo">
+            <StravaLogo size={22} />
+            Strava Application Setup
+          </span>
         </Header>
       }
     >
