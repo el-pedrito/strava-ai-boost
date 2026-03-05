@@ -64,7 +64,8 @@ class ApiGatewayStack(Stack):
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
                 "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
                 "CAMPUS_COACH_SECRET": self.core_stack.campus_coach_secret.secret_name,
-                "INTERVALS_ICU_SECRET": self.core_stack.intervals_icu_secret.secret_name
+                "INTERVALS_ICU_SECRET": self.core_stack.intervals_icu_secret.secret_name,
+                "DEFAULT_USER_ID": os.environ.get("DEFAULT_USER_ID", "YOUR_USER_ID")
             }
         )
 
