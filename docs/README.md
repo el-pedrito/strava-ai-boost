@@ -1,7 +1,7 @@
 # Strava AI Boost Documentation
 
-**Version:** 2.2.1  
-**Last Updated:** 2026-02-17
+**Version:** 2.4.0
+**Last Updated:** 2026-03-05
 
 Welcome to Strava AI Boost! Streamlined documentation for quick access.
 

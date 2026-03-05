@@ -5,6 +5,53 @@ All notable changes to Strava AI Boost will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-03-05 - Production Hardening: Structured Logging, Metrics & Reliability
+
+### Added
+- **Shared Lambda Utilities** (`lambda_functions/shared/`): Centralized logger and metrics module
+  - `shared/logger.py`: Wrapper around AWS Lambda Powertools (Logger, Metrics, MetricUnit)
+  - `inject_correlation_id()`: Extracts API Gateway `requestId` and sets it as correlation ID on the logger
+  - `METRICS_NAMESPACE = "StravaAIBoost"`: Unified CloudWatch custom metrics namespace
+  - Used by all 4 API Lambda functions: `configuration_api`, `dashboard_api`, `user_preferences_api`, `agentcore_health_check`
+
+- **Structured Logging with AWS Lambda Powertools**: All API Lambdas now use structured JSON logging
+  - Correlation IDs from API Gateway request context for end-to-end tracing
+  - Business metrics: `ConfigurationApiCalls`, `DashboardApiCalls`, `PreferencesApiCalls`, `HealthCheckApiCalls`
+  - Specific exception handling replacing bare `except Exception` blocks
+
+- **Frontend Reliability Improvements**:
+  - `ErrorBoundary` component for graceful React error recovery
+  - `React.lazy` + `Suspense` code splitting for Dashboard, Configuration, Preferences pages
+  - `React.memo` on dashboard components (`ConnectionStatus`, `RecentActivities`, `SystemOverview`)
+  - Shared frontend utilities (`frontend/src/utils/`)
+  - Error state handling in dashboard components (error messages instead of silent failures)
+
+- **Retry Adapters**: HTTP retry logic with exponential backoff for external API calls
+- **Resource Tags**: All CDK stacks tagged with `Project`, `Environment`, `ManagedBy`
+- **DynamoDB TTL**: `expires_at` attribute on activities table for automatic data cleanup
+
+### Fixed
+- **Ghost User Records**: Eliminated 3 sources of phantom DynamoDB records in `user-configuration` table
+  - `YOUR_USER_ID`: Hardcoded fallback in `configuration_api.py` changed to empty string
+  - `OAUTH_STATUS`: Hardcoded `put_item` in OAuth callback replaced with `update_item` using real Strava athlete ID
+  - `12345678`: Hardcoded fallback in `api_gateway_stack.py` changed to empty string
+  - All user identification now aligned on Strava athlete ID from OAuth tokens
+
+- **Dead Import Bug**: Removed `strava_client` and `oauth_handler` imports in `dashboard_api.py`
+  - These modules were deleted in a prior commit but `get_engagement_metrics()` still imported them
+  - Simplified to DynamoDB-only data source (engagement metrics not used by frontend)
+
+- **Lambda Powertools Deployment**: Bundled `aws-lambda-powertools` directly in Lambda code bundle
+  - Lambda Layer couldn't be updated due to CloudFormation cross-stack export constraint
+  - Workaround: `pip install aws-lambda-powertools -t lambda_functions/` with vendored dirs in `.gitignore`
+
+- **Stale Test References**: Removed rate_limit references from tests that no longer apply
+
+### Changed
+- **Shared Environment Loader** (`stacks/env_loader.py`): Centralized `.env.agentcore` loading for CDK stacks
+- **Scoped IAM Permissions**: AgentCore health check Lambda IAM scoped to specific agent runtime ARNs
+- **Cost Optimizations**: Reduced Lambda memory where possible, DynamoDB TTL for automatic cleanup
+
 ## [2.0.0] - 2026-03-04 - Frontend Migration: Flask to React + Cloudscape
 
 ### Changed

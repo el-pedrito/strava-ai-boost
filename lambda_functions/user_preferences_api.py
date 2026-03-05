@@ -30,11 +30,11 @@ USER_CONFIG_TABLE = os.environ['USER_CONFIG_TABLE']
 
 # Allowed preference values for validation
 ALLOWED_AGE_RANGES = ['18-25', '26-35', '36-45', '46-55', '56-65', '65+']
-ALLOWED_SPORT_APPROACHES = ['health & wellness', 'competitive', 'social', 'adventure', 'weight loss']
-ALLOWED_CONTENT_LENGTHS = ['short', 'medium', 'long']
-ALLOWED_CONTENT_TONES = ['motivational & energetic', 'analytical & data-driven', 'casual & fun', 'professional', 'poetic']
-ALLOWED_EMOJI_USAGES = ['none', 'minimal', 'moderate', 'heavy']
-ALLOWED_TECHNICAL_DETAILS = ['beginner', 'intermediate', 'advanced']
+ALLOWED_SPORT_APPROACHES = ['health & wellness', 'performance & competition', 'social & fun', 'personal challenge', 'stress relief', 'weight management']
+ALLOWED_CONTENT_LENGTHS = ['short', 'medium', 'detailed', 'adaptive']
+ALLOWED_CONTENT_TONES = ['technical & analytical', 'motivational & energetic', 'casual & friendly', 'humorous & fun', 'authentic & personal']
+ALLOWED_EMOJI_USAGES = ['none', 'minimal', 'moderate', 'enthusiastic']
+ALLOWED_TECHNICAL_DETAILS = ['basic', 'intermediate', 'advanced']
 ALLOWED_CONTENT_LANGUAGES = ['french', 'english', 'spanish', 'german', 'italian']
 
 
