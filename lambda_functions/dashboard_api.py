@@ -482,21 +482,12 @@ def get_module_usage_stats(start_date: datetime) -> Dict[str, Any]:
 
 
 def get_engagement_metrics(start_date: datetime) -> Dict[str, Any]:
-    """Get engagement metrics from Strava API and DynamoDB"""
+    """Get engagement metrics from DynamoDB stored activity data"""
     try:
-        # Import Strava client here to avoid circular imports
-        import sys
-        import os
-        sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src', 'utils'))
-        
-        from strava_client import create_strava_client_from_env
-        from oauth_handler import create_oauth_handler_from_env
-        
-        # Get activities from DynamoDB with enhanced data
         table = dynamodb.Table(ACTIVITIES_TABLE)
         response = table.scan()
         activities = response.get('Items', [])
-        
+
         # Filter activities by date range
         recent_activities = []
         for activity in activities:
@@ -508,108 +499,40 @@ def get_engagement_metrics(start_date: datetime) -> Dict[str, Any]:
                         recent_activities.append(activity)
                 except ValueError:
                     continue
-        
-        # Initialize metrics
+
         total_kudos = 0
         total_comments = 0
         total_activities = len(recent_activities)
         enhanced_activities = 0
         baseline_kudos = 0
         baseline_comments = 0
-        
-        # Try to get fresh engagement data from Strava API
-        try:
-            oauth_handler = create_oauth_handler_from_env()
-            strava_client = create_strava_client_from_env()
-            
-            # Check if we have valid OAuth tokens
-            if oauth_handler.get_valid_access_token("default"):
-                # Get recent activities from Strava API for fresh engagement data
-                strava_response = strava_client.get_activities(
-                    after=start_date,
-                    per_page=min(30, total_activities)  # Limit API calls
-                )
-                
-                if strava_response.is_success:
-                    strava_activities = strava_response.data
-                    
-                    # Create mapping of activity IDs to engagement data
-                    engagement_map = {}
-                    for strava_activity in strava_activities:
-                        activity_id = str(strava_activity.get('id'))
-                        engagement_map[activity_id] = {
-                            'kudos_count': strava_activity.get('kudos_count', 0),
-                            'comment_count': strava_activity.get('comment_count', 0)
-                        }
-                    
-                    # Calculate metrics using fresh Strava data
-                    for activity in recent_activities:
-                        activity_id = activity.get('activity_id')
-                        if activity_id in engagement_map:
-                            # Use fresh data from Strava API
-                            kudos = engagement_map[activity_id]['kudos_count']
-                            comments = engagement_map[activity_id]['comment_count']
-                        else:
-                            # Fallback to stored data
-                            kudos = activity.get('kudos_count', 0)
-                            comments = activity.get('comment_count', 0)
-                        
-                        total_kudos += kudos
-                        total_comments += comments
-                        
-                        # Track enhanced vs baseline activities
-                        if activity.get('enhanced_title') or activity.get('enhanced_description'):
-                            enhanced_activities += 1
-                        else:
-                            baseline_kudos += kudos
-                            baseline_comments += comments
-                
-                else:
-                    logger.warning("Failed to fetch activities from Strava API, using stored data")
-                    # Fallback to stored data
-                    for activity in recent_activities:
-                        total_kudos += activity.get('kudos_count', 0)
-                        total_comments += activity.get('comment_count', 0)
-                        
-                        if activity.get('enhanced_title') or activity.get('enhanced_description'):
-                            enhanced_activities += 1
+
+        for activity in recent_activities:
+            kudos = activity.get('kudos_count', 0)
+            comments = activity.get('comment_count', 0)
+            total_kudos += kudos
+            total_comments += comments
+
+            if activity.get('enhanced_title') or activity.get('enhanced_description'):
+                enhanced_activities += 1
             else:
-                logger.info("No valid Strava OAuth token, using stored engagement data")
-                # Use stored data from DynamoDB
-                for activity in recent_activities:
-                    total_kudos += activity.get('kudos_count', 0)
-                    total_comments += activity.get('comment_count', 0)
-                    
-                    if activity.get('enhanced_title') or activity.get('enhanced_description'):
-                        enhanced_activities += 1
-        
-        except Exception as api_error:
-            logger.warning(f"Strava API error, using stored data: {str(api_error)}")
-            # Fallback to stored data
-            for activity in recent_activities:
-                total_kudos += activity.get('kudos_count', 0)
-                total_comments += activity.get('comment_count', 0)
-                
-                if activity.get('enhanced_title') or activity.get('enhanced_description'):
-                    enhanced_activities += 1
-        
-        # Calculate averages and improvements
+                baseline_kudos += kudos
+                baseline_comments += comments
+
         avg_kudos_per_activity = total_kudos / total_activities if total_activities > 0 else 0
         avg_comments_per_activity = total_comments / total_activities if total_activities > 0 else 0
-        
+
         # Calculate engagement improvement (enhanced vs baseline)
         engagement_improvement = 0
         if enhanced_activities > 0 and (total_activities - enhanced_activities) > 0:
             enhanced_kudos = total_kudos - baseline_kudos
-            enhanced_comments = total_comments - baseline_comments
-            
             avg_enhanced_kudos = enhanced_kudos / enhanced_activities
             avg_baseline_kudos = baseline_kudos / (total_activities - enhanced_activities)
-            
+
             if avg_baseline_kudos > 0:
                 kudos_improvement = ((avg_enhanced_kudos - avg_baseline_kudos) / avg_baseline_kudos) * 100
-                engagement_improvement = max(0, kudos_improvement)  # Only show positive improvements
-        
+                engagement_improvement = max(0, kudos_improvement)
+
         return {
             'total_kudos': total_kudos,
             'total_comments': total_comments,
@@ -618,7 +541,7 @@ def get_engagement_metrics(start_date: datetime) -> Dict[str, Any]:
             'engagement_improvement': round(engagement_improvement, 1),
             'enhanced_activities': enhanced_activities,
             'total_activities': total_activities,
-            'data_source': 'strava_api_and_dynamodb'
+            'data_source': 'dynamodb'
         }
 
     except (ClientError, ValueError, TypeError) as e:
