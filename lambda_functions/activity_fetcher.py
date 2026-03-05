@@ -12,6 +12,8 @@ from typing import Dict, Any, Optional
 import boto3
 from botocore.exceptions import ClientError
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from datetime import datetime, timedelta
 
 logger = logging.getLogger()
@@ -21,6 +23,19 @@ logger.setLevel(logging.INFO)
 REGION = os.environ.get('AWS_REGION', 'eu-west-1')
 dynamodb = boto3.resource('dynamodb', region_name=REGION)
 secretsmanager = boto3.client('secretsmanager', region_name=REGION)
+
+# HTTP session with retry for external API calls
+_http_session = None
+
+
+def _get_http_session() -> requests.Session:
+    global _http_session
+    if _http_session is None:
+        _http_session = requests.Session()
+        retry = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+        _http_session.mount("https://", HTTPAdapter(max_retries=retry))
+    return _http_session
+
 
 # Environment variables
 ACTIVITIES_TABLE = os.environ['ACTIVITIES_TABLE']
@@ -226,7 +241,7 @@ def refresh_access_token(refresh_token: str) -> Optional[Dict[str, Any]]:
         
         logger.info(f"Attempting to refresh token with client_id: {client_id}")
         
-        response = requests.post("https://www.strava.com/oauth/token", data=token_data, timeout=30)
+        response = _get_http_session().post("https://www.strava.com/oauth/token", data=token_data, timeout=30)
         
         if response.status_code != 200:
             logger.error(f"Token refresh failed with status {response.status_code}: {response.text}")
@@ -265,7 +280,7 @@ def fetch_activity_data(activity_id: str, access_token: str) -> Dict[str, Any]:
         headers = {'Authorization': f'Bearer {access_token}'}
         url = f"{STRAVA_API_BASE}/activities/{activity_id}"
         
-        response = requests.get(url, headers=headers, timeout=30)
+        response = _get_http_session().get(url, headers=headers, timeout=30)
         response.raise_for_status()
         
         activity_data = response.json()
@@ -323,7 +338,7 @@ def fetch_streams_data(activity_id: str, access_token: str) -> Optional[Dict[str
             'key_by_type': 'true'
         }
         
-        response = requests.get(url, headers=headers, params=params, timeout=30)
+        response = _get_http_session().get(url, headers=headers, params=params, timeout=30)
         
         if response.status_code == 404:
             logger.info(f"No streams data available for activity {activity_id}")
@@ -361,7 +376,7 @@ def fetch_athlete_stats(athlete_id: str, access_token: str) -> Optional[Dict[str
         headers = {'Authorization': f'Bearer {access_token}'}
         url = f"{STRAVA_API_BASE}/athletes/{athlete_id}/stats"
         
-        response = requests.get(url, headers=headers, timeout=30)
+        response = _get_http_session().get(url, headers=headers, timeout=30)
         response.raise_for_status()
         
         stats_data = response.json()
@@ -397,7 +412,7 @@ def fetch_athlete_profile(access_token: str) -> Optional[Dict[str, Any]]:
         headers = {'Authorization': f'Bearer {access_token}'}
         url = f"{STRAVA_API_BASE}/athlete"
         
-        response = requests.get(url, headers=headers, timeout=30)
+        response = _get_http_session().get(url, headers=headers, timeout=30)
         response.raise_for_status()
         
         profile_data = response.json()
@@ -432,7 +447,7 @@ def fetch_gear_details(gear_id: str, access_token: str) -> Optional[Dict[str, An
         headers = {'Authorization': f'Bearer {access_token}'}
         url = f"{STRAVA_API_BASE}/gear/{gear_id}"
         
-        response = requests.get(url, headers=headers, timeout=30)
+        response = _get_http_session().get(url, headers=headers, timeout=30)
         response.raise_for_status()
         
         gear_data = response.json()
@@ -500,7 +515,7 @@ def fetch_intervals_icu_data(activity_data: Dict[str, Any], user_config: Dict[st
     # 1. Fetch wellness data for activity date
     try:
         wellness_url = f"{base_url}/wellness/{activity_date}"
-        resp = requests.get(wellness_url, auth=auth, timeout=10)
+        resp = _get_http_session().get(wellness_url, auth=auth, timeout=10)
         if resp.status_code == 200:
             w = resp.json()
             result['wellness'] = {
@@ -533,7 +548,7 @@ def fetch_intervals_icu_data(activity_data: Dict[str, Any], user_config: Dict[st
             f"icu_variability_index,decoupling,icu_hr_zone_times,gap,"
             f"icu_ctl,icu_atl,icu_hrr,feel"
         )
-        resp = requests.get(activities_url, auth=auth, timeout=10)
+        resp = _get_http_session().get(activities_url, auth=auth, timeout=10)
         if resp.status_code == 200:
             activities = resp.json()
             if activities:
@@ -792,7 +807,7 @@ def reverse_geocode_location(latitude: float, longitude: float) -> Dict[str, Opt
         }
         
         # Make request with timeout
-        response = requests.get(url, params=params, headers=headers, timeout=10)
+        response = _get_http_session().get(url, params=params, headers=headers, timeout=10)
         
         if response.status_code == 200:
             data = response.json()
@@ -861,7 +876,7 @@ def fetch_weather_data(latitude: float, longitude: float, date_time: str) -> Dic
         }
         
         # Make request
-        response = requests.get(url, params=params, timeout=10)
+        response = _get_http_session().get(url, params=params, timeout=10)
         
         if response.status_code == 200:
             data = response.json()
