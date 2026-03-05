@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Container from '@cloudscape-design/components/container';
 import Header from '@cloudscape-design/components/header';
-import Form from '@cloudscape-design/components/form';
 import FormField from '@cloudscape-design/components/form-field';
 import Select from '@cloudscape-design/components/select';
 import Multiselect from '@cloudscape-design/components/multiselect';
@@ -245,57 +244,49 @@ export function PreferencesPage() {
             </Header>
           }
         >
-          <Form
-            actions={
-              <SpaceBetween direction="horizontal" size="xs">
-                <Button onClick={loadPreferences}>Reset to Current</Button>
-                <Button variant="primary" onClick={handleSave} loading={saving}>Save Preferences</Button>
-              </SpaceBetween>
-            }
-          >
-            <SpaceBetween size="l">
-              <FormField label="Description Length" description="Preferred length for activity descriptions">
-                <Select
-                  selectedOption={contentLength}
-                  onChange={({ detail }) => setContentLength(detail.selectedOption)}
-                  options={LENGTH_OPTIONS}
-                />
-              </FormField>
+          <SpaceBetween size="l">
+            <FormField label="Description Length" description="Preferred length for activity descriptions">
+              <Select
+                selectedOption={contentLength}
+                onChange={({ detail }) => setContentLength(detail.selectedOption)}
+                options={LENGTH_OPTIONS}
+              />
+            </FormField>
 
-              <FormField label="Content Tone" description="Communication style for descriptions">
-                <Select
-                  selectedOption={contentTone}
-                  onChange={({ detail }) => setContentTone(detail.selectedOption)}
-                  options={TONE_OPTIONS}
-                />
-              </FormField>
+            <FormField label="Content Tone" description="Communication style for descriptions">
+              <Select
+                selectedOption={contentTone}
+                onChange={({ detail }) => setContentTone(detail.selectedOption)}
+                options={TONE_OPTIONS}
+              />
+            </FormField>
 
-              <FormField label="Emoji Usage" description="How many emojis to include">
-                <Select
-                  selectedOption={emojiUsage}
-                  onChange={({ detail }) => setEmojiUsage(detail.selectedOption)}
-                  options={EMOJI_OPTIONS}
-                />
-              </FormField>
+            <FormField label="Emoji Usage" description="How many emojis to include">
+              <Select
+                selectedOption={emojiUsage}
+                onChange={({ detail }) => setEmojiUsage(detail.selectedOption)}
+                options={EMOJI_OPTIONS}
+              />
+            </FormField>
 
-              <FormField label="Technical Detail Level" description="Level of technical detail in descriptions">
-                <Select
-                  selectedOption={technicalDetail}
-                  onChange={({ detail }) => setTechnicalDetail(detail.selectedOption)}
-                  options={DETAIL_OPTIONS}
-                />
-              </FormField>
+            <FormField label="Technical Detail Level" description="Level of technical detail in descriptions">
+              <Select
+                selectedOption={technicalDetail}
+                onChange={({ detail }) => setTechnicalDetail(detail.selectedOption)}
+                options={DETAIL_OPTIONS}
+              />
+            </FormField>
 
-              <FormField label="Content Language" description="Language for titles and descriptions">
-                <Select
-                  selectedOption={contentLanguage}
-                  onChange={({ detail }) => setContentLanguage(detail.selectedOption)}
-                  options={LANGUAGE_OPTIONS}
-                />
-              </FormField>
-            </SpaceBetween>
-          </Form>
+            <FormField label="Content Language" description="Language for titles and descriptions">
+              <Select
+                selectedOption={contentLanguage}
+                onChange={({ detail }) => setContentLanguage(detail.selectedOption)}
+                options={LANGUAGE_OPTIONS}
+              />
+            </FormField>
+          </SpaceBetween>
         </Container>
+
         <Container
           header={
             <Header variant="h2" description="Define your personal pace zones so the AI correctly classifies your workouts (EF, Tempo, Seuil, etc.)">
@@ -359,6 +350,11 @@ export function PreferencesPage() {
             </Button>
           </SpaceBetween>
         </Container>
+
+        <SpaceBetween direction="horizontal" size="xs">
+          <Button onClick={loadPreferences}>Reset to Current</Button>
+          <Button variant="primary" onClick={handleSave} loading={saving}>Save Preferences</Button>
+        </SpaceBetween>
       </SpaceBetween>
     </ContentLayout>
   );
