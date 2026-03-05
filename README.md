@@ -408,15 +408,13 @@ cd frontend && npm test
 ## Documentation
 
 - **[AGENTS.md](AGENTS.md)** - Complete development guide for AI assistants
-- **[Changelog](docs/reference/CHANGELOG.md)** - Version history
 - **[Scripts](scripts/README.md)** - Deployment and maintenance scripts
 - **[Tests](tests/README.md)** - Test suite documentation
 
 ## Contributing
 
 1. Follow property-based testing for infrastructure changes
-2. Update CHANGELOG.md for significant changes
-3. Ensure all tests pass before committing
+2. Ensure all tests pass before committing
 4. Use `your-aws-profile` for all AWS operations
 
 ## License

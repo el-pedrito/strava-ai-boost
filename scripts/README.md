@@ -956,7 +956,6 @@ aws cloudwatch get-metric-statistics \
 ### Documentation Complète
 - **README.md** - Vue d'ensemble, quick start, configuration, troubleshooting
 - **AGENTS.md** - Guide de développement pour assistants IA
-- **docs/reference/CHANGELOG.md** - Historique des versions
 
 ### Ressources Externes
 - **AWS CDK:** https://docs.aws.amazon.com/cdk/
