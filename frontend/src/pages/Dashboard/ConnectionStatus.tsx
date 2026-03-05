@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import Container from '@cloudscape-design/components/container';
 import Header from '@cloudscape-design/components/header';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
@@ -25,7 +26,7 @@ function agentcoreLabel(s: string): string {
   return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-export function ConnectionStatus({ status, loading, onToggleEnhancement }: Props) {
+export const ConnectionStatus = memo(function ConnectionStatus({ status, loading, onToggleEnhancement }: Props) {
   if (loading || !status) {
     return (
       <Container header={<Header variant="h2">Connections</Header>}>
@@ -103,4 +104,4 @@ export function ConnectionStatus({ status, loading, onToggleEnhancement }: Props
       </div>
     </ColumnLayout>
   );
-}
+});

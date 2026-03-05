@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Header from '@cloudscape-design/components/header';
 import SpaceBetween from '@cloudscape-design/components/space-between';
+import Alert from '@cloudscape-design/components/alert';
+import Button from '@cloudscape-design/components/button';
 import { SystemOverview } from './SystemOverview.tsx';
 import { ConnectionStatus } from './ConnectionStatus.tsx';
 import { ModuleStatus } from './ModuleStatus.tsx';
@@ -89,9 +91,11 @@ export function DashboardPage() {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [modules, setModules] = useState<ModulesMap | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
     try {
+      setError(null);
       const [actRes, enhRes, modRes] = await Promise.all([
         api.get<{ activities: RawActivity[] }>('/dashboard/activities?limit=100').catch(() => null),
         api.get<{ enhancement_enabled: boolean; status: string }>('/config/enhancement').catch(() => null),
@@ -101,6 +105,8 @@ export function DashboardPage() {
       if (actRes?.activities) {
         setStats(computeStatsFromActivities(actRes.activities));
         setActivities(transformActivities(actRes.activities));
+      } else if (!stats) {
+        setError('Failed to load dashboard data');
       }
 
       setStatus((prev) => ({
@@ -111,6 +117,8 @@ export function DashboardPage() {
       }));
 
       if (modRes?.modules) setModules(modRes.modules);
+    } catch {
+      setError('Failed to load dashboard data');
     } finally {
       setLoading(false);
     }
@@ -171,6 +179,11 @@ export function DashboardPage() {
       }
     >
       <SpaceBetween size="l">
+        {error && (
+          <Alert type="error" action={<Button onClick={fetchAll}>Retry</Button>}>
+            {error}
+          </Alert>
+        )}
         <SystemOverview stats={stats} loading={loading} avgProcessingTime={avgProcessingTime} />
         <ConnectionStatus
           status={status}
