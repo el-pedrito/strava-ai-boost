@@ -158,7 +158,15 @@ class ApiGatewayStack(Stack):
             environment=agentcore_env
         )
         
-        # Grant AgentCore permissions
+        # Grant AgentCore permissions - scoped to agent runtime ARNs
+        agentcore_resources = []
+        for arn_key in ['CONTENT_GENERATION_AGENT_ARN', 'CAMPUS_COACH_AGENT_ARN']:
+            if arn_key in agentcore_env:
+                agentcore_resources.append(agentcore_env[arn_key])
+        if not agentcore_resources:
+            agentcore_resources = [
+                f"arn:aws:bedrock-agentcore:{self.region}:{self.account}:runtime/*"
+            ]
         self.agentcore_health_lambda.add_to_role_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
@@ -166,7 +174,7 @@ class ApiGatewayStack(Stack):
                     "bedrock-agentcore:InvokeAgentRuntime",
                     "bedrock-agentcore:GetAgentRuntime"
                 ],
-                resources=["*"]  # Will be restricted to specific agent ARNs in production
+                resources=agentcore_resources
             )
         )
 

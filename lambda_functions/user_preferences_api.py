@@ -9,6 +9,7 @@ Handles user preferences for content personalization:
 import json
 import os
 import logging
+import re
 from typing import Dict, Any
 import boto3
 from botocore.exceptions import ClientError
@@ -22,6 +23,15 @@ dynamodb = boto3.resource('dynamodb')
 
 # Environment variables
 USER_CONFIG_TABLE = os.environ['USER_CONFIG_TABLE']
+
+# Allowed preference values for validation
+ALLOWED_AGE_RANGES = ['18-25', '26-35', '36-45', '46-55', '56-65', '65+']
+ALLOWED_SPORT_APPROACHES = ['health & wellness', 'competitive', 'social', 'adventure', 'weight loss']
+ALLOWED_CONTENT_LENGTHS = ['short', 'medium', 'long']
+ALLOWED_CONTENT_TONES = ['motivational & energetic', 'analytical & data-driven', 'casual & fun', 'professional', 'poetic']
+ALLOWED_EMOJI_USAGES = ['none', 'minimal', 'moderate', 'heavy']
+ALLOWED_TECHNICAL_DETAILS = ['beginner', 'intermediate', 'advanced']
+ALLOWED_CONTENT_LANGUAGES = ['french', 'english', 'spanish', 'german', 'italian']
 
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -41,7 +51,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             
     except Exception as e:
         logger.error(f"User preferences API error: {str(e)}")
-        return create_error_response(500, f'Internal server error: {str(e)}')
+        return create_error_response(500, 'Internal server error')
 
 
 def get_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
@@ -49,7 +59,9 @@ def get_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
     try:
         # Get user_id from query parameters or use default
         query_params = event.get('queryStringParameters') or {}
-        user_id = query_params.get('user_id', os.environ.get('DEFAULT_USER_ID', 'YOUR_USER_ID'))
+        user_id = query_params.get('user_id', os.environ.get('DEFAULT_USER_ID', ''))
+        if not user_id or not re.match(r'^[a-zA-Z0-9_-]{1,64}$', user_id):
+            return create_error_response(400, 'Invalid or missing user_id')
         
         table = dynamodb.Table(USER_CONFIG_TABLE)
         response = table.get_item(Key={'user_id': user_id})
@@ -81,25 +93,57 @@ def get_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
         
     except Exception as e:
         logger.error(f"Get user preferences error: {str(e)}")
-        return create_error_response(500, f'Failed to get user preferences: {str(e)}')
+        return create_error_response(500, 'Failed to get user preferences')
 
 
 def update_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
     """Update user preferences in DynamoDB"""
     try:
-        # Parse request body
-        body = json.loads(event.get('body', '{}'))
-        user_id = body.get('user_id', os.environ.get('DEFAULT_USER_ID', 'YOUR_USER_ID'))
-        
+        # Parse and validate request body
+        body_str = event.get('body', '{}')
+        if len(body_str) > 10000:
+            return create_error_response(413, 'Request body too large')
+        body = json.loads(body_str)
+        user_id = body.get('user_id', os.environ.get('DEFAULT_USER_ID', ''))
+        if not user_id or not re.match(r'^[a-zA-Z0-9_-]{1,64}$', user_id):
+            return create_error_response(400, 'Invalid or missing user_id')
+
+        # Validate preference values against allowed lists
+        age_range = body.get('age_range', '26-35')
+        if age_range not in ALLOWED_AGE_RANGES:
+            return create_error_response(400, f'Invalid age_range. Allowed: {ALLOWED_AGE_RANGES}')
+        sport_approach = body.get('sport_approach', 'health & wellness')
+        if sport_approach not in ALLOWED_SPORT_APPROACHES:
+            return create_error_response(400, f'Invalid sport_approach. Allowed: {ALLOWED_SPORT_APPROACHES}')
+        content_length = body.get('content_length', 'medium')
+        if content_length not in ALLOWED_CONTENT_LENGTHS:
+            return create_error_response(400, f'Invalid content_length. Allowed: {ALLOWED_CONTENT_LENGTHS}')
+        content_tone = body.get('content_tone', 'motivational & energetic')
+        if content_tone not in ALLOWED_CONTENT_TONES:
+            return create_error_response(400, f'Invalid content_tone. Allowed: {ALLOWED_CONTENT_TONES}')
+        emoji_usage = body.get('emoji_usage', 'moderate')
+        if emoji_usage not in ALLOWED_EMOJI_USAGES:
+            return create_error_response(400, f'Invalid emoji_usage. Allowed: {ALLOWED_EMOJI_USAGES}')
+        technical_detail = body.get('technical_detail', 'intermediate')
+        if technical_detail not in ALLOWED_TECHNICAL_DETAILS:
+            return create_error_response(400, f'Invalid technical_detail. Allowed: {ALLOWED_TECHNICAL_DETAILS}')
+        content_language = body.get('content_language', 'french')
+        if content_language not in ALLOWED_CONTENT_LANGUAGES:
+            return create_error_response(400, f'Invalid content_language. Allowed: {ALLOWED_CONTENT_LANGUAGES}')
+
+        interests = body.get('interests', [])
+        if not isinstance(interests, list) or len(interests) > 20:
+            return create_error_response(400, 'interests must be a list with at most 20 items')
+
         preferences = {
-            'age_range': body.get('age_range', '26-35'),
-            'interests': body.get('interests', []),
-            'sport_approach': body.get('sport_approach', 'health & wellness'),
-            'content_length': body.get('content_length', 'medium'),
-            'content_tone': body.get('content_tone', 'motivational & energetic'),
-            'emoji_usage': body.get('emoji_usage', 'moderate'),
-            'technical_detail': body.get('technical_detail', 'intermediate'),
-            'content_language': body.get('content_language', 'french')
+            'age_range': age_range,
+            'interests': interests,
+            'sport_approach': sport_approach,
+            'content_length': content_length,
+            'content_tone': content_tone,
+            'emoji_usage': emoji_usage,
+            'technical_detail': technical_detail,
+            'content_language': content_language
         }
 
         # Add pace_zones if provided (validated format: {zone: {min: "mm:ss", max: "mm:ss"}})
@@ -140,7 +184,7 @@ def update_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
         return create_error_response(400, 'Invalid JSON in request body')
     except Exception as e:
         logger.error(f"Update user preferences error: {str(e)}")
-        return create_error_response(500, f'Failed to update user preferences: {str(e)}')
+        return create_error_response(500, 'Failed to update user preferences')
 
 
 def create_success_response(data: Dict[str, Any]) -> Dict[str, Any]:
