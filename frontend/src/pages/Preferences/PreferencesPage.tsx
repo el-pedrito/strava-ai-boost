@@ -319,7 +319,7 @@ export function PreferencesPage() {
                   >
                     <SpaceBetween direction="horizontal" size="xs">
                       <Box>
-                        <Box color="text-body-secondary" fontSize="body-s">Debut (min/km)</Box>
+                        <Box color="text-body-secondary" fontSize="body-s">Debut (mm:ss/km)</Box>
                         <Input
                           value={zone.min}
                           placeholder="05:00"
@@ -332,7 +332,7 @@ export function PreferencesPage() {
                         />
                       </Box>
                       <Box>
-                        <Box color="text-body-secondary" fontSize="body-s">Fin (min/km)</Box>
+                        <Box color="text-body-secondary" fontSize="body-s">Fin (mm:ss/km)</Box>
                         <Input
                           value={zone.max}
                           placeholder="06:00"
