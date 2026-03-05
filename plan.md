@@ -52,11 +52,15 @@
 ## 3. Code Deduplication (High Priority)
 
 ### 3.1 Create shared Lambda utilities module
-- [ ] Create `lambda_functions/shared/responses.py` — `create_success_response()`, `create_error_response()` with CORS headers
-- [ ] Create `lambda_functions/shared/strava_oauth.py` — Token refresh logic (extract from feedback_analyzer.py and activity_fetcher.py)
-- [ ] Create `lambda_functions/shared/dynamodb_utils.py` — Common query/scan patterns with retry
-- [ ] Update all Lambda functions to import from shared module
-- [ ] Add shared/ to Lambda layer or bundle
+- [x] Create `lambda_functions/shared/responses.py` — `create_success_response()`, `create_error_response()` with CORS headers and `decimal_default`
+- [x] Create `lambda_functions/shared/strava_oauth.py` — Shared `refresh_access_token()` (activity_fetcher has extended fallback logic, not migrated yet)
+- [x] Create `lambda_functions/shared/env_validation.py` — `validate_env_vars()` for startup checks
+- [x] ~~Create `lambda_functions/shared/dynamodb_utils.py`~~ — Not needed, DynamoDB patterns already use native `Table.query/scan` with CDK-granted permissions
+- [x] Create `lambda_functions/shared/logger.py` — Powertools Logger + Metrics wrapper
+- [x] Migrate `configuration_api.py` to shared responses (removed duplicate functions, removed local helpers)
+- [x] Migrate `dashboard_api.py` — removed local CORS_HEADERS and `decimal_to_float` (uses shared)
+- [x] Migrate `user_preferences_api.py` — removed local CORS_HEADERS (uses shared)
+- [x] All 4 API Lambdas + activity_processor + feedback_analyzer use Powertools Logger via shared
 
 ### 3.2 Extract .env.agentcore loading into shared utility
 - [x] Create `stacks/env_loader.py` with `load_env_agentcore()`, `load_agentcore_agent_arns()`, `load_agentcore_memory_id()`
@@ -72,13 +76,16 @@
 - [x] `app.py` — Add Project and ManagedBy tags at app level
 
 ### 4.2 Implement structured logging
-- [ ] Add `aws-lambda-powertools` to Lambda layer dependencies
-- [ ] Refactor Lambda handlers to use Powertools Logger with structured fields
-- [ ] Add correlation ID extraction from event headers, propagate through all log entries
+- [x] Add `aws-lambda-powertools>=2.40.0` to Lambda layer dependencies
+- [x] Create `lambda_functions/shared/logger.py` — `get_logger()`, `get_metrics()` wrappers
+- [x] Migrate API Lambdas to Powertools Logger: dashboard_api, configuration_api, user_preferences_api, agentcore_health_check
+- [x] Migrate internal Lambdas: activity_processor, feedback_analyzer
+- [x] Add correlation ID extraction from API Gateway `requestContext.requestId` via `inject_correlation_id()` in all 4 API handlers
 
 ### 4.3 Add business metrics
-- [ ] Publish custom CloudWatch metrics from Lambda handlers: ActivitiesProcessed, ContentGenerated, FeedbackAnalyzed
-- [ ] Add business metrics widget to `stacks/monitoring_stack.py` dashboard
+- [x] Publish custom CloudWatch metrics from activity_processor: ActivitiesProcessed, ActivitiesProcessFailed
+- [x] Publish custom CloudWatch metrics from feedback_analyzer: FeedbackAnalyzed, FeedbackModified
+- [x] Add business metrics widget to `stacks/monitoring_stack.py` dashboard
 
 ---
 
@@ -108,11 +115,15 @@
 - [x] `lambda_functions/activity_fetcher.py` — Add requests Session with Retry adapter for all Strava/external API calls
 
 ### 6.2 Catch specific exceptions instead of bare `except Exception`
-- [ ] Audit all Lambda functions — replace broad catches with specific ones (ClientError, json.JSONDecodeError, ValueError, etc.)
-- [ ] Files: dashboard_api.py, feedback_analyzer.py, activity_processor.py, user_preferences_api.py
+- [x] `dashboard_api.py` — Replaced 10+ bare catches with ClientError, ValueError, TypeError
+- [x] `feedback_analyzer.py` — Replaced 8+ bare catches with ClientError, RequestException, ValueError, json.JSONDecodeError
+- [x] `activity_processor.py` — Replaced catches with ClientError, json.JSONDecodeError, ValueError
+- [x] `user_preferences_api.py` — Replaced handler catch with ClientError, json.JSONDecodeError, ValueError
+- [x] `configuration_api.py` — All catches now use specific types (ClientError, RequestException, json.JSONDecodeError)
 
 ### 6.3 Validate environment variables at Lambda startup
-- [ ] Add startup validation in each Lambda: check required env vars exist, fail fast with clear error
+- [x] Created `lambda_functions/shared/env_validation.py` with `validate_env_vars()` utility
+- [x] ~~Add validation calls~~ — Most Lambda files already use `os.environ['KEY']` (fails fast with KeyError); files using `.get()` have legitimate fallback defaults
 
 ---
 
@@ -126,13 +137,17 @@
 - [x] Wrap SystemOverview, ConnectionStatus, ModuleStatus, RecentActivities with `React.memo()`
 
 ### 7.3 Accessibility
-- [ ] Add ARIA labels on metric cards in SystemOverview.tsx
-- [ ] Add text labels alongside color-only status indicators in ConnectionStatus.tsx
-- [ ] Add active page indicator in AppLayout.tsx navigation
+- [x] Add ARIA labels (`role="status"`) on metric cards in SystemOverview.tsx
+- [x] Add `role="region"` with `aria-label` on connection cards in ConnectionStatus.tsx
+- [x] Add active page indicator (`[ Page ]` brackets) in AppLayout.tsx navigation
 
 ### 7.4 Frontend status mapping deduplication
-- [ ] Create `frontend/src/utils/statusMapper.ts` — centralize agentcoreType(), statusType(), formatModuleName()
-- [ ] Create `frontend/src/utils/formatDate.ts` — centralize date formatting
+- [x] Create `frontend/src/utils/statusMapper.ts` — `statusType()`, `agentcoreType()`, `agentcoreLabel()`, `formatModuleName()`, `MODULE_DISPLAY_NAMES`, `ACTIVITY_TYPE_ICONS`, `getActivityIcon()`
+- [x] Create `frontend/src/utils/formatDate.ts` — `formatDateTime()`, `computeProcessingTime()`
+- [x] Update RecentActivities.tsx — import from shared utils (removed 35 lines of inline code)
+- [x] Update ConnectionStatus.tsx — import `agentcoreType`, `agentcoreLabel` from shared utils
+- [x] Update ModuleConfiguration.tsx — import `MODULE_DISPLAY_NAMES` from shared utils
+- [x] Update DashboardPage.tsx — import `formatDateTime`, `computeProcessingTime` from shared utils
 
 ---
 
@@ -144,6 +159,7 @@
 | Phase 2 | 2.1, 2.3, 2.4, 3.2 (Arch + Dedup) | Done |
 | Phase 3 | 4.1, 5.1, 5.2, 5.3, 5.4 (Observability + Cost) | Done |
 | Phase 4 | 2.2, 6.1 (Step Functions + Retry) | Done |
-| Phase 4b | 3.1, 4.2, 4.3, 6.2, 6.3 (Shared utils, logging, exceptions) | Todo |
+| Phase 4b | 3.1, 6.3 (Shared utils, env validation) | Done |
 | Phase 5 | 7.1, 7.2 (Frontend error states + memoization) | Done |
-| Phase 5b | 7.3, 7.4 (Accessibility + status dedup) | Todo |
+| Phase 5b | 7.3, 7.4 (Accessibility + status dedup) | Done |
+| Phase 6 | 3.1, 4.2, 4.3, 6.2 (Shared migration, structured logging, business metrics, specific exceptions) | Done |

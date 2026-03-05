@@ -11,6 +11,7 @@ import { RecentActivities } from './RecentActivities.tsx';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh.ts';
 import { useFlash } from '../../layouts/AppLayout.tsx';
 import { api } from '../../api/client.ts';
+import { formatDateTime, computeProcessingTime } from '../../utils/formatDate.ts';
 import type { DashboardStats, SystemStatus, Activity, ModulesMap } from '../../types/index.ts';
 
 interface RawActivity {
@@ -24,33 +25,14 @@ interface RawActivity {
 }
 
 function transformActivities(raw: RawActivity[]): Activity[] {
-  return raw.slice(0, 10).map((act) => {
-    let processingTime = 'N/A';
-    if (act.created_at && act.updated_at) {
-      try {
-        const created = new Date(act.created_at);
-        const updated = new Date(act.updated_at);
-        processingTime = `${Math.round((updated.getTime() - created.getTime()) / 1000)}s`;
-      } catch { /* ignore */ }
-    }
-
-    let dateStr = 'N/A';
-    if (act.created_at) {
-      try {
-        const dt = new Date(act.created_at);
-        dateStr = dt.toISOString().slice(0, 16).replace('T', ' ');
-      } catch { /* ignore */ }
-    }
-
-    return {
-      name: act.enhanced_title || act.original_name || 'Unknown',
-      date: dateStr,
-      processing_time: processingTime,
-      status: (act.processing_status as Activity['status']) || 'unknown',
-      modules_used: act.modules_used || [],
-      activity_type: act.activity_type,
-    };
-  });
+  return raw.slice(0, 10).map((act) => ({
+    name: act.enhanced_title || act.original_name || 'Unknown',
+    date: act.created_at ? formatDateTime(act.created_at) : 'N/A',
+    processing_time: computeProcessingTime(act.created_at, act.updated_at),
+    status: (act.processing_status as Activity['status']) || 'unknown',
+    modules_used: act.modules_used || [],
+    activity_type: act.activity_type,
+  }));
 }
 
 function computeAvgProcessingTime(activities: Activity[]): string {

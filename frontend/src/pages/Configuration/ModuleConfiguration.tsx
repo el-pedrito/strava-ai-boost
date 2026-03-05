@@ -16,6 +16,7 @@ import { CampusCoachLogo } from '../../components/icons/CampusCoachLogo.tsx';
 import { EndurawLogo } from '../../components/icons/EndurawLogo.tsx';
 import { api } from '../../api/client.ts';
 import { useFlash } from '../../layouts/AppLayout.tsx';
+import { MODULE_DISPLAY_NAMES } from '../../utils/statusMapper.ts';
 import type { ModulesMap } from '../../types/index.ts';
 
 interface Props {
@@ -51,8 +52,7 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
   const toggleModule = async (moduleId: string, enabled: boolean) => {
     try {
       await api.post('/config/modules', { module_id: moduleId, enabled });
-      const nameMap: Record<string, string> = { campus_coach: 'Campus Coach', enduraw: 'Enduraw', intervals_icu: 'Intervals.icu' };
-      flash(enabled ? 'success' : 'info', `${nameMap[moduleId] ?? moduleId} ${enabled ? 'enabled' : 'disabled'}`);
+      flash(enabled ? 'success' : 'info', `${MODULE_DISPLAY_NAMES[moduleId] ?? moduleId} ${enabled ? 'enabled' : 'disabled'}`);
       onModuleChanged();
     } catch {
       flash('error', 'Failed to update module');

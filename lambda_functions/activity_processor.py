@@ -7,14 +7,13 @@ Handles error recovery.
 
 import json
 import os
-import logging
 from typing import Dict, Any
 import boto3
 from botocore.exceptions import ClientError
 from datetime import datetime, UTC
+from shared.logger import get_logger, metrics, MetricUnit
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger = get_logger("activity_processor")
 
 # Initialize AWS clients
 stepfunctions = boto3.client('stepfunctions')
@@ -53,14 +52,21 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     "itemIdentifier": record['messageId']
                 })
         
+        # Publish business metrics
+        processed = len(event.get('Records', [])) - len(batch_item_failures)
+        if processed > 0:
+            metrics.add_metric(name="ActivitiesProcessed", unit=MetricUnit.Count, value=processed)
+        if batch_item_failures:
+            metrics.add_metric(name="ActivitiesProcessFailed", unit=MetricUnit.Count, value=len(batch_item_failures))
+
         # Return batch item failures to SQS
         # Messages with failures will be retried, successful ones will be deleted
         return {
             'batchItemFailures': batch_item_failures
         }
         
-    except Exception as e:
-        logger.error(f"Activity processor critical error: {str(e)}")
+    except (ClientError, json.JSONDecodeError, KeyError, ValueError) as e:
+        logger.error(f"Activity processor critical error: {str(e)}", exc_info=True)
         # Return all messages as failures to prevent deletion
         return {
             'batchItemFailures': [
@@ -232,7 +238,7 @@ def should_skip_processing(activity_id: str, message_body: Dict[str, Any]) -> bo
         logger.info(f"Activity {activity_id} status: {processing_status}, aspect: {aspect_type}, proceeding")
         return False
         
-    except Exception as e:
+    except (ClientError, ValueError, TypeError) as e:
         logger.error(f"Error checking processing status for activity {activity_id}: {str(e)}")
         # On error, allow processing to avoid blocking legitimate requests
         return False
@@ -266,7 +272,7 @@ def update_activity_status(
         
         logger.info(f"Updated activity {activity_id} status to {status}")
         
-    except Exception as e:
+    except ClientError as e:
         logger.error(f"Failed to update activity status: {str(e)}")
         # For critical status updates (like initial processing), raise to trigger retry
         if critical:
@@ -327,7 +333,7 @@ def update_activity_execution_arn(activity_id: str, execution_arn: str) -> None:
         
         logger.info(f"Updated activity {activity_id} with execution ARN")
         
-    except Exception as e:
+    except ClientError as e:
         logger.error(f"Failed to update execution ARN: {str(e)}")
 
 def fetch_user_configuration(user_id: str) -> Dict[str, Any]:
@@ -378,7 +384,7 @@ def fetch_user_configuration(user_id: str) -> Dict[str, Any]:
             logger.info(f"No configuration found for user {user_id}, using defaults")
             return default_config
             
-    except Exception as e:
+    except ClientError as e:
         logger.error(f"Failed to fetch user configuration: {str(e)}")
         # Return minimal default config on error
         return {

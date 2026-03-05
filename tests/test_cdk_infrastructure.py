@@ -42,8 +42,8 @@ class TestCoreInfrastructureStack:
         """Test that all required DynamoDB tables are created"""
         template = assertions.Template.from_stack(core_stack)
         
-        # Should have 4 tables
-        template.resource_count_is("AWS::DynamoDB::Table", 4)
+        # Should have 3 tables (activities, user-config, coaching-sessions)
+        template.resource_count_is("AWS::DynamoDB::Table", 3)
         
         # Verify encryption is enabled
         template.has_resource_properties("AWS::DynamoDB::Table", {

@@ -317,10 +317,44 @@ class MonitoringStack(Stack):
             ]
         )
 
+        # Business metrics widget (custom metrics from Lambda Powertools)
+        business_widget = cloudwatch.GraphWidget(
+            title="Business Metrics",
+            left=[
+                cloudwatch.Metric(
+                    namespace="StravaAIBoost",
+                    metric_name="ActivitiesProcessed",
+                    statistic="Sum",
+                    label="Activities Processed"
+                ),
+                cloudwatch.Metric(
+                    namespace="StravaAIBoost",
+                    metric_name="FeedbackAnalyzed",
+                    statistic="Sum",
+                    label="Feedback Analyzed"
+                ),
+            ],
+            right=[
+                cloudwatch.Metric(
+                    namespace="StravaAIBoost",
+                    metric_name="ActivitiesProcessFailed",
+                    statistic="Sum",
+                    label="Processing Failures"
+                ),
+                cloudwatch.Metric(
+                    namespace="StravaAIBoost",
+                    metric_name="FeedbackModified",
+                    statistic="Sum",
+                    label="User Modifications"
+                ),
+            ]
+        )
+
         # Add widgets to dashboard
         self.dashboard.add_widgets(
             lambda_widget,
             step_functions_widget,
             sqs_widget,
-            dynamodb_widget
+            dynamodb_widget,
+            business_widget
         )

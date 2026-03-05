@@ -10,16 +10,19 @@ Provides dashboard data for the local web interface including:
 
 import json
 import os
-import logging
-from typing import Dict, Any, List, Optional
-from decimal import Decimal
+from typing import Dict, Any, List
 import boto3
 from botocore.exceptions import ClientError
 from datetime import datetime, timedelta
+from shared.responses import (
+    CORS_HEADERS_READ as CORS_HEADERS,
+    create_success_response,
+    create_error_response,
+)
+from shared.logger import get_logger, inject_correlation_id, metrics, MetricUnit
 import time
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger = get_logger("dashboard_api")
 
 # Initialize AWS clients
 dynamodb = boto3.resource('dynamodb')
@@ -36,17 +39,6 @@ def _get_cloudwatch():
 ACTIVITIES_TABLE = os.environ['ACTIVITIES_TABLE']
 USER_CONFIG_TABLE = os.environ['USER_CONFIG_TABLE']
 COACHING_SESSIONS_TABLE = os.environ['COACHING_SESSIONS_TABLE']
-
-
-def decimal_to_float(obj):
-    """Convert Decimal objects to float for JSON serialization"""
-    if isinstance(obj, Decimal):
-        return float(obj)
-    elif isinstance(obj, dict):
-        return {k: decimal_to_float(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [decimal_to_float(item) for item in obj]
-    return obj
 
 
 # Simple in-memory cache with TTL for performance optimization
@@ -85,15 +77,6 @@ def get_cached_or_compute(cache_key: str, compute_func, *args, **kwargs):
     return result
 
 
-# CORS headers
-CORS_HEADERS = {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
-    'Access-Control-Max-Age': '86400'
-}
-
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
@@ -101,6 +84,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     
     Handles various dashboard data requests
     """
+    inject_correlation_id(logger, event)
     try:
         http_method = event.get('httpMethod', 'GET')
         path = event.get('path', '')
@@ -132,8 +116,11 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         else:
             return create_error_response(404, 'Endpoint not found')
         
-    except Exception as e:
-        logger.error(f"Dashboard API error: {str(e)}")
+    except ClientError as e:
+        logger.error(f"Dashboard API AWS error: {str(e)}", exc_info=True)
+        return create_error_response(500, 'Internal server error')
+    except (ValueError, TypeError, KeyError) as e:
+        logger.error(f"Dashboard API data error: {str(e)}", exc_info=True)
         return create_error_response(500, 'Internal server error')
 
 
@@ -175,39 +162,10 @@ def validate_request(event: Dict[str, Any]) -> str:
                 return 'Offset parameter must be a valid integer'
         
         return None  # No validation errors
-        
-    except Exception as e:
+
+    except (ValueError, TypeError, KeyError) as e:
         logger.error(f"Request validation error: {str(e)}")
         return f'Request validation failed: {str(e)}'
-
-
-def create_error_response(status_code: int, message: str) -> Dict[str, Any]:
-    """Create standardized error response"""
-    headers = CORS_HEADERS.copy()
-    return {
-        'statusCode': status_code,
-        'headers': headers,
-        'body': json.dumps({
-            'error': message,
-            'timestamp': datetime.utcnow().isoformat()
-        })
-    }
-
-
-def create_success_response(data: Dict[str, Any], status_code: int = 200) -> Dict[str, Any]:
-    """Create standardized success response with Decimal conversion"""
-    headers = CORS_HEADERS.copy()
-    # Convert Decimal objects to float for JSON serialization
-    data = decimal_to_float(data)
-    
-    return {
-        'statusCode': status_code,
-        'headers': headers,
-        'body': json.dumps({
-            **data,
-            'timestamp': datetime.utcnow().isoformat()
-        })
-    }
 
 
 def get_dashboard_stats(query_params: Dict[str, str]) -> Dict[str, Any]:
@@ -261,7 +219,7 @@ def get_dashboard_stats(query_params: Dict[str, str]) -> Dict[str, Any]:
             'cache_enabled': True
         }
         
-    except Exception as e:
+    except (ClientError, ValueError, TypeError) as e:
         logger.error(f"Failed to get dashboard stats: {str(e)}")
         raise
 
@@ -329,11 +287,11 @@ def get_activity_processing_stats(start_date: datetime) -> Dict[str, Any]:
             'query_method': 'gsi_optimized'
         }
         
-    except Exception as e:
+    except ClientError as e:
         logger.error(f"Failed to get activity processing stats with GSI: {str(e)}")
         # Fallback to scan method
         logger.info("Falling back to table scan method")
-        
+
         try:
             response = table.scan()
             activities = response.get('Items', [])
@@ -368,7 +326,7 @@ def get_activity_processing_stats(start_date: datetime) -> Dict[str, Any]:
                 'query_method': 'scan_fallback'
             }
             
-        except Exception as fallback_error:
+        except ClientError as fallback_error:
             logger.error(f"Fallback scan method also failed: {str(fallback_error)}")
             return {
                 'total_activities': 0,
@@ -456,7 +414,7 @@ def get_performance_metrics() -> Dict[str, Any]:
                     'error_count': int(error_count)
                 }
                 
-            except Exception as e:
+            except ClientError as e:
                 logger.warning(f"Failed to get metrics for {function_name}: {str(e)}")
                 function_metrics[function_name] = {
                     'avg_duration_ms': 0,
@@ -468,7 +426,7 @@ def get_performance_metrics() -> Dict[str, Any]:
             'last_updated': datetime.utcnow().isoformat()
         }
         
-    except Exception as e:
+    except ClientError as e:
         logger.error(f"Failed to get performance metrics: {str(e)}")
         return {
             'lambda_functions': {},
@@ -514,7 +472,7 @@ def get_module_usage_stats(start_date: datetime) -> Dict[str, Any]:
             'most_used_module': max(module_counts.items(), key=lambda x: x[1])[0] if module_counts else None
         }
         
-    except Exception as e:
+    except ClientError as e:
         logger.error(f"Failed to get module usage stats: {str(e)}")
         return {
             'total_activities_with_modules': 0,
@@ -663,7 +621,7 @@ def get_engagement_metrics(start_date: datetime) -> Dict[str, Any]:
             'data_source': 'strava_api_and_dynamodb'
         }
 
-    except Exception as e:
+    except (ClientError, ValueError, TypeError) as e:
         logger.error(f"Failed to get engagement metrics: {str(e)}")
         return {
             'total_kudos': 0,
@@ -774,7 +732,7 @@ def get_activity_history(query_params: Dict[str, str]) -> Dict[str, Any]:
             'query_method': 'gsi_optimized' if status_filter else 'gsi_combined'
         }
         
-    except Exception as e:
+    except (ClientError, ValueError, TypeError) as e:
         logger.error(f"Failed to get activity history: {str(e)}")
         return {
             'activities': [],
@@ -846,7 +804,7 @@ def get_system_stats() -> Dict[str, Any]:
                 )
                 dlq_depth = int(dlq_attrs['Attributes'].get('ApproximateNumberOfMessages', 0))
                 
-        except Exception as e:
+        except ClientError as e:
             logger.warning(f"Failed to get SQS queue depth: {e}")
         
         return {
@@ -860,7 +818,7 @@ def get_system_stats() -> Dict[str, Any]:
             'timestamp': datetime.utcnow().isoformat()
         }
         
-    except Exception as e:
+    except (ClientError, ValueError) as e:
         logger.error(f"Failed to get system stats: {str(e)}")
         return {
             'total_activities': 0,
