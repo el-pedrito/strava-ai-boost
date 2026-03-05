@@ -13,17 +13,17 @@ V2 (Memory Strategy):
 
 import json
 import os
-import logging
 from typing import Dict, Any, List, Optional, Tuple
 import boto3
+from botocore.exceptions import ClientError
 from datetime import datetime, timedelta, UTC
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import difflib
+from shared.logger import get_logger, metrics, MetricUnit
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger = get_logger("feedback_analyzer")
 
 # Initialize AWS clients
 dynamodb = boto3.resource('dynamodb')
@@ -136,13 +136,18 @@ def lambda_handler(event, context):
                 logger.info(f"Activity {activity_id} not modified (similarity: {similarity:.2%})")
 
         # Calculate quality metrics
-        metrics = calculate_quality_metrics(activities)
+        metrics_data = calculate_quality_metrics(activities)
 
         logger.info("=== Feedback Analyzer V2 Completed ===")
         logger.info(f"Activities analyzed: {len(activities)}")
         logger.info(f"Modifications detected: {modified_count}")
         logger.info(f"Memory events written: {memory_writes}")
-        logger.info(f"Modification rate: {metrics['modification_rate']:.1%}")
+        logger.info(f"Modification rate: {metrics_data['modification_rate']:.1%}")
+
+        # Publish business metrics
+        metrics.add_metric(name="FeedbackAnalyzed", unit=MetricUnit.Count, value=len(activities))
+        if modified_count > 0:
+            metrics.add_metric(name="FeedbackModified", unit=MetricUnit.Count, value=modified_count)
 
         return {
             'statusCode': 200,
@@ -150,11 +155,17 @@ def lambda_handler(event, context):
             'activities_analyzed': len(activities),
             'modifications_detected': modified_count,
             'memory_events_written': memory_writes,
-            'metrics': metrics
+            'metrics': metrics_data
         }
 
-    except Exception as e:
-        logger.error(f"Feedback analyzer failed: {str(e)}")
+    except (ClientError, requests.RequestException) as e:
+        logger.error(f"Feedback analyzer failed: {str(e)}", exc_info=True)
+        return {
+            'statusCode': 500,
+            'error': str(e)
+        }
+    except (ValueError, KeyError) as e:
+        logger.error(f"Feedback analyzer data error: {str(e)}", exc_info=True)
         return {
             'statusCode': 500,
             'error': str(e)
@@ -202,7 +213,7 @@ def get_unanalyzed_activities(min_age_hours: int = 24) -> List[Dict[str, Any]]:
 
         return activities
 
-    except Exception as e:
+    except ClientError as e:
         logger.error(f"Failed to get unanalyzed activities: {str(e)}")
         return []
 
@@ -234,7 +245,7 @@ def get_access_token() -> str:
         
         return tokens['access_token']
         
-    except Exception as e:
+    except (ClientError, json.JSONDecodeError, ValueError) as e:
         logger.error(f"Failed to get access token: {str(e)}")
         raise
 
@@ -256,7 +267,7 @@ def is_token_expired(tokens: Dict[str, Any]) -> bool:
         current_time = datetime.now(UTC)
         return expiry_time <= (current_time + timedelta(minutes=5))
         
-    except Exception as e:
+    except (ValueError, TypeError, OSError) as e:
         logger.warning(f"Error checking token expiry: {e}")
         return True
 
@@ -303,7 +314,7 @@ def refresh_access_token(refresh_token: str) -> Optional[Dict[str, Any]]:
         logger.info("Successfully refreshed access token")
         return new_tokens
         
-    except Exception as e:
+    except (ClientError, json.JSONDecodeError, KeyError) as e:
         logger.error(f"Error refreshing token: {e}")
         return None
 
@@ -328,8 +339,8 @@ def fetch_final_description(activity_id: str, access_token: str) -> Optional[str
     except requests.exceptions.RequestException as e:
         logger.error(f"Strava API request failed for {activity_id}: {str(e)}")
         return None
-    except Exception as e:
-        logger.error(f"Failed to fetch final description for {activity_id}: {str(e)}")
+    except (json.JSONDecodeError, KeyError, ValueError) as e:
+        logger.error(f"Failed to parse final description for {activity_id}: {str(e)}")
         return None
 
 
@@ -381,7 +392,7 @@ def update_activity_feedback(
             }
         )
         
-    except Exception as e:
+    except ClientError as e:
         logger.error(f"Failed to update activity feedback: {str(e)}")
 
 
@@ -446,7 +457,7 @@ def write_feedback_to_memory(
         logger.info(f"Wrote feedback event for activity {activity_id} (user={user_id}, status={status})")
         return True
 
-    except Exception as e:
+    except ClientError as e:
         logger.error(f"Failed to write feedback to memory for {activity_id}: {e}")
         return False
 
@@ -496,7 +507,7 @@ def calculate_quality_metrics(activities: List[Dict]) -> Dict:
         
         improvement_percent = ((old_rate - current_rate) / old_rate * 100) if old_rate > 0 else 0
         
-    except Exception as e:
+    except (ClientError, ValueError, TypeError, ZeroDivisionError) as e:
         logger.warning(f"Failed to calculate trend: {e}")
         trend = 'unknown'
         old_rate = 0

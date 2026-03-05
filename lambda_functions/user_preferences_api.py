@@ -8,15 +8,19 @@ Handles user preferences for content personalization:
 
 import json
 import os
-import logging
 import re
 from typing import Dict, Any
 import boto3
 from botocore.exceptions import ClientError
 from datetime import datetime, UTC
+from shared.responses import (
+    CORS_HEADERS_WRITE as CORS_HEADERS,
+    create_success_response,
+    create_error_response,
+)
+from shared.logger import get_logger, inject_correlation_id
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger = get_logger("user_preferences_api")
 
 # Initialize AWS clients
 dynamodb = boto3.resource('dynamodb')
@@ -36,6 +40,7 @@ ALLOWED_CONTENT_LANGUAGES = ['french', 'english', 'spanish', 'german', 'italian'
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Lambda handler for user preferences API"""
+    inject_correlation_id(logger, event)
     try:
         http_method = event.get('httpMethod', '')
         path = event.get('path', '')
@@ -47,11 +52,11 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         elif http_method == 'POST':
             return update_user_preferences(event)
         else:
-            return create_error_response(405, 'Method not allowed')
-            
-    except Exception as e:
-        logger.error(f"User preferences API error: {str(e)}")
-        return create_error_response(500, 'Internal server error')
+            return create_error_response(405, 'Method not allowed', cors_headers=CORS_HEADERS)
+
+    except (ClientError, json.JSONDecodeError, ValueError) as e:
+        logger.error(f"User preferences API error: {str(e)}", exc_info=True)
+        return create_error_response(500, 'Internal server error', cors_headers=CORS_HEADERS)
 
 
 def get_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
@@ -61,18 +66,18 @@ def get_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
         query_params = event.get('queryStringParameters') or {}
         user_id = query_params.get('user_id', os.environ.get('DEFAULT_USER_ID', ''))
         if not user_id or not re.match(r'^[a-zA-Z0-9_-]{1,64}$', user_id):
-            return create_error_response(400, 'Invalid or missing user_id')
-        
+            return create_error_response(400, 'Invalid or missing user_id', cors_headers=CORS_HEADERS)
+
         table = dynamodb.Table(USER_CONFIG_TABLE)
         response = table.get_item(Key={'user_id': user_id})
-        
+
         if 'Item' in response:
             user_config = response['Item']
             preferences = user_config.get('user_preferences', {})
         else:
             # Return default preferences
             preferences = {}
-        
+
         # Return with defaults
         result = {
             'success': True,
@@ -88,12 +93,12 @@ def get_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
                 'pace_zones': preferences.get('pace_zones', None)
             }
         }
-        
-        return create_success_response(result)
-        
-    except Exception as e:
+
+        return create_success_response(result, cors_headers=CORS_HEADERS)
+
+    except ClientError as e:
         logger.error(f"Get user preferences error: {str(e)}")
-        return create_error_response(500, 'Failed to get user preferences')
+        return create_error_response(500, 'Failed to get user preferences', cors_headers=CORS_HEADERS)
 
 
 def update_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
@@ -102,38 +107,38 @@ def update_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
         # Parse and validate request body
         body_str = event.get('body', '{}')
         if len(body_str) > 10000:
-            return create_error_response(413, 'Request body too large')
+            return create_error_response(413, 'Request body too large', cors_headers=CORS_HEADERS)
         body = json.loads(body_str)
         user_id = body.get('user_id', os.environ.get('DEFAULT_USER_ID', ''))
         if not user_id or not re.match(r'^[a-zA-Z0-9_-]{1,64}$', user_id):
-            return create_error_response(400, 'Invalid or missing user_id')
+            return create_error_response(400, 'Invalid or missing user_id', cors_headers=CORS_HEADERS)
 
         # Validate preference values against allowed lists
         age_range = body.get('age_range', '26-35')
         if age_range not in ALLOWED_AGE_RANGES:
-            return create_error_response(400, f'Invalid age_range. Allowed: {ALLOWED_AGE_RANGES}')
+            return create_error_response(400, f'Invalid age_range. Allowed: {ALLOWED_AGE_RANGES}', cors_headers=CORS_HEADERS)
         sport_approach = body.get('sport_approach', 'health & wellness')
         if sport_approach not in ALLOWED_SPORT_APPROACHES:
-            return create_error_response(400, f'Invalid sport_approach. Allowed: {ALLOWED_SPORT_APPROACHES}')
+            return create_error_response(400, f'Invalid sport_approach. Allowed: {ALLOWED_SPORT_APPROACHES}', cors_headers=CORS_HEADERS)
         content_length = body.get('content_length', 'medium')
         if content_length not in ALLOWED_CONTENT_LENGTHS:
-            return create_error_response(400, f'Invalid content_length. Allowed: {ALLOWED_CONTENT_LENGTHS}')
+            return create_error_response(400, f'Invalid content_length. Allowed: {ALLOWED_CONTENT_LENGTHS}', cors_headers=CORS_HEADERS)
         content_tone = body.get('content_tone', 'motivational & energetic')
         if content_tone not in ALLOWED_CONTENT_TONES:
-            return create_error_response(400, f'Invalid content_tone. Allowed: {ALLOWED_CONTENT_TONES}')
+            return create_error_response(400, f'Invalid content_tone. Allowed: {ALLOWED_CONTENT_TONES}', cors_headers=CORS_HEADERS)
         emoji_usage = body.get('emoji_usage', 'moderate')
         if emoji_usage not in ALLOWED_EMOJI_USAGES:
-            return create_error_response(400, f'Invalid emoji_usage. Allowed: {ALLOWED_EMOJI_USAGES}')
+            return create_error_response(400, f'Invalid emoji_usage. Allowed: {ALLOWED_EMOJI_USAGES}', cors_headers=CORS_HEADERS)
         technical_detail = body.get('technical_detail', 'intermediate')
         if technical_detail not in ALLOWED_TECHNICAL_DETAILS:
-            return create_error_response(400, f'Invalid technical_detail. Allowed: {ALLOWED_TECHNICAL_DETAILS}')
+            return create_error_response(400, f'Invalid technical_detail. Allowed: {ALLOWED_TECHNICAL_DETAILS}', cors_headers=CORS_HEADERS)
         content_language = body.get('content_language', 'french')
         if content_language not in ALLOWED_CONTENT_LANGUAGES:
-            return create_error_response(400, f'Invalid content_language. Allowed: {ALLOWED_CONTENT_LANGUAGES}')
+            return create_error_response(400, f'Invalid content_language. Allowed: {ALLOWED_CONTENT_LANGUAGES}', cors_headers=CORS_HEADERS)
 
         interests = body.get('interests', [])
         if not isinstance(interests, list) or len(interests) > 20:
-            return create_error_response(400, 'interests must be a list with at most 20 items')
+            return create_error_response(400, 'interests must be a list with at most 20 items', cors_headers=CORS_HEADERS)
 
         preferences = {
             'age_range': age_range,
@@ -177,42 +182,11 @@ def update_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
             'success': True,
             'message': 'Preferences saved successfully',
             'preferences': preferences
-        })
+        }, cors_headers=CORS_HEADERS)
         
     except json.JSONDecodeError as e:
         logger.error(f"Invalid JSON in request body: {str(e)}")
-        return create_error_response(400, 'Invalid JSON in request body')
-    except Exception as e:
-        logger.error(f"Update user preferences error: {str(e)}")
-        return create_error_response(500, 'Failed to update user preferences')
-
-
-def create_success_response(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Create successful API response"""
-    return {
-        'statusCode': 200,
-        'headers': {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Headers': 'Content-Type,X-API-Key',
-            'Access-Control-Allow-Methods': 'GET,POST,OPTIONS'
-        },
-        'body': json.dumps(data)
-    }
-
-
-def create_error_response(status_code: int, error_message: str) -> Dict[str, Any]:
-    """Create error API response"""
-    return {
-        'statusCode': status_code,
-        'headers': {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Headers': 'Content-Type,X-API-Key',
-            'Access-Control-Allow-Methods': 'GET,POST,OPTIONS'
-        },
-        'body': json.dumps({
-            'error': error_message,
-            'timestamp': datetime.now(UTC).isoformat()
-        })
-    }
+        return create_error_response(400, 'Invalid JSON in request body', cors_headers=CORS_HEADERS)
+    except ClientError as e:
+        logger.error(f"Update user preferences DynamoDB error: {str(e)}")
+        return create_error_response(500, 'Failed to update user preferences', cors_headers=CORS_HEADERS)

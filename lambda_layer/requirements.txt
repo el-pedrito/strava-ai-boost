@@ -1,2 +1,3 @@
 # Only dependencies actually used in Lambda functions
 requests>=2.31.0
+aws-lambda-powertools>=2.40.0

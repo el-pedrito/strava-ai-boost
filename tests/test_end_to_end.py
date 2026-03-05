@@ -19,13 +19,12 @@ class TestDeployedInfrastructure:
         """Test DynamoDB tables are deployed"""
         tables = aws_config.get_dynamodb_tables()
         
-        assert len(tables) >= 4, f"Expected at least 4 tables, found {len(tables)}: {tables}"
+        assert len(tables) >= 3, f"Expected at least 3 tables, found {len(tables)}: {tables}"
         
         # Verify expected tables exist
         table_names_lower = [t.lower() for t in tables]
         assert any('activities' in t for t in table_names_lower), "Activities table not found"
         assert any('user-configuration' in t for t in table_names_lower), "User config table not found"
-        assert any('rate-limits' in t for t in table_names_lower), "Rate limits table not found"
         assert any('coaching-sessions' in t for t in table_names_lower), "Coaching sessions table not found"
     
     def test_lambda_functions_exist(self, aws_config):

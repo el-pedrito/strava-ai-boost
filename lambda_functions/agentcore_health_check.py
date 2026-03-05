@@ -6,14 +6,13 @@ Tests if AgentCore agents are actually accessible and functional
 
 import json
 import os
-import logging
 from typing import Dict, Any
-import boto3
-from botocore.exceptions import ClientError
-from datetime import datetime
+from datetime import datetime, UTC
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+from shared.responses import CORS_HEADERS_READ as CORS_HEADERS, create_success_response, create_error_response
+from shared.logger import get_logger, inject_correlation_id
+
+logger = get_logger("agentcore_health_check")
 
 # Initialize AWS clients
 # Note: bedrock-agentcore client is not needed for basic health check
@@ -23,18 +22,10 @@ logger.setLevel(logging.INFO)
 CONTENT_AGENT_ARN = os.environ.get('CONTENT_GENERATION_AGENT_ARN')
 CAMPUS_AGENT_ARN = os.environ.get('CAMPUS_COACH_AGENT_ARN')
 
-# CORS headers
-CORS_HEADERS = {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
-    'Access-Control-Max-Age': '86400'
-}
-
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Lambda handler for AgentCore health check"""
+    inject_correlation_id(logger, event)
     try:
         http_method = event.get('httpMethod', 'GET')
         
@@ -53,38 +44,8 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         return create_success_response(health_status)
         
     except Exception as e:
-        logger.error(f"AgentCore health check error: {str(e)}")
+        logger.error(f"AgentCore health check error: {str(e)}", exc_info=True)
         return create_error_response(500, 'Health check failed')
-
-
-def create_error_response(status_code: int, message: str) -> Dict[str, Any]:
-    """Create standardized error response"""
-    headers = CORS_HEADERS.copy()
-
-    
-    return {
-        'statusCode': status_code,
-        'headers': headers,
-        'body': json.dumps({
-            'error': message,
-            'timestamp': datetime.utcnow().isoformat()
-        })
-    }
-
-
-def create_success_response(data: Dict[str, Any], status_code: int = 200) -> Dict[str, Any]:
-    """Create standardized success response"""
-    headers = CORS_HEADERS.copy()
-
-    
-    return {
-        'statusCode': status_code,
-        'headers': headers,
-        'body': json.dumps({
-            **data,
-            'timestamp': datetime.utcnow().isoformat()
-        })
-    }
 
 
 def check_agentcore_health() -> Dict[str, Any]:
@@ -128,7 +89,7 @@ def check_agentcore_health() -> Dict[str, Any]:
         return {
             'overall_status': overall_status,
             'agents': agents_status,
-            'last_check': datetime.utcnow().isoformat()
+            'last_check': datetime.now(UTC).isoformat()
         }
         
     except Exception as e:
@@ -137,7 +98,7 @@ def check_agentcore_health() -> Dict[str, Any]:
             'overall_status': 'error',
             'agents': {},
             'error': str(e),
-            'last_check': datetime.utcnow().isoformat()
+            'last_check': datetime.now(UTC).isoformat()
         }
 
 
