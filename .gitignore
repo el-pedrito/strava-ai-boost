@@ -36,8 +36,11 @@ python/
 
 # Vendored Python packages in Lambda code (installed via pip -t)
 lambda_functions/aws_lambda_powertools/
+lambda_functions/aws_lambda_powertools-*.dist-info/
 lambda_functions/jmespath/
+lambda_functions/jmespath-*.dist-info/
 lambda_functions/typing_extensions*
+lambda_functions/bin/
 
 # CDK
 cdk.out/
