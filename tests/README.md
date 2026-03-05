@@ -72,8 +72,8 @@ open htmlcov/index.html
 ### What's Tested
 
 **Infrastructure (CDK)**
-- ✅ DynamoDB tables (4 tables, encryption, GSI)
-- ✅ Lambda functions (12 functions, configuration)
+- ✅ DynamoDB tables (3 tables, encryption, GSI, TTL)
+- ✅ Lambda functions (13 functions, configuration)
 - ✅ SQS queues (main + DLQ, encryption)
 - ✅ Step Functions (workflow, error handling)
 - ✅ API Gateway (REST API, API Key, Usage Plan)

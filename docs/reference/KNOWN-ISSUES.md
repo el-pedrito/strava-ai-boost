@@ -131,32 +131,22 @@ cdk flags --profile your-aws-profile
 
 ### 1. Strava API Rate Limits
 
-**Risk Level**: 🟡 Medium - Predictable based on usage patterns  
-**Limits**: 100 requests per 15 minutes, 1000 requests per day  
-**Mitigation**: Implemented rate limiting with DynamoDB tracking
-
-#### Prevention Strategy
-```python
-class StravaRateLimiter:
-    def __init__(self):
-        self.short_term_limit = 100  # per 15 minutes
-        self.daily_limit = 1000      # per day
-        
-    async def check_and_wait(self) -> bool:
-        # Check current usage in DynamoDB
-        # Queue requests if limits approached
-        # Exponential backoff for exceeded limits
-```
+**Risk Level**: 🟡 Medium - Predictable based on usage patterns
+**Limits**: 100 requests per 15 minutes, 1000 requests per day
+**Mitigation**: Rate limiting managed via API Gateway Usage Plans and Lambda-level checks
 
 #### Monitoring
 ```bash
-# Check rate limit utilization
-aws dynamodb scan --table-name strava-ai-boost-rate-limits --profile your-aws-profile
-
-# Monitor API call patterns
+# Monitor API call patterns in Lambda logs (structured JSON)
 aws logs filter-log-events \
   --log-group-name /aws/lambda/StravaAIBoost-ActivityProcessor \
-  --filter-pattern "rate_limit" \
+  --filter-pattern '{ $.message = "*rate*" }' \
+  --profile your-aws-profile
+
+# Check API Gateway usage plan throttling
+aws apigateway get-usage --usage-plan-id YOUR_PLAN_ID \
+  --key-id YOUR_KEY_ID \
+  --start-date 2026-03-01 --end-date 2026-03-05 \
   --profile your-aws-profile
 ```
 
@@ -180,20 +170,23 @@ class ContentGenerationAgent:
             return await self.generate_basic_content(activity_data)
 ```
 
-### 3. Local Web Interface Connection Issues
+### 3. Frontend Development Server Connection Issues
 
-**Risk Level**: 🟡 Medium - Local environment dependent  
-**Potential Issues**: Port conflicts, firewall restrictions, certificate issues  
-**Mitigation**: Configurable ports, clear error messages, troubleshooting guide
+**Risk Level**: 🟡 Low - Local environment dependent
+**Potential Issues**: Port conflicts, missing dependencies, environment configuration
+**Mitigation**: Standard Vite dev server with clear error messages
 
 #### Common Solutions
-```python
-# Configurable port binding
-app.run(
-    host='127.0.0.1',
-    port=int(os.getenv('FLASK_PORT', 8000)),
-    ssl_context='adhoc' if os.getenv('FLASK_SSL', 'true') == 'true' else None
-)
+```bash
+# Verify Vite dev server is running
+lsof -i :3000
+
+# Start frontend
+cd frontend && npm install && npm run dev
+
+# Verify environment configuration
+cat frontend/.env.local
+# Should contain: VITE_API_GATEWAY_URL, VITE_API_GATEWAY_KEY, VITE_DEFAULT_USER_ID
 ```
 
 ## Troubleshooting Procedures
