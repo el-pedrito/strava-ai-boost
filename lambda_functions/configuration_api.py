@@ -48,9 +48,13 @@ def get_authenticated_user_id() -> str:
         response = secretsmanager.get_secret_value(SecretId=STRAVA_OAUTH_SECRET)
         tokens = json.loads(response['SecretString'])
 
-        # Extract athlete ID from tokens
+        # Extract athlete ID from tokens (athlete.id on first auth, user_id after refresh)
+        athlete_id = None
         athlete = tokens.get('athlete', {})
-        athlete_id = athlete.get('id')
+        if isinstance(athlete, dict):
+            athlete_id = athlete.get('id')
+        if not athlete_id:
+            athlete_id = tokens.get('user_id')
 
         if athlete_id:
             logger.info(f"Retrieved user_id from OAuth tokens: {athlete_id}")
@@ -460,6 +464,7 @@ def handle_oauth_callback(event: Dict[str, Any]) -> Dict[str, Any]:
 
         # Store tokens in Secrets Manager
         try:
+            athlete_obj = tokens.get('athlete', {})
             secret_value = {
                 'access_token': tokens['access_token'],
                 'refresh_token': tokens['refresh_token'],
@@ -469,7 +474,8 @@ def handle_oauth_callback(event: Dict[str, Any]) -> Dict[str, Any]:
                 'obtained_at': tokens['obtained_at'],
                 'client_id': client_id,
                 'last_refreshed': None,
-                'athlete': tokens.get('athlete', {})
+                'athlete': athlete_obj,
+                'user_id': str(athlete_obj.get('id', ''))
             }
 
             try:
