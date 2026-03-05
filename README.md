@@ -204,8 +204,6 @@ graph TB
     subgraph "External Services"
         Strava[Strava API]
         Campus[Campus Coach]
-        Nominatim[Nominatim<br/>Location Data]
-        OpenMeteo[Open-Meteo<br/>Weather Data]
     end
 
     Browser --> APIGW
@@ -223,8 +221,6 @@ graph TB
     Lambda13 --> AgentCore
     Lambda13 --> Strava
     Lambda13 --> Campus
-    Lambda13 --> Nominatim
-    Lambda13 --> OpenMeteo
 
     Lambda13 --> CW
 ```
@@ -237,7 +233,7 @@ graph TB
 | **13 Lambda Functions** | 5 processing pipeline + 4 API endpoints + 3 utilities + 1 feedback |
 | **3 DynamoDB Tables** | `activities` (GSI, TTL), `user_config`, `coaching_sessions` (GSI) |
 | **2 AgentCore Agents** | `content_gen` (LTM memory), `campus_coach` (Browser Tool) |
-| **2 Free APIs** | Nominatim (geocoding), Open-Meteo (weather) |
+| **External APIs** | Strava API, Campus Coach (optional) |
 | **Shared Utilities** | `lambda_functions/shared/` - Structured logging, metrics, correlation IDs |
 
 ### Data Flow: Activity Enhancement
