@@ -57,17 +57,17 @@ def get_authenticated_user_id() -> str:
             return str(athlete_id)
         else:
             logger.warning("No athlete ID in OAuth tokens, using default")
-            return os.environ.get('DEFAULT_USER_ID', 'YOUR_USER_ID')
+            return os.environ.get('DEFAULT_USER_ID', '')
 
     except ClientError as e:
         if e.response['Error']['Code'] == 'ResourceNotFoundException':
             logger.warning("OAuth tokens not found, using default user_id")
         else:
             logger.error(f"Failed to retrieve OAuth tokens: {str(e)}")
-        return os.environ.get('DEFAULT_USER_ID', 'YOUR_USER_ID')
+        return os.environ.get('DEFAULT_USER_ID', '')
     except (json.JSONDecodeError, KeyError, TypeError) as e:
         logger.error(f"Error parsing OAuth tokens: {str(e)}")
-        return os.environ.get('DEFAULT_USER_ID', 'YOUR_USER_ID')
+        return os.environ.get('DEFAULT_USER_ID', '')
 
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -491,19 +491,21 @@ def handle_oauth_callback(event: Dict[str, Any]) -> Dict[str, Any]:
 
             # Update user configuration to mark OAuth as connected
             try:
-                table = dynamodb.Table(USER_CONFIG_TABLE)
-                table.put_item(
-                    Item={
-                        'user_id': 'OAUTH_STATUS',
-                        'strava_connected': True,
-                        'connected_at': datetime.now(UTC).isoformat(),
-                        'athlete_id': tokens.get('athlete', {}).get('id'),
-                        'athlete_name': f"{tokens.get('athlete', {}).get('firstname', '')} {tokens.get('athlete', {}).get('lastname', '')}".strip(),
-                        'scopes': tokens.get('scope', '').split(','),
-                        'updated_at': datetime.now(UTC).isoformat()
-                    }
-                )
-                logger.info("OAuth status updated in DynamoDB")
+                athlete_id = str(tokens.get('athlete', {}).get('id', ''))
+                if athlete_id:
+                    table = dynamodb.Table(USER_CONFIG_TABLE)
+                    table.update_item(
+                        Key={'user_id': athlete_id},
+                        UpdateExpression="SET strava_connected = :conn, connected_at = :cat, athlete_name = :name, scopes = :sc, updated_at = :upd",
+                        ExpressionAttributeValues={
+                            ':conn': True,
+                            ':cat': datetime.now(UTC).isoformat(),
+                            ':name': f"{tokens.get('athlete', {}).get('firstname', '')} {tokens.get('athlete', {}).get('lastname', '')}".strip(),
+                            ':sc': tokens.get('scope', '').split(','),
+                            ':upd': datetime.now(UTC).isoformat()
+                        }
+                    )
+                    logger.info(f"OAuth status updated for athlete {athlete_id}")
             except ClientError as e:
                 logger.warning(f"Failed to update OAuth status in DynamoDB: {e}")
 

@@ -65,7 +65,7 @@ class ApiGatewayStack(Stack):
                 "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
                 "CAMPUS_COACH_SECRET": self.core_stack.campus_coach_secret.secret_name,
                 "INTERVALS_ICU_SECRET": self.core_stack.intervals_icu_secret.secret_name,
-                "DEFAULT_USER_ID": os.environ.get("DEFAULT_USER_ID", "YOUR_USER_ID")
+                "DEFAULT_USER_ID": os.environ.get("DEFAULT_USER_ID", "")
             }
         )
 
@@ -125,7 +125,7 @@ class ApiGatewayStack(Stack):
             role=self.core_stack.webhook_lambda_role,
             environment={
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
-                "DEFAULT_USER_ID": os.environ.get("DEFAULT_USER_ID", "12345678")
+                "DEFAULT_USER_ID": os.environ.get("DEFAULT_USER_ID", "")
             }
         )
         
