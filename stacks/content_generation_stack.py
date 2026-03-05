@@ -63,18 +63,10 @@ class ContentGenerationStack(Stack):
         self._create_step_functions_workflow()
 
     def _get_base_environment_variables(self) -> Dict[str, str]:
-        """
-        Get base environment variables for Lambda functions including AgentCore ARNs
-        
-        Reads from .env.agentcore file if available
-        
-        Returns:
-            Dictionary of base environment variables
-        """
-        # Try to read from .env.agentcore file
-        env_file_path = os.path.join(os.path.dirname(__file__), '..', '.env.agentcore')
+        """Get base environment variables for Lambda functions including AgentCore ARNs"""
+        from .env_loader import load_env_agentcore
+
         env_vars = {
-            # Default values
             "CONTENT_GENERATION_AGENT_ARN": "",
             "CAMPUS_COACH_AGENT_ARN": "",
             "BEDROCK_AGENTCORE_MEMORY_ID": "",
@@ -83,36 +75,12 @@ class ContentGenerationStack(Stack):
             "CONTENT_GENERATION_AGENT_NAME": "",
             "CAMPUS_COACH_AGENT_NAME": ""
         }
-        
-        # Read from .env.agentcore if it exists
-        if os.path.exists(env_file_path):
-            try:
-                with open(env_file_path, 'r') as f:
-                    for line in f:
-                        line = line.strip()
-                        # Skip comments and empty lines
-                        if not line or line.startswith('#'):
-                            continue
-                        # Parse KEY=VALUE
-                        if '=' in line:
-                            key, value = line.split('=', 1)
-                            key = key.strip()
-                            value = value.strip()
-                            # Only update if key is in our env_vars
-                            if key in env_vars:
-                                env_vars[key] = value
-                            # Also check for AGENTCORE_AGENTS_AVAILABLE
-                            elif key == 'AGENTCORE_AGENTS_AVAILABLE':
-                                env_vars['AGENTCORE_AGENTS_AVAILABLE'] = value
-                
-                print(f"✅ Loaded AgentCore configuration from .env.agentcore")
-                print(f"   CONTENT_GENERATION_AGENT_ARN: {env_vars['CONTENT_GENERATION_AGENT_ARN'][:50]}...")
-                print(f"   CAMPUS_COACH_AGENT_ARN: {env_vars['CAMPUS_COACH_AGENT_ARN'][:50]}...")
-            except Exception as e:
-                print(f"⚠️  Warning: Could not read .env.agentcore: {e}")
-        else:
-            print(f"⚠️  Warning: .env.agentcore not found at {env_file_path}")
-        
+
+        loaded = load_env_agentcore()
+        for key in list(env_vars.keys()) + ['AGENTCORE_AGENTS_AVAILABLE']:
+            if key in loaded:
+                env_vars[key] = loaded[key]
+
         return env_vars
 
     def _create_lambda_functions(self) -> None:

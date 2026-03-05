@@ -4,7 +4,6 @@ Feedback Loop Stack
 Infrastructure for automatic feedback analysis and learning from user modifications.
 """
 
-import os
 from aws_cdk import (
     Stack,
     Duration,
@@ -126,33 +125,5 @@ class FeedbackLoopStack(Stack):
     
     def _load_memory_id_from_env(self) -> str:
         """Load MEMORY_ID from .env.agentcore file"""
-        env_file_path = os.path.join(os.path.dirname(__file__), '..', '.env.agentcore')
-        
-        if os.path.exists(env_file_path):
-            try:
-                with open(env_file_path, 'r') as f:
-                    for line in f:
-                        line = line.strip()
-                        if line.startswith('BEDROCK_AGENTCORE_MEMORY_ID='):
-                            memory_id = line.split('=', 1)[1].strip()
-                            print(f"✅ Loaded MEMORY_ID from .env.agentcore: {memory_id}")
-                            return memory_id
-            except Exception as e:
-                print(f"⚠️  Warning: Could not read .env.agentcore: {e}")
-        
-        # Fallback: try to read from .bedrock_agentcore.yaml
-        yaml_path = os.path.join(os.path.dirname(__file__), '..', '.bedrock_agentcore.yaml')
-        if os.path.exists(yaml_path):
-            try:
-                import yaml
-                with open(yaml_path, 'r') as f:
-                    config = yaml.safe_load(f)
-                    memory_id = config.get('agents', {}).get('content_gen', {}).get('memory', {}).get('memory_id', '')
-                    if memory_id:
-                        print(f"✅ Loaded MEMORY_ID from .bedrock_agentcore.yaml: {memory_id}")
-                        return memory_id
-            except Exception as e:
-                print(f"⚠️  Warning: Could not read .bedrock_agentcore.yaml: {e}")
-        
-        print(f"⚠️  Warning: MEMORY_ID not found, using empty string")
-        return ''
+        from .env_loader import load_agentcore_memory_id
+        return load_agentcore_memory_id()
