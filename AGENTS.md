@@ -67,23 +67,28 @@ strava-ai-boost/
 │   ├── monitoring_stack.py             # CloudWatch, Alarms
 │   └── feedback_loop_stack.py          # Feedback analyzer
 │
-├── lambda_functions/           # Lambda handlers (13 functions)
-│   ├── shared/                         # Shared utilities module
-│   │   ├── __init__.py
-│   │   └── logger.py                   # Powertools Logger, Metrics, correlation IDs
-│   ├── webhook_handler.py              # Webhook receiver
-│   ├── activity_processor.py           # SQS processor
-│   ├── activity_fetcher.py             # Data fetcher
-│   ├── content_generator.py            # AI content generation
-│   ├── strava_updater.py               # Strava API updater
-│   ├── configuration_api.py            # Config API
-│   ├── dashboard_api.py                # Dashboard API
-│   ├── user_preferences_api.py         # Preferences API
-│   ├── rate_limiter.py                 # Rate limiting
-│   ├── campus_coach_invoker.py         # Session retrieval
-│   ├── agentcore_health_check.py       # Health check
-│   ├── stepfunctions_error_handler.py  # Error handler
-│   └── feedback_analyzer.py            # Feedback loop
+├── lambda_functions/           # Lambda handlers (grouped by role)
+│   ├── api/                            # API endpoint handlers
+│   │   ├── configuration_api.py        # Config API
+│   │   ├── dashboard_api.py            # Dashboard API
+│   │   ├── user_preferences_api.py     # Preferences API
+│   │   └── agentcore_health_check.py   # Health check
+│   ├── processing/                     # Content pipeline
+│   │   ├── activity_fetcher.py         # Data fetcher
+│   │   ├── content_generator.py        # AI content generation
+│   │   ├── strava_updater.py           # Strava API updater
+│   │   ├── streams_analysis.py         # Stream compression, workout classification
+│   │   └── modules_processing.py       # Module discovery, Campus Coach matching
+│   ├── webhooks/                       # Event ingestion
+│   │   ├── webhook_handler.py          # Webhook receiver
+│   │   ├── activity_processor.py       # SQS processor
+│   │   └── campus_coach_invoker.py     # Session retrieval
+│   ├── support/                        # Operational utilities
+│   │   ├── feedback_analyzer.py        # Feedback loop
+│   │   └── stepfunctions_error_handler.py  # Error handler
+│   └── shared/                         # Shared utilities module
+│       ├── __init__.py
+│       └── logger.py                   # Powertools Logger, Metrics, correlation IDs
 │
 ├── src/
 │   ├── agents/                 # AgentCore agents (2 agents)
@@ -573,7 +578,7 @@ cdk deploy StravaAIBoost-ContentGenerationStack --profile your-aws-profile
 
 **Update Lambda Function:**
 ```bash
-# Modify lambda_functions/my_function.py
+# Modify lambda_functions/<package>/my_function.py
 cdk deploy StravaAIBoost-ContentGenerationStack --profile your-aws-profile
 ```
 
@@ -590,12 +595,12 @@ cdk deploy StravaAIBoost-ContentGenerationStack --profile your-aws-profile
 
 **Step 1: Create Function File**
 ```bash
-touch lambda_functions/my_function.py
+touch lambda_functions/api/my_function.py  # or processing/, webhooks/, support/
 ```
 
 **Step 2: Implement Handler**
 ```python
-# lambda_functions/my_function.py
+# lambda_functions/api/my_function.py
 def handler(event, context):
     # Implementation
     return {'statusCode': 200, 'body': 'Success'}
@@ -607,7 +612,7 @@ def handler(event, context):
 self.my_function = lambda_.Function(
     self, "MyFunction",
     runtime=lambda_.Runtime.PYTHON_3_12,
-    handler="my_function.handler",
+    handler="api.my_function.handler",
     code=lambda_.Code.from_asset("lambda_functions"),
     environment={...}
 )
@@ -648,7 +653,7 @@ cdk deploy StravaAIBoost-CoreInfrastructureStack --profile your-aws-profile
 
 **Step 1: Add Route Handler**
 ```python
-# lambda_functions/configuration_api.py
+# lambda_functions/api/configuration_api.py
 def handler(event, context):
     path = event['path']
     method = event['httpMethod']

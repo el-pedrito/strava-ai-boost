@@ -10,12 +10,12 @@
 |----------|-------|---------|
 | Architecture | 8/10 | Clean serverless design, well-separated CDK stacks, proper async workflow |
 | Security | 8/10 | Guardrails, encryption, least privilege IAM, secrets management |
-| Code Quality | 7/10 | Content generator split into 3 focused modules, no dead code |
+| Code Quality | 8/10 | 3 focused modules, 4 role-based packages, no dead code |
 | Testing | 4/10 | 73 tests but all infrastructure/integration — zero Lambda unit tests |
 | Frontend | 7/10 | Cloudscape + React 19, ErrorBoundary, code splitting, but no E2E tests |
-| DevOps | 5/10 | Good scripts, no CI/CD pipeline, manual deployments |
+| DevOps | 5/10 | Good scripts, manual deployments |
 | Documentation | 7/10 | Consolidated and clean, AGENTS.md provides good AI context |
-| **Global** | **7/10** | **Production-functional, needs test coverage and CI/CD** |
+| **Global** | **7/10** | **Production-functional, needs test coverage and restructure** |
 
 ---
 
@@ -66,6 +66,19 @@ Also removed:
 - Duplicate HR zone analysis code (bug: `hr_percentage` referenced in bare `except`)
 - Dead variables (`distance`, `latlng` extracted but never used)
 
+### lambda_functions/ restructure (flat → 4 packages)
+Grouped 14 Lambda files into role-based packages:
+
+| Package | Files | Role |
+|---------|-------|------|
+| `api/` | 4 | API Gateway handlers (config, dashboard, preferences, health check) |
+| `processing/` | 5 | Content pipeline (fetcher, generator, updater, streams, modules) |
+| `webhooks/` | 3 | Event ingestion (webhook, SQS processor, Campus Coach invoker) |
+| `support/` | 2 | Operational (feedback analyzer, Step Functions error handler) |
+| `shared/` | 4 | Cross-cutting utilities (logger, responses, env, OAuth) |
+
+CDK handler paths updated: `"content_generator.handler"` → `"processing.content_generator.handler"`
+
 ---
 
 ## Remaining Weaknesses
@@ -77,47 +90,8 @@ All 73 tests are CDK infrastructure assertions or integration tests that hit liv
 - `webhook_handler.py` — event routing and deduplication
 - `dashboard_api.py` — aggregation and response formatting
 
-### High: No CI/CD Pipeline
-- No GitHub Actions, no CodePipeline
-- Deployments are manual (`./scripts/deploy.sh dev`)
-- No automated security scanning, no lint checks on PR
-- No automated test execution on push
-
-### High: Flat lambda_functions/ structure
-All 16 Python files are flat in `lambda_functions/`. No clear separation between:
-- API handlers (configuration_api, dashboard_api, user_preferences_api)
-- Processing pipeline (activity_fetcher, content_generator, strava_updater)
-- Support modules (streams_analysis, modules_processing)
-- Utilities (stepfunctions_error_handler, agentcore_health_check)
-- Vendored code (typing_extensions.py — 4317 lines)
-
-Proposed restructure:
-```
-lambda_functions/
-  api/
-    configuration_api.py
-    dashboard_api.py
-    user_preferences_api.py
-  processing/
-    activity_fetcher.py
-    activity_processor.py
-    content_generator.py
-    strava_updater.py
-    streams_analysis.py
-    modules_processing.py
-  webhooks/
-    webhook_handler.py
-    campus_coach_invoker.py
-  support/
-    agentcore_health_check.py
-    feedback_analyzer.py
-    stepfunctions_error_handler.py
-  shared/
-    logger.py
-    env_validation.py
-    responses.py
-    strava_oauth.py
-```
+### Medium: Vendored typing_extensions.py
+- `typing_extensions` vendored as a 4317-line file instead of being in requirements.txt
 
 ### Medium: Dead Dependencies in requirements.txt
 - `flask` — not used anywhere in Lambda code
@@ -134,11 +108,10 @@ lambda_functions/
 ## Recommendations (Priority Order)
 
 1. ~~**Split content_generator.py**~~ DONE — 2050 -> 1237 lines, 3 modules
-2. **Restructure lambda_functions/** — Group into packages (api/, processing/, webhooks/, support/)
+2. ~~**Restructure lambda_functions/**~~ DONE — 4 packages (api/, processing/, webhooks/, support/)
 3. **Add Lambda unit tests** — Start with content_generator and webhook_handler. Use moto for DynamoDB mocks.
-4. **Set up GitHub Actions** — Lint, test, `cdk synth`, security scan on every push.
-5. **Clean requirements.txt** — Remove flask, psutil. Move typing_extensions to requirements.
-6. **Deploy frontend on CloudFront + S3 + Cognito** — Eliminate localhost dependency (see IDEAS.md).
+4. **Clean requirements.txt** — Remove flask, psutil. Move typing_extensions to requirements.
+5. **Deploy frontend on CloudFront + S3 + Cognito** — Eliminate localhost dependency (see IDEAS.md).
 
 ---
 

@@ -16,12 +16,12 @@ from decimal import Decimal
 
 import boto3
 
-from streams_analysis import (
+from processing.streams_analysis import (
     classify_workout_from_streams,
     detect_workout_phases,
     extract_enduraw_report,
 )
-from modules_processing import get_active_modules, apply_module_processing
+from processing.modules_processing import get_active_modules, apply_module_processing
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
