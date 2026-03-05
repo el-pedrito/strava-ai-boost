@@ -90,6 +90,7 @@ function findOption(options: SelectProps.Option[], value: string) {
 const DEFAULT_PACE_ZONES: PaceZones = {
   recovery:        { min: '6:30', max: '8:00' },
   ef:              { min: '5:45', max: '7:30' },
+  aerobic:         { min: '5:15', max: '5:50' },
   tempo:           { min: '5:00', max: '5:45' },
   sweet_spot:      { min: '4:45', max: '5:15' },
   seuil_60:        { min: '4:30', max: '5:00' },
@@ -102,6 +103,7 @@ const DEFAULT_PACE_ZONES: PaceZones = {
 const ZONE_LABELS: Record<string, { label: string; description: string }> = {
   recovery:        { label: 'Recup (Recovery)', description: 'Allure de recuperation, tres facile' },
   ef:              { label: 'EF (Endurance Fondamentale)', description: 'Allure facile, conversation possible' },
+  aerobic:         { label: 'Allure Aerobie', description: 'Entre EF et tempo, endurance active' },
   tempo:           { label: 'Tempo', description: 'Allure confortablement dure' },
   sweet_spot:      { label: 'Sweet Spot', description: 'Entre tempo et seuil' },
   seuil_60:        { label: 'Seuil 60 (Threshold)', description: 'Seuil lactique, effort 60min' },

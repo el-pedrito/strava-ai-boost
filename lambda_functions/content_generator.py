@@ -198,6 +198,7 @@ def _classify_by_pace_zones(avg_pace: float, pace_std: float, pace_range: float,
     zone_labels = {
         'recovery': ('recovery_run', 'Recup / Recovery'),
         'ef': ('steady_easy_run', 'Endurance Fondamentale'),
+        'aerobic': ('aerobic', 'Allure Aerobie'),
         'tempo': ('tempo', 'Tempo'),
         'sweet_spot': ('sweet_spot', 'Sweet Spot'),
         'seuil_60': ('threshold_60', 'Seuil 60'),
