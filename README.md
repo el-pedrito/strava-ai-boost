@@ -2,17 +2,6 @@
 
 Strava AI Boost is a production-ready, modular serverless application that automatically enhances Strava activity titles and descriptions using Amazon Bedrock AI and AgentCore Memory. Built with a clean API Gateway + Lambda architecture, it provides secure, scalable functionality with zero direct AWS SDK dependencies in the frontend.
 
-## System Status
-
-**FULLY OPERATIONAL** - AgentCore content generation with Long-Term Memory + Feedback Loop:
-- **Infrastructure**: 7 CDK stacks (Core, Security, Content, API, Webhook, Monitoring, Feedback)
-- **AI Agents**: 2 AgentCore agents (`content_gen`, `campus_coach`) with LTM memory
-- **Memory Strategy**: UserPreferenceStrategy for automatic preference learning from user edits
-- **Feedback Loop**: Nightly analysis of user modifications, conversational diffs to memory
-- **Security**: Bedrock Guardrails + Memory Execution Role + GenAI Observability
-- **Strava Integration**: Webhook + OAuth + real-time processing
-- **Frontend**: React + Cloudscape dashboard with configuration and monitoring
-
 ## Quick Start
 
 ### Prerequisites
@@ -194,6 +183,10 @@ graph TB
         subgraph "Monitoring Stack"
             CW[CloudWatch<br/>Logs & Metrics]
         end
+
+        subgraph "Feedback Stack"
+            FB[Feedback Analyzer<br/>EventBridge Schedule]
+        end
     end
 
     subgraph "AI Services"
@@ -367,18 +360,6 @@ The Lambda Layer cannot be replaced via CDK due to CloudFormation cross-stack ex
 
 ---
 
-## Available Scripts
-
-All scripts are documented in **[scripts/README.md](scripts/README.md)**.
-
-| Category | Scripts |
-|----------|---------|
-| **Deployment** | `deploy.sh`, `deploy_agentcore_agents.sh` |
-| **Configuration** | `setup_local_env.sh`, `create_agentcore_memories.sh`, `configure_agentcore_integration.sh`, `configure_strava_webhook.sh` |
-| **Maintenance** | `cleanup_strava_webhook.sh`, `reprocess_dlq.sh` |
-| **Validation** | `validate_deployment.sh` |
-| **Uninstall** | `uninstall.sh`, `verify_uninstall.sh` |
-
 ## Testing
 
 ```bash
@@ -415,7 +396,7 @@ cd frontend && npm test
 
 1. Follow property-based testing for infrastructure changes
 2. Ensure all tests pass before committing
-4. Use `your-aws-profile` for all AWS operations
+3. Use `your-aws-profile` for all AWS operations
 
 ## License
 
