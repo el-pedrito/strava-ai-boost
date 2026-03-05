@@ -106,5 +106,9 @@ feedback_stack = FeedbackLoopStack(
 # Explicit dependency on core stack
 feedback_stack.add_dependency(core_stack)
 
+# Global resource tags
+cdk.Tags.of(app).add('Project', 'StravaAIBoost')
+cdk.Tags.of(app).add('ManagedBy', 'CDK')
+
 # Synthesize the CDK app
 app.synth()

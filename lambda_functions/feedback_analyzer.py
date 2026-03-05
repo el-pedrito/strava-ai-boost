@@ -25,7 +25,14 @@ logger.setLevel(logging.INFO)
 
 # Initialize AWS clients
 dynamodb = boto3.resource('dynamodb')
-secretsmanager = boto3.client('secretsmanager')
+_secretsmanager = None
+
+
+def _get_secretsmanager():
+    global _secretsmanager
+    if _secretsmanager is None:
+        _secretsmanager = boto3.client('secretsmanager')
+    return _secretsmanager
 
 # Environment variables
 ACTIVITIES_TABLE = os.environ.get('ACTIVITIES_TABLE', 'strava-ai-boost-activities')
@@ -190,7 +197,7 @@ def get_access_token() -> str:
     """Get Strava access token from Secrets Manager with automatic refresh"""
     try:
         # Get OAuth tokens directly from Secrets Manager
-        response = secretsmanager.get_secret_value(SecretId=STRAVA_OAUTH_SECRET)
+        response = _get_secretsmanager().get_secret_value(SecretId=STRAVA_OAUTH_SECRET)
         tokens = json.loads(response['SecretString'])
         
         # Check if token needs refresh
@@ -204,7 +211,7 @@ def get_access_token() -> str:
             
             # Store refreshed tokens
             new_tokens['user_id'] = tokens.get('user_id', 'default')
-            secretsmanager.update_secret(
+            _get_secretsmanager().update_secret(
                 SecretId=STRAVA_OAUTH_SECRET,
                 SecretString=json.dumps(new_tokens)
             )
@@ -245,7 +252,7 @@ def refresh_access_token(refresh_token: str) -> Optional[Dict[str, Any]]:
     try:
         # Get client credentials from app config
         app_secret_name = 'strava-ai-boost-app-config'
-        response = secretsmanager.get_secret_value(SecretId=app_secret_name)
+        response = _get_secretsmanager().get_secret_value(SecretId=app_secret_name)
         app_config = json.loads(response['SecretString'])
         
         client_id = app_config.get('client_id')
