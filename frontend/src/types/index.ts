@@ -66,6 +66,7 @@ export interface PaceZone {
 export interface PaceZones {
   recovery: PaceZone;
   ef: PaceZone;
+  aerobic: PaceZone;
   tempo: PaceZone;
   sweet_spot: PaceZone;
   seuil_60: PaceZone;
