@@ -56,7 +56,6 @@ class TestCoreInfrastructureStack:
         """Test DynamoDB table naming convention"""
         assert "activities" in core_stack.table_names
         assert "user_config" in core_stack.table_names
-        assert "rate_limits" in core_stack.table_names
         assert "coaching_sessions" in core_stack.table_names
     
     def test_secrets_manager_secrets(self, core_stack):
@@ -346,9 +345,9 @@ class TestInfrastructureIntegration:
         )
         
         # Check that table_names dictionary has the expected keys
-        expected_keys = ["activities", "user_config", "rate_limits", "coaching_sessions"]
+        expected_keys = ["activities", "user_config", "coaching_sessions"]
         for key in expected_keys:
             assert key in core_stack.table_names, f"Expected table key '{key}' in table_names"
-        
-        # Verify we have 4 tables
-        assert len(core_stack.table_names) == 4, f"Expected 4 tables, found {len(core_stack.table_names)}"
+
+        # Verify we have 3 tables
+        assert len(core_stack.table_names) == 3, f"Expected 3 tables, found {len(core_stack.table_names)}"

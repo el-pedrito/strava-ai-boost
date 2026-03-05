@@ -31,7 +31,7 @@ class TestLambdaStructure:
             'user_preferences_api.py',
             'agentcore_health_check.py',
             'stepfunctions_error_handler.py'
-            # Note: rate_limiter.py is a utility module, not a Lambda handler
+            # Note: rate_limiter was removed (feature deprecated)
         ]
         
         for lambda_file in lambda_files:
@@ -148,21 +148,3 @@ class TestActivityProcessor:
         assert "body" in event["Records"][0]
 
 
-class TestRateLimiter:
-    """Test rate limiter Lambda"""
-    
-    def test_rate_limit_types(self):
-        """Test rate limit types are defined"""
-        limit_types = ["short_term", "daily"]
-        
-        for limit_type in limit_types:
-            assert limit_type in ["short_term", "daily"]
-    
-    def test_rate_limit_thresholds(self):
-        """Test rate limit thresholds are reasonable"""
-        short_term_limit = 100  # 100 requests per 15 minutes
-        daily_limit = 1000  # 1000 requests per day
-        
-        assert short_term_limit > 0
-        assert daily_limit > short_term_limit
-        assert daily_limit <= 10000  # Strava's actual limit

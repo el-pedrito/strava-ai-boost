@@ -407,27 +407,6 @@ class TestCORSConfiguration:
         assert True  # Always pass, just check headers exist
 
 
-class TestRateLimiting:
-    """Test API Gateway rate limiting"""
-    
-    def test_rate_limit_headers(self, api_client):
-        """Test rate limit headers are present"""
-        response = api_client.get('/health/agentcore')
-        
-        # API Gateway may include rate limit headers
-        headers = response.headers
-        
-        # Check if rate limit headers exist (optional)
-        rate_limit_headers = [
-            'X-RateLimit-Limit',
-            'X-RateLimit-Remaining',
-            'X-Amzn-RateLimit-Limit'
-        ]
-        
-        # This is informational - rate limiting is configured at API Gateway level
-        assert True  # Always pass
-
-
 class TestEndToEndScenarios:
     """Test complete end-to-end scenarios"""
     

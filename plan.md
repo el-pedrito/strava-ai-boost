@@ -19,10 +19,13 @@
 - [x] `lambda_functions/user_preferences_api.py` — Validate user_id format, whitelist preference values, body size check
 - [x] ~~`lambda_functions/dashboard_api.py:135` — `days` param~~ (already validated in try/except at line 146)
 
-### 1.5 Remove dead rate_limit_info code
+### 1.5 Remove dead rate_limit code (feature entirely removed)
 - [x] `lambda_functions/configuration_api.py` — Remove all `rate_limit_info` references and fix broken function signatures
 - [x] `lambda_functions/dashboard_api.py` — Remove `rate_limit_info` from handler, response functions
 - [x] `lambda_functions/agentcore_health_check.py` — Remove `rate_limit_info` variable, parameter, and argument
+- [x] `tests/test_lambda_functions.py` — Remove stale `test_rate_limit_types`, `test_rate_limit_thresholds`
+- [x] `tests/test_cdk_infrastructure.py` — Remove `rate_limits` table references (table no longer exists)
+- [x] `tests/test_api_gateway.py` — Remove `test_rate_limit_headers` (rate limit headers no longer returned)
 
 ---
 
