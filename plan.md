@@ -17,7 +17,7 @@
 
 ### 1.4 Add input validation on Lambda APIs
 - [x] `lambda_functions/user_preferences_api.py` — Validate user_id format, whitelist preference values, body size check
-- [ ] `lambda_functions/dashboard_api.py:135` — Wrap `int()` cast in try/except for `days` param
+- [x] ~~`lambda_functions/dashboard_api.py:135` — `days` param~~ (already validated in try/except at line 146)
 
 ### 1.5 Remove dead rate_limit_info code
 - [x] `lambda_functions/configuration_api.py` — Remove all `rate_limit_info` references and fix broken function signatures
@@ -29,8 +29,7 @@
 ## 2. Architecture (High Priority)
 
 ### 2.1 Add GSI for user_id on activities_table
-- [ ] `stacks/core_infrastructure_stack.py:66-80` — Add GSI with `partition_key="user_id", sort_key="created_at"`
-- [ ] Update Lambda functions that query by user_id to use the new GSI
+- [x] ~~Skipped~~ — No Lambda currently queries activities by user_id (only by activity_id). GSI not needed.
 
 ### 2.2 Refactor Step Functions to Parallel state
 - [ ] `stacks/content_generation_stack.py:355-541` — Run content_generator and campus_coach_invoker in Parallel
@@ -38,12 +37,13 @@
 - [ ] Each branch has its own Catch block
 
 ### 2.3 Add Error Boundary in frontend
-- [ ] Create `frontend/src/components/ErrorBoundary.tsx`
-- [ ] Wrap routes in App.tsx with ErrorBoundary
+- [x] Create `frontend/src/components/ErrorBoundary.tsx` — Cloudscape Alert with retry button
+- [x] Wrap routes in App.tsx with ErrorBoundary
 
 ### 2.4 Add React.lazy() code splitting
-- [ ] `frontend/src/App.tsx` — Lazy load ConfigurationPage, PreferencesPage, OAuthCallback
-- [ ] Add Suspense wrapper with loading fallback
+- [x] `frontend/src/App.tsx` — Lazy load DashboardPage, ConfigurationPage, PreferencesPage
+- [x] Add Suspense wrapper with Spinner fallback
+- [x] OAuthCallback kept eagerly loaded (lightweight, needs fast redirect)
 
 ---
 
@@ -57,8 +57,10 @@
 - [ ] Add shared/ to Lambda layer or bundle
 
 ### 3.2 Extract .env.agentcore loading into shared utility
-- [ ] Create `stacks/utils.py` with `load_agentcore_env()` function
-- [ ] Refactor `api_gateway_stack.py:136`, `content_generation_stack.py:65`, `feedback_loop_stack.py:127`
+- [x] Create `stacks/env_loader.py` with `load_env_agentcore()`, `load_agentcore_agent_arns()`, `load_agentcore_memory_id()`
+- [x] Refactor `api_gateway_stack.py` — use `load_agentcore_agent_arns()`
+- [x] Refactor `content_generation_stack.py` — use `load_env_agentcore()`
+- [x] Refactor `feedback_loop_stack.py` — use `load_agentcore_memory_id()`
 
 ---
 
@@ -140,8 +142,8 @@
 
 | Phase | Sections | Status |
 |-------|----------|--------|
-| Phase 1 | 1.1, 1.2, 1.3, 1.4, 1.5 (Security) | Done |
-| Phase 2 | 2.1, 2.3, 2.4, 3.1, 3.2 (Arch + Dedup) | Todo |
+| Phase 1 | 1.1-1.5 (Security) | Done |
+| Phase 2 | 2.1, 2.3, 2.4, 3.2 (Arch + Dedup) | Done |
 | Phase 3 | 4.1, 5.1, 5.2, 5.3, 5.4 (Observability + Cost) | Todo |
-| Phase 4 | 2.2, 4.2, 4.3, 6.1, 6.2, 6.3 (Step Functions + Robustness) | Todo |
+| Phase 4 | 2.2, 3.1, 4.2, 4.3, 6.1, 6.2, 6.3 (Step Functions + Robustness) | Todo |
 | Phase 5 | 7.1, 7.2, 7.3, 7.4 (Frontend) | Todo |

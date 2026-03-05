@@ -134,16 +134,8 @@ class ApiGatewayStack(Stack):
         }
         
         # Load AgentCore agent ARNs from .env.agentcore if available
-        import os as env_os
-        env_file = env_os.path.join(env_os.path.dirname(__file__), '..', '.env.agentcore')
-        if env_os.path.exists(env_file):
-            with open(env_file, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#') and '=' in line:
-                        key, value = line.split('=', 1)
-                        if key in ['CONTENT_GENERATION_AGENT_ARN', 'CAMPUS_COACH_AGENT_ARN']:
-                            agentcore_env[key] = value
+        from .env_loader import load_agentcore_agent_arns
+        agentcore_env.update(load_agentcore_agent_arns())
         
         self.agentcore_health_lambda = lambda_.Function(
             self, "AgentCoreHealthCheck",

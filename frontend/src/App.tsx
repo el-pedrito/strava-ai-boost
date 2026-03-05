@@ -1,21 +1,37 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { Spinner, Box } from '@cloudscape-design/components';
 import { Shell } from './layouts/AppLayout.tsx';
-import { DashboardPage } from './pages/Dashboard/DashboardPage.tsx';
-import { ConfigurationPage } from './pages/Configuration/ConfigurationPage.tsx';
+import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { OAuthCallback } from './pages/Configuration/OAuthCallback.tsx';
-import { PreferencesPage } from './pages/Preferences/PreferencesPage.tsx';
+
+const DashboardPage = lazy(() => import('./pages/Dashboard/DashboardPage.tsx').then(m => ({ default: m.DashboardPage })));
+const ConfigurationPage = lazy(() => import('./pages/Configuration/ConfigurationPage.tsx').then(m => ({ default: m.ConfigurationPage })));
+const PreferencesPage = lazy(() => import('./pages/Preferences/PreferencesPage.tsx').then(m => ({ default: m.PreferencesPage })));
+
+function PageLoader() {
+  return (
+    <Box textAlign="center" padding="xxl">
+      <Spinner size="large" />
+    </Box>
+  );
+}
 
 export default function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route element={<Shell />}>
-          <Route index element={<DashboardPage />} />
-          <Route path="/config" element={<ConfigurationPage />} />
-          <Route path="/oauth/callback" element={<OAuthCallback />} />
-          <Route path="/preferences" element={<PreferencesPage />} />
-        </Route>
-      </Routes>
+      <ErrorBoundary>
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            <Route element={<Shell />}>
+              <Route index element={<DashboardPage />} />
+              <Route path="/config" element={<ConfigurationPage />} />
+              <Route path="/oauth/callback" element={<OAuthCallback />} />
+              <Route path="/preferences" element={<PreferencesPage />} />
+            </Route>
+          </Routes>
+        </Suspense>
+      </ErrorBoundary>
     </BrowserRouter>
   );
 }
