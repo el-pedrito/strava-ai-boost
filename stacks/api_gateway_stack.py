@@ -63,13 +63,16 @@ class ApiGatewayStack(Stack):
                 "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
                 "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
-                "CAMPUS_COACH_SECRET": self.core_stack.campus_coach_secret.secret_name
+                "CAMPUS_COACH_SECRET": self.core_stack.campus_coach_secret.secret_name,
+                "INTERVALS_ICU_SECRET": self.core_stack.intervals_icu_secret.secret_name
             }
         )
-        
+
         # Grant Secrets Manager permissions to config lambda
         self.core_stack.strava_oauth_secret.grant_read(self.config_lambda)
         self.core_stack.campus_coach_secret.grant_read(self.config_lambda)
+        self.core_stack.intervals_icu_secret.grant_read(self.config_lambda)
+        self.core_stack.intervals_icu_secret.grant_write(self.config_lambda)
         
         # Grant EventBridge permissions to config lambda (for enabling/disabling Campus Coach scheduler)
         self.config_lambda.add_to_role_policy(

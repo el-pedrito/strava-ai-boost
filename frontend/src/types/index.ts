@@ -42,6 +42,7 @@ export interface ModuleConfig {
 export interface ModulesMap {
   campus_coach: ModuleConfig;
   enduraw: ModuleConfig;
+  intervals_icu: ModuleConfig;
 }
 
 export interface EnhancementStatus {
@@ -57,6 +58,23 @@ export interface SystemStatus {
   enhancement_status: 'active' | 'paused';
 }
 
+export interface PaceZone {
+  min: string; // mm:ss format, e.g. "5:45"
+  max: string; // mm:ss format, e.g. "7:30"
+}
+
+export interface PaceZones {
+  recovery: PaceZone;
+  ef: PaceZone;
+  tempo: PaceZone;
+  sweet_spot: PaceZone;
+  seuil_60: PaceZone;
+  seuil_30: PaceZone;
+  allure_marathon: PaceZone;
+  allure_semi: PaceZone;
+  interval: PaceZone;
+}
+
 export interface UserPreferences {
   age_range: string;
   sport_approach: string;
@@ -66,6 +84,7 @@ export interface UserPreferences {
   technical_detail: string;
   content_language: string;
   interests: string[];
+  pace_zones?: PaceZones;
 }
 
 export interface FlashMessage {

@@ -112,6 +112,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         athlete_stats = activity_data_full.get('athlete_stats')
         athlete_profile = activity_data_full.get('athlete_profile')
         gear_details = activity_data_full.get('gear_details')
+        intervals_icu_data = activity_data_full.get('intervals_icu_data')
         
         logger.info(f"Retrieved activity data from DynamoDB - distance: {activity_data.get('distance')}, type: {activity_data.get('sport_type')}")
         
@@ -150,7 +151,8 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             athlete_stats,  # Pass athlete stats
             athlete_profile,  # Pass athlete profile
             gear_details,  # Pass gear details
-            enduraw_data  # Pass extracted Enduraw data
+            enduraw_data,  # Pass extracted Enduraw data
+            intervals_icu_data  # Pass Intervals.icu data
         )
         
         # Store generated content
@@ -174,35 +176,209 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         }
 
 
+def _parse_pace_mmss(pace_str: str) -> float:
+    """Convert mm:ss pace string to float minutes. E.g. '5:45' -> 5.75"""
+    try:
+        parts = str(pace_str).split(':')
+        if len(parts) == 2:
+            return int(parts[0]) + int(parts[1]) / 60.0
+        return float(pace_str)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _classify_by_pace_zones(avg_pace: float, pace_std: float, pace_range: float,
+                            pace_zones: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """
+    Classify workout by matching average pace against user-configured pace zones.
+    Returns {'type': ..., 'label': ...} if a zone matches, None otherwise.
+    Only used when pace variability is low (not intervals).
+    """
+    # Zone definitions: key -> (type_name, label_fr)
+    zone_labels = {
+        'recovery': ('recovery_run', 'Recup / Recovery'),
+        'ef': ('steady_easy_run', 'Endurance Fondamentale'),
+        'tempo': ('tempo', 'Tempo'),
+        'sweet_spot': ('sweet_spot', 'Sweet Spot'),
+        'seuil_60': ('threshold_60', 'Seuil 60'),
+        'seuil_30': ('threshold_30', 'Seuil 30'),
+        'allure_marathon': ('marathon_pace', 'Allure Marathon'),
+        'allure_semi': ('half_marathon_pace', 'Allure Semi'),
+        'interval': ('intervals', 'Intervalles / VMA'),
+    }
+
+    best_match = None
+    best_distance = float('inf')
+
+    for zone_key, zone_val in pace_zones.items():
+        if not isinstance(zone_val, dict):
+            continue
+        zone_min = _parse_pace_mmss(zone_val.get('min', '0'))
+        zone_max = _parse_pace_mmss(zone_val.get('max', '0'))
+        if zone_min <= 0 or zone_max <= 0:
+            continue
+
+        # Ensure min <= max (min pace = fastest = lower number, max pace = slowest = higher number)
+        slow_pace = max(zone_min, zone_max)
+        fast_pace = min(zone_min, zone_max)
+
+        if fast_pace <= avg_pace <= slow_pace:
+            # Direct match — compute distance to zone midpoint
+            midpoint = (fast_pace + slow_pace) / 2
+            distance = abs(avg_pace - midpoint)
+            if distance < best_distance:
+                best_distance = distance
+                type_name, label_fr = zone_labels.get(zone_key, (zone_key, zone_key.replace('_', ' ').title()))
+                best_match = {'type': type_name, 'label': label_fr}
+
+    if best_match:
+        logger.info(f"Pace zone match: avg_pace={avg_pace:.2f} -> {best_match['label']}")
+    return best_match
+
+
+def classify_workout_from_streams(blocks: List[Dict[str, Any]],
+                                  pace_zones: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Classify the workout type based on pace variability across blocks.
+    Uses user-configured pace zones when available, falls back to statistical heuristics.
+    Filters warmup/cooldown outliers using IQR.
+    Returns classification with type and stats for the agent.
+    """
+    all_paces = [b.get('pace_min_km', 0) for b in blocks if 0 < b.get('pace_min_km', 0) < 15]
+    valid_hrs = [b.get('hr_bpm', 0) for b in blocks if b.get('hr_bpm', 0) > 0]
+
+    if len(all_paces) < 3:
+        return {'type': 'unknown', 'confidence': 0}
+
+    # Filter outliers using IQR (removes warmup/cooldown/stop artifacts)
+    sorted_paces = sorted(all_paces)
+    q1_idx = len(sorted_paces) // 4
+    q3_idx = 3 * len(sorted_paces) // 4
+    q1 = sorted_paces[q1_idx]
+    q3 = sorted_paces[q3_idx]
+    iqr = q3 - q1
+    lower_bound = q1 - 1.5 * iqr
+    upper_bound = q3 + 1.5 * iqr
+    core_paces = [p for p in all_paces if lower_bound <= p <= upper_bound]
+
+    if len(core_paces) < 3:
+        core_paces = all_paces  # fallback if too many filtered
+
+    avg_pace = sum(core_paces) / len(core_paces)
+    pace_std = (sum((p - avg_pace) ** 2 for p in core_paces) / len(core_paces)) ** 0.5
+    pace_range = max(core_paces) - min(core_paces)
+    avg_hr = sum(valid_hrs) / len(valid_hrs) if valid_hrs else 0
+    hr_std = (sum((h - avg_hr) ** 2 for h in valid_hrs) / len(valid_hrs)) ** 0.5 if valid_hrs else 0
+
+    # Step 1: Detect intervals by variability (regardless of pace zones)
+    if pace_std > 0.6 and pace_range > 2.0:
+        workout_type = 'intervals'
+        label = 'Fractionne / Intervalles'
+    elif pace_std > 0.40:
+        # Check if it's a progression (pace decreasing over time)
+        first_third = core_paces[:len(core_paces)//3]
+        last_third = core_paces[-(len(core_paces)//3):]
+        if first_third and last_third:
+            avg_first = sum(first_third) / len(first_third)
+            avg_last = sum(last_third) / len(last_third)
+            if avg_first - avg_last > 0.5:
+                workout_type = 'progression'
+                label = 'Sortie progressive (negative split)'
+            else:
+                workout_type = 'steady_easy_run'
+                label = 'Endurance fondamentale (allure legerement variable)'
+        else:
+            workout_type = 'steady_easy_run'
+            label = 'Endurance fondamentale (allure legerement variable)'
+    else:
+        # Step 2: Steady effort — use pace zones if configured
+        zone_match = _classify_by_pace_zones(avg_pace, pace_std, pace_range, pace_zones) if pace_zones else None
+
+        if zone_match:
+            workout_type = zone_match['type']
+            label = zone_match['label']
+        else:
+            # Fallback: statistical heuristic
+            if pace_std < 0.40:
+                workout_type = 'steady_easy_run'
+                label = 'Endurance fondamentale (allure reguliere)'
+            else:
+                workout_type = 'tempo'
+                label = 'Tempo / Allure soutenue'
+
+    classification = {
+        'type': workout_type,
+        'label': label,
+        'avg_pace_min_km': round(avg_pace, 2),
+        'pace_std_filtered': round(pace_std, 2),
+        'pace_range_filtered': round(pace_range, 2),
+        'blocks_total': len(all_paces),
+        'blocks_core': len(core_paces),
+        'avg_hr': round(avg_hr) if avg_hr else None,
+        'hr_std': round(hr_std, 1) if hr_std else None,
+        'pace_zones_used': pace_zones is not None,
+    }
+
+    logger.info(f"Workout classification: {workout_type} (std={pace_std:.2f}, range={pace_range:.2f}, core={len(core_paces)}/{len(all_paces)}, zones={'yes' if pace_zones else 'no'}) -> {label}")
+    return classification
+
+
 def detect_workout_phases(streams_compressed: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     Pre-compute workout phases from compressed blocks.
     Groups consecutive blocks with similar pace into phases (warmup, tempo, intervals, cooldown).
+    Uses adaptive tolerance based on workout variability to avoid over-splitting steady runs.
     Returns a compact summary the agent can easily match against Campus Coach sessions.
     """
     if not streams_compressed:
         return []
-    
+
     blocks = streams_compressed.get('blocks', [])
     if not blocks:
         return []
-    
-    # Group consecutive blocks with similar pace (±0.5 min/km tolerance)
+
+    # Compute pace variability with IQR filtering (same as classify_workout_from_streams)
+    all_paces = [b.get('pace_min_km', 0) for b in blocks if 0 < b.get('pace_min_km', 0) < 15]
+    if len(all_paces) < 3:
+        return []
+
+    sorted_paces = sorted(all_paces)
+    q1 = sorted_paces[len(sorted_paces) // 4]
+    q3 = sorted_paces[3 * len(sorted_paces) // 4]
+    iqr = q3 - q1
+    core_paces = [p for p in all_paces if (q1 - 1.5 * iqr) <= p <= (q3 + 1.5 * iqr)]
+    if len(core_paces) < 3:
+        core_paces = all_paces
+
+    avg_core = sum(core_paces) / len(core_paces)
+    pace_std = (sum((p - avg_core) ** 2 for p in core_paces) / len(core_paces)) ** 0.5
+
+    # Adaptive tolerance: wider for steady runs, tighter for intervals
+    # Steady run (std < 0.35): tolerance 1.0 min/km -> groups everything into ~1-3 phases
+    # Intervals (std > 0.6): tolerance 0.3 min/km -> detects fast/slow alternation
+    if pace_std < 0.35:
+        tolerance = 1.0
+    elif pace_std < 0.6:
+        tolerance = 0.7
+    else:
+        tolerance = 0.3
+
+    # Group consecutive blocks with similar pace
     phases = []
     current_phase = None
-    
+
     for block in blocks:
         pace = block.get('pace_min_km', 0)
         hr = block.get('hr_bpm', 0)
         duration = block.get('duration_s', 30)
-        
+
         if pace <= 0 or pace > 15:  # Skip stopped/invalid blocks
             continue
-        
+
         if current_phase is None:
             current_phase = {'paces': [pace], 'hrs': [hr], 'duration_s': duration}
-        elif abs(pace - (sum(current_phase['paces']) / len(current_phase['paces']))) < 0.5:
-            # Same phase — similar pace
+        elif abs(pace - (sum(current_phase['paces']) / len(current_phase['paces']))) < tolerance:
+            # Same phase — similar pace within tolerance
             current_phase['paces'].append(pace)
             current_phase['hrs'].append(hr)
             current_phase['duration_s'] += duration
@@ -210,34 +386,34 @@ def detect_workout_phases(streams_compressed: Dict[str, Any]) -> List[Dict[str, 
             # New phase — pace changed significantly
             phases.append(current_phase)
             current_phase = {'paces': [pace], 'hrs': [hr], 'duration_s': duration}
-    
+
     if current_phase:
         phases.append(current_phase)
-    
+
     # Summarize each phase
     summary = []
     for p in phases:
         avg_pace = sum(p['paces']) / len(p['paces'])
         avg_hr = sum(p['hrs']) / len(p['hrs']) if any(p['hrs']) else 0
         dur_min = p['duration_s'] / 60
-        
+
         if dur_min < 0.5:  # Skip very short phases (<30s)
             continue
-        
+
         pace_min = int(avg_pace)
         pace_sec = int((avg_pace - pace_min) * 60)
-        
+
         summary.append({
             'duration_min': round(dur_min, 1),
             'avg_pace': f"{pace_min}:{pace_sec:02d}/km",
             'avg_hr': round(avg_hr) if avg_hr else None,
             'blocks_count': len(p['paces'])
         })
-    
-    logger.info(f"Detected {len(summary)} workout phases from {len(blocks)} blocks")
+
+    logger.info(f"Detected {len(summary)} workout phases from {len(blocks)} blocks (tolerance={tolerance})")
     for s in summary:
         logger.info(f"  Phase: {s['duration_min']}min at {s['avg_pace']} (HR {s['avg_hr']})")
-    
+
     return summary
 
 
@@ -597,7 +773,8 @@ def retrieve_activity_data_from_dynamodb(activity_id: str) -> Optional[Dict[str,
         athlete_stats = json.loads(item.get('athlete_stats_json', 'null')) if item.get('athlete_stats_json') else None
         athlete_profile = json.loads(item.get('athlete_profile_json', 'null')) if item.get('athlete_profile_json') else None
         gear_details = json.loads(item.get('gear_details_json', 'null')) if item.get('gear_details_json') else None
-        
+        intervals_icu_data = json.loads(item.get('intervals_icu_json', 'null')) if item.get('intervals_icu_json') else None
+
         # CRITICAL FIX: Convert numeric string values back to numbers
         # JSON serialization converts Decimal to string, we need to convert back
         def convert_numeric_strings(obj):
@@ -624,15 +801,17 @@ def retrieve_activity_data_from_dynamodb(activity_id: str) -> Optional[Dict[str,
         athlete_stats = convert_numeric_strings(athlete_stats) if athlete_stats else None
         athlete_profile = convert_numeric_strings(athlete_profile) if athlete_profile else None
         gear_details = convert_numeric_strings(gear_details) if gear_details else None
-        
+        intervals_icu_data = convert_numeric_strings(intervals_icu_data) if intervals_icu_data else None
+
         logger.info(f"Retrieved activity data from DynamoDB for {activity_id}")
-        
+
         return {
             'activity_data': activity_data,
             'streams_compressed': streams_compressed,  # Pre-compressed from DynamoDB
             'athlete_stats': athlete_stats,
             'athlete_profile': athlete_profile,
-            'gear_details': gear_details
+            'gear_details': gear_details,
+            'intervals_icu_data': intervals_icu_data
         }
         
     except Exception as e:
@@ -699,6 +878,12 @@ def build_user_profile_from_config(user_config: Dict[str, Any]) -> Optional[Dict
                 'language': preferences.get('content_language', 'french')
             }
         }
+
+        # Add pace zones if configured
+        pace_zones = preferences.get('pace_zones')
+        if pace_zones:
+            user_profile['pace_zones'] = pace_zones
+            logger.info(f"Pace zones loaded: {list(pace_zones.keys())}")
         
         logger.info(f"Built user_profile: age={user_profile['age_range']}, approach={user_profile['sport_approach']}")
         logger.info(f"Content preferences: length={user_profile['content_preferences']['length']}, tone={user_profile['content_preferences']['tone']}, emoji={user_profile['content_preferences']['emoji_usage']}, technical={user_profile['content_preferences']['technical_detail']}")
@@ -1045,7 +1230,8 @@ def generate_enhanced_content_with_agent(
     athlete_stats: Optional[Dict[str, Any]] = None,
     athlete_profile: Optional[Dict[str, Any]] = None,
     gear_details: Optional[Dict[str, Any]] = None,
-    enduraw_data: Optional[Dict[str, Any]] = None
+    enduraw_data: Optional[Dict[str, Any]] = None,
+    intervals_icu_data: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Generate enhanced content using Strands Agent with AgentCore Memory
@@ -1098,14 +1284,42 @@ def generate_enhanced_content_with_agent(
         # Pre-compute workout phases for the agent (compact summary instead of raw blocks)
         workout_phases = detect_workout_phases(streams_compressed) if streams_compressed else []
         route_landmarks = streams_compressed.get('route_landmarks', []) if streams_compressed else []
-        
+
+        # Classify workout type based on pace variability + user pace zones
+        blocks = streams_compressed.get('blocks', []) if streams_compressed else []
+        user_pace_zones = user_profile.get('pace_zones') if user_profile else None
+        workout_classification = classify_workout_from_streams(blocks, pace_zones=user_pace_zones) if blocks else None
+
         # Also pass compressed blocks for fine-grained analysis if needed
-        compressed_blocks = streams_compressed.get('blocks', []) if streams_compressed else []
-        
+        compressed_blocks = blocks
+
+        # Clean activity_data to remove previous AI-generated content that could bias the agent
+        clean_activity_data = {k: v for k, v in activity_data.items()
+                               if k not in ('enhanced_description', 'enhanced_title', 'description',
+                                            'processing_status', 'processing_error')}
+        # Strip previous AI-generated description from the name if it contains our marker
+        activity_name = clean_activity_data.get('name', '')
+        if '@Generated by Strava AI Boost' in str(clean_activity_data.get('name', '')):
+            clean_activity_data['name'] = 'Activity'  # Reset to generic
+
+        # Build classification instruction for the agent
+        classification_instruction = None
+        if workout_classification and workout_classification.get('type') != 'unknown':
+            wc_label = workout_classification.get('label', workout_classification['type'])
+            classification_instruction = (
+                f"CRITICAL INSTRUCTION — Workout type detected from GPS/HR stream analysis: {wc_label}. "
+                f"You MUST generate a title and description that matches this workout type. "
+                f"Do NOT use 'fractionné', 'intervalles', or 'interval' unless the classification type is 'intervals'. "
+                f"Do NOT copy or reproduce the existing activity title — generate a completely new one based on the classification."
+            )
+            logger.info(f"Classification instruction: {classification_instruction}")
+
         # Prepare input for AgentCore Content Generation Agent
         agent_input = {
             'action': 'generate_content',
-            'activity_data': activity_data,
+            'classification_instruction': classification_instruction,  # FIRST field — MUST be followed by agent
+            'workout_classification': workout_classification,  # Detected workout type from streams
+            'activity_data': clean_activity_data,  # Cleaned: no previous AI content
             'workout_phases': workout_phases,  # Compact phase summary for matching
             'compressed_blocks': compressed_blocks,  # Fine-grained 30s blocks if agent needs details
             'route_landmarks': route_landmarks,
@@ -1113,10 +1327,11 @@ def generate_enhanced_content_with_agent(
             'athlete_profile': athlete_profile,
             'gear_details': gear_details,
             'user_id': user_id,
-            'user_profile': user_profile,  # Add user_profile for personalization
-            'active_modules': modules,  # Changed from 'modules' to 'active_modules' for consistency
-            'campus_coach_session': campus_coach_sessions,  # Pass Campus Coach sessions for intelligent matching
-            'enduraw_data': enduraw_data,  # Pass extracted Enduraw Report
+            'user_profile': user_profile,
+            'active_modules': modules,
+            'campus_coach_session': campus_coach_sessions,
+            'enduraw_data': enduraw_data,
+            'intervals_icu_data': intervals_icu_data,
             'workout_type': activity_data.get('workout_type'),
             'use_memory': True,
             'personalization': True
@@ -1183,7 +1398,7 @@ def generate_enhanced_content_with_agent(
         except Exception as stream_error:
             logger.error(f"Error processing AgentCore response stream: {str(stream_error)}")
             return generate_enhanced_content_fallback(
-                activity_data, streams_data, user_id, modules, user_profile
+                activity_data, streams_compressed, user_id, modules, user_profile
             )
         
         logger.info(f"AgentCore Content Generation Agent response length: {len(completion)}")
@@ -1236,6 +1451,19 @@ def generate_enhanced_content_with_agent(
                     confidence = agent_response.get('confidence', 0.8)
                 
                 if title and description:
+                    # Post-process: validate title matches workout classification
+                    if workout_classification and workout_classification.get('type') not in ('intervals', 'unknown', None):
+                        import re as _re
+                        interval_keywords = _re.compile(r'fractionn|interval|split|répétition', _re.IGNORECASE)
+                        if interval_keywords.search(title):
+                            wc_label = workout_classification.get('label', 'Activité')
+                            # Extract emoji from original title if any
+                            emojis = ''.join(c for c in title if ord(c) > 0x1F000)
+                            if not emojis:
+                                emojis = '🏃'
+                            logger.warning(f"Title/classification mismatch: title='{title}' but classification='{workout_classification['type']}'. Fixing title.")
+                            title = f"{emojis} {wc_label}"
+
                     # Add signature to description if not present (AgentCore mode - normal signature)
                     if not description.endswith('@Generated by Strava AI Boost'):
                         description += '\n\n@Generated by Strava AI Boost'
@@ -1274,31 +1502,31 @@ def generate_enhanced_content_with_agent(
                 else:
                     logger.warning("Invalid response structure from AgentCore agent")
                     return generate_enhanced_content_fallback(
-                        activity_data, streams_data, user_id, modules
+                        activity_data, streams_compressed, user_id, modules
                     )
             else:
                 logger.warning("Could not parse JSON from AgentCore agent response")
                 return generate_enhanced_content_fallback(
-                    activity_data, streams_data, user_id, modules
+                    activity_data, streams_compressed, user_id, modules
                 )
-                
+
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse AgentCore agent response: {str(e)}")
             return generate_enhanced_content_fallback(
-                activity_data, streams_data, user_id, modules
+                activity_data, streams_compressed, user_id, modules
             )
-            
+
     except Exception as e:
         logger.error(f"AgentCore Content Generation Agent invocation failed: {str(e)}")
         logger.info(f"Content generation mode: Switching to Bedrock fallback")
-        
+
         # Check if this is a cold start or availability issue
         if "timeout" in str(e).lower() or "unavailable" in str(e).lower():
             logger.warning("Possible AgentCore agent cold start or availability issue")
-        
+
         # Fallback to direct Bedrock generation
         return generate_enhanced_content_fallback(
-            activity_data, streams_data, user_id, modules
+            activity_data, streams_compressed, user_id, modules
         )
 
 

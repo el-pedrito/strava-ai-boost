@@ -9,6 +9,7 @@ This stack creates the foundational AWS resources:
 """
 
 from aws_cdk import (
+    Aws,
     Stack,
     aws_dynamodb as dynamodb,
     aws_iam as iam,
@@ -142,12 +143,18 @@ class CoreInfrastructureStack(Stack):
 
     def _create_lambda_layer(self) -> None:
         """Create Lambda Layer for shared dependencies"""
-        
+
+        # Pin asset hash to avoid spurious layer replacements from filesystem metadata
+        # changes (macOS xattrs). A layer replacement breaks cross-stack CF exports.
+        # Update this hash only when lambda_layer/requirements.txt content changes
+        # and you rebuild the layer zip. Run: build_layer.sh then cdk deploy.
+        LAYER_ASSET_HASH = "480096d1e714d30a9d29ebbdc34f0f708841cc0ccd881c6eb6493cc5de9fd098"
+
         # Create Lambda Layer with all dependencies
         self.dependencies_layer = _lambda.LayerVersion(
             self, "StravaAIBoostDependenciesLayer",
             layer_version_name="strava-ai-boost-dependencies",
-            code=_lambda.Code.from_asset("lambda_layer"),
+            code=_lambda.Code.from_asset("lambda_layer", asset_hash=LAYER_ASSET_HASH),
             compatible_runtimes=[_lambda.Runtime.PYTHON_3_12],
             description="Shared dependencies for Strava AI Boost Lambda functions",
             removal_policy=RemovalPolicy.DESTROY
@@ -242,11 +249,13 @@ class CoreInfrastructureStack(Stack):
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=[
-                    "bedrock-agentcore:InvokeAgent",
-                    "bedrock-agentcore:GetAgent",
-                    "bedrock-agentcore:ListAgents"
+                    "bedrock-agentcore:InvokeAgentRuntime",
+                    "bedrock-agentcore:GetAgentRuntime",
+                    "bedrock-agentcore:ListAgentRuntimes"
                 ],
-                resources=["*"]  # AgentCore resources are dynamic
+                resources=[
+                    f"arn:aws:bedrock-agentcore:{Aws.REGION}:{Aws.ACCOUNT_ID}:runtime/*"
+                ]
             )
         )
 
@@ -299,6 +308,14 @@ class CoreInfrastructureStack(Stack):
             removal_policy=RemovalPolicy.DESTROY
         )
 
+        # Intervals.icu API credentials
+        self.intervals_icu_secret = secretsmanager.Secret(
+            self, "IntervalsICUSecret",
+            secret_name="strava-ai-boost-intervals-icu-credentials",
+            description="Intervals.icu API key for fitness metrics",
+            removal_policy=RemovalPolicy.DESTROY
+        )
+
     @property
     def table_names(self) -> Dict[str, str]:
         """Return dictionary of table names for use in other stacks"""
@@ -330,12 +347,13 @@ class CoreInfrastructureStack(Stack):
                 ],
                 resources=[
                     self.campus_coach_secret.secret_arn,
+                    self.intervals_icu_secret.secret_arn,
                     self.strava_oauth_secret.secret_arn,
                     self.strava_app_secret.secret_arn
                 ]
             )
         )
-        
+
         # Add permissions for Secrets Manager write access (for configuration)
         # Updated 2026-01-03: Added strava_app_secret for configuration API
         self.webhook_lambda_role.add_to_policy(
@@ -348,6 +366,7 @@ class CoreInfrastructureStack(Stack):
                 ],
                 resources=[
                     self.campus_coach_secret.secret_arn,
+                    self.intervals_icu_secret.secret_arn,
                     self.strava_oauth_secret.secret_arn,
                     self.strava_app_secret.secret_arn
                 ]
