@@ -10,6 +10,16 @@
 - Eliminates localhost dependency, enables mobile access
 - WAF on CloudFront for OWASP protection
 
+### Restructure lambda_functions/ into packages
+- Current: 16 flat Python files, hard to navigate
+- Group by role:
+  - `api/` — configuration_api, dashboard_api, user_preferences_api
+  - `processing/` — activity_fetcher, activity_processor, content_generator, strava_updater, streams_analysis, modules_processing
+  - `webhooks/` — webhook_handler, campus_coach_invoker
+  - `support/` — agentcore_health_check, feedback_analyzer, stepfunctions_error_handler
+- Requires CDK handler path updates (e.g. `handler="api/configuration_api.handler"`)
+- Move `typing_extensions.py` to requirements.txt, delete vendored file (-4317 lines)
+
 ### Prompt Engineering - More Storytelling
 - Current prompts are functional but could generate more engaging narratives
 - Add storytelling elements: race metaphors, journey arcs, emotional beats
@@ -34,7 +44,7 @@
 
 ### Content Quality Dashboard
 - Track edit rate: how often users modify AI-generated content
-- Compare AgentCore vs Bedrock fallback quality (confidence scores)
+- Track AgentCore confidence scores over time
 - Memory effectiveness: does content variety improve over time?
 - Feedback loop metrics: preference extraction success rate
 
