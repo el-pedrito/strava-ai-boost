@@ -2,269 +2,153 @@
 
 Strava AI Boost is a production-ready, modular serverless application that automatically enhances Strava activity titles and descriptions using Amazon Bedrock AI and AgentCore Memory. Built with a clean API Gateway + Lambda architecture, it provides secure, scalable functionality with zero direct AWS SDK dependencies in the frontend.
 
-## ✅ System Status
+## System Status
 
-**🎉 FULLY OPERATIONAL** - AgentCore content generation with Long-Term Memory + Feedback Loop:
-- ✅ **Infrastructure**: 7 CDK stacks (Core, Security, Content, API, Webhook, Monitoring, Feedback)
-- ✅ **AI Agents**: 2 AgentCore agents (`content_gen`, `campus_coach`) with LTM memory
-- ✅ **Memory Strategy**: UserPreferenceStrategy for automatic preference learning from user edits
-- ✅ **Feedback Loop**: Nightly analysis of user modifications, conversational diffs to memory
-- ✅ **Security**: Bedrock Guardrails + Memory Execution Role + GenAI Observability
-- ✅ **Strava Integration**: Webhook + OAuth + real-time processing
-- ✅ **Frontend**: React + Cloudscape dashboard with configuration and monitoring
+**FULLY OPERATIONAL** - AgentCore content generation with Long-Term Memory + Feedback Loop:
+- **Infrastructure**: 7 CDK stacks (Core, Security, Content, API, Webhook, Monitoring, Feedback)
+- **AI Agents**: 2 AgentCore agents (`content_gen`, `campus_coach`) with LTM memory
+- **Memory Strategy**: UserPreferenceStrategy for automatic preference learning from user edits
+- **Feedback Loop**: Nightly analysis of user modifications, conversational diffs to memory
+- **Security**: Bedrock Guardrails + Memory Execution Role + GenAI Observability
+- **Strava Integration**: Webhook + OAuth + real-time processing
+- **Frontend**: React + Cloudscape dashboard with configuration and monitoring
 
-## 🚀 Quick Start
+## Quick Start
 
-**New to Strava AI Boost?** Get started in 5 minutes with 2-phase deployment:
+### Prerequisites
 
-👉 **[Quick Start Guide](docs/getting-started/QUICK-START.md)**
+- AWS Account with CLI configured (`your-aws-profile` profile)
+- Python 3.12+, Node.js (for CDK)
+- AgentCore CLI (for Phase 2 only)
+- Strava Account with API application registered
 
-### Complete Deployment Workflow
-
-**Phase 1: Infrastructure Deployment (Required)**
+### Phase 1: Infrastructure Deployment (Required)
 
 ```bash
-# 1. Deploy CDK Infrastructure (~10-15 min)
+# 1. Clone and setup
+git clone <repository-url>
+cd strava-ai-boost
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 export AWS_PROFILE=your-aws-profile
+
+# 2. Deploy CDK Infrastructure (~10-15 min)
 ./scripts/deploy.sh dev
 
-# 2. Validate Deployment (~2 min)
+# 3. Validate Deployment (~2 min)
 ./scripts/validate_deployment.sh dev
 
-# 3. Setup Local Environment (~30 sec)
+# 4. Setup Local Environment (~30 sec)
 ./scripts/setup_local_env.sh
 
-# 4. Configure Strava Webhook (~1 min)
+# 5. Configure Strava Webhook (~1 min)
 ./scripts/configure_strava_webhook.sh dev --auto-configure
 ```
 
-**Phase 2: AgentCore Enhancement (Optional - for advanced personalization)**
+**What this deploys**: 7 CDK stacks, DynamoDB tables, 13 Lambda functions, Step Functions, Secrets Manager, Bedrock fallback mode (Claude Sonnet 4.5), structured logging with AWS Lambda Powertools. System is immediately functional.
+
+### Phase 2: AgentCore Enhancement (Optional)
+
+Add advanced personalization with Long-Term Memory:
 
 ```bash
-# 5. Create AgentCore Memories (~3 min)
+# 1. Create AgentCore Memories (~3 min)
 ./scripts/create_agentcore_memories.sh
 
-# 6. Deploy AgentCore Agents (~5-10 min)
+# 2. Deploy AgentCore Agents (~5-10 min)
 ./scripts/deploy_agentcore_agents.sh
 
-# 7. Configure Integration (~2 min)
+# 3. Configure Integration (~2 min)
 ./scripts/configure_agentcore_integration.sh
 
-# 8. Redeploy Agents with Guardrails (~5 min)
+# 4. Redeploy Agents with Guardrails (~5 min)
 ./scripts/deploy_agentcore_agents.sh
 
-# 9. Final CDK Deployment (~5 min)
+# 5. Final CDK Deployment (~5 min)
 cdk deploy --all --profile your-aws-profile --require-approval never
 ```
 
-**Start Using the System**
+### Start Using the System
 
 ```bash
-# Launch frontend
 cd frontend
-npm install
-npm run dev
-
+cp .env.example .env.local  # Edit with your API Gateway URL, API key, and user ID
+npm install && npm run dev
 # Open http://localhost:3000
-# - Connect with Strava OAuth (PKCE)
-# - Configure your preferences
-# - Enable modules (Campus Coach, Enduraw)
-# - Process your activities!
 ```
 
-**Deployment Phases:**
-- Phase 1 only: Fully functional system with Bedrock fallback
-- Phase 1 + 2: Advanced personalization with AgentCore Memory
+1. Click **"Connect with Strava"** and authorize the application
+2. Configure your preferences (age, interests, style)
+3. Enable modules (Campus Coach, Enduraw)
+4. Upload or edit a Strava activity and watch it get enhanced!
+
+**Deployment Modes**: Phase 1 only gives a fully functional system with Bedrock fallback. Phase 1 + 2 adds advanced personalization with AgentCore Memory.
 
 ---
 
-### Available Scripts
+## Configuration
 
-All deployment and maintenance scripts are documented in **[scripts/README.md](scripts/README.md)**.
+### Strava OAuth Setup
 
-**Deployment Scripts (2):**
-- `deploy.sh` - Main CDK infrastructure deployment
-- `deploy_agentcore_agents.sh` - AgentCore agents with LTM
+1. Go to https://www.strava.com/settings/api and create an app
+2. Set **Authorization Callback Domain** to `localhost` (no http://, no port)
+3. Store credentials in Secrets Manager:
+   ```bash
+   aws secretsmanager put-secret-value \
+     --secret-id strava-ai-boost-app-config \
+     --secret-string '{"client_id":"YOUR_CLIENT_ID","client_secret":"YOUR_CLIENT_SECRET"}' \
+     --profile your-aws-profile --region eu-west-1
+   ```
 
-**Configuration Scripts (4):**
-- `setup_local_env.sh` - Local environment variables
-- `create_agentcore_memories.sh` - LTM memories creation
-- `configure_agentcore_integration.sh` - IAM and Lambda configuration
-- `configure_strava_webhook.sh` - Strava webhook setup
+### Module Configuration
 
-**Maintenance Scripts (2):**
-- `cleanup_strava_webhook.sh` - Webhook cleanup
-- `reprocess_dlq.sh` - DLQ message reprocessing
+#### Campus Coach (Optional)
 
-**Validation Scripts (1):**
-- `validate_deployment.sh` - Post-deployment validation
+Matches activities with planned training sessions from [campus.coach](https://campus.coach).
 
-**Uninstall Scripts (2):**
-- `uninstall.sh` - Complete system removal
-- `verify_uninstall.sh` - Uninstall verification
+1. Go to Configuration > Modules, enable "Campus Coach"
+2. Enter your Campus Coach username and password
+3. Credentials are encrypted in AWS Secrets Manager
 
-For detailed usage, examples, and troubleshooting, see **[scripts/README.md](scripts/README.md)**.
+#### Enduraw Report (Optional)
 
-## 📚 Documentation
+Enhanced analytics with weather and wind impact analysis.
 
-**📖 [Complete Documentation Hub](docs/README.md)** - Single entry point to all documentation
+- **External setup required**: Configure at https://enduraw-report-strava.onrender.com first
+- Then enable "Enduraw Integration" in modules
+- System waits 2 minutes for Enduraw data via SQS delay (graceful fallback if unavailable)
 
-**Quick Links:**
-- 🚀 **[Quick Start Guide](docs/getting-started/QUICK-START.md)** - Get running in 5 minutes
-- 🎯 **[First Activity Guide](docs/getting-started/FIRST-STEPS.md)** - Your first enhancement
-- 🔧 **[Troubleshooting](docs/user-guide/TROUBLESHOOTING.md)** - Common issues
+### Personal Profile
 
-## 🎯 Choose Your Path
+Customize AI content generation in Configuration > Personal Profile:
 
-### I'm New - Just Want to Try It
-→ **[Quick Start Guide](docs/getting-started/QUICK-START.md)**
+| Setting | Options |
+|---------|---------|
+| **Sport Approach** | Health & Wellness, Performance & Competition, Social & Fun, Personal Challenge, Stress Relief, Weight Management |
+| **Content Length** | Short (~300 chars), Medium (~800), Detailed (~1500), Adaptive |
+| **Tone** | Technical & Analytical, Motivational & Energetic, Casual & Friendly, Humorous & Fun, Authentic & Personal |
+| **Emoji Usage** | None, Minimal (1-2), Moderate (3-5), Enthusiastic (5+) |
+| **Technical Detail** | Basic, Intermediate, Advanced |
+| **Language** | French, English, Spanish, German, Italian |
 
-### I Want Full Control and Understanding  
-→ **[Complete Setup Guide](docs/getting-started/COMPLETE-SETUP.md)**
+### Enhancement Control
 
-### I Have Issues or Questions
-→ **[Troubleshooting Guide](docs/user-guide/TROUBLESHOOTING.md)**
+- **Pause/Resume**: Toggle automatic enhancement from the dashboard
+- **2-minute window**: When Enduraw is enabled, you can add your own title/description during the wait - they will be preserved and incorporated
 
-### I Want to Understand the Technical Details
-→ **[Architecture Documentation](docs/reference/ARCHITECTURE.md)** or **[AgentCore Guide](docs/advanced/AGENTCORE.md)**
+### Environment Variables
 
-### I Need to Run Tests or Validate the System
-→ **[Testing Guide](docs/advanced/TESTING.md)** - Complete end-to-end testing suite
+Configure in `frontend/.env.local` (copy from `.env.example`):
+```bash
+VITE_API_GATEWAY_URL=https://your-api-id.execute-api.eu-west-1.amazonaws.com/prod
+VITE_API_GATEWAY_KEY=your-api-key
+VITE_DEFAULT_USER_ID=YOUR_USER_ID
+```
 
-### I Want to Understand Test Results
-→ **[Testing Guide](docs/advanced/TESTING.md)** - Comprehensive validation procedures
-
-## Overview
-
-The system uses a React frontend that calls API Gateway directly with an API key. This prioritizes simplicity and rapid deployment for individual users who can install the system in their own AWS environment.
-
-### Key Features
-
-- **React Frontend**: React 18 + TypeScript + Vite + @cloudscape-design/components
-- **User Preferences & Personalization**: Configure age, interests, sport approach, content style for tailored AI generation
-- **Modular Architecture**: Extensible module system starting with Campus Coach integration  
-- **AI-Powered Enhancement**: Amazon Bedrock Claude Sonnet 4.5 for intelligent content generation
-- **Content Attribution**: All AI-generated content includes "@Generated by Strava AI Boost" signature
-- **AgentCore Memory**: Persistent personalization avoiding repetitive expressions
-- **Cultural References**: Subtle, age-appropriate references based on user profile
-- **Campus Coach Integration**: AgentCore Browser Tool for automated session extraction
-- **Webhook Loop Prevention**: Smart processing to avoid infinite execution cycles
-- **Structured Logging**: AWS Lambda Powertools with correlation IDs and custom CloudWatch metrics
-- **Serverless Architecture**: Full AWS serverless stack for cost efficiency and scalability
-
-## Prerequisites
-
-### Required Services
-
-1. **Strava Account** (social fitness platform)
-   - API Limits: 100 req/15min, 1000 req/day
-   - OAuth application registration required
-
-2. **Campus Coach Account** (French training platform) - Optional Module
-   - Subscription required for module activation
-   - Website: https://campus.coach
-
-3. **Enduraw Report Integration** (third-party Strava app) - Optional Module
-   - **External Configuration Required**: Must be configured separately at https://enduraw-report-strava.onrender.com
-   - **Not Managed by This System**: Enduraw Report is an independent service that connects directly to your Strava account
-   - **How It Works**: When enabled, system uses SQS delay to wait 2 minutes for Enduraw to process your activity
-   - **2-Minute Window Benefit**: During the wait, you can add your personal title/description on Strava - they will be preserved and incorporated into AI-generated content
-   - **Cost-Optimized**: SQS delay mechanism (no Lambda cost during wait, ~$0.0000003 per activity)
-   - **Graceful Fallback**: If Enduraw is not configured or times out, content generation proceeds without Enduraw data
-   - **Enhanced Analytics**: Provides pace without wind, weather impact, elevation cost when available
-   - Processing delay: 2 minutes when module enabled
-
-4. **AWS Account**
-   - Cost: ~$0.02 per activity (estimated)
-   - Region: eu-west-1 recommended
-   - AgentCore CLI access required
-
-### Development Environment
-
-- Python 3.12+
-- AWS CDK CLI
-- AgentCore CLI
-- Node.js (for CDK)
+---
 
 ## Architecture Overview
-
-### System Components
-
-Strava AI Boost is built on 4 main layers:
-
-```mermaid
-graph TB
-    subgraph "🖥️ User Layer"
-        User[User]
-        Browser[Web Browser]
-        LocalUI[React Frontend<br/>localhost:3000]
-    end
-    
-    subgraph "☁️ AWS Infrastructure - 7 CDK Stacks"
-        subgraph "1️⃣ Core Stack"
-            DDB[(DynamoDB<br/>3 Tables)]
-            Secrets[Secrets Manager<br/>OAuth & Credentials]
-        end
-        
-        subgraph "2️⃣ Security Stack"
-            Guardrails[Bedrock Guardrails<br/>AI Safety]
-        end
-        
-        subgraph "3️⃣ Webhook Stack"
-            WebhookAPI[Webhook API<br/>Strava Events]
-            SQS[SQS Queue<br/>+ DLQ]
-        end
-        
-        subgraph "4️⃣ Content Stack"
-            SF[Step Functions<br/>Workflow]
-            Lambda13[13 Lambda Functions<br/>Processing Pipeline]
-        end
-        
-        subgraph "5️⃣ API Stack"
-            APIGW[API Gateway<br/>Frontend API]
-        end
-        
-        subgraph "6️⃣ Monitoring Stack"
-            CW[CloudWatch<br/>Logs & Metrics]
-            GenAI[GenAI Dashboard<br/>Agent Observability]
-        end
-    end
-    
-    subgraph "🤖 AI Services"
-        AgentCore[AgentCore<br/>2 Agents + 2 Memories]
-        Bedrock[Bedrock<br/>Claude Sonnet 4.5]
-    end
-    
-    subgraph "🌐 External Services"
-        Strava[Strava API<br/>Activities]
-        Campus[Campus Coach<br/>Training Platform]
-        Nominatim[Nominatim<br/>Location Data]
-        OpenMeteo[Open-Meteo<br/>Weather Data]
-    end
-    
-    User --> Browser
-    Browser --> LocalUI
-    LocalUI --> APIGW
-    APIGW --> Lambda13
-    Lambda13 --> DDB
-    Lambda13 --> Secrets
-    
-    Strava --> WebhookAPI
-    WebhookAPI --> SQS
-    SQS --> SF
-    SF --> Lambda13
-    
-    Lambda13 --> Guardrails
-    Guardrails --> Bedrock
-    Lambda13 --> AgentCore
-    Lambda13 --> Strava
-    Lambda13 --> Campus
-    Lambda13 --> Nominatim
-    Lambda13 --> OpenMeteo
-    
-    AgentCore --> GenAI
-    Lambda13 --> CW
-```
 
 ### Key Architecture Decisions
 
@@ -275,6 +159,87 @@ graph TB
 5. **Serverless** - Pay-per-use, auto-scaling, no server management
 6. **Security First** - Guardrails, encryption, least privilege IAM
 
+### System Components
+
+```mermaid
+graph TB
+    subgraph "User Layer"
+        Browser[Web Browser<br/>localhost:3000]
+    end
+
+    subgraph "AWS Infrastructure - 7 CDK Stacks"
+        subgraph "Core Stack"
+            DDB[(DynamoDB<br/>3 Tables)]
+            Secrets[Secrets Manager<br/>OAuth & Credentials]
+        end
+
+        subgraph "Security Stack"
+            Guardrails[Bedrock Guardrails<br/>AI Safety]
+        end
+
+        subgraph "Webhook Stack"
+            WebhookAPI[Webhook API<br/>Strava Events]
+            SQS[SQS Queue<br/>+ DLQ]
+        end
+
+        subgraph "Content Stack"
+            SF[Step Functions<br/>Workflow]
+            Lambda13[13 Lambda Functions<br/>Processing Pipeline]
+        end
+
+        subgraph "API Stack"
+            APIGW[API Gateway<br/>Frontend API]
+        end
+
+        subgraph "Monitoring Stack"
+            CW[CloudWatch<br/>Logs & Metrics]
+        end
+    end
+
+    subgraph "AI Services"
+        AgentCore[AgentCore<br/>2 Agents + 2 Memories]
+        Bedrock[Bedrock<br/>Claude Sonnet 4.5]
+    end
+
+    subgraph "External Services"
+        Strava[Strava API]
+        Campus[Campus Coach]
+        Nominatim[Nominatim<br/>Location Data]
+        OpenMeteo[Open-Meteo<br/>Weather Data]
+    end
+
+    Browser --> APIGW
+    APIGW --> Lambda13
+    Lambda13 --> DDB
+    Lambda13 --> Secrets
+
+    Strava --> WebhookAPI
+    WebhookAPI --> SQS
+    SQS --> SF
+    SF --> Lambda13
+
+    Lambda13 --> Guardrails
+    Guardrails --> Bedrock
+    Lambda13 --> AgentCore
+    Lambda13 --> Strava
+    Lambda13 --> Campus
+    Lambda13 --> Nominatim
+    Lambda13 --> OpenMeteo
+
+    Lambda13 --> CW
+```
+
+### Infrastructure Components
+
+| Component | Details |
+|-----------|---------|
+| **7 CDK Stacks** | Core, Security, Webhook, Content, API, Monitoring, Feedback |
+| **13 Lambda Functions** | 5 processing pipeline + 4 API endpoints + 3 utilities + 1 feedback |
+| **3 DynamoDB Tables** | `activities` (GSI, TTL), `user_config`, `coaching_sessions` (GSI) |
+| **2 AgentCore Agents** | `content_gen` (LTM memory), `campus_coach` (Browser Tool) |
+| **2 Free APIs** | Nominatim (geocoding), Open-Meteo (weather) |
+| **Shared Utilities** | `lambda_functions/shared/` - Structured logging, metrics, correlation IDs |
+
 ### Data Flow: Activity Enhancement
 
 ```mermaid
@@ -284,227 +249,179 @@ sequenceDiagram
     participant Webhook
     participant SQS
     participant StepFunctions
-    participant ActivityFetcher
-    participant ContentGen
-    participant StravaUpdater
+    participant Lambda
     participant AgentCore
     participant DynamoDB
-    
+
     User->>Strava: Upload Activity
     Strava->>Webhook: Webhook Notification
     Webhook->>DynamoDB: Check Enhancement Status
     Webhook->>SQS: Queue Activity
     SQS->>StepFunctions: Trigger Workflow
-    
-    StepFunctions->>ActivityFetcher: Fetch Activity Data
-    ActivityFetcher->>Strava: Get Activity + Streams
-    ActivityFetcher->>Nominatim: Get Location (if needed)
-    ActivityFetcher->>OpenMeteo: Get Weather (if needed)
-    ActivityFetcher->>DynamoDB: Store Original Data
-    
-    StepFunctions->>ContentGen: Generate Enhanced Content
-    ContentGen->>DynamoDB: Get User Config & Modules
-    ContentGen->>AgentCore: Invoke Content Agent
-    AgentCore->>AgentCore: Retrieve Memory (style, expressions)
-    AgentCore->>Bedrock: Generate with Claude
-    AgentCore->>AgentCore: Store New Patterns
-    ContentGen->>DynamoDB: Store Enhanced Content
-    
-    StepFunctions->>StravaUpdater: Update Activity
-    StravaUpdater->>Strava: Update Title & Description
-    StravaUpdater->>DynamoDB: Mark Completed
-    
-    User->>Strava: View Enhanced Activity ✨
-```
-
-### Infrastructure Components
-
-**7 CDK Stacks**:
-1. **Core** - DynamoDB (3 tables), Secrets Manager (4 secrets), Lambda Layer
-2. **Security** - Bedrock Guardrails, Memory Execution Role, GenAI Observability
-3. **Webhook** - SQS queues, webhook handler, activity processor
-4. **Content** - Step Functions, 5 processing Lambdas
-5. **API** - API Gateway for frontend (4 API Lambdas + AgentCore health check)
-6. **Monitoring** - CloudWatch alarms, dashboards
-7. **Feedback** - Feedback analyzer Lambda, EventBridge schedule
-
-**13 Lambda Functions**:
-- **Processing Pipeline** (5): webhook_handler, activity_processor, activity_fetcher, content_generator, strava_updater
-- **API Endpoints** (4): configuration_api, dashboard_api, user_preferences_api, agentcore_health_check
-- **Utilities** (3): rate_limiter, campus_coach_invoker, stepfunctions_error_handler
-- **Shared Utilities**: `lambda_functions/shared/` - Structured logging (AWS Lambda Powertools), metrics, correlation IDs
-- **Dependencies**: Lambda Layer with shared packages
-
-**3 DynamoDB Tables**:
-- `activities` - Activity data and processing status (with GSI, TTL via `expires_at`)
-- `user_config` - User preferences and module configuration (keyed by Strava athlete ID)
-- `coaching_sessions` - Campus Coach training sessions (with GSI)
-
-**2 AgentCore Agents**:
-- `content_gen` - Content generation with LTM memory
-- `campus_coach` - Session extraction with Browser Tool
-
-**2 External APIs** (Free):
-- Nominatim (OpenStreetMap) - Reverse geocoding
-- Open-Meteo - Historical weather data
-
-### High-Level System Flow
-
-```mermaid
-graph TB
-    subgraph "Local Environment"
-        UI[React Frontend<br/>Vite + Cloudscape<br/>Zero AWS SDK]
-        Browser[Web Browser<br/>localhost:3000]
-    end
-    
-    subgraph "AWS Cloud"
-        subgraph "API Layer"
-            APIGW[API Gateway<br/>REST API + API Key<br/>Rate Limiting]
-            Webhook[Webhook Handler<br/>Lambda]
-        end
-        
-        subgraph "Processing"
-            SQS[SQS Queue<br/>Activity Processing]
-            SF[Step Functions<br/>Workflow]
-            Processor[Activity Processor<br/>Lambda]
-        end
-        
-        subgraph "AI Services"
-            Bedrock[Amazon Bedrock<br/>Claude Sonnet 4.5]
-            AgentCore[AgentCore<br/>Memory + Browser Tool]
-        end
-        
-        subgraph "Storage"
-            DDB[(DynamoDB<br/>Activities, Config)]
-            Secrets[Secrets Manager<br/>OAuth Tokens]
-        end
-        
-        subgraph "External"
-            Strava[Strava API<br/>Activities & Updates]
-            Campus[Campus Coach<br/>Training Sessions]
-        end
-    end
-    
-    Browser --> UI
-    UI -->|HTTPS + API Key| APIGW
-    APIGW -->|Invoke| ConfigAPI[Configuration Lambda]
-    APIGW -->|Invoke| DashAPI[Dashboard Lambda]
-    APIGW -->|Invoke| PrefAPI[Preferences Lambda]
-    ConfigAPI --> DDB
-    DashAPI --> DDB
-    PrefAPI --> DDB
-    Strava --> Webhook
-    Webhook --> SQS
-    SQS --> SF
-    SF --> Processor
-    Processor --> Bedrock
-    Processor --> AgentCore
-    Processor --> DDB
-    Processor --> Secrets
-    Processor --> Strava
-    AgentCore --> Campus
-```
-
-### Detailed Processing Flow
-
-```mermaid
-sequenceDiagram
-    participant S as Strava
-    participant W as Webhook Handler
-    participant Q as SQS Queue
-    participant SF as Step Functions
-    participant P as Activity Processor
-    participant B as Bedrock Claude
-    participant AC as AgentCore
-    participant D as DynamoDB
-    
-    S->>W: Activity Created Webhook
-    W->>D: Check Rate Limits
-    W->>Q: Queue Activity for Processing
-    Q->>SF: Trigger Workflow
-    SF->>P: Process Activity
-    P->>S: Fetch Activity Details
-    P->>AC: Get Campus Coach Data (if enabled)
-    P->>B: Generate Enhanced Content
-    P->>D: Store Enhanced Content
-    P->>S: Update Activity
-    P->>D: Update Processing Status
+    StepFunctions->>Lambda: Fetch + Enrich + Generate
+    Lambda->>AgentCore: Invoke Content Agent (with Memory)
+    Lambda->>Strava: Update Title & Description
+    Lambda->>DynamoDB: Mark Completed
+    User->>Strava: View Enhanced Activity
 ```
 
 ### Technology Stack
 
-**Infrastructure:**
-- AWS CDK: Python constructs
-- Python Runtime: 3.12
-- Region: eu-west-1 (Ireland)
-- AgentCore CLI: Shell script deployment
+**Infrastructure**: AWS CDK (Python), Python 3.12, eu-west-1
 
-**AWS Services:**
-- Lambda: 13 functions (Python 3.12) with structured logging (AWS Lambda Powertools)
-- DynamoDB: 3 tables with GSI and TTL
-- Step Functions: Activity processing workflow
-- SQS: Message queuing with DLQ
-- Bedrock: Claude Sonnet 4.5
-- Secrets Manager: OAuth tokens and credentials
-- API Gateway: Frontend REST API
+**AWS Services**: Lambda (13 functions, Powertools), DynamoDB (3 tables, GSI, TTL), Step Functions, SQS + DLQ, Bedrock (Claude Sonnet 4.5), Secrets Manager, API Gateway
 
-**AI/ML Framework:**
-- Strands Agents: Agent orchestration framework
-- AgentCore Memory: Persistent personalization (2 LTM memories)
-- AgentCore Browser Tool: Campus Coach scraping
-- Claude Sonnet 4.5: Content generation and analysis
+**AI/ML**: Strands Agents, AgentCore Memory (2 LTM memories), AgentCore Browser Tool, Claude Sonnet 4.5
 
-**External APIs** (Free):
-- Nominatim (OpenStreetMap): Reverse geocoding
-- Open-Meteo: Historical weather data
+### Performance Targets
 
-## Performance Targets
+- Webhook Processing: <5s to queue
+- Content Generation: <30s end-to-end
+- Dashboard Loading: <2s
+- Cost per Activity: ~$0.02
 
-- **Webhook Processing**: <5 seconds to queue
-- **Content Generation**: <30 seconds end-to-end
-- **Dashboard Loading**: <2 seconds
-- **Configuration Changes**: <1 second
-- **Cost per Activity**: ~$0.02 (target)
+---
 
-## Security
+## Troubleshooting
 
-- **Bedrock Guardrails**: AI safety and prompt injection protection (v1.16.0+)
-- **Data Encryption**: AWS managed encryption for all DynamoDB tables
-- **Secure Communication**: HTTPS for all API endpoints
-- **Credential Management**: AWS Secrets Manager with automatic rotation
-- **IAM**: Least privilege principle with scoped resource ARNs
-- **Frontend**: Local-only access (localhost:3000), ErrorBoundary for graceful error recovery
-- **User Isolation**: Per-user configuration keyed by Strava athlete ID
+### Quick Diagnostics
 
-## Testing and Validation
-
-The system includes a comprehensive testing suite that validates all core functionality:
-
-- **End-to-End Pipeline Testing**: Complete webhook → SQS → Step Functions → Bedrock → Strava flow validation
-- **Security Compliance Testing**: 100% encryption and IAM compliance verification  
-- **Frontend Testing**: React application component validation
-- **Property-Based Testing**: Universal properties validation across all system components
-
-Run the complete test suite:
 ```bash
-# End-to-end pipeline test
-python tests/test_end_to_end_pipeline.py
+# Check AWS connectivity
+aws sts get-caller-identity --profile your-aws-profile
 
-# Security compliance test (100% compliance achieved)
-python tests/test_security_compliance.py
+# Check Lambda logs (structured JSON with correlation IDs)
+aws logs tail /aws/lambda/StravaAIBoost-WebhookHandler --follow --profile your-aws-profile
 
-# Frontend test
+# Filter by error level
+aws logs filter-log-events \
+  --log-group-name /aws/lambda/StravaAIBoost-ConfigurationAPI \
+  --filter-pattern '{ $.level = "ERROR" }' \
+  --profile your-aws-profile
+
+# Validate deployment
+./scripts/validate_deployment.sh dev
+```
+
+### Common Issues
+
+**OAuth: "Failed to connect to Strava"**
+- Verify callback domain is exactly `localhost` (no http://, no port)
+- Check Client ID/Secret match your Strava app
+- Try incognito mode to clear cached state
+
+**Activities not being enhanced**
+- Check enhancement is not paused (Dashboard > Resume Enhancement)
+- Verify webhook: `./scripts/configure_strava_webhook.sh dev --validate-only`
+- Check SQS queue and DLQ for stuck messages
+
+**Modules showing disabled after OAuth refresh**
+- Fixed in v2.4.0: `user_id` is now persisted at top level during OAuth callback
+- If still occurring, disconnect and reconnect Strava OAuth
+
+**Frontend won't load**
+- Verify `frontend/.env.local` is configured (copy from `.env.example`)
+- Check port 3000 is available: `lsof -i :3000`
+- Restart: `cd frontend && npm install && npm run dev`
+
+**Processing takes too long**
+- Basic enhancement: 30-60s | With Campus Coach: 2-3min | With Enduraw: +2min wait
+- Check CloudWatch for Lambda timeouts or Bedrock throttling
+
+**Enhanced content is repetitive**
+- Update personal profile with more specific preferences
+- Verify AgentCore Memory service is working
+- Check feedback loop is running (EventBridge schedule)
+
+### DLQ Reprocessing
+
+```bash
+# Check DLQ message count
+aws sqs get-queue-attributes \
+  --queue-url $(aws sqs get-queue-url --queue-name strava-ai-boost-activity-processing-dlq --profile your-aws-profile --query 'QueueUrl' --output text) \
+  --attribute-names ApproximateNumberOfMessages \
+  --profile your-aws-profile
+
+# Reprocess all DLQ messages
+./scripts/reprocess_dlq.sh
+```
+
+### Webhook Infinite Loop Prevention
+
+Strava sends `update` webhooks when activities are modified. The system prevents infinite loops by:
+- Skipping activities with `completed` or `processing` status
+- Skipping `update` webhooks for already-processed activities
+- 1-hour cooldown for failed activities on update webhooks
+
+---
+
+## Known Issues
+
+### 1. AgentCore Browser Tool - Cold Start (~30% first-call failure)
+
+AgentCore Browser Tool experiences cold start delays. Exponential backoff retry (3 attempts) is implemented. Success rate: ~90% after retries.
+
+### 2. Lambda Layer Cross-Stack Export Constraint
+
+The Lambda Layer cannot be replaced via CDK due to CloudFormation cross-stack export limitations. New dependencies are installed directly into `lambda_functions/` via `pip install -t` and bundled with `Code.from_asset`. The Layer still provides original dependencies.
+
+### 3. CDK Feature Flags Warning (Cosmetic)
+
+58 unconfigured feature flags generate warnings during CDK operations. No functional impact. Run `cdk flags` to review.
+
+---
+
+## Available Scripts
+
+All scripts are documented in **[scripts/README.md](scripts/README.md)**.
+
+| Category | Scripts |
+|----------|---------|
+| **Deployment** | `deploy.sh`, `deploy_agentcore_agents.sh` |
+| **Configuration** | `setup_local_env.sh`, `create_agentcore_memories.sh`, `configure_agentcore_integration.sh`, `configure_strava_webhook.sh` |
+| **Maintenance** | `cleanup_strava_webhook.sh`, `reprocess_dlq.sh` |
+| **Validation** | `validate_deployment.sh` |
+| **Uninstall** | `uninstall.sh`, `verify_uninstall.sh` |
+
+## Testing
+
+```bash
+# Full test suite (73 tests)
+export AWS_PROFILE=your-aws-profile
+pytest tests/ -v
+
+# Specific categories
+pytest tests/test_api_gateway.py -v      # API Gateway endpoints
+pytest tests/test_cdk_infrastructure.py -v  # CDK infrastructure
+pytest tests/test_end_to_end.py -v       # Integration tests
+
+# Frontend tests
 cd frontend && npm test
 ```
 
-For detailed testing procedures, see the **[Testing Guide](docs/advanced/TESTING.md)**.
+## Security
+
+- **Bedrock Guardrails**: AI safety and prompt injection protection
+- **Data Encryption**: AWS managed encryption for all DynamoDB tables
+- **HTTPS**: All API endpoints use secure communication
+- **Secrets Manager**: OAuth tokens and credentials with automatic rotation
+- **IAM**: Least privilege with scoped resource ARNs
+- **Frontend**: Local-only access (localhost:3000), ErrorBoundary for graceful recovery
+- **User Isolation**: Per-user configuration keyed by Strava athlete ID
+
+## Documentation
+
+- **[AGENTS.md](AGENTS.md)** - Complete development guide for AI assistants
+- **[Changelog](docs/reference/CHANGELOG.md)** - Version history
+- **[Scripts](scripts/README.md)** - Deployment and maintenance scripts
+- **[Tests](tests/README.md)** - Test suite documentation
 
 ## Contributing
 
-1. Follow the property-based testing approach for all infrastructure changes
-2. Update CHANGELOG.md for all significant changes
+1. Follow property-based testing for infrastructure changes
+2. Update CHANGELOG.md for significant changes
 3. Ensure all tests pass before committing
-4. Use AWS profile `your-aws-profile` for all AWS operations
+4. Use `your-aws-profile` for all AWS operations
 
 ## License
 

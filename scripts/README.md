@@ -954,12 +954,9 @@ aws cloudwatch get-metric-statistics \
 ## Support et Documentation
 
 ### Documentation Complète
-- **README.md** - Vue d'ensemble du projet
-- **docs/getting-started/QUICK-START.md** - Démarrage rapide (5 minutes)
-- **docs/getting-started/COMPLETE-SETUP.md** - Guide complet de déploiement
-- **docs/reference/ARCHITECTURE.md** - Architecture technique détaillée
-- **docs/advanced/AGENTCORE.md** - Documentation AgentCore
-- **docs/user-guide/TROUBLESHOOTING.md** - Guide de dépannage
+- **README.md** - Vue d'ensemble, quick start, configuration, troubleshooting
+- **AGENTS.md** - Guide de développement pour assistants IA
+- **docs/reference/CHANGELOG.md** - Historique des versions
 
 ### Ressources Externes
 - **AWS CDK:** https://docs.aws.amazon.com/cdk/
