@@ -52,7 +52,7 @@ class FeedbackLoopStack(Stack):
             self, "FeedbackAnalyzer",
             function_name="StravaAIBoost-FeedbackAnalyzer",
             runtime=lambda_.Runtime.PYTHON_3_12,
-            handler="feedback_analyzer.lambda_handler",
+            handler="support.feedback_analyzer.lambda_handler",
             code=lambda_.Code.from_asset("lambda_functions"),
             layers=[dependencies_layer],
             timeout=Duration.minutes(5),

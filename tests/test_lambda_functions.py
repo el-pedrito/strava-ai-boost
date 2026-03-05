@@ -15,53 +15,51 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'lambda_functio
 
 class TestLambdaStructure:
     """Test Lambda function structure and configuration"""
-    
+
+    # Map of lambda files to their package subdirectory
+    LAMBDA_FILES = {
+        'webhooks/webhook_handler.py': 'def handler(',
+        'webhooks/activity_processor.py': 'def handler(',
+        'processing/content_generator.py': 'def handler(',
+        'processing/activity_fetcher.py': 'def handler(',
+        'processing/strava_updater.py': 'def handler(',
+        'webhooks/campus_coach_invoker.py': 'def handler(',
+        'api/configuration_api.py': 'def handler(',
+        'api/dashboard_api.py': 'def handler(',
+        'api/user_preferences_api.py': 'def handler(',
+        'api/agentcore_health_check.py': 'def handler(',
+        'support/stepfunctions_error_handler.py': 'def handler(',
+    }
+
     def test_all_lambdas_have_handler(self):
         """Test all Lambda files have a handler function"""
         lambda_dir = os.path.join(os.path.dirname(__file__), '..', 'lambda_functions')
-        lambda_files = [
-            'webhook_handler.py',
-            'activity_processor.py',
-            'content_generator.py',
-            'activity_fetcher.py',
-            'strava_updater.py',
-            'campus_coach_invoker.py',
-            'configuration_api.py',
-            'dashboard_api.py',
-            'user_preferences_api.py',
-            'agentcore_health_check.py',
-            'stepfunctions_error_handler.py'
-            # Note: rate_limiter was removed (feature deprecated)
-        ]
-        
-        for lambda_file in lambda_files:
+
+        for lambda_file, handler_sig in self.LAMBDA_FILES.items():
             file_path = os.path.join(lambda_dir, lambda_file)
             assert os.path.exists(file_path), f"{lambda_file} should exist"
-            
-            # Check file has handler function
+
             with open(file_path, 'r') as f:
                 content = f.read()
-                assert 'def handler(' in content, f"{lambda_file} should have handler function"
-    
+                assert handler_sig in content, f"{lambda_file} should have handler function"
+
     def test_lambda_imports_boto3(self):
         """Test Lambda functions import boto3"""
-        lambda_files = [
-            'webhook_handler',
-            'activity_processor',
-            'content_generator',
-            'strava_updater'
+        lambda_modules = [
+            'webhooks.webhook_handler',
+            'webhooks.activity_processor',
+            'processing.content_generator',
+            'processing.strava_updater'
         ]
-        
-        for module_name in lambda_files:
+
+        for module_name in lambda_modules:
             try:
                 module = __import__(module_name)
-                # Module imported successfully
                 assert module is not None
             except ImportError:
                 # Some imports may fail due to missing dependencies in test env
-                # This is acceptable for structure tests
                 pass
-    
+
     def test_lambda_environment_variables(self):
         """Test Lambda functions read environment variables"""
         required_vars = [
@@ -70,54 +68,52 @@ class TestLambdaStructure:
             "RATE_LIMITS_TABLE",
             "BEDROCK_MODEL_ID"
         ]
-        
+
         for var in required_vars:
             assert var in os.environ
 
 
 class TestWebhookHandler:
     """Test webhook handler Lambda"""
-    
+
     def test_webhook_verification_logic(self):
         """Test webhook verification logic"""
-        # Test the verification logic without full handler
         hub_mode = "subscribe"
         hub_challenge = "test_challenge_12345"
         hub_verify_token = "test-verify-token"
         expected_token = "test-verify-token"
-        
-        # Simulate verification
+
         is_valid = (hub_mode == "subscribe" and hub_verify_token == expected_token)
-        
+
         assert is_valid == True
-        
+
         if is_valid:
             response = {
                 "statusCode": 200,
                 "body": json.dumps({"hub.challenge": hub_challenge})
             }
             assert response["statusCode"] == 200
-    
+
     def test_webhook_event_structure(self, sample_webhook_event):
         """Test webhook event has required fields"""
         required_fields = ["object_type", "object_id", "aspect_type", "owner_id"]
-        
+
         for field in required_fields:
             assert field in sample_webhook_event
 
 
 class TestContentGenerator:
     """Test content generator Lambda"""
-    
+
     def test_content_generator_has_agent_generation(self):
         """Test content_generator has AgentCore generation"""
-        import content_generator
+        from processing import content_generator
 
         assert hasattr(content_generator, 'generate_enhanced_content')
 
     def test_modules_processing(self):
         """Test modules_processing supports module discovery and processing"""
-        import modules_processing
+        from processing import modules_processing
 
         assert hasattr(modules_processing, 'get_active_modules')
         assert hasattr(modules_processing, 'apply_module_processing')
@@ -125,7 +121,7 @@ class TestContentGenerator:
 
 class TestActivityProcessor:
     """Test activity processor Lambda"""
-    
+
     def test_sqs_event_structure(self):
         """Test SQS event structure is valid"""
         event = {
@@ -139,10 +135,8 @@ class TestActivityProcessor:
                 }
             ]
         }
-        
+
         assert "Records" in event
         assert len(event["Records"]) > 0
         assert "messageId" in event["Records"][0]
         assert "body" in event["Records"][0]
-
-
