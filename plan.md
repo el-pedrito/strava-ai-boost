@@ -119,11 +119,11 @@
 ## 7. Frontend Polish (Low Priority)
 
 ### 7.1 Add error state UI
-- [ ] `frontend/src/pages/Dashboard/DashboardPage.tsx` — Replace `.catch(() => null)` with proper error state
-- [ ] Show "Failed to load" message with retry button per section
+- [x] `frontend/src/pages/Dashboard/DashboardPage.tsx` — Add error state with Alert and Retry button
+- [x] Show error banner when API calls fail instead of silently swallowing
 
 ### 7.2 Memoize presentational components
-- [ ] Wrap ConnectionStatus, SystemOverview, RecentActivities, ModuleStatus with `React.memo()`
+- [x] Wrap SystemOverview, ConnectionStatus, ModuleStatus, RecentActivities with `React.memo()`
 
 ### 7.3 Accessibility
 - [ ] Add ARIA labels on metric cards in SystemOverview.tsx
@@ -145,4 +145,5 @@
 | Phase 3 | 4.1, 5.1, 5.2, 5.3, 5.4 (Observability + Cost) | Done |
 | Phase 4 | 2.2, 6.1 (Step Functions + Retry) | Done |
 | Phase 4b | 3.1, 4.2, 4.3, 6.2, 6.3 (Shared utils, logging, exceptions) | Todo |
-| Phase 5 | 7.1, 7.2, 7.3, 7.4 (Frontend) | Todo |
+| Phase 5 | 7.1, 7.2 (Frontend error states + memoization) | Done |
+| Phase 5b | 7.3, 7.4 (Accessibility + status dedup) | Todo |

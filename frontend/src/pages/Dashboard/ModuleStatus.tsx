@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import Container from '@cloudscape-design/components/container';
 import Header from '@cloudscape-design/components/header';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
@@ -16,7 +17,7 @@ interface Props {
   loading: boolean;
 }
 
-export function ModuleStatus({ modules, loading }: Props) {
+export const ModuleStatus = memo(function ModuleStatus({ modules, loading }: Props) {
   const navigate = useNavigate();
 
   if (loading || !modules) {
@@ -92,4 +93,4 @@ export function ModuleStatus({ modules, loading }: Props) {
       </div>
     </ColumnLayout>
   );
-}
+});

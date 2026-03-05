@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import Box from '@cloudscape-design/components/box';
 import type { DashboardStats } from '../../types/index.ts';
@@ -8,7 +9,7 @@ interface Props {
   avgProcessingTime?: string;
 }
 
-export function SystemOverview({ stats, loading, avgProcessingTime }: Props) {
+export const SystemOverview = memo(function SystemOverview({ stats, loading, avgProcessingTime }: Props) {
   return (
     <ColumnLayout columns={4}>
       <div className="metric-card metric-card-blue">
@@ -52,4 +53,4 @@ export function SystemOverview({ stats, loading, avgProcessingTime }: Props) {
       </div>
     </ColumnLayout>
   );
-}
+});

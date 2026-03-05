@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import Container from '@cloudscape-design/components/container';
 import Header from '@cloudscape-design/components/header';
 import Table from '@cloudscape-design/components/table';
@@ -48,7 +49,7 @@ function formatModuleName(name: string): { label: string; className: string } {
   return { label: name, className: '' };
 }
 
-export function RecentActivities({ activities, loading, onRefresh }: Props) {
+export const RecentActivities = memo(function RecentActivities({ activities, loading, onRefresh }: Props) {
   return (
     <Container
       header={
@@ -125,4 +126,4 @@ export function RecentActivities({ activities, loading, onRefresh }: Props) {
       />
     </Container>
   );
-}
+});
