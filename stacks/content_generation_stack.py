@@ -497,7 +497,6 @@ class ContentGenerationStack(Stack):
         # Grant Step Functions permission to invoke Lambda functions
         for lambda_function in [
             self.activity_fetcher,
-            self.campus_coach_invoker,
             self.content_generator,
             self.strava_updater
         ]:

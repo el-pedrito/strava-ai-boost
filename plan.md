@@ -35,9 +35,8 @@
 - [x] ~~Skipped~~ — No Lambda currently queries activities by user_id (only by activity_id). GSI not needed.
 
 ### 2.2 Refactor Step Functions to Parallel state
-- [ ] `stacks/content_generation_stack.py:355-541` — Run content_generator and campus_coach_invoker in Parallel
-- [ ] strava_updater runs after Parallel completes (even if one branch fails)
-- [ ] Each branch has its own Catch block
+- [x] ~~Not applicable~~ — campus_coach_invoker runs via EventBridge daily schedule, not in the Step Function
+- [x] Removed stale `campus_coach_invoker` from Step Functions `grant_invoke` list
 
 ### 2.3 Add Error Boundary in frontend
 - [x] Create `frontend/src/components/ErrorBoundary.tsx` — Cloudscape Alert with retry button
@@ -105,8 +104,8 @@
 ## 6. Robustness (Medium Priority)
 
 ### 6.1 Add retry logic on external API calls
-- [ ] `lambda_functions/feedback_analyzer.py:266` — Add requests retry adapter with exponential backoff for Strava API
-- [ ] `lambda_functions/user_preferences_api.py` — Add boto3 retry config for DynamoDB
+- [x] `lambda_functions/feedback_analyzer.py` — Add requests Session with Retry adapter (3 retries, backoff, 429/5xx)
+- [x] `lambda_functions/activity_fetcher.py` — Add requests Session with Retry adapter for all Strava/external API calls
 
 ### 6.2 Catch specific exceptions instead of bare `except Exception`
 - [ ] Audit all Lambda functions — replace broad catches with specific ones (ClientError, json.JSONDecodeError, ValueError, etc.)
@@ -144,5 +143,6 @@
 | Phase 1 | 1.1-1.5 (Security) | Done |
 | Phase 2 | 2.1, 2.3, 2.4, 3.2 (Arch + Dedup) | Done |
 | Phase 3 | 4.1, 5.1, 5.2, 5.3, 5.4 (Observability + Cost) | Done |
-| Phase 4 | 2.2, 3.1, 4.2, 4.3, 6.1, 6.2, 6.3 (Step Functions + Robustness) | Todo |
+| Phase 4 | 2.2, 6.1 (Step Functions + Retry) | Done |
+| Phase 4b | 3.1, 4.2, 4.3, 6.2, 6.3 (Shared utils, logging, exceptions) | Todo |
 | Phase 5 | 7.1, 7.2, 7.3, 7.4 (Frontend) | Todo |

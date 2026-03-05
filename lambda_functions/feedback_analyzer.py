@@ -18,6 +18,8 @@ from typing import Dict, Any, List, Optional, Tuple
 import boto3
 from datetime import datetime, timedelta, UTC
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import difflib
 
 logger = logging.getLogger()
@@ -38,6 +40,18 @@ def _get_secretsmanager():
 ACTIVITIES_TABLE = os.environ.get('ACTIVITIES_TABLE', 'strava-ai-boost-activities')
 STRAVA_OAUTH_SECRET = os.environ.get('STRAVA_OAUTH_SECRET', 'strava-ai-boost-oauth-tokens')
 STRAVA_API_BASE = "https://www.strava.com/api/v3"
+
+# HTTP session with retry for Strava API
+_http_session = None
+
+
+def _get_http_session() -> requests.Session:
+    global _http_session
+    if _http_session is None:
+        _http_session = requests.Session()
+        retry = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+        _http_session.mount("https://", HTTPAdapter(max_retries=retry))
+    return _http_session
 MEMORY_ID = os.environ.get('BEDROCK_AGENTCORE_MEMORY_ID', '')
 
 # Configuration
@@ -270,7 +284,7 @@ def refresh_access_token(refresh_token: str) -> Optional[Dict[str, Any]]:
             'refresh_token': refresh_token
         }
         
-        response = requests.post("https://www.strava.com/oauth/token", data=token_data, timeout=30)
+        response = _get_http_session().post("https://www.strava.com/oauth/token", data=token_data, timeout=30)
         
         if response.status_code != 200:
             logger.error(f"Token refresh failed: {response.status_code}")
@@ -300,7 +314,7 @@ def fetch_final_description(activity_id: str, access_token: str) -> Optional[str
         headers = {'Authorization': f'Bearer {access_token}'}
         url = f"{STRAVA_API_BASE}/activities/{activity_id}"
         
-        response = requests.get(url, headers=headers, timeout=30)
+        response = _get_http_session().get(url, headers=headers, timeout=30)
         
         if response.status_code == 404:
             logger.warning(f"Activity {activity_id} not found on Strava")
