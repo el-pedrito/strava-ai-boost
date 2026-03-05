@@ -695,8 +695,8 @@ Solution: Check IAM permissions and agent ARN
 
 **Issue: Strava API Rate Limit**
 ```
-Solution: Check rate_limits table, wait for reset
-aws dynamodb scan --table-name strava-ai-boost-rate-limits --profile your-aws-profile
+Solution: Check Lambda logs for rate limit errors, wait for reset
+aws logs filter-log-events --log-group-name /aws/lambda/StravaAIBoost-ActivityProcessor --filter-pattern "rate" --profile your-aws-profile
 ```
 
 ### Debugging Lambda Functions
