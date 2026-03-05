@@ -34,6 +34,11 @@ lambda_layer/python/
 lambda_layer/*.zip
 python/
 
+# Vendored Python packages in Lambda code (installed via pip -t)
+lambda_functions/aws_lambda_powertools/
+lambda_functions/jmespath/
+lambda_functions/typing_extensions*
+
 # CDK
 cdk.out/
 .cdk.staging/
