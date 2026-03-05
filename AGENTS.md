@@ -1,7 +1,7 @@
 # AGENTS.md - AI Assistant Context for Strava AI Boost
 
-**Version:** 2.3.0
-**Last Updated:** 2026-03-03
+**Version:** 2.4.0
+**Last Updated:** 2026-03-05
 **Purpose:** Comprehensive context for AI coding assistants
 
 ---
@@ -68,6 +68,9 @@ strava-ai-boost/
 │   └── feedback_loop_stack.py          # Feedback analyzer
 │
 ├── lambda_functions/           # Lambda handlers (13 functions)
+│   ├── shared/                         # Shared utilities module
+│   │   ├── __init__.py
+│   │   └── logger.py                   # Powertools Logger, Metrics, correlation IDs
 │   ├── webhook_handler.py              # Webhook receiver
 │   ├── activity_processor.py           # SQS processor
 │   ├── activity_fetcher.py             # Data fetcher
@@ -145,60 +148,59 @@ strava-ai-boost/
 
 ### Lambda Function Structure
 
-**Standard Pattern:**
+**Standard Pattern (with structured logging):**
 ```python
 import boto3
 import json
 import os
 from typing import Dict, Any
+from shared.logger import get_logger, inject_correlation_id, metrics, MetricUnit
 
-# Initialize AWS clients outside handler for reuse
+# Initialize structured logger and AWS clients outside handler
+logger = get_logger(service="my-service")
 dynamodb = boto3.resource('dynamodb')
 table = dynamodb.Table(os.environ['TABLE_NAME'])
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """
-    Lambda handler function.
-    
-    Args:
-        event: Lambda event (API Gateway, SQS, Step Functions, etc.)
-        context: Lambda context object
-        
-    Returns:
-        Response dict with statusCode and body
-    """
+    """Lambda handler with structured logging and correlation IDs."""
+    inject_correlation_id(logger, event)
+    metrics.add_metric(name="MyServiceCalls", unit=MetricUnit.Count, value=1)
+
     try:
-        # Extract data from event
         data = extract_data(event)
-        
-        # Process data
         result = process_data(data)
-        
-        # Return success response
+
+        logger.info("Request processed successfully", extra={"result_count": len(result)})
         return {
             'statusCode': 200,
             'body': json.dumps(result)
         }
-        
+
+    except ValueError as e:
+        logger.warning("Invalid input", extra={"error": str(e)})
+        return {'statusCode': 400, 'body': json.dumps({'error': str(e)})}
     except Exception as e:
-        # Log error
-        print(f"Error: {str(e)}")
-        
-        # Return error response
-        return {
-            'statusCode': 500,
-            'body': json.dumps({'error': str(e)})
-        }
+        logger.exception("Unexpected error")
+        return {'statusCode': 500, 'body': json.dumps({'error': str(e)})}
+```
 
-def extract_data(event: Dict[str, Any]) -> Dict[str, Any]:
-    """Extract relevant data from event."""
-    # Implementation
-    pass
+**Shared Logger Module (`lambda_functions/shared/logger.py`):**
+```python
+from aws_lambda_powertools import Logger, Metrics
+from aws_lambda_powertools.metrics import MetricUnit
 
-def process_data(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Process the data."""
-    # Implementation
-    pass
+METRICS_NAMESPACE = "StravaAIBoost"
+
+def get_logger(service: str = "strava-ai-boost") -> Logger:
+    return Logger(service=service, log_uncaught_exceptions=True)
+
+def inject_correlation_id(logger: Logger, event: Dict[str, Any]) -> None:
+    request_id = (event.get("requestContext") or {}).get("requestId")
+    if request_id:
+        logger.set_correlation_id(request_id)
+
+def get_metrics(service: str = "strava-ai-boost") -> Metrics:
+    return Metrics(namespace=METRICS_NAMESPACE, service=service)
 ```
 
 ### CDK Stack Structure
