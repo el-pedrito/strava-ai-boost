@@ -303,9 +303,9 @@ export function PreferencesPage() {
         >
           <SpaceBetween size="l">
             <Alert type="info">
-              Enter your pace zones in <strong>mm:ss</strong> format (e.g. 5:45 for 5min45s/km).
-              Min = fastest pace (lower number), Max = slowest pace (higher number).
-              These zones help the AI distinguish an EF from a Tempo or Seuil run.
+              Entrez vos allures en <strong>mm:ss min/km</strong> (ex: 05:45 = 5min45s par km).
+              Debut = allure la plus rapide de la zone, Fin = allure la plus lente.
+              Ces zones permettent a l'IA de classer correctement vos seances (EF, Tempo, Seuil, etc.).
             </Alert>
             <ColumnLayout columns={2}>
               {(Object.keys(ZONE_LABELS) as Array<keyof PaceZones>).map((zoneKey) => {
@@ -319,10 +319,10 @@ export function PreferencesPage() {
                   >
                     <SpaceBetween direction="horizontal" size="xs">
                       <Box>
-                        <Box color="text-body-secondary" fontSize="body-s">Min (rapide)</Box>
+                        <Box color="text-body-secondary" fontSize="body-s">Debut (min/km)</Box>
                         <Input
                           value={zone.min}
-                          placeholder="mm:ss"
+                          placeholder="05:00"
                           onChange={({ detail }) =>
                             setPaceZones((prev) => ({
                               ...prev,
@@ -332,10 +332,10 @@ export function PreferencesPage() {
                         />
                       </Box>
                       <Box>
-                        <Box color="text-body-secondary" fontSize="body-s">Max (lent)</Box>
+                        <Box color="text-body-secondary" fontSize="body-s">Fin (min/km)</Box>
                         <Input
                           value={zone.max}
-                          placeholder="mm:ss"
+                          placeholder="06:00"
                           onChange={({ detail }) =>
                             setPaceZones((prev) => ({
                               ...prev,
