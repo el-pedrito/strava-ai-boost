@@ -6,13 +6,18 @@ import Form from '@cloudscape-design/components/form';
 import FormField from '@cloudscape-design/components/form-field';
 import Select from '@cloudscape-design/components/select';
 import Multiselect from '@cloudscape-design/components/multiselect';
+import Input from '@cloudscape-design/components/input';
 import Button from '@cloudscape-design/components/button';
 import SpaceBetween from '@cloudscape-design/components/space-between';
+import ColumnLayout from '@cloudscape-design/components/column-layout';
+import Box from '@cloudscape-design/components/box';
+import Alert from '@cloudscape-design/components/alert';
 import type { SelectProps } from '@cloudscape-design/components/select';
 import type { MultiselectProps } from '@cloudscape-design/components/multiselect';
 import { api } from '../../api/client.ts';
 import { getConfig } from '../../config.ts';
 import { useFlash } from '../../layouts/AppLayout.tsx';
+import type { PaceZones } from '../../types/index.ts';
 
 const AGE_OPTIONS: SelectProps.Option[] = [
   { value: '18-25', label: '18-25' },
@@ -82,6 +87,30 @@ function findOption(options: SelectProps.Option[], value: string) {
   return options.find((o) => o.value === value) ?? null;
 }
 
+const DEFAULT_PACE_ZONES: PaceZones = {
+  recovery:        { min: '6:30', max: '8:00' },
+  ef:              { min: '5:45', max: '7:30' },
+  tempo:           { min: '5:00', max: '5:45' },
+  sweet_spot:      { min: '4:45', max: '5:15' },
+  seuil_60:        { min: '4:30', max: '5:00' },
+  seuil_30:        { min: '4:15', max: '4:45' },
+  allure_marathon:  { min: '4:40', max: '5:10' },
+  allure_semi:     { min: '4:20', max: '4:50' },
+  interval:        { min: '3:30', max: '4:20' },
+};
+
+const ZONE_LABELS: Record<string, { label: string; description: string }> = {
+  recovery:        { label: 'Recup (Recovery)', description: 'Allure de recuperation, tres facile' },
+  ef:              { label: 'EF (Endurance Fondamentale)', description: 'Allure facile, conversation possible' },
+  tempo:           { label: 'Tempo', description: 'Allure confortablement dure' },
+  sweet_spot:      { label: 'Sweet Spot', description: 'Entre tempo et seuil' },
+  seuil_60:        { label: 'Seuil 60 (Threshold)', description: 'Seuil lactique, effort 60min' },
+  seuil_30:        { label: 'Seuil 30 (Critical)', description: 'Seuil critique, effort 30min' },
+  allure_marathon:  { label: 'Allure Marathon', description: 'Pace cible marathon' },
+  allure_semi:     { label: 'Allure Semi', description: 'Pace cible semi-marathon' },
+  interval:        { label: 'Intervalles / VMA', description: 'Fractions rapides, recup entre' },
+};
+
 const DEFAULTS = {
   age_range: '26-35',
   sport_approach: 'health & wellness',
@@ -103,6 +132,7 @@ export function PreferencesPage() {
   const [technicalDetail, setTechnicalDetail] = useState<SelectProps.Option | null>(findOption(DETAIL_OPTIONS, DEFAULTS.technical_detail));
   const [contentLanguage, setContentLanguage] = useState<SelectProps.Option | null>(findOption(LANGUAGE_OPTIONS, DEFAULTS.content_language));
   const [interests, setInterests] = useState<MultiselectProps.Option[]>([]);
+  const [paceZones, setPaceZones] = useState<PaceZones>({ ...DEFAULT_PACE_ZONES });
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
@@ -121,6 +151,9 @@ export function PreferencesPage() {
         setContentLanguage(findOption(LANGUAGE_OPTIONS, (p.content_language as string) || DEFAULTS.content_language));
         const userInterests = (p.interests as string[]) || [];
         setInterests(INTEREST_OPTIONS.filter((o) => userInterests.includes(o.value!)));
+        if (p.pace_zones && typeof p.pace_zones === 'object') {
+          setPaceZones({ ...DEFAULT_PACE_ZONES, ...(p.pace_zones as PaceZones) });
+        }
       }
     } catch {
       // Use defaults
@@ -147,6 +180,7 @@ export function PreferencesPage() {
         technical_detail: technicalDetail?.value,
         content_language: contentLanguage?.value,
         interests: interests.map((i) => i.value),
+        pace_zones: paceZones,
       });
       flash('success', 'Preferences saved successfully! Future activities will use these settings.');
     } catch (err) {
@@ -259,6 +293,69 @@ export function PreferencesPage() {
               </FormField>
             </SpaceBetween>
           </Form>
+        </Container>
+        <Container
+          header={
+            <Header variant="h2" description="Define your personal pace zones so the AI correctly classifies your workouts (EF, Tempo, Seuil, etc.)">
+              Pace Zones Configuration
+            </Header>
+          }
+        >
+          <SpaceBetween size="l">
+            <Alert type="info">
+              Enter your pace zones in <strong>mm:ss</strong> format (e.g. 5:45 for 5min45s/km).
+              Min = fastest pace (lower number), Max = slowest pace (higher number).
+              These zones help the AI distinguish an EF from a Tempo or Seuil run.
+            </Alert>
+            <ColumnLayout columns={2}>
+              {(Object.keys(ZONE_LABELS) as Array<keyof PaceZones>).map((zoneKey) => {
+                const zone = paceZones[zoneKey] ?? DEFAULT_PACE_ZONES[zoneKey];
+                const meta = ZONE_LABELS[zoneKey];
+                return (
+                  <FormField
+                    key={zoneKey}
+                    label={meta.label}
+                    description={meta.description}
+                  >
+                    <SpaceBetween direction="horizontal" size="xs">
+                      <Box>
+                        <Box color="text-body-secondary" fontSize="body-s">Min (rapide)</Box>
+                        <Input
+                          value={zone.min}
+                          placeholder="mm:ss"
+                          onChange={({ detail }) =>
+                            setPaceZones((prev) => ({
+                              ...prev,
+                              [zoneKey]: { ...prev[zoneKey], min: detail.value },
+                            }))
+                          }
+                        />
+                      </Box>
+                      <Box>
+                        <Box color="text-body-secondary" fontSize="body-s">Max (lent)</Box>
+                        <Input
+                          value={zone.max}
+                          placeholder="mm:ss"
+                          onChange={({ detail }) =>
+                            setPaceZones((prev) => ({
+                              ...prev,
+                              [zoneKey]: { ...prev[zoneKey], max: detail.value },
+                            }))
+                          }
+                        />
+                      </Box>
+                    </SpaceBetween>
+                  </FormField>
+                );
+              })}
+            </ColumnLayout>
+            <Button
+              variant="link"
+              onClick={() => setPaceZones({ ...DEFAULT_PACE_ZONES })}
+            >
+              Reset to defaults
+            </Button>
+          </SpaceBetween>
         </Container>
       </SpaceBetween>
     </ContentLayout>

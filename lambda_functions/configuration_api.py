@@ -27,6 +27,7 @@ secretsmanager = boto3.client('secretsmanager')
 USER_CONFIG_TABLE = os.environ['USER_CONFIG_TABLE']
 STRAVA_OAUTH_SECRET = os.environ['STRAVA_OAUTH_SECRET']
 CAMPUS_COACH_SECRET = os.environ['CAMPUS_COACH_SECRET']
+INTERVALS_ICU_SECRET = os.environ.get('INTERVALS_ICU_SECRET', 'strava-ai-boost-intervals-icu-credentials')
 
 # CORS headers
 CORS_HEADERS = {
@@ -733,7 +734,12 @@ def get_modules(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
         enduraw_config = modules_config.get('enduraw', {})
         enduraw_enabled = enduraw_config.get('enabled', False)
         enduraw_wait_time = enduraw_config.get('wait_time', '2 minutes')
-        
+
+        # Intervals.icu configuration
+        intervals_icu_config = modules_config.get('intervals_icu', {})
+        intervals_icu_enabled = intervals_icu_config.get('enabled', False)
+        intervals_icu_configured = intervals_icu_config.get('configured', False)
+
         # Default module configurations
         modules = {
             'campus_coach': {
@@ -755,6 +761,15 @@ def get_modules(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
                 'requires_credentials': False,
                 'wait_time': enduraw_wait_time,
                 'status': 'active' if enduraw_enabled else 'disabled'
+            },
+            'intervals_icu': {
+                'id': 'intervals_icu',
+                'name': 'Intervals.icu',
+                'description': 'Fitness metrics, training load, and recovery analysis',
+                'enabled': intervals_icu_enabled,
+                'configured': intervals_icu_configured,
+                'requires_credentials': True,
+                'status': 'active' if intervals_icu_enabled else 'disabled'
             }
         }
         
@@ -773,7 +788,7 @@ def configure_module(event: Dict[str, Any], rate_limit_info: Dict[str, Any] = No
         enabled = body.get('enabled', False)
         config = body.get('config', {})
         
-        if not module_id or module_id not in ['campus_coach', 'enduraw']:
+        if not module_id or module_id not in ['campus_coach', 'enduraw', 'intervals_icu']:
             return create_error_response(400, 'Invalid or missing module_id', rate_limit_info)
         
         # Get authenticated user_id from OAuth tokens
@@ -828,6 +843,46 @@ def configure_module(event: Dict[str, Any], rate_limit_info: Dict[str, Any] = No
                     else:
                         raise
         
+        # Handle Intervals.icu configuration
+        if module_id == 'intervals_icu' and enabled:
+            api_key = config.get('api_key', '')
+
+            if api_key:
+                # Store/update API key in Secrets Manager
+                try:
+                    credential_data = {
+                        'api_key': api_key,
+                        'configured_at': datetime.now(UTC).isoformat()
+                    }
+                    secretsmanager.put_secret_value(
+                        SecretId=INTERVALS_ICU_SECRET,
+                        SecretString=json.dumps(credential_data)
+                    )
+                    logger.info("Intervals.icu API key stored")
+                except ClientError as e:
+                    if e.response['Error']['Code'] == 'ResourceNotFoundException':
+                        secretsmanager.create_secret(
+                            Name=INTERVALS_ICU_SECRET,
+                            Description='Intervals.icu API key for AI Boost',
+                            SecretString=json.dumps(credential_data)
+                        )
+                        logger.info("Intervals.icu secret created")
+                    else:
+                        raise
+            else:
+                # No API key provided, check if one exists in Secrets Manager
+                try:
+                    response = secretsmanager.get_secret_value(SecretId=INTERVALS_ICU_SECRET)
+                    secret_data = json.loads(response['SecretString'])
+                    if not secret_data.get('api_key'):
+                        return create_error_response(400, 'Intervals.icu API key in Secrets Manager is empty. Please reconfigure.', rate_limit_info)
+                    logger.info("Intervals.icu API key already exists in Secrets Manager")
+                except ClientError as e:
+                    if e.response['Error']['Code'] == 'ResourceNotFoundException':
+                        return create_error_response(400, 'Intervals.icu API key required when enabling for the first time', rate_limit_info)
+                    else:
+                        raise
+
         # Store module configuration in DynamoDB (user-specific)
         table = dynamodb.Table(USER_CONFIG_TABLE)
         

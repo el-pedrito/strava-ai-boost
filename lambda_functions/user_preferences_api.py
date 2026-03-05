@@ -72,7 +72,8 @@ def get_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
                 'content_tone': preferences.get('content_tone', 'motivational & energetic'),
                 'emoji_usage': preferences.get('emoji_usage', 'moderate'),
                 'technical_detail': preferences.get('technical_detail', 'intermediate'),
-                'content_language': preferences.get('content_language', 'french')
+                'content_language': preferences.get('content_language', 'french'),
+                'pace_zones': preferences.get('pace_zones', None)
             }
         }
         
@@ -100,6 +101,20 @@ def update_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
             'technical_detail': body.get('technical_detail', 'intermediate'),
             'content_language': body.get('content_language', 'french')
         }
+
+        # Add pace_zones if provided (validated format: {zone: {min: "mm:ss", max: "mm:ss"}})
+        pace_zones = body.get('pace_zones')
+        if pace_zones and isinstance(pace_zones, dict):
+            valid_zones = {}
+            for zone_key, zone_val in pace_zones.items():
+                if isinstance(zone_val, dict) and 'min' in zone_val and 'max' in zone_val:
+                    valid_zones[zone_key] = {
+                        'min': str(zone_val['min']),
+                        'max': str(zone_val['max'])
+                    }
+            if valid_zones:
+                preferences['pace_zones'] = valid_zones
+                logger.info(f"Pace zones configured: {list(valid_zones.keys())}")
         
         # Save to DynamoDB
         table = dynamodb.Table(USER_CONFIG_TABLE)

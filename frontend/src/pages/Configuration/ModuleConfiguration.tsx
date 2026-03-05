@@ -27,31 +27,38 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
   const flash = useFlash();
   const [campusEnabled, setCampusEnabled] = useState(modules?.campus_coach?.enabled ?? false);
   const [endurawEnabled, setEndurawEnabled] = useState(modules?.enduraw?.enabled ?? false);
+  const [intervalsEnabled, setIntervalsEnabled] = useState(modules?.intervals_icu?.enabled ?? false);
   const [campusConfigured, setCampusConfigured] = useState(modules?.campus_coach?.configured ?? false);
+  const [intervalsConfigured, setIntervalsConfigured] = useState(modules?.intervals_icu?.configured ?? false);
   const [showCredentials, setShowCredentials] = useState(false);
+  const [showIntervalsKey, setShowIntervalsKey] = useState(false);
 
   // Sync state when modules prop loads asynchronously
   useEffect(() => {
     if (modules) {
       setCampusEnabled(modules.campus_coach?.enabled ?? false);
       setEndurawEnabled(modules.enduraw?.enabled ?? false);
+      setIntervalsEnabled(modules.intervals_icu?.enabled ?? false);
       setCampusConfigured(modules.campus_coach?.configured ?? false);
+      setIntervalsConfigured(modules.intervals_icu?.configured ?? false);
     }
   }, [modules]);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [apiKey, setApiKey] = useState('');
   const [saving, setSaving] = useState(false);
 
   const toggleModule = async (moduleId: string, enabled: boolean) => {
     try {
       await api.post('/config/modules', { module_id: moduleId, enabled });
-      const name = moduleId === 'campus_coach' ? 'Campus Coach' : 'Enduraw';
-      flash(enabled ? 'success' : 'info', `${name} ${enabled ? 'enabled' : 'disabled'}`);
+      const nameMap: Record<string, string> = { campus_coach: 'Campus Coach', enduraw: 'Enduraw', intervals_icu: 'Intervals.icu' };
+      flash(enabled ? 'success' : 'info', `${nameMap[moduleId] ?? moduleId} ${enabled ? 'enabled' : 'disabled'}`);
       onModuleChanged();
     } catch {
       flash('error', 'Failed to update module');
       if (moduleId === 'campus_coach') setCampusEnabled(!enabled);
-      else setEndurawEnabled(!enabled);
+      else if (moduleId === 'enduraw') setEndurawEnabled(!enabled);
+      else if (moduleId === 'intervals_icu') setIntervalsEnabled(!enabled);
     }
   };
 
@@ -68,6 +75,36 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
   const handleEndurawToggle = (checked: boolean) => {
     setEndurawEnabled(checked);
     toggleModule('enduraw', checked);
+  };
+
+  const handleIntervalsToggle = (checked: boolean) => {
+    setIntervalsEnabled(checked);
+    if (checked && !intervalsConfigured) {
+      setShowIntervalsKey(true);
+      flash('info', 'Intervals.icu enabled. Please enter your API key below.');
+    } else {
+      toggleModule('intervals_icu', checked);
+    }
+  };
+
+  const handleIntervalsConfig = async () => {
+    setSaving(true);
+    try {
+      await api.post('/config/modules', {
+        module_id: 'intervals_icu',
+        enabled: true,
+        config: { api_key: apiKey },
+      });
+      flash('success', 'Intervals.icu configured successfully! API key stored securely.');
+      setIntervalsConfigured(true);
+      setShowIntervalsKey(false);
+      setApiKey('');
+      onModuleChanged();
+    } catch {
+      flash('error', 'Failed to configure Intervals.icu');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleCampusConfig = async () => {
@@ -93,7 +130,7 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
 
   return (
     <Container header={<Header variant="h2">Module Configuration</Header>}>
-      <ColumnLayout columns={2}>
+      <ColumnLayout columns={3}>
         {/* Campus Coach */}
         <div className="module-config-campus" style={{ padding: '16px', borderRadius: '8px' }}>
           <SpaceBetween size="m">
@@ -178,6 +215,53 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
                     <li>Content generation proceeds with or without Enduraw data</li>
                   </ul>
                 </Alert>
+              </SpaceBetween>
+            )}
+          </SpaceBetween>
+        </div>
+
+        {/* Intervals.icu */}
+        <div className="module-config-intervals" style={{ padding: '16px', borderRadius: '8px' }}>
+          <SpaceBetween size="m">
+            <SpaceBetween direction="horizontal" size="xs">
+              <Box variant="h3">Intervals.icu</Box>
+              <Toggle checked={intervalsEnabled} onChange={({ detail }) => handleIntervalsToggle(detail.checked)} />
+            </SpaceBetween>
+            <Box color="text-body-secondary" fontSize="body-s">
+              Fitness metrics, training load, and recovery analysis
+            </Box>
+
+            {intervalsEnabled && (
+              <SpaceBetween size="s">
+                <Alert type="info">
+                  <strong>Intervals.icu</strong> provides CTL/ATL/TSB (fitness/fatigue/form), HRV, efficiency factor,
+                  decoupling, and more.{' '}
+                  <Link href="https://intervals.icu" external>Visit Intervals.icu</Link>
+                  <br /><br />
+                  Get your API key from <strong>Settings &rarr; Developer Settings</strong> in Intervals.icu.
+                </Alert>
+
+                {intervalsConfigured && !showIntervalsKey ? (
+                  <SpaceBetween size="s">
+                    <StatusIndicator type="success">Configured</StatusIndicator>
+                    <Box color="text-body-secondary" fontSize="body-s">
+                      API key stored securely. Fitness data will be fetched automatically for each activity.
+                    </Box>
+                    <Button onClick={() => setShowIntervalsKey(true)}>Update API Key</Button>
+                  </SpaceBetween>
+                ) : (
+                  <Form
+                    actions={
+                      <Button variant="primary" onClick={handleIntervalsConfig} loading={saving}>
+                        Configure Intervals.icu
+                      </Button>
+                    }
+                  >
+                    <FormField label="API Key" description="Stored securely in AWS Secrets Manager">
+                      <Input value={apiKey} type="password" onChange={({ detail }) => setApiKey(detail.value)} placeholder="Your Intervals.icu API key" />
+                    </FormField>
+                  </Form>
+                )}
               </SpaceBetween>
             )}
           </SpaceBetween>

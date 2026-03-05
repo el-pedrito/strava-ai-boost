@@ -172,11 +172,13 @@ class ContentGenerationStack(Stack):
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=[
-                    "bedrock:InvokeAgent",
-                    "bedrock:GetAgent",
-                    "bedrock:ListAgents"
+                    "bedrock-agentcore:InvokeAgentRuntime",
+                    "bedrock-agentcore:GetAgentRuntime",
+                    "bedrock-agentcore:ListAgentRuntimes"
                 ],
-                resources=["*"]  # AgentCore resources are dynamic
+                resources=[
+                    f"arn:aws:bedrock-agentcore:{Aws.REGION}:{Aws.ACCOUNT_ID}:runtime/*"
+                ]
             )
         )
 
@@ -233,11 +235,12 @@ class ContentGenerationStack(Stack):
                 ],
                 resources=[
                     self.core_stack.strava_oauth_secret.secret_arn,
-                    self.core_stack.strava_app_secret.secret_arn
+                    self.core_stack.strava_app_secret.secret_arn,
+                    self.core_stack.intervals_icu_secret.secret_arn
                 ]
             )
         )
-        
+
         # Content generation Lambda with Bedrock and AgentCore
         self.content_generator = lambda_.Function(
             self, "ContentGenerator",
@@ -326,6 +329,7 @@ class ContentGenerationStack(Stack):
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
                 "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
                 "STRAVA_APP_SECRET": self.core_stack.strava_app_secret.secret_name,
+                "INTERVALS_ICU_SECRET": self.core_stack.intervals_icu_secret.secret_name,
                 "BEDROCK_MODEL_ID": get_bedrock_model_id()
             }
         )
