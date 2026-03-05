@@ -219,14 +219,29 @@ echo $API_GATEWAY_URL
 
 ### Lambda Function Errors
 
-**Check Logs**:
+**Check Logs** (structured JSON with correlation IDs):
 ```bash
 # Webhook handler logs
 aws logs tail /aws/lambda/StravaAIBoost-WebhookHandler --follow --profile your-aws-profile
 
 # Content generator logs
 aws logs tail /aws/lambda/StravaAIBoost-ContentGenerator --follow --profile your-aws-profile
+
+# Filter by correlation ID (from API Gateway requestId)
+aws logs filter-log-events \
+  --log-group-name /aws/lambda/StravaAIBoost-ConfigurationAPI \
+  --filter-pattern '{ $.correlation_id = "your-request-id" }' \
+  --profile your-aws-profile
+
+# Filter by error level
+aws logs filter-log-events \
+  --log-group-name /aws/lambda/StravaAIBoost-DashboardAPI \
+  --filter-pattern '{ $.level = "ERROR" }' \
+  --profile your-aws-profile
 ```
+
+**Custom Business Metrics** (CloudWatch namespace: `StravaAIBoost`):
+- `ConfigurationApiCalls`, `DashboardApiCalls`, `PreferencesApiCalls`, `HealthCheckApiCalls`
 
 **Common Errors**:
 - **Timeout**: Increase Lambda timeout in CDK

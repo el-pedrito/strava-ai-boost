@@ -67,7 +67,32 @@ aws logs filter-log-events \
 - Consider provisioned concurrency for Campus Coach invoker Lambda
 - Monitor AgentCore service improvements and updates
 
-### 2. CDK Feature Flags Warning (LOW PRIORITY)
+### 2. Lambda Layer Cross-Stack Export Constraint (WORKAROUND IN PLACE)
+
+**Status**: 🟡 Workaround active - Does not affect functionality
+**Severity**: Low - Operational constraint for future layer updates
+**Impact**: Lambda Layer cannot be replaced via CDK due to CloudFormation cross-stack export
+
+#### Symptoms
+- Changing `LAYER_ASSET_HASH` in `core_infrastructure_stack.py` causes deployment failure
+- Error: `Cannot update export StravaAIBoost-Core:ExportsOutputRef...Layer... as it is in use by StravaAIBoost-API, StravaAIBoost-Content, StravaAIBoost-Feedback`
+
+#### Root Cause
+- Lambda Layer is exported from Core stack and imported by API, Content, and Feedback stacks
+- CloudFormation prevents replacing an exported resource that is imported by other stacks
+- This is a known CloudFormation limitation with cross-stack references
+
+#### Current Workaround
+- New dependencies (e.g., `aws-lambda-powertools`) are installed directly into `lambda_functions/` via `pip install -t`
+- CDK bundles them with `Code.from_asset("lambda_functions")` alongside handler code
+- Vendored directories are listed in `.gitignore` (e.g., `lambda_functions/aws_lambda_powertools/`)
+- The Layer (`lambda_layer/`) still provides `requests` and other original dependencies
+
+#### Resolution Plan
+- To update the layer: deploy all dependent stacks first with inline code, then update the layer, then redeploy
+- Or: restructure to avoid cross-stack layer references (use `Code.from_asset` with bundled deps everywhere)
+
+### 3. CDK Feature Flags Warning (LOW PRIORITY)
 
 **Status**: 🟡 Informational - Does not affect functionality  
 **Severity**: Low - Cosmetic warning during CDK operations  
