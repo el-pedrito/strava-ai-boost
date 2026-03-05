@@ -67,11 +67,7 @@
 ## 4. Observability (Medium Priority)
 
 ### 4.1 Add resource tags
-- [ ] `app.py` — Add tags at app level: Project, Environment, Owner, CostCenter
-  ```python
-  cdk.Tags.of(app).add('Project', 'StravaAIBoost')
-  cdk.Tags.of(app).add('Environment', env_name)
-  ```
+- [x] `app.py` — Add Project and ManagedBy tags at app level
 
 ### 4.2 Implement structured logging
 - [ ] Add `aws-lambda-powertools` to Lambda layer dependencies
@@ -87,19 +83,19 @@
 ## 5. Cost Optimization (Medium Priority)
 
 ### 5.1 Add TTL on DynamoDB activities_table
-- [ ] `stacks/core_infrastructure_stack.py:66-80` — Add `ttl_attribute="expires_at"`
-- [ ] Update activity_processor.py to set `expires_at = now + 365 days` on write
+- [x] `stacks/core_infrastructure_stack.py` — Add `time_to_live_attribute="expires_at"`
+- [x] `lambda_functions/activity_fetcher.py` — Set `expires_at = now + 365 days` on put_item
 
 ### 5.2 Reduce Step Functions log verbosity
-- [ ] `stacks/content_generation_stack.py:395-400` — Change from `ALL` + `INCLUDE_EXECUTION_DATA` to `ERROR` level
+- [x] `stacks/content_generation_stack.py` — Change from `LogLevel.ALL` to `LogLevel.ERROR`
 
 ### 5.3 Reduce Lambda timeouts
-- [ ] `stacks/content_generation_stack.py:245` — content_generator: 600s -> 120s
-- [ ] `stacks/content_generation_stack.py:268` — campus_coach_invoker: 600s -> 120s
+- [x] `stacks/content_generation_stack.py` — content_generator: 10min -> 2min
+- [x] `stacks/content_generation_stack.py` — campus_coach_invoker: 10min -> 2min
 
 ### 5.4 Lazy-init boto3 clients
-- [ ] `lambda_functions/dashboard_api.py:26` — Move CloudWatch client init inside `get_system_stats()`
-- [ ] `lambda_functions/feedback_analyzer.py:28` — Move secretsmanager init inside `get_access_token()`
+- [x] `lambda_functions/dashboard_api.py` — Lazy-init CloudWatch client via `_get_cloudwatch()`
+- [x] `lambda_functions/feedback_analyzer.py` — Lazy-init secretsmanager client via `_get_secretsmanager()`
 
 ---
 
@@ -144,6 +140,6 @@
 |-------|----------|--------|
 | Phase 1 | 1.1-1.5 (Security) | Done |
 | Phase 2 | 2.1, 2.3, 2.4, 3.2 (Arch + Dedup) | Done |
-| Phase 3 | 4.1, 5.1, 5.2, 5.3, 5.4 (Observability + Cost) | Todo |
+| Phase 3 | 4.1, 5.1, 5.2, 5.3, 5.4 (Observability + Cost) | Done |
 | Phase 4 | 2.2, 3.1, 4.2, 4.3, 6.1, 6.2, 6.3 (Step Functions + Robustness) | Todo |
 | Phase 5 | 7.1, 7.2, 7.3, 7.4 (Frontend) | Todo |

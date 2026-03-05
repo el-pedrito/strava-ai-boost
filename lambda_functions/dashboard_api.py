@@ -23,7 +23,14 @@ logger.setLevel(logging.INFO)
 
 # Initialize AWS clients
 dynamodb = boto3.resource('dynamodb')
-cloudwatch = boto3.client('cloudwatch')
+_cloudwatch = None
+
+
+def _get_cloudwatch():
+    global _cloudwatch
+    if _cloudwatch is None:
+        _cloudwatch = boto3.client('cloudwatch')
+    return _cloudwatch
 
 # Environment variables
 ACTIVITIES_TABLE = os.environ['ACTIVITIES_TABLE']
@@ -405,7 +412,7 @@ def get_performance_metrics() -> Dict[str, Any]:
         for function_name in lambda_functions:
             try:
                 # Get average duration
-                duration_response = cloudwatch.get_metric_statistics(
+                duration_response = _get_cloudwatch().get_metric_statistics(
                     Namespace='AWS/Lambda',
                     MetricName='Duration',
                     Dimensions=[
@@ -425,7 +432,7 @@ def get_performance_metrics() -> Dict[str, Any]:
                     avg_duration = duration_response['Datapoints'][0]['Average']
                 
                 # Get error count
-                error_response = cloudwatch.get_metric_statistics(
+                error_response = _get_cloudwatch().get_metric_statistics(
                     Namespace='AWS/Lambda',
                     MetricName='Errors',
                     Dimensions=[

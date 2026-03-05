@@ -76,7 +76,8 @@ class CoreInfrastructureStack(Stack):
                 point_in_time_recovery_enabled=True
             ),
             removal_policy=RemovalPolicy.DESTROY,  # For development
-            stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
+            stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
+            time_to_live_attribute="expires_at"
         )
 
         # Add GSI for querying by processing status

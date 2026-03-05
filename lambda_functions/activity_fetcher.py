@@ -665,6 +665,9 @@ def store_activity_data(
             'intervals_icu_json': json.dumps(convert_floats(intervals_icu_data), default=str) if intervals_icu_data else None
         }
         
+        # Set TTL: expire after 365 days
+        item['expires_at'] = int((datetime.utcnow() + timedelta(days=365)).timestamp())
+
         # Add location data if available
         if location_city:
             item['location_city'] = location_city

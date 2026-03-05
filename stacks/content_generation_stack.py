@@ -217,7 +217,7 @@ class ContentGenerationStack(Stack):
             handler="content_generator.handler",
             code=lambda_.Code.from_asset("lambda_functions"),
             layers=[self.core_stack.dependencies_layer],
-            timeout=Duration.minutes(10),
+            timeout=Duration.minutes(2),
             memory_size=1024,
             role=content_lambda_role,
             environment={
@@ -240,7 +240,7 @@ class ContentGenerationStack(Stack):
             handler="campus_coach_invoker.handler",
             code=lambda_.Code.from_asset("lambda_functions"),
             layers=[self.core_stack.dependencies_layer],
-            timeout=Duration.minutes(10),  # Campus Coach extraction can take time
+            timeout=Duration.minutes(2),
             memory_size=512,
             role=content_lambda_role,
             environment={
@@ -490,7 +490,7 @@ class ContentGenerationStack(Stack):
             role=step_functions_role,
             logs=sfn.LogOptions(
                 destination=log_group,
-                level=sfn.LogLevel.ALL
+                level=sfn.LogLevel.ERROR
             )
         )
 
