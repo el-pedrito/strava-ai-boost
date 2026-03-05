@@ -149,6 +149,7 @@ The system uses a React frontend that calls API Gateway directly with an API key
 - **Cultural References**: Subtle, age-appropriate references based on user profile
 - **Campus Coach Integration**: AgentCore Browser Tool for automated session extraction
 - **Webhook Loop Prevention**: Smart processing to avoid infinite execution cycles
+- **Structured Logging**: AWS Lambda Powertools with correlation IDs and custom CloudWatch metrics
 - **Serverless Architecture**: Full AWS serverless stack for cost efficiency and scalability
 
 ## Prerequisites
@@ -201,7 +202,7 @@ graph TB
     
     subgraph "☁️ AWS Infrastructure - 7 CDK Stacks"
         subgraph "1️⃣ Core Stack"
-            DDB[(DynamoDB<br/>4 Tables)]
+            DDB[(DynamoDB<br/>3 Tables)]
             Secrets[Secrets Manager<br/>OAuth & Credentials]
         end
         
@@ -319,24 +320,24 @@ sequenceDiagram
 ### Infrastructure Components
 
 **7 CDK Stacks**:
-1. **Core** - DynamoDB (4 tables), Secrets Manager (3 secrets), Lambda Layer
+1. **Core** - DynamoDB (3 tables), Secrets Manager (4 secrets), Lambda Layer
 2. **Security** - Bedrock Guardrails, Memory Execution Role, GenAI Observability
 3. **Webhook** - SQS queues, webhook handler, activity processor
 4. **Content** - Step Functions, 5 processing Lambdas
-5. **API** - API Gateway for frontend (3 API Lambdas)
+5. **API** - API Gateway for frontend (4 API Lambdas + AgentCore health check)
 6. **Monitoring** - CloudWatch alarms, dashboards
 7. **Feedback** - Feedback analyzer Lambda, EventBridge schedule
 
 **13 Lambda Functions**:
 - **Processing Pipeline** (5): webhook_handler, activity_processor, activity_fetcher, content_generator, strava_updater
-- **API Endpoints** (3): configuration_api, dashboard_api, user_preferences_api
-- **Utilities** (4): rate_limiter, campus_coach_invoker, agentcore_health_check, stepfunctions_error_handler
-- **Dependencies** (1): Lambda Layer with shared code
+- **API Endpoints** (4): configuration_api, dashboard_api, user_preferences_api, agentcore_health_check
+- **Utilities** (3): rate_limiter, campus_coach_invoker, stepfunctions_error_handler
+- **Shared Utilities**: `lambda_functions/shared/` - Structured logging (AWS Lambda Powertools), metrics, correlation IDs
+- **Dependencies**: Lambda Layer with shared packages
 
-**4 DynamoDB Tables**:
-- `activities` - Activity data and processing status (with GSI)
-- `user_config` - User preferences and module configuration
-- `rate_limits` - Strava API rate limit tracking (with TTL)
+**3 DynamoDB Tables**:
+- `activities` - Activity data and processing status (with GSI, TTL via `expires_at`)
+- `user_config` - User preferences and module configuration (keyed by Strava athlete ID)
 - `coaching_sessions` - Campus Coach training sessions (with GSI)
 
 **2 AgentCore Agents**:
@@ -439,8 +440,8 @@ sequenceDiagram
 - AgentCore CLI: Shell script deployment
 
 **AWS Services:**
-- Lambda: 13 functions (Python 3.12)
-- DynamoDB: 4 tables with GSI
+- Lambda: 13 functions (Python 3.12) with structured logging (AWS Lambda Powertools)
+- DynamoDB: 3 tables with GSI and TTL
 - Step Functions: Activity processing workflow
 - SQS: Message queuing with DLQ
 - Bedrock: Claude Sonnet 4.5
@@ -471,9 +472,9 @@ sequenceDiagram
 - **Data Encryption**: AWS managed encryption for all DynamoDB tables
 - **Secure Communication**: HTTPS for all API endpoints
 - **Credential Management**: AWS Secrets Manager with automatic rotation
-- **IAM**: Least privilege principle with AWS managed policies
-- **Frontend**: Local-only access (localhost:3000)
-- **User Isolation**: Per-user configuration for future multi-user support
+- **IAM**: Least privilege principle with scoped resource ARNs
+- **Frontend**: Local-only access (localhost:3000), ErrorBoundary for graceful error recovery
+- **User Isolation**: Per-user configuration keyed by Strava athlete ID
 
 ## Testing and Validation
 

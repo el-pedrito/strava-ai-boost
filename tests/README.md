@@ -77,7 +77,7 @@ open htmlcov/index.html
 - ✅ SQS queues (main + DLQ, encryption)
 - ✅ Step Functions (workflow, error handling)
 - ✅ API Gateway (REST API, API Key, Usage Plan)
-- ✅ Secrets Manager (3 secrets, encryption)
+- ✅ Secrets Manager (4 secrets, encryption)
 - ✅ IAM roles and policies
 - ✅ CloudWatch alarms
 

@@ -110,12 +110,14 @@ Customize how AI generates content for your activities:
 
 1. Go to Configuration → Personal Profile
 2. Configure:
-   - **Age Range**: Affects tone and references
-   - **Interests**: Technology, music, travel, etc.
-   - **Sport Approach**: Health, performance, social, etc.
-   - **Content Style**: Short, medium, detailed, adaptive
-   - **Communication Tone**: Technical, motivational, casual, humorous
-   - **Language Preferences**: Emoji usage, technical detail level
+   - **Age Range**: 18-25, 26-35, 36-45, 46-55, 56-65, 65+
+   - **Interests**: Technology, music, travel, food, nature, photography, etc.
+   - **Sport Approach**: Health & Wellness, Performance & Competition, Social & Fun, Personal Challenge, Stress Relief, Weight Management
+   - **Content Length**: Short (~300 chars), Medium (~800 chars), Detailed (~1500 chars), Adaptive (varies by activity)
+   - **Communication Tone**: Technical & Analytical, Motivational & Energetic, Casual & Friendly, Humorous & Fun, Authentic & Personal
+   - **Emoji Usage**: None, Minimal (1-2), Moderate (3-5), Enthusiastic (5+)
+   - **Technical Detail**: Basic, Intermediate, Advanced
+   - **Language**: French, English, Spanish, German, Italian
 
 ## Troubleshooting Configuration
 
@@ -169,17 +171,20 @@ VITE_DEFAULT_USER_ID=YOUR_USER_ID
 
 User configuration is stored in DynamoDB:
 - **Table**: `strava-ai-boost-user-configuration`
-- **Key**: `user_id` (Strava athlete ID)
-- **Attributes**: 
+- **Key**: `user_id` (Strava athlete ID, e.g., `138362426`)
+- **Attributes**:
   - `user_preferences`: Personal profile and content preferences
-  - `modules_config`: Per-user module settings (campus_coach, enduraw)
+  - `modules_config`: Per-user module settings (campus_coach, enduraw, intervals_icu)
   - `enhancement_enabled`: Per-user pause/resume status
   - `strava_connected`: OAuth connection status
+  - `athlete_name`: Name from Strava profile
+  - `connected_at`: OAuth connection timestamp
 
 **Architecture**: Per-user configuration
-- Each user has isolated configuration
-- User ID automatically retrieved from OAuth tokens
-- Supports multi-user scenarios
+- Each user has isolated configuration keyed by Strava athlete ID
+- User ID automatically extracted from OAuth tokens (`athlete.id`)
+- Fallback: `DEFAULT_USER_ID` environment variable (must be set, no hardcoded default)
+- All records aligned on real Strava athlete ID (no ghost records)
 
 ## User Identification
 
