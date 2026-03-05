@@ -36,8 +36,6 @@ CORS_HEADERS = {
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Lambda handler for AgentCore health check"""
     try:
-        rate_limit_info = None
-        
         http_method = event.get('httpMethod', 'GET')
         
         # Handle CORS preflight
@@ -52,14 +50,14 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Check AgentCore agents health
         health_status = check_agentcore_health()
         
-        return create_success_response(health_status, rate_limit_info=rate_limit_info)
+        return create_success_response(health_status)
         
     except Exception as e:
         logger.error(f"AgentCore health check error: {str(e)}")
         return create_error_response(500, 'Health check failed')
 
 
-def create_error_response(status_code: int, message: str, rate_limit_info=None) -> Dict[str, Any]:
+def create_error_response(status_code: int, message: str) -> Dict[str, Any]:
     """Create standardized error response"""
     headers = CORS_HEADERS.copy()
 
@@ -74,7 +72,7 @@ def create_error_response(status_code: int, message: str, rate_limit_info=None) 
     }
 
 
-def create_success_response(data: Dict[str, Any], status_code: int = 200, rate_limit_info=None) -> Dict[str, Any]:
+def create_success_response(data: Dict[str, Any], status_code: int = 200) -> Dict[str, Any]:
     """Create standardized success response"""
     headers = CORS_HEADERS.copy()
 

@@ -77,8 +77,6 @@ def get_authenticated_user_id() -> str:
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Lambda handler for configuration API"""
     try:
-        rate_limit_info = None
-        
         http_method = event.get('httpMethod', '')
         path = event.get('path', '')
         
@@ -93,34 +91,34 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Validate request
         validation_error = validate_request(event)
         if validation_error:
-            return create_error_response(400, validation_error, rate_limit_info)
+            return create_error_response(400, validation_error)
         
         # Route requests
         if 'oauth' in path:
             if http_method == 'GET':
-                return get_oauth_status(rate_limit_info)
+                return get_oauth_status()
             elif http_method == 'POST':
-                return handle_oauth_callback(event, rate_limit_info)
+                return handle_oauth_callback(event)
             elif http_method == 'DELETE':
-                return revoke_oauth_tokens(rate_limit_info)
+                return revoke_oauth_tokens()
         elif 'strava' in path and 'config' in path:
             if http_method == 'GET':
-                return get_strava_app_config(rate_limit_info)
+                return get_strava_app_config()
         elif 'test' in path and 'strava-connection' in path:
             if http_method == 'GET':
-                return test_strava_connection(rate_limit_info)
+                return test_strava_connection()
         elif 'modules' in path:
             if http_method == 'GET':
-                return get_modules(rate_limit_info)
+                return get_modules()
             elif http_method == 'POST':
-                return configure_module(event, rate_limit_info)
+                return configure_module(event)
         elif 'enhancement' in path:
             if http_method == 'GET':
-                return get_enhancement_status(rate_limit_info)
+                return get_enhancement_status()
             elif http_method == 'POST':
-                return toggle_enhancement_status(event, rate_limit_info)
+                return toggle_enhancement_status(event)
         
-        return create_error_response(404, 'Endpoint not found', rate_limit_info)
+        return create_error_response(404, 'Endpoint not found')
         
     except Exception as e:
         logger.error(f"Configuration API error: {str(e)}")
@@ -151,10 +149,10 @@ def validate_request(event: Dict[str, Any]) -> str:
         
     except Exception as e:
         logger.error(f"Request validation error: {str(e)}")
-        return f'Request validation failed: {str(e)}'
+        return 'Request validation failed'
 
 
-def create_error_response(status_code: int, message: str, rate_limit_info=None) -> Dict[str, Any]:
+def create_error_response(status_code: int, message: str) -> Dict[str, Any]:
     """Create standardized error response"""
     headers = CORS_HEADERS.copy()
 
@@ -169,7 +167,7 @@ def create_error_response(status_code: int, message: str, rate_limit_info=None) 
     }
 
 
-def create_success_response(data: Dict[str, Any], status_code: int = 200, rate_limit_info=None) -> Dict[str, Any]:
+def create_success_response(data: Dict[str, Any], status_code: int = 200) -> Dict[str, Any]:
     """Create standardized success response"""
     headers = CORS_HEADERS.copy()
 
@@ -184,7 +182,7 @@ def create_success_response(data: Dict[str, Any], status_code: int = 200, rate_l
     }
 
 
-def get_strava_app_config(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
+def get_strava_app_config() -> Dict[str, Any]:
     """Get Strava app configuration status (without exposing secrets) - v2"""
     try:
         # Check if app config exists in Secrets Manager
@@ -203,34 +201,34 @@ def get_strava_app_config(rate_limit_info: Dict[str, Any] = None) -> Dict[str, A
                     'client_id': client_id,  # Safe to expose (public)
                     'has_client_secret': True,  # Don't expose the secret itself
                     'redirect_uri': config.get('redirect_uri', 'http://localhost:3000/oauth/callback')
-                }, rate_limit_info=rate_limit_info)
+                })
             else:
                 return create_success_response({
                     'configured': False,
                     'message': 'Strava app configuration incomplete'
-                }, rate_limit_info=rate_limit_info)
+                })
                 
         except ClientError as e:
             if e.response['Error']['Code'] == 'ResourceNotFoundException':
                 return create_success_response({
                     'configured': False,
                     'message': 'Strava app not configured'
-                }, rate_limit_info=rate_limit_info)
+                })
             else:
                 logger.error(f"Error checking Strava config: {e}")
-                return create_error_response(500, f'Failed to check configuration: {str(e)}', rate_limit_info)
+                return create_error_response(500, 'Failed to check configuration')
                 
     except json.JSONDecodeError:
         return create_success_response({
             'configured': False,
             'message': 'Invalid configuration format'
-        }, rate_limit_info=rate_limit_info)
+        })
     except Exception as e:
         logger.error(f"Strava config check error: {str(e)}")
-        return create_error_response(500, f'Configuration check failed: {str(e)}', rate_limit_info)
+        return create_error_response(500, 'Configuration check failed')
 
 
-def test_strava_connection(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
+def test_strava_connection() -> Dict[str, Any]:
     """Test Strava API connection with current OAuth tokens"""
     try:
         # Get OAuth tokens
@@ -240,7 +238,7 @@ def test_strava_connection(rate_limit_info: Dict[str, Any] = None) -> Dict[str, 
             
             access_token = tokens.get('access_token')
             if not access_token:
-                return create_error_response(401, 'No access token available. Please connect to Strava first.', rate_limit_info)
+                return create_error_response(401, 'No access token available. Please connect to Strava first.')
             
             # Test Strava API
             headers = {'Authorization': f'Bearer {access_token}'}
@@ -257,24 +255,24 @@ def test_strava_connection(rate_limit_info: Dict[str, Any] = None) -> Dict[str, 
                         'city': athlete.get('city'),
                         'country': athlete.get('country')
                     }
-                }, rate_limit_info=rate_limit_info)
+                })
             elif strava_response.status_code == 401:
-                return create_error_response(401, 'Authentication failed. Please reconnect to Strava.', rate_limit_info)
+                return create_error_response(401, 'Authentication failed. Please reconnect to Strava.')
             else:
-                return create_error_response(500, f'Strava API returned {strava_response.status_code}', rate_limit_info)
+                return create_error_response(500, f'Strava API returned {strava_response.status_code}')
                 
         except ClientError as e:
             if e.response['Error']['Code'] == 'ResourceNotFoundException':
-                return create_error_response(401, 'OAuth tokens not found. Please connect to Strava first.', rate_limit_info)
+                return create_error_response(401, 'OAuth tokens not found. Please connect to Strava first.')
             else:
                 raise
                 
     except Exception as e:
         logger.error(f"Connection test error: {str(e)}")
-        return create_error_response(500, f'Connection test failed: {str(e)}', rate_limit_info)
+        return create_error_response(500, 'Connection test failed')
 
 
-def revoke_oauth_tokens(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
+def revoke_oauth_tokens() -> Dict[str, Any]:
     """Revoke Strava OAuth tokens"""
     try:
         # Get current tokens
@@ -287,7 +285,7 @@ def revoke_oauth_tokens(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any
                 return create_success_response({
                     'status': 'already_disconnected',
                     'message': 'No tokens to revoke'
-                }, rate_limit_info=rate_limit_info)
+                })
             
             # Revoke token with Strava
             try:
@@ -309,23 +307,23 @@ def revoke_oauth_tokens(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any
             return create_success_response({
                 'status': 'revoked',
                 'message': 'OAuth tokens revoked successfully'
-            }, rate_limit_info=rate_limit_info)
+            })
             
         except ClientError as e:
             if e.response['Error']['Code'] == 'ResourceNotFoundException':
                 return create_success_response({
                     'status': 'already_disconnected',
                     'message': 'No tokens found'
-                }, rate_limit_info=rate_limit_info)
+                })
             else:
                 raise
                 
     except Exception as e:
         logger.error(f"Revoke tokens error: {str(e)}")
-        return create_error_response(500, f'Failed to revoke tokens: {str(e)}', rate_limit_info)
+        return create_error_response(500, 'Failed to revoke tokens')
 
 
-def test_strava_connection(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
+def test_strava_connection() -> Dict[str, Any]:
     """Test Strava API connection with current OAuth tokens"""
     try:
         # Get OAuth tokens
@@ -335,7 +333,7 @@ def test_strava_connection(rate_limit_info: Dict[str, Any] = None) -> Dict[str, 
             
             access_token = tokens.get('access_token')
             if not access_token:
-                return create_error_response(401, 'No access token available. Please connect to Strava first.', rate_limit_info)
+                return create_error_response(401, 'No access token available. Please connect to Strava first.')
             
             # Test Strava API
             headers = {'Authorization': f'Bearer {access_token}'}
@@ -352,24 +350,24 @@ def test_strava_connection(rate_limit_info: Dict[str, Any] = None) -> Dict[str, 
                         'city': athlete.get('city'),
                         'country': athlete.get('country')
                     }
-                }, rate_limit_info=rate_limit_info)
+                })
             elif strava_response.status_code == 401:
-                return create_error_response(401, 'Authentication failed. Please reconnect to Strava.', rate_limit_info)
+                return create_error_response(401, 'Authentication failed. Please reconnect to Strava.')
             else:
-                return create_error_response(500, f'Strava API returned {strava_response.status_code}', rate_limit_info)
+                return create_error_response(500, f'Strava API returned {strava_response.status_code}')
                 
         except ClientError as e:
             if e.response['Error']['Code'] == 'ResourceNotFoundException':
-                return create_error_response(401, 'OAuth tokens not found. Please connect to Strava first.', rate_limit_info)
+                return create_error_response(401, 'OAuth tokens not found. Please connect to Strava first.')
             else:
                 raise
                 
     except Exception as e:
         logger.error(f"Connection test error: {str(e)}")
-        return create_error_response(500, f'Connection test failed: {str(e)}', rate_limit_info)
+        return create_error_response(500, 'Connection test failed')
 
 
-def get_strava_app_config(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
+def get_strava_app_config() -> Dict[str, Any]:
     """Get Strava app configuration status (without exposing secrets) - v2"""
     try:
         # Check if app config exists in Secrets Manager
@@ -388,34 +386,34 @@ def get_strava_app_config(rate_limit_info: Dict[str, Any] = None) -> Dict[str, A
                     'client_id': client_id,  # Safe to expose (public)
                     'has_client_secret': True,  # Don't expose the secret itself
                     'redirect_uri': config.get('redirect_uri', 'http://localhost:3000/oauth/callback')
-                }, rate_limit_info=rate_limit_info)
+                })
             else:
                 return create_success_response({
                     'configured': False,
                     'message': 'Strava app configuration incomplete'
-                }, rate_limit_info=rate_limit_info)
+                })
                 
         except ClientError as e:
             if e.response['Error']['Code'] == 'ResourceNotFoundException':
                 return create_success_response({
                     'configured': False,
                     'message': 'Strava app not configured'
-                }, rate_limit_info=rate_limit_info)
+                })
             else:
                 logger.error(f"Error checking Strava config: {e}")
-                return create_error_response(500, f'Failed to check configuration: {str(e)}', rate_limit_info)
+                return create_error_response(500, 'Failed to check configuration')
                 
     except json.JSONDecodeError:
         return create_success_response({
             'configured': False,
             'message': 'Invalid configuration format'
-        }, rate_limit_info=rate_limit_info)
+        })
     except Exception as e:
         logger.error(f"Strava config check error: {str(e)}")
-        return create_error_response(500, f'Configuration check failed: {str(e)}', rate_limit_info)
+        return create_error_response(500, 'Configuration check failed')
 
 
-def get_oauth_status(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
+def get_oauth_status() -> Dict[str, Any]:
     """Get Strava OAuth connection status with comprehensive validation"""
     try:
         # Check if OAuth tokens exist in Secrets Manager
@@ -431,7 +429,7 @@ def get_oauth_status(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
                         'connected': False,
                         'status': 'invalid_tokens',
                         'message': f'Invalid token structure: missing {field}'
-                    }, rate_limit_info=rate_limit_info)
+                    })
             
             # Check token expiry
             expires_at = tokens.get('expires_at')
@@ -493,7 +491,7 @@ def get_oauth_status(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
                 'last_refreshed': tokens.get('last_refreshed'),
                 'athlete': athlete_info,
                 'token_type': tokens.get('token_type', 'Bearer')
-            }, rate_limit_info=rate_limit_info)
+            })
             
         except ClientError as e:
             if e.response['Error']['Code'] == 'ResourceNotFoundException':
@@ -501,13 +499,12 @@ def get_oauth_status(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
                     'connected': False,
                     'status': 'not_connected',
                     'message': 'No OAuth tokens found. Please connect to Strava first.'
-                }, rate_limit_info=rate_limit_info)
+                })
             else:
                 logger.error(f"Secrets Manager error: {e}")
                 return create_error_response(
                     500,
-                    f'Failed to check OAuth status: {str(e)}',
-                    rate_limit_info
+                    'Failed to check OAuth status'
                 )
             
     except json.JSONDecodeError as e:
@@ -516,13 +513,13 @@ def get_oauth_status(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
             'connected': False,
             'status': 'invalid_tokens',
             'message': 'Stored tokens are corrupted. Please reconnect to Strava.'
-        }, rate_limit_info=rate_limit_info)
+        })
     except Exception as e:
         logger.error(f"OAuth status error: {str(e)}")
-        return create_error_response(500, f'Failed to get OAuth status: {str(e)}', rate_limit_info)
+        return create_error_response(500, 'Failed to get OAuth status')
 
 
-def handle_oauth_callback(event: Dict[str, Any], rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
+def handle_oauth_callback(event: Dict[str, Any]) -> Dict[str, Any]:
     """Handle OAuth callback and exchange authorization code for tokens"""
     try:
         body = json.loads(event.get('body', '{}'))
@@ -535,13 +532,13 @@ def handle_oauth_callback(event: Dict[str, Any], rate_limit_info: Dict[str, Any]
         
         # Validate required parameters
         if not auth_code:
-            return create_error_response(400, 'Missing authorization code', rate_limit_info)
+            return create_error_response(400, 'Missing authorization code')
         
         if not code_verifier:
-            return create_error_response(400, 'Missing PKCE code verifier', rate_limit_info)
+            return create_error_response(400, 'Missing PKCE code verifier')
         
         if not client_id:
-            return create_error_response(400, 'Missing client ID', rate_limit_info)
+            return create_error_response(400, 'Missing client ID')
         
         # Get client_secret from Secrets Manager
         try:
@@ -550,10 +547,10 @@ def handle_oauth_callback(event: Dict[str, Any], rate_limit_info: Dict[str, Any]
             client_secret = app_config.get('client_secret')
             
             if not client_secret:
-                return create_error_response(400, 'Client secret not configured in Secrets Manager', rate_limit_info)
+                return create_error_response(400, 'Client secret not configured in Secrets Manager')
         except Exception as e:
             logger.error(f"Failed to get client_secret: {e}")
-            return create_error_response(500, 'Failed to retrieve application credentials', rate_limit_info)
+            return create_error_response(500, 'Failed to retrieve application credentials')
         
         # Exchange authorization code for tokens with Strava API
         try:
@@ -576,9 +573,8 @@ def handle_oauth_callback(event: Dict[str, Any], rate_limit_info: Dict[str, Any]
             if token_response.status_code != 200:
                 logger.error(f"Strava token exchange failed: {token_response.status_code} - {token_response.text}")
                 return create_error_response(
-                    400, 
-                    f'Token exchange failed: {token_response.json().get("message", "Unknown error")}',
-                    rate_limit_info
+                    400,
+                    'Token exchange failed'
                 )
             
             # Parse token response
@@ -590,8 +586,7 @@ def handle_oauth_callback(event: Dict[str, Any], rate_limit_info: Dict[str, Any]
                 if field not in tokens:
                     return create_error_response(
                         400,
-                        f'Invalid token response: missing {field}',
-                        rate_limit_info
+                        f'Invalid token response: missing {field}'
                     )
             
             # Add metadata to tokens
@@ -608,15 +603,13 @@ def handle_oauth_callback(event: Dict[str, Any], rate_limit_info: Dict[str, Any]
             logger.error(f"HTTP error during token exchange: {e}")
             return create_error_response(
                 500,
-                f'Failed to connect to Strava: {str(e)}',
-                rate_limit_info
+                'Failed to connect to Strava'
             )
         except Exception as e:
             logger.error(f"Error during token exchange: {e}")
             return create_error_response(
                 500,
-                f'Token exchange error: {str(e)}',
-                rate_limit_info
+                'Token exchange error'
             )
         
         # Store tokens in Secrets Manager
@@ -682,31 +675,29 @@ def handle_oauth_callback(event: Dict[str, Any], rate_limit_info: Dict[str, Any]
                     'profile': tokens.get('athlete', {}).get('profile')
                 },
                 'scopes': tokens.get('scope', '').split(',')
-            }, rate_limit_info=rate_limit_info)
+            })
             
         except ClientError as e:
             logger.error(f"AWS Secrets Manager error: {e}")
             return create_error_response(
                 500,
-                f'Failed to store tokens securely: {str(e)}',
-                rate_limit_info
+                'Failed to store tokens securely'
             )
         except Exception as e:
             logger.error(f"Error storing tokens: {e}")
             return create_error_response(
                 500,
-                f'Failed to store tokens: {str(e)}',
-                rate_limit_info
+                'Failed to store tokens'
             )
         
     except json.JSONDecodeError:
-        return create_error_response(400, 'Invalid JSON in request body', rate_limit_info)
+        return create_error_response(400, 'Invalid JSON in request body')
     except Exception as e:
         logger.error(f"OAuth callback error: {str(e)}")
-        return create_error_response(500, f'OAuth callback failed: {str(e)}', rate_limit_info)
+        return create_error_response(500, 'OAuth callback failed')
 
 
-def get_modules(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
+def get_modules() -> Dict[str, Any]:
     """Get available modules and their configurations"""
     try:
         # Get authenticated user_id from OAuth tokens
@@ -773,14 +764,14 @@ def get_modules(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
             }
         }
         
-        return create_success_response({'modules': modules}, rate_limit_info=rate_limit_info)
+        return create_success_response({'modules': modules})
         
     except Exception as e:
         logger.error(f"Get modules error: {str(e)}")
-        return create_error_response(500, f'Failed to get modules: {str(e)}', rate_limit_info)
+        return create_error_response(500, 'Failed to get modules')
 
 
-def configure_module(event: Dict[str, Any], rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
+def configure_module(event: Dict[str, Any]) -> Dict[str, Any]:
     """Configure a module"""
     try:
         body = json.loads(event.get('body', '{}'))
@@ -789,7 +780,7 @@ def configure_module(event: Dict[str, Any], rate_limit_info: Dict[str, Any] = No
         config = body.get('config', {})
         
         if not module_id or module_id not in ['campus_coach', 'enduraw', 'intervals_icu']:
-            return create_error_response(400, 'Invalid or missing module_id', rate_limit_info)
+            return create_error_response(400, 'Invalid or missing module_id')
         
         # Get authenticated user_id from OAuth tokens
         user_id = get_authenticated_user_id()
@@ -834,12 +825,12 @@ def configure_module(event: Dict[str, Any], rate_limit_info: Dict[str, Any] = No
                     
                     # Verify that username and password exist in the secret
                     if not secret_data.get('username') or not secret_data.get('password'):
-                        return create_error_response(400, 'Campus Coach credentials in Secrets Manager are incomplete. Please reconfigure.', rate_limit_info)
+                        return create_error_response(400, 'Campus Coach credentials in Secrets Manager are incomplete. Please reconfigure.')
                     
                     logger.info("Campus Coach credentials already exist in Secrets Manager")
                 except ClientError as e:
                     if e.response['Error']['Code'] == 'ResourceNotFoundException':
-                        return create_error_response(400, 'Campus Coach credentials required when enabling for the first time', rate_limit_info)
+                        return create_error_response(400, 'Campus Coach credentials required when enabling for the first time')
                     else:
                         raise
         
@@ -875,11 +866,11 @@ def configure_module(event: Dict[str, Any], rate_limit_info: Dict[str, Any] = No
                     response = secretsmanager.get_secret_value(SecretId=INTERVALS_ICU_SECRET)
                     secret_data = json.loads(response['SecretString'])
                     if not secret_data.get('api_key'):
-                        return create_error_response(400, 'Intervals.icu API key in Secrets Manager is empty. Please reconfigure.', rate_limit_info)
+                        return create_error_response(400, 'Intervals.icu API key in Secrets Manager is empty. Please reconfigure.')
                     logger.info("Intervals.icu API key already exists in Secrets Manager")
                 except ClientError as e:
                     if e.response['Error']['Code'] == 'ResourceNotFoundException':
-                        return create_error_response(400, 'Intervals.icu API key required when enabling for the first time', rate_limit_info)
+                        return create_error_response(400, 'Intervals.icu API key required when enabling for the first time')
                     else:
                         raise
 
@@ -938,16 +929,16 @@ def configure_module(event: Dict[str, Any], rate_limit_info: Dict[str, Any] = No
             'module_id': module_id,
             'enabled': enabled,
             'message': f'{module_id.replace("_", " ").title()} {"enabled" if enabled else "disabled"} successfully'
-        }, rate_limit_info=rate_limit_info)
+        })
         
     except json.JSONDecodeError:
-        return create_error_response(400, 'Invalid JSON in request body', rate_limit_info)
+        return create_error_response(400, 'Invalid JSON in request body')
     except Exception as e:
         logger.error(f"Configure module error: {str(e)}")
-        return create_error_response(500, f'Module configuration failed: {str(e)}', rate_limit_info)
+        return create_error_response(500, 'Module configuration failed')
 
 
-def get_enhancement_status(rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
+def get_enhancement_status() -> Dict[str, Any]:
     """Get current enhancement status (enabled/paused) for user"""
     try:
         # Get authenticated user_id from OAuth tokens
@@ -969,7 +960,7 @@ def get_enhancement_status(rate_limit_info: Dict[str, Any] = None) -> Dict[str, 
                     'enhancement_paused_at': paused_at,
                     'enhancement_resumed_at': resumed_at,
                     'status': 'active' if enhancement_enabled else 'paused'
-                }, rate_limit_info=rate_limit_info)
+                })
             else:
                 # Default configuration
                 return create_success_response({
@@ -977,7 +968,7 @@ def get_enhancement_status(rate_limit_info: Dict[str, Any] = None) -> Dict[str, 
                     'enhancement_paused_at': None,
                     'enhancement_resumed_at': None,
                     'status': 'active'
-                }, rate_limit_info=rate_limit_info)
+                })
                 
         except Exception as e:
             logger.warning(f"Failed to get enhancement status from DynamoDB: {e}")
@@ -986,21 +977,21 @@ def get_enhancement_status(rate_limit_info: Dict[str, Any] = None) -> Dict[str, 
                 'enhancement_enabled': True,
                 'enhancement_paused_at': None,
                 'status': 'active'
-            }, rate_limit_info=rate_limit_info)
+            })
             
     except Exception as e:
         logger.error(f"Get enhancement status error: {str(e)}")
-        return create_error_response(500, f'Failed to get enhancement status: {str(e)}', rate_limit_info)
+        return create_error_response(500, 'Failed to get enhancement status')
 
 
-def toggle_enhancement_status(event: Dict[str, Any], rate_limit_info: Dict[str, Any] = None) -> Dict[str, Any]:
+def toggle_enhancement_status(event: Dict[str, Any]) -> Dict[str, Any]:
     """Toggle enhancement status (pause/resume) for user"""
     try:
         body = json.loads(event.get('body', '{}'))
         action = body.get('action')  # 'pause' or 'resume'
         
         if action not in ['pause', 'resume']:
-            return create_error_response(400, 'Invalid action. Use "pause" or "resume"', rate_limit_info)
+            return create_error_response(400, 'Invalid action. Use "pause" or "resume"')
         
         # Get authenticated user_id from OAuth tokens
         user_id = get_authenticated_user_id()
@@ -1029,7 +1020,7 @@ def toggle_enhancement_status(event: Dict[str, Any], rate_limit_info: Dict[str, 
                 'status': 'paused',
                 'paused_at': current_time,
                 'message': 'Enhancement has been paused. New activities will not be processed.'
-            }, rate_limit_info=rate_limit_info)
+            })
             
         else:  # resume
             # Resume enhancement
@@ -1046,10 +1037,10 @@ def toggle_enhancement_status(event: Dict[str, Any], rate_limit_info: Dict[str, 
                 'status': 'active',
                 'resumed_at': current_time,
                 'message': 'Enhancement has been resumed. New activities will be processed automatically.'
-            }, rate_limit_info=rate_limit_info)
+            })
             
     except json.JSONDecodeError:
-        return create_error_response(400, 'Invalid JSON in request body', rate_limit_info)
+        return create_error_response(400, 'Invalid JSON in request body')
     except Exception as e:
         logger.error(f"Toggle enhancement status error: {str(e)}")
-        return create_error_response(500, f'Failed to toggle enhancement status: {str(e)}', rate_limit_info)
+        return create_error_response(500, 'Failed to toggle enhancement status')

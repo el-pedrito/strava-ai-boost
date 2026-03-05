@@ -95,12 +95,10 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     Handles various dashboard data requests
     """
     try:
-        rate_limit_info = None
-        
         http_method = event.get('httpMethod', 'GET')
         path = event.get('path', '')
         query_params = event.get('queryStringParameters') or {}
-        
+
         # Handle CORS preflight
         if http_method == 'OPTIONS':
             return {
@@ -108,24 +106,24 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 'headers': CORS_HEADERS.copy(),
                 'body': json.dumps({'status': 'ok'})
             }
-        
+
         # Validate request
         validation_error = validate_request(event)
         if validation_error:
-            return create_error_response(400, validation_error, rate_limit_info)
-        
+            return create_error_response(400, validation_error)
+
         # Route requests based on path
         if '/dashboard/stats' in path:
             response_data = get_dashboard_stats(query_params)
-            return create_success_response(response_data, rate_limit_info=rate_limit_info)
+            return create_success_response(response_data)
         elif '/dashboard/activities' in path:
             response_data = get_activity_history(query_params)
-            return create_success_response(response_data, rate_limit_info=rate_limit_info)
+            return create_success_response(response_data)
         elif '/dashboard/system' in path:
             response_data = get_system_stats()
-            return create_success_response(response_data, rate_limit_info=rate_limit_info)
+            return create_success_response(response_data)
         else:
-            return create_error_response(404, 'Endpoint not found', rate_limit_info)
+            return create_error_response(404, 'Endpoint not found')
         
     except Exception as e:
         logger.error(f"Dashboard API error: {str(e)}")
@@ -176,11 +174,9 @@ def validate_request(event: Dict[str, Any]) -> str:
         return f'Request validation failed: {str(e)}'
 
 
-def create_error_response(status_code: int, message: str, rate_limit_info=None) -> Dict[str, Any]:
+def create_error_response(status_code: int, message: str) -> Dict[str, Any]:
     """Create standardized error response"""
     headers = CORS_HEADERS.copy()
-
-    
     return {
         'statusCode': status_code,
         'headers': headers,
@@ -191,11 +187,9 @@ def create_error_response(status_code: int, message: str, rate_limit_info=None) 
     }
 
 
-def create_success_response(data: Dict[str, Any], status_code: int = 200, rate_limit_info=None) -> Dict[str, Any]:
+def create_success_response(data: Dict[str, Any], status_code: int = 200) -> Dict[str, Any]:
     """Create standardized success response with Decimal conversion"""
     headers = CORS_HEADERS.copy()
-
-    
     # Convert Decimal objects to float for JSON serialization
     data = decimal_to_float(data)
     
@@ -377,7 +371,7 @@ def get_activity_processing_stats(start_date: datetime) -> Dict[str, Any]:
                 'success_rate': 0,
                 'activity_types': {},
                 'query_method': 'error',
-                'error': str(fallback_error)
+                'error': 'Query failed'
             }
 
 
@@ -661,7 +655,7 @@ def get_engagement_metrics(start_date: datetime) -> Dict[str, Any]:
             'total_activities': total_activities,
             'data_source': 'strava_api_and_dynamodb'
         }
-        
+
     except Exception as e:
         logger.error(f"Failed to get engagement metrics: {str(e)}")
         return {
@@ -672,7 +666,7 @@ def get_engagement_metrics(start_date: datetime) -> Dict[str, Any]:
             'engagement_improvement': 0,
             'enhanced_activities': 0,
             'total_activities': 0,
-            'error': str(e)
+            'error': 'Failed to load engagement metrics'
         }
 
 
@@ -782,7 +776,7 @@ def get_activity_history(query_params: Dict[str, str]) -> Dict[str, Any]:
             'offset': 0,
             'limit': 0,
             'has_more': False,
-            'error': str(e),
+            'error': 'Failed to load activities',
             'query_method': 'error'
         }
 
@@ -869,5 +863,5 @@ def get_system_stats() -> Dict[str, Any]:
             'processing_count': 0,
             'queue_depth': 0,
             'dlq_depth': 0,
-            'error': str(e)
+            'error': 'Failed to load system stats'
         }

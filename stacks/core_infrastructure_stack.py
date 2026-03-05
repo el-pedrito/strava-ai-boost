@@ -202,10 +202,13 @@ class CoreInfrastructureStack(Stack):
                     "sqs:GetQueueAttributes",
                     "sqs:GetQueueUrl"
                 ],
-                resources=["*"]  # Will be restricted by queue URLs in environment variables
+                resources=[
+                    f"arn:aws:sqs:{Aws.REGION}:{Aws.ACCOUNT_ID}:strava-ai-boost-activity-processing",
+                    f"arn:aws:sqs:{Aws.REGION}:{Aws.ACCOUNT_ID}:strava-ai-boost-activity-processing-dlq"
+                ]
             )
         )
-        
+
         # Add permissions for Step Functions access (for workflow status monitoring)
         self.webhook_lambda_role.add_to_policy(
             iam.PolicyStatement(
@@ -215,7 +218,10 @@ class CoreInfrastructureStack(Stack):
                     "states:DescribeExecution",
                     "states:GetExecutionHistory"
                 ],
-                resources=["*"]  # Will be restricted by state machine ARN in environment variables
+                resources=[
+                    f"arn:aws:states:{Aws.REGION}:{Aws.ACCOUNT_ID}:stateMachine:StravaAIBoost-*",
+                    f"arn:aws:states:{Aws.REGION}:{Aws.ACCOUNT_ID}:execution:StravaAIBoost-*:*"
+                ]
             )
         )
 
