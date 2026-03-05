@@ -109,20 +109,18 @@ class TestWebhookHandler:
 class TestContentGenerator:
     """Test content generator Lambda"""
     
-    def test_content_generator_has_fallback(self):
-        """Test content generator has Bedrock fallback"""
+    def test_content_generator_has_agent_generation(self):
+        """Test content_generator has AgentCore generation"""
         import content_generator
-        
-        # Check fallback function exists
-        assert hasattr(content_generator, 'get_bedrock_content_generation_prompt')
-    
-    def test_content_generator_modules_support(self):
-        """Test content generator supports modules"""
-        import content_generator
-        
-        # Check module functions exist
-        assert hasattr(content_generator, 'get_active_modules')
-        assert hasattr(content_generator, 'apply_module_processing')
+
+        assert hasattr(content_generator, 'generate_enhanced_content')
+
+    def test_modules_processing(self):
+        """Test modules_processing supports module discovery and processing"""
+        import modules_processing
+
+        assert hasattr(modules_processing, 'get_active_modules')
+        assert hasattr(modules_processing, 'apply_module_processing')
 
 
 class TestActivityProcessor:

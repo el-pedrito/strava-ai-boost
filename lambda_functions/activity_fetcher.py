@@ -631,7 +631,7 @@ def store_activity_data(
         # This enables workout phase detection for interval sessions of any duration
         streams_compressed = None
         if streams_data:
-            from content_generator import compress_streams_to_blocks
+            from streams_analysis import compress_streams_to_blocks
             streams_compressed = compress_streams_to_blocks(streams_data, activity_data, activity_id)
             logger.info(f"Compressed streams for activity ({activity_data.get('moving_time', 0)/60:.0f}min)")
         
