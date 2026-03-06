@@ -110,7 +110,7 @@ feedback_stack.add_dependency(core_stack)
 environment = app.node.try_get_context('environment') or 'dev'
 cdk.Tags.of(app).add('Project', 'StravaAIBoost')
 cdk.Tags.of(app).add('Environment', environment)
-cdk.Tags.of(app).add('Owner', 'pibenard')
+cdk.Tags.of(app).add('Owner', app.node.try_get_context('owner') or 'admin')
 cdk.Tags.of(app).add('CostCenter', 'strava-ai-boost')
 cdk.Tags.of(app).add('ManagedBy', 'CDK')
 

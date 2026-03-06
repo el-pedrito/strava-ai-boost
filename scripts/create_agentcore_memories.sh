@@ -21,6 +21,13 @@ AWS_REGION="eu-west-1"
 CONTENT_MEMORY_NAME="content_gen_mem"
 CAMPUS_MEMORY_NAME="campus_coach_mem"
 
+# Cost allocation tags
+TAGS_PROJECT="StravaAIBoost"
+TAGS_ENVIRONMENT="${ENVIRONMENT:-dev}"
+TAGS_OWNER="${OWNER_TAG:-admin}"
+TAGS_COST_CENTER="strava-ai-boost"
+TAGS_MANAGED_BY="AgentCore-CLI"
+
 print_status() {
     echo -e "${BLUE}[INFO]${NC} $1"
 }
@@ -35,6 +42,59 @@ print_warning() {
 
 print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Function to tag an AgentCore resource via boto3
+tag_agentcore_resource() {
+    local resource_arn="$1"
+    local resource_label="$2"
+
+    print_status "Tagging $resource_label..."
+
+    python3 << EOF
+import boto3
+client = boto3.client('bedrock-agentcore-control', region_name='$AWS_REGION')
+try:
+    client.tag_resource(
+        resourceArn='$resource_arn',
+        tags={
+            'Project': '$TAGS_PROJECT',
+            'Environment': '$TAGS_ENVIRONMENT',
+            'Owner': '$TAGS_OWNER',
+            'CostCenter': '$TAGS_COST_CENTER',
+            'ManagedBy': '$TAGS_MANAGED_BY',
+        }
+    )
+    print('Tagged $resource_label')
+except Exception as e:
+    print(f'Failed to tag $resource_label: {e}')
+EOF
+}
+
+# Function to tag memories after creation
+tag_memories() {
+    print_status "Applying cost allocation tags to memories..."
+
+    python3 << EOF
+import boto3
+client = boto3.client('bedrock-agentcore-control', region_name='$AWS_REGION')
+tags = {
+    'Project': '$TAGS_PROJECT',
+    'Environment': '$TAGS_ENVIRONMENT',
+    'Owner': '$TAGS_OWNER',
+    'CostCenter': '$TAGS_COST_CENTER',
+    'ManagedBy': '$TAGS_MANAGED_BY',
+}
+memories = client.list_memories().get('memories', [])
+for mem in memories:
+    arn = mem.get('memoryArn', mem.get('arn', ''))
+    name = arn.split('/')[-1] if arn else 'unknown'
+    try:
+        client.tag_resource(resourceArn=arn, tags=tags)
+        print(f'  Tagged memory: {name}')
+    except Exception as e:
+        print(f'  Failed to tag {name}: {e}')
+EOF
 }
 
 # Function to create LTM memory with semantic search
@@ -99,7 +159,10 @@ main() {
     
     create_ltm_memory "$CONTENT_MEMORY_NAME"
     create_ltm_memory "$CAMPUS_MEMORY_NAME"
-    
+
+    # Tag memories with cost allocation tags
+    tag_memories
+
     # List all memories
     print_status ""
     print_status "📋 Memory Status:"

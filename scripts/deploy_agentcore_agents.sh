@@ -23,6 +23,13 @@ CAMPUS_AGENT_NAME="campus_coach"
 CONTENT_MEMORY_NAME="content_gen_mem"
 CAMPUS_MEMORY_NAME="campus_coach_mem"
 
+# Cost allocation tags
+TAGS_PROJECT="StravaAIBoost"
+TAGS_ENVIRONMENT="${ENVIRONMENT:-dev}"
+TAGS_OWNER="${OWNER_TAG:-admin}"
+TAGS_COST_CENTER="strava-ai-boost"
+TAGS_MANAGED_BY="AgentCore-CLI"
+
 print_status() {
     echo -e "${BLUE}[INFO]${NC} $1"
 }
@@ -37,6 +44,43 @@ print_warning() {
 
 print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Function to tag AgentCore resources (runtimes + memories) with cost allocation tags
+tag_agentcore_resources() {
+    print_status "Applying cost allocation tags to AgentCore resources..."
+
+    python3 << EOF
+import boto3
+client = boto3.client('bedrock-agentcore-control', region_name='$AWS_REGION')
+tags = {
+    'Project': '$TAGS_PROJECT',
+    'Environment': '$TAGS_ENVIRONMENT',
+    'Owner': '$TAGS_OWNER',
+    'CostCenter': '$TAGS_COST_CENTER',
+    'ManagedBy': '$TAGS_MANAGED_BY',
+}
+
+# Tag runtimes
+for rt in client.list_agent_runtimes().get('agentRuntimes', []):
+    arn = rt.get('agentRuntimeArn', '')
+    name = rt.get('agentRuntimeName', 'unknown')
+    try:
+        client.tag_resource(resourceArn=arn, tags=tags)
+        print(f'  Tagged runtime: {name}')
+    except Exception as e:
+        print(f'  Failed to tag runtime {name}: {e}')
+
+# Tag memories
+for mem in client.list_memories().get('memories', []):
+    arn = mem.get('memoryArn', mem.get('arn', ''))
+    name = arn.split('/')[-1] if arn else 'unknown'
+    try:
+        client.tag_resource(resourceArn=arn, tags=tags)
+        print(f'  Tagged memory: {name}')
+    except Exception as e:
+        print(f'  Failed to tag memory {name}: {e}')
+EOF
 }
 
 # Function to get memory ID from AWS
@@ -425,6 +469,9 @@ main() {
         exit 1
     fi
     
+    # Apply cost allocation tags to all AgentCore resources
+    tag_agentcore_resources
+
     # Summary
     print_success ""
     print_success "🎉 AgentCore agents deployed successfully with LTM!"
