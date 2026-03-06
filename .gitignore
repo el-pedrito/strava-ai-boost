@@ -59,6 +59,7 @@ cdk.context.json
 .claude/
 .kiro/
 filter-repo-replacements.txt
+.mcp.json
 
 # AWS
 .aws-sam/

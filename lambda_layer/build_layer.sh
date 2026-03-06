@@ -16,7 +16,7 @@ mkdir -p "$SCRIPT_DIR/python"
 
 # Install dependencies in the layer
 echo "📦 Installing dependencies..."
-pip install -r "$SCRIPT_DIR/requirements.txt" -t "$SCRIPT_DIR/python/" --platform linux_x86_64 --only-binary=:all:
+pip install -r "$SCRIPT_DIR/requirements.txt" -t "$SCRIPT_DIR/python/"
 
 # Clean up unnecessary files
 echo "🧹 Cleaning up unnecessary files..."
@@ -26,11 +26,10 @@ find "$SCRIPT_DIR/python/" -type d -name "tests" -exec rm -rf {} + 2>/dev/null |
 find "$SCRIPT_DIR/python/" -type f -name "*.pyc" -delete 2>/dev/null || true
 find "$SCRIPT_DIR/python/" -type f -name "*.pyo" -delete 2>/dev/null || true
 
-# Create zip file for layer
+# Create zip file for layer (must contain python/ prefix for Lambda Layer)
 echo "📦 Creating layer zip file..."
-cd "$SCRIPT_DIR/python"
-zip -r "../strava-ai-boost-dependencies-layer.zip" . -q
 cd "$SCRIPT_DIR"
+zip -r "strava-ai-boost-dependencies-layer.zip" python/ -q
 
 echo "✅ Lambda Layer built successfully!"
 echo "📁 Layer zip: $SCRIPT_DIR/strava-ai-boost-dependencies-layer.zip"
