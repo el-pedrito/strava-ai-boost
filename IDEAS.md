@@ -77,6 +77,15 @@
 - Auto-refresh every 60s, sorting enabled on columns
 - Still TODO: Track trends over time (confidence/edit rate charts), memory effectiveness metrics
 
+### ~~Cost Allocation Tags~~ DONE
+
+**What was implemented:**
+- 5 tags on all resources: `Project`, `Environment`, `Owner`, `CostCenter`, `ManagedBy`
+- CDK resources: `cdk.Tags.of(app)` in `app.py` — propagates to all 7 stacks (~60+ resources)
+- AgentCore resources (2 runtimes + 2 memories): boto3 `tag_resource` in `scripts/deploy_agentcore_agents.sh` and `scripts/create_agentcore_memories.sh`
+- Owner tag anonymized: `app.node.try_get_context('owner') or 'admin'`
+- Still TODO: Activate tags in AWS Billing console for Cost Explorer visibility
+
 ### Cost Optimization
 - Lambda ARM64 (Graviton) for ~20% cost reduction
 - Provisioned concurrency for content_generator (cold start sensitive)
