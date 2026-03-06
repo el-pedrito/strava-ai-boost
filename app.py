@@ -106,8 +106,12 @@ feedback_stack = FeedbackLoopStack(
 # Explicit dependency on core stack
 feedback_stack.add_dependency(core_stack)
 
-# Global resource tags
+# Global resource tags for cost allocation
+environment = app.node.try_get_context('environment') or 'dev'
 cdk.Tags.of(app).add('Project', 'StravaAIBoost')
+cdk.Tags.of(app).add('Environment', environment)
+cdk.Tags.of(app).add('Owner', 'pibenard')
+cdk.Tags.of(app).add('CostCenter', 'strava-ai-boost')
 cdk.Tags.of(app).add('ManagedBy', 'CDK')
 
 # Synthesize the CDK app
