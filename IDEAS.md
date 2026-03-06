@@ -25,6 +25,13 @@
 - Workout phases map to story progression (warm-up = setup, intervals = rising action, best split = climax, cool-down = resolution)
 - Variety rules: 5 opener styles + 5 closer styles to rotate, avoiding repetitive patterns
 - Full storytelling example included for LLM reference
+- **Bug fix**: user description was stripped from agent payload (`content_generator.py` removed `'description'` key in `clean_activity_data`) — now preserved with AI signature cleanup only
+- **Chain-of-thought**: agent now reasons through user sensations before generating (`<thinking>` block in user prompt)
+- **Fun fact/joke**: always included before signature, adapted to activity context
+- **No gear/shoes**: removed from Strava API fetch, prompt injection, and content generation
+- **First-person voice**: all content written as "j'ai", "mon", "mes", "je"
+- **User input at top of prompt**: original title+description moved to first position in user prompt + reminder at end
+- **Prompt trimmed**: removed 265 redundant lines (-26%) — no regression
 - Still TODO: A/B test prompt variations and track user edit rates as quality signal
 
 ### ~~User Preferences — Enforce Impact on Content Generation~~ DONE
