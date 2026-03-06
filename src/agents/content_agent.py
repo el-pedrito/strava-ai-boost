@@ -296,26 +296,32 @@ INTEREST_EXPRESSIONS = {
 SPORT_APPROACH_EXAMPLES = {
     'performance & competition': {
         'focus': 'Metriques precises, comparaisons, objectifs, elements competitifs',
+        'narrative': 'Race narrative — tactical decisions, splits analysis, competitive mindset, next challenge',
         'example': 'Mission accomplie ! J\'ai atomise mon record sur 5K (21:45) avec un negatif split de champion (4:28->4:15/km). Mode competition active, je suis pret pour la prochaine course !',
     },
     'health & wellness': {
         'focus': 'Bien-etre, stress relief, niveaux d\'energie, sante globale',
+        'narrative': 'Mindfulness journey — body sensations, breathing, inner peace, recovery quality',
         'example': 'Sortie bien-etre parfaite ! 90 minutes d\'endurance fondamentale (92% zone 1-2) avec un ressenti de reve. Mon corps ronronne, mon esprit se libere.',
     },
     'social & fun': {
         'focus': 'Plaisir, aspects sociaux, communaute, experiences partagees',
+        'narrative': 'Shared experience — group energy, fun moments, community connection',
         'example': 'Sortie de groupe qui fait du bien ! 10K en mode convivial avec une belle regularite. J\'adore ces moments partages, ca vaut tous les chronos du monde.',
     },
     'personal challenge': {
         'focus': 'Amelioration personnelle, depasser les obstacles, croissance',
+        'narrative': 'Hero\'s journey — overcoming doubt, pushing through discomfort, personal growth',
         'example': 'Defi releve ! J\'ai fait plus long que d\'habitude, je repousse mes limites. Chaque km de plus est une victoire personnelle.',
     },
     'stress relief': {
         'focus': 'Benefices mentaux, relaxation, echappatoire du quotidien',
+        'narrative': 'Escape narrative — leaving stress behind, decompression, mental clarity',
         'example': 'Sortie decompression parfaite. Mon rythme regulier, l\'air frais, mon esprit qui se vide - ma meilleure therapie.',
     },
     'weight management': {
         'focus': 'Regularite, habitudes saines, progres durables',
+        'narrative': 'Progress story — consistency, building habits, incremental wins',
         'example': 'Encore une sortie de faite ! Ma regularite paye, chaque km compte dans ma progression.',
     },
 }
@@ -369,6 +375,7 @@ def build_profile_context(user_profile: Optional[Dict[str, Any]]) -> str:
         sections.append(
             f"### Sport Approach: {approach}\n"
             f"Focus: {approach_data['focus']}\n"
+            f"Narrative style: {approach_data['narrative']}\n"
             f"Example: \"{approach_data['example']}\""
         )
 
@@ -926,6 +933,13 @@ Generate ALL content (title + description) in {content_lang.upper()}. Do NOT use
         prompt = f"""{language_override}⚠️ CRITICAL SIZE LIMIT: User preference is "{content_length_pref}" = MAX {max_chars} characters for description (including signature)!
 If you exceed {max_chars} chars, CUT content to fit. Keep most important elements, preserve signature.
 
+🎯 ORIGINAL USER INPUT (PRIORITÉ #1 — REPRENDS CES MOTS TEXTUELLEMENT):
+Title: "{validated_title}"
+Description: "{validated_description}"
+{f"⚠️ Note: Title was sanitized by security filters" if title_blocked else ""}
+{f"⚠️ Note: Description was sanitized by security filters" if desc_blocked else ""}
+⚠️ Construis ton récit AUTOUR de ces sensations. Elles sont le fil narratif, les données viennent les enrichir — pas l'inverse.
+
 ACTIVITY DATA:
 - Type: {activity_type}
 - Distance: {distance:.2f} km
@@ -944,9 +958,6 @@ ACTIVITY DATA:
 ATHLETE CONTEXT (Power-to-Weight, FTP):
 {athlete_context}
 
-EQUIPMENT CONTEXT (Gear Mileage):
-{gear_context}
-
 ACHIEVEMENTS & PERFORMANCE HIGHLIGHTS:
 {achievements_context}
 
@@ -957,12 +968,6 @@ SPLITS & LAPS:
 {f"- Metric Splits: {len(splits_metric)} km splits available" if splits_metric else ""}
 {f"- Standard Splits: {len(splits_standard)} mile splits available" if splits_standard else ""}
 {f"- Laps: {len(laps)} lap(s) recorded" if laps else ""}
-
-ORIGINAL USER INPUT:
-- Original Title: "{validated_title}"
-- Original Description: "{validated_description}"
-{f"⚠️ Note: Title was sanitized by security filters" if title_blocked else ""}
-{f"⚠️ Note: Description was sanitized by security filters" if desc_blocked else ""}
 
 LOCATION & WEATHER:
 {location_context}
@@ -984,10 +989,18 @@ WORKOUT PHASES (pre-computed phase detection from streams):
 STREAMS DATA (compressed 30s blocks):
 {streams_compressed_str}
 
+AVANT DE GÉNÉRER, réfléchis étape par étape (dans un bloc <thinking>):
+1. Quelles sensations/émotions l'utilisateur exprime dans son titre et sa description ?
+2. Comment les données (FC, pace, phases) confirment ou enrichissent ces sensations ?
+3. Quel arc narratif construire autour de ces sensations ?
+Puis génère le JSON.
+
 Generate content now."""
         
         # Invoke agent
         logger.info(f"Invoking agent with prompt length: {len(prompt)} characters")
+        logger.info(f"🎯 User original input - Title: '{validated_title}' | Description: '{validated_description[:150]}'")
+        logger.info(f"🎯 Prompt starts with: {prompt[:500]}")
         result = agent(prompt)
         
         # No need to check guardrail intervention on model (we validated inputs separately)
