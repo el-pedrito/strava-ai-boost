@@ -200,104 +200,14 @@ Récup entre 2:00 et 2:10 à ~6:30/km. Séance validée !"
 - **Motivational Enhancement**: Create content that motivates and celebrates athletic achievements
 - **User Profile Adaptation**: Adapt content based on user's age, interests, sport approach, and communication preferences
 
-## User Profile Configuration
+## User Profile Adaptation
 
-### Personal Information
-```json
-{
-  "user_profile": {
-    "age_range": "18-25|26-35|36-45|46-55|55+",
-    "interests": ["technology", "music", "travel", "food", "nature", "photography", "family", "competition"],
-    "sport_approach": "health & wellness|performance & competition|social & fun|personal challenge|stress relief|weight management",
-    "content_preferences": {
-      "length": "short|medium|detailed|adaptive",
-      "tone": "technical & analytical|motivational & energetic|casual & friendly|humorous & fun|authentic & personal",
-      "emoji_usage": "none|minimal|moderate|enthusiastic",
-      "technical_detail": "basic|intermediate|advanced"
-    }
-  }
-}
-```
+Profile-specific instructions (age references, interest expressions, sport approach focus, tone examples) are injected dynamically in the user prompt as STYLE INSTRUCTIONS — only the rules matching the current user's profile are included. See `build_preference_instructions()` and `build_profile_context()` in `content_agent.py`.
 
-### Profile-Based Content Adaptation
-
-#### Age-Appropriate References (Subtle Cultural Context)
-
-**IMPORTANT**: Use age-appropriate references naturally - avoid stereotypes, keep it subtle. Maximum 1 cultural reference per activity. Only use if natural fit. Use concepts, not brands/artists. Stay positive.
-
-- **18-25** (Gen Z / Late Millennials):
-  - Expressions: "Mode boost activé", "Performance unlocked", "Level up", "App qui track", "Data en temps réel", "Algo optimisé"
-  - Music: "Playlist motivante", "Vibe parfaite", "Son qui pousse", "Rythme moderne"
-  - Culture: Social media mindset, instant gratification balanced with long-term goals, "Progression constante", "Objectifs clairs"
-  - Social: "Moment partageable", "Énergie collective", "Motivation commune"
-  - Challenges: Balancing studies/early career with training
-  - Tone: Energetic, ambitious, data-driven
-  - Example: "Cette perf' mérite un post ! 📱 Stats qui parlent d'elles-mêmes"
-
-- **26-35** (Millennials):
-  - Expressions: "Optimiser le temps", "ROI de l'entraînement", "Efficacité maximale", "Dashboard perso", "Metrics optimisées", "System qui tourne"
-  - Music: "Tempo qui groove", "Beat qui porte", "Rythme parfait", "Cadence idéale"
-  - Culture: Work-life balance, productivity mindset, goal-oriented, "Équilibre vie pro/perso"
-  - Social: "Énergie partagée", "Communauté sportive", "Motivation collective"
-  - Challenges: Career demands, time management, maintaining consistency
-  - Tone: Efficient, strategic, results-focused
-  - Example: "Session efficace entre deux meetings - le temps bien investi ! ⚡"
-
-- **36-45** (Gen X / Early Millennials):
-  - Expressions: "Prendre soin de soi", "Montrer l'exemple", "Équilibre vie pro/perso", "Évolution des outils", "Tech qui aide"
-  - Music: "Rythme intérieur", "Tempo personnel", "Cadence naturelle", "Harmonie trouvée"
-  - Culture: Experience wisdom, sustainable approach, long-term health, "Sagesse acquise", "Expérience qui guide"
-  - Family: "Temps pour soi", "Exemple positif", "Investissement santé"
-  - Challenges: Family responsibilities, injury prevention, consistency
-  - Tone: Balanced, wise, sustainable
-  - Example: "Ces sorties régulières, c'est l'investissement santé qui compte 💪"
-
-- **46-55** (Gen X):
-  - Expressions: "L'expérience parle", "La régularité paye", "Sagesse du corps", "Outils performants", "Tech accessible"
-  - Music: "Rythme classique", "Tempo éprouvé", "Cadence stable", "Harmonie durable"
-  - Culture: "Expérience de vie", "Sagesse du temps", "Recul bénéfique"
-  - Mentoring: "Transmettre l'expérience", "Inspirer les autres", "Partager la passion"
-  - Challenges: Recovery time, injury prevention, maintaining motivation
-  - Tone: Experienced, measured, encouraging
-  - Example: "Après toutes ces années, on sait écouter son corps - sortie parfaite ! 🎯"
-
-- **55+** (Baby Boomers / Early Gen X):
-  - Expressions: "Le plaisir avant tout", "Profiter de chaque instant", "La forme c'est la santé", "Tech qui simplifie"
-  - Music: "Rythme intemporel", "Musique intérieure", "Tempo apaisant", "Harmonie parfaite"
-  - Culture: "Sagesse des années", "Expérience précieuse", "Recul sur la vie"
-  - Community: "Partager la passion", "Transmettre l'énergie", "Esprit communautaire"
-  - Challenges: Health maintenance, social connection, staying active
-  - Tone: Positive, health-focused, community-oriented
-  - Example: "Ces sorties, c'est le bonheur simple - garder la forme et profiter ! 🌅"
-
-#### Interest-Based Content Elements (Use Subtly and Naturally)
-
-**IMPORTANT**: Integrate interests naturally - don't force references. Use 1-2 subtle references per activity maximum.
-
-- **Technology**: "Les données parlent d'elles-mêmes", "Cette machine est bien calibrée", "Optimiser les paramètres"
-- **Music**: "Trouver son rythme", "En harmonie avec le corps", "Tempo parfait", "Cette cadence groove"
-- **Travel**: "Explorer de nouveaux horizons", "Chaque km est une découverte", "Voyage intérieur"
-- **Food**: "Bien nourrir l'effort", "Digérer les kilomètres", "Carburant optimal", "Savourer la performance"
-- **Nature**: "Profiter du paysage", "S'adapter aux éléments", "Respirer l'air frais"
-- **Photography**: "Capturer l'instant", "Belle image de progression", "Moment à immortaliser"
-- **Family**: "Équilibrer les priorités", "Montrer l'exemple", "Prendre soin de soi pour les autres"
-- **Competition**: "Se dépasser", "Viser plus haut", "Battre ses records", "Challenger ses limites"
-
-#### Combining Age + Interests (Examples)
-
-- **26-35 + Technology + Competition**: "Performance optimisée comme un algorithme bien réglé - les stats confirment la progression ! 📊"
-- **55+ + Nature + Photography**: "Belle lumière de fin d'après-midi - ces moments de connexion avec la nature valent tous les chronos 🌅"
-- **36-45 + Family + Health**: "Sortie matinale avant que la maison se réveille - ce temps pour soi est précieux 💪"
-- **26-35 + Music + Performance**: "Tempo soutenu comme un bon beat - la machine est en mode performance 🔥"
-- **18-25 + Music + Social**: "Session qui groove en groupe - cette énergie collective fait du bien ! 🎵💪"
-
-#### Sport Approach Adaptation
-- **Health & Wellness**: Focus on feeling good, stress relief, energy levels, overall wellbeing
-- **Performance & Competition**: Emphasize metrics, improvements, goals, competitive elements
-- **Social & Fun**: Highlight enjoyment, social aspects, community, shared experiences
-- **Personal Challenge**: Focus on self-improvement, overcoming obstacles, personal growth
-- **Stress Relief**: Emphasize mental benefits, relaxation, escape from daily pressures
-- **Weight Management**: Focus on consistency, healthy habits, sustainable progress
+General rules:
+- Use age-appropriate references **naturally** — avoid stereotypes, max 1 cultural reference per activity
+- Integrate interests **subtly** — max 1-2 references, only if natural fit
+- Adapt sport approach focus to what the user cares about (metrics vs wellbeing vs social vs challenge)
 
 ## Input Data Structure
 
@@ -397,23 +307,6 @@ en zone 4-5, du grand art ! La FC récupère comme une machine
 bien huilée (185→140 bpm). Cette progression, c'est du bonheur 
 pur ! 🎯💪"
 ```
-
-### Adaptation Contextuelle avec Profil Utilisateur
-
-#### Pour Utilisateurs "Performance & Competition"
-- **Technique** : Métriques précises, comparaisons, objectifs
-- **Fun** : Métaphores de compétition, célébrations de victoire
-- **Exemple** : "Mission accomplie ! 🎯 Record personnel atomisé sur 5K (21:45) avec un négatif split de champion (4:28→4:15/km). L'analyse streams révèle une stratégie de course parfaite : montée en puissance progressive jusqu'à 22% zone 5 sur la fin. Cette machine de guerre est prête pour la compétition ! 🚀💪"
-
-#### Pour Utilisateurs "Health & Wellness"
-- **Technique** : Zones d'effort, bien-être physiologique
-- **Fun** : Métaphores de bien-être, célébrations de santé
-- **Exemple** : "Sortie bien-être parfaite ! ☀️ 90 minutes d'endurance fondamentale (92% zone 1-2) avec un ressenti de rêve. Le corps ronronne, l'esprit se libère - c'est ça la magie du running ! Ces sorties longues sont un vrai cadeau qu'on se fait. 🏃‍♂️✨"
-
-#### Pour Utilisateurs "Social & Fun"
-- **Technique** : Métriques accessibles, contexte social
-- **Fun** : Références communautaires, partage d'expérience
-- **Exemple** : "Sortie de groupe qui fait du bien ! 🤝 10K en mode convivial avec une belle régularité (4:45/km). L'analyse montre qu'on a tous tenu la même allure - preuve qu'ensemble on va plus loin ! Ces moments partagés valent tous les chronos du monde. 🏃‍♂️❤️"
 
 ## Enduraw Detection Logic
 
