@@ -253,12 +253,12 @@ AGE_CONTEXT = {
     '18-25': {
         'expressions': ['Mode boost active', 'Performance unlocked', 'Level up', 'Data en temps reel', 'Algo optimise'],
         'tone': 'Energetic, ambitious, data-driven',
-        'example': "Cette perf' merite un post ! Stats qui parlent d'elles-memes",
+        'example': "Cette perf' merite un post ! Mes stats parlent d'elles-memes",
     },
     '26-35': {
         'expressions': ['Optimiser le temps', 'ROI de l\'entrainement', 'Efficacite maximale', 'Dashboard perso', 'Metrics optimisees'],
         'tone': 'Efficient, strategic, results-focused',
-        'example': 'Session efficace entre deux meetings - le temps bien investi !',
+        'example': 'Session efficace entre deux meetings - j\'ai bien investi mon temps !',
     },
     '36-45': {
         'expressions': ['Prendre soin de soi', 'Montrer l\'exemple', 'Equilibre vie pro/perso', 'Investissement sante'],
@@ -283,40 +283,40 @@ AGE_CONTEXT = {
 }
 
 INTEREST_EXPRESSIONS = {
-    'technology': ['Les donnees parlent d\'elles-memes', 'Cette machine est bien calibree', 'Optimiser les parametres'],
-    'music': ['Trouver son rythme', 'En harmonie avec le corps', 'Tempo parfait', 'Cette cadence groove'],
-    'travel': ['Explorer de nouveaux horizons', 'Chaque km est une decouverte', 'Voyage interieur'],
-    'food': ['Bien nourrir l\'effort', 'Digerer les kilometres', 'Carburant optimal'],
-    'nature': ['Profiter du paysage', 'S\'adapter aux elements', 'Respirer l\'air frais'],
-    'photography': ['Capturer l\'instant', 'Belle image de progression', 'Moment a immortaliser'],
-    'family': ['Equilibrer les priorites', 'Montrer l\'exemple', 'Prendre soin de soi pour les autres'],
-    'competition': ['Se depasser', 'Viser plus haut', 'Battre ses records', 'Challenger ses limites'],
+    'technology': ['Les donnees parlent d\'elles-memes', 'Systeme bien calibre', 'Optimiser les parametres', 'Algorithme parfaitement execute', 'Debug des sensations reussi'],
+    'music': ['Trouver son rythme', 'En harmonie avec le corps', 'Tempo parfait', 'Cette cadence groove', 'Comme une playlist bien caliee - crescendo maitrise', 'Les jambes jouent la bonne partition'],
+    'travel': ['Explorer de nouveaux horizons', 'Chaque km est une decouverte', 'Voyage interieur', 'Comme un road trip a l\'echelle du quartier', 'Depaysement garanti meme sur les chemins connus'],
+    'food': ['Bien nourrir l\'effort', 'Digerer les kilometres', 'Carburant optimal', 'Recette parfaitement dosee', 'Un effort a savourer', 'Ingredients du jour: regulariete et constance'],
+    'nature': ['Profiter du paysage', 'S\'adapter aux elements', 'Respirer l\'air frais', 'En osmose avec le terrain', 'La nature comme terrain de jeu'],
+    'photography': ['Capturer l\'instant', 'Belle image de progression', 'Moment a immortaliser', 'Un snapshot de forme parfait', 'Cadrage ideal sur cette performance'],
+    'family': ['Equilibrer les priorites', 'Montrer l\'exemple', 'Prendre soin de soi pour les autres', 'Du temps bien investi pour soi'],
+    'competition': ['Se depasser', 'Viser plus haut', 'Battre ses records', 'Challenger ses limites', 'Mode guerrier active', 'La course est lancee'],
 }
 
 SPORT_APPROACH_EXAMPLES = {
     'performance & competition': {
         'focus': 'Metriques precises, comparaisons, objectifs, elements competitifs',
-        'example': 'Mission accomplie ! Record personnel atomise sur 5K (21:45) avec un negatif split de champion (4:28->4:15/km). Cette machine de guerre est prete pour la competition !',
+        'example': 'Mission accomplie ! J\'ai atomise mon record sur 5K (21:45) avec un negatif split de champion (4:28->4:15/km). Mode competition active, je suis pret pour la prochaine course !',
     },
     'health & wellness': {
         'focus': 'Bien-etre, stress relief, niveaux d\'energie, sante globale',
-        'example': 'Sortie bien-etre parfaite ! 90 minutes d\'endurance fondamentale (92% zone 1-2) avec un ressenti de reve. Le corps ronronne, l\'esprit se libere.',
+        'example': 'Sortie bien-etre parfaite ! 90 minutes d\'endurance fondamentale (92% zone 1-2) avec un ressenti de reve. Mon corps ronronne, mon esprit se libere.',
     },
     'social & fun': {
         'focus': 'Plaisir, aspects sociaux, communaute, experiences partagees',
-        'example': 'Sortie de groupe qui fait du bien ! 10K en mode convivial avec une belle regularite. Ces moments partages valent tous les chronos du monde.',
+        'example': 'Sortie de groupe qui fait du bien ! 10K en mode convivial avec une belle regularite. J\'adore ces moments partages, ca vaut tous les chronos du monde.',
     },
     'personal challenge': {
         'focus': 'Amelioration personnelle, depasser les obstacles, croissance',
-        'example': 'Defi releve ! Sortie plus longue que d\'habitude, repoussant les limites. Chaque km de plus est une victoire personnelle.',
+        'example': 'Defi releve ! J\'ai fait plus long que d\'habitude, je repousse mes limites. Chaque km de plus est une victoire personnelle.',
     },
     'stress relief': {
         'focus': 'Benefices mentaux, relaxation, echappatoire du quotidien',
-        'example': 'Sortie decompression parfaite. Le rythme regulier, l\'air frais, l\'esprit qui se vide - la meilleure therapie.',
+        'example': 'Sortie decompression parfaite. Mon rythme regulier, l\'air frais, mon esprit qui se vide - ma meilleure therapie.',
     },
     'weight management': {
         'focus': 'Regularite, habitudes saines, progres durables',
-        'example': 'Encore une sortie de faite ! La regularite paye, chaque km compte dans cette progression durable.',
+        'example': 'Encore une sortie de faite ! Ma regularite paye, chaque km compte dans ma progression.',
     },
 }
 
@@ -355,7 +355,10 @@ def build_profile_context(user_profile: Optional[Dict[str, Any]]) -> str:
         if lines:
             sections.append(
                 "### Interest References\n"
-                "Use 1-2 subtle references naturally. Don't force them.\n"
+                "IMPORTANT: Include at least 1 interest-inspired expression or metaphor in every activity description. "
+                "Weave them naturally into the narrative (e.g. as a metaphor, analogy, or closing remark). "
+                "Pick the interest that fits best with the activity context. "
+                "Don't label them — integrate seamlessly.\n"
                 + "\n".join(lines)
             )
 
