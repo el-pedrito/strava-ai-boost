@@ -67,8 +67,12 @@ samconfig.toml
 
 # Environment variables
 .env
-.env.local
-.env.*.local
+.env.*
+
+# Additional sensitive file patterns
+*.p12
+*.pfx
+.aws/
 
 # Logs
 *.log
