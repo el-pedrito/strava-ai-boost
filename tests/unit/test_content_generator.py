@@ -37,7 +37,6 @@ class TestHandler:
             'streams_compressed': None,
             'athlete_stats': None,
             'athlete_profile': None,
-            'gear_details': None,
             'intervals_icu_data': None,
         }
         mock_config.return_value = {'user_id': 'user1', 'modules_config': {}}

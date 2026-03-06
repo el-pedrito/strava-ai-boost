@@ -644,8 +644,6 @@ def invoke(payload, context=None):
         enduraw_data = payload.get('enduraw_data')
         athlete_stats = payload.get('athlete_stats', {})
         athlete_profile = payload.get('athlete_profile', {})
-        gear_details = payload.get('gear_details', {})
-        
         # Log Campus Coach data details
         if campus_coach_session:
             if isinstance(campus_coach_session, list):
@@ -772,13 +770,9 @@ def invoke(payload, context=None):
         workout_type_names = {0: 'Default', 1: 'Race', 2: 'Long Run', 3: 'Workout', 10: 'Tempo', 11: 'Intervals', 12: 'Recovery'}
         workout_type_str = workout_type_names.get(workout_type, 'Unknown') if workout_type is not None else None
         
-        # Equipment
-        gear_name = activity_data.get('gear', {}).get('name') if activity_data.get('gear') else None
-        
-        # Extract athlete profile and gear from payload
+        # Extract athlete profile from payload
         athlete_profile = payload.get('athlete_profile', {})
-        gear_details = payload.get('gear_details', {})
-        
+
         # Build athlete context (FTP, weight, power-to-weight ratio)
         athlete_context = ""
         ftp = athlete_profile.get('ftp')
@@ -788,28 +782,7 @@ def invoke(payload, context=None):
             ftp_percentage = (avg_watts / ftp) * 100 if ftp > 0 else 0
             athlete_context += f"💪 Power-to-Weight: {watts_per_kg:.1f} W/kg (FTP: {ftp}W, Weight: {weight}kg)\n"
             athlete_context += f"📊 Effort Level: {ftp_percentage:.0f}% of FTP\n"
-        
-        # Build gear context (mileage, brand, model)
-        gear_context = ""
-        if gear_details:
-            gear_name_full = gear_details.get('name', gear_name)
-            gear_brand = gear_details.get('brand_name')
-            gear_model = gear_details.get('model_name')
-            gear_distance = gear_details.get('distance', 0) / 1000  # km
-            
-            if gear_name_full:
-                gear_context += f"👟 Equipment: {gear_name_full}"
-                if gear_brand and gear_model:
-                    gear_context += f" ({gear_brand} {gear_model})"
-                gear_context += f"\n"
-            if gear_distance > 0:
-                gear_context += f"📏 Equipment Mileage: {gear_distance:.0f} km\n"
-        elif gear_name:
-            gear_context = f"👟 Equipment: {gear_name}\n"
-        
-        if not gear_context:
-            gear_context = "No equipment data"
-        
+
         # Splits
         splits_metric = activity_data.get('splits_metric', [])
         splits_standard = activity_data.get('splits_standard', [])

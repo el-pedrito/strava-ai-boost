@@ -71,7 +71,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Generate enhanced content via AgentCore
         enhanced_content = generate_enhanced_content(
             activity_data, streams_compressed, user_id, enhanced_modules,
-            user_profile, athlete_stats, athlete_profile, None,
+            user_profile, athlete_stats, athlete_profile,
             enduraw_data, intervals_icu_data
         )
 
@@ -114,7 +114,6 @@ def retrieve_activity_data_from_dynamodb(activity_id: str) -> Optional[Dict[str,
         streams_compressed = json.loads(item.get('streams_compressed_json', 'null')) if item.get('streams_compressed_json') else None
         athlete_stats = json.loads(item.get('athlete_stats_json', 'null')) if item.get('athlete_stats_json') else None
         athlete_profile = json.loads(item.get('athlete_profile_json', 'null')) if item.get('athlete_profile_json') else None
-        gear_details = json.loads(item.get('gear_details_json', 'null')) if item.get('gear_details_json') else None
         intervals_icu_data = json.loads(item.get('intervals_icu_json', 'null')) if item.get('intervals_icu_json') else None
 
         def convert_numeric_strings(obj: Any) -> Any:
@@ -137,7 +136,6 @@ def retrieve_activity_data_from_dynamodb(activity_id: str) -> Optional[Dict[str,
         streams_compressed = convert_numeric_strings(streams_compressed) if streams_compressed else None
         athlete_stats = convert_numeric_strings(athlete_stats) if athlete_stats else None
         athlete_profile = convert_numeric_strings(athlete_profile) if athlete_profile else None
-        gear_details = convert_numeric_strings(gear_details) if gear_details else None
         intervals_icu_data = convert_numeric_strings(intervals_icu_data) if intervals_icu_data else None
 
         return {
@@ -145,7 +143,6 @@ def retrieve_activity_data_from_dynamodb(activity_id: str) -> Optional[Dict[str,
             'streams_compressed': streams_compressed,
             'athlete_stats': athlete_stats,
             'athlete_profile': athlete_profile,
-            'gear_details': gear_details,
             'intervals_icu_data': intervals_icu_data
         }
 
@@ -220,7 +217,6 @@ def generate_enhanced_content(
     user_profile: Optional[Dict[str, Any]] = None,
     athlete_stats: Optional[Dict[str, Any]] = None,
     athlete_profile: Optional[Dict[str, Any]] = None,
-    gear_details: Optional[Dict[str, Any]] = None,
     enduraw_data: Optional[Dict[str, Any]] = None,
     intervals_icu_data: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
@@ -282,7 +278,6 @@ def generate_enhanced_content(
         'route_landmarks': route_landmarks,
         'athlete_stats': athlete_stats,
         'athlete_profile': athlete_profile,
-        'gear_details': gear_details,
         'user_id': user_id,
         'user_profile': user_profile,
         'active_modules': modules,

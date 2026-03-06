@@ -89,7 +89,6 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             streams_data=streams_data,
             athlete_stats=athlete_stats,
             athlete_profile=athlete_profile,
-            gear_details=None,
             user_config=user_config,
             intervals_icu_data=intervals_icu_data
         )
@@ -433,37 +432,6 @@ def fetch_athlete_profile(access_token: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def fetch_gear_details(gear_id: str, access_token: str) -> Optional[Dict[str, Any]]:
-    """
-    Fetch gear details from Strava API
-    
-    Returns gear name, brand, model, and total distance
-    """
-    try:
-        headers = {'Authorization': f'Bearer {access_token}'}
-        url = f"{STRAVA_API_BASE}/gear/{gear_id}"
-        
-        response = _get_http_session().get(url, headers=headers, timeout=30)
-        response.raise_for_status()
-        
-        gear_data = response.json()
-        
-        logger.info(f"Fetched gear details: {gear_data.get('name')}")
-        
-        # Log gear mileage
-        gear_distance = gear_data.get('distance', 0) / 1000  # km
-        logger.info(f"Gear mileage: {gear_distance:.0f} km")
-        
-        return gear_data
-        
-    except requests.exceptions.RequestException as e:
-        logger.warning(f"Gear details API request failed: {str(e)}")
-        return None
-    except Exception as e:
-        logger.warning(f"Failed to fetch gear details: {str(e)}")
-        return None
-
-
 def fetch_intervals_icu_data(activity_data: Dict[str, Any], user_config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Fetch wellness and activity metrics from Intervals.icu API.
@@ -585,7 +553,6 @@ def store_activity_data(
     streams_data: Optional[Dict[str, Any]],
     athlete_stats: Optional[Dict[str, Any]],
     athlete_profile: Optional[Dict[str, Any]],
-    gear_details: Optional[Dict[str, Any]],
     user_config: Dict[str, Any],
     intervals_icu_data: Optional[Dict[str, Any]] = None
 ) -> None:
@@ -650,7 +617,6 @@ def store_activity_data(
             'streams_compressed_json': json.dumps(convert_floats(streams_compressed), default=str) if streams_compressed else None,
             'athlete_stats_json': json.dumps(convert_floats(athlete_stats), default=str) if athlete_stats else None,
             'athlete_profile_json': json.dumps(convert_floats(athlete_profile), default=str) if athlete_profile else None,
-            'gear_details_json': json.dumps(convert_floats(gear_details), default=str) if gear_details else None,
             'intervals_icu_json': json.dumps(convert_floats(intervals_icu_data), default=str) if intervals_icu_data else None
         }
         
