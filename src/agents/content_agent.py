@@ -249,6 +249,199 @@ def validate_user_input_with_guardrail(text: str, field_name: str) -> tuple[str,
         return text, False
 
 
+AGE_CONTEXT = {
+    '18-25': {
+        'expressions': ['Mode boost active', 'Performance unlocked', 'Level up', 'Data en temps reel', 'Algo optimise'],
+        'tone': 'Energetic, ambitious, data-driven',
+        'example': "Cette perf' merite un post ! Stats qui parlent d'elles-memes",
+    },
+    '26-35': {
+        'expressions': ['Optimiser le temps', 'ROI de l\'entrainement', 'Efficacite maximale', 'Dashboard perso', 'Metrics optimisees'],
+        'tone': 'Efficient, strategic, results-focused',
+        'example': 'Session efficace entre deux meetings - le temps bien investi !',
+    },
+    '36-45': {
+        'expressions': ['Prendre soin de soi', 'Montrer l\'exemple', 'Equilibre vie pro/perso', 'Investissement sante'],
+        'tone': 'Balanced, wise, sustainable',
+        'example': 'Ces sorties regulieres, c\'est l\'investissement sante qui compte',
+    },
+    '46-55': {
+        'expressions': ['L\'experience parle', 'La regularite paye', 'Sagesse du corps'],
+        'tone': 'Experienced, measured, encouraging',
+        'example': 'Apres toutes ces annees, on sait ecouter son corps - sortie parfaite !',
+    },
+    '56-65': {
+        'expressions': ['Le plaisir avant tout', 'Profiter de chaque instant', 'La forme c\'est la sante'],
+        'tone': 'Positive, health-focused, community-oriented',
+        'example': 'Ces sorties, c\'est le bonheur simple - garder la forme et profiter !',
+    },
+    '65+': {
+        'expressions': ['Le plaisir avant tout', 'Profiter de chaque instant', 'La forme c\'est la sante'],
+        'tone': 'Positive, health-focused, community-oriented',
+        'example': 'Ces sorties, c\'est le bonheur simple - garder la forme et profiter !',
+    },
+}
+
+INTEREST_EXPRESSIONS = {
+    'technology': ['Les donnees parlent d\'elles-memes', 'Cette machine est bien calibree', 'Optimiser les parametres'],
+    'music': ['Trouver son rythme', 'En harmonie avec le corps', 'Tempo parfait', 'Cette cadence groove'],
+    'travel': ['Explorer de nouveaux horizons', 'Chaque km est une decouverte', 'Voyage interieur'],
+    'food': ['Bien nourrir l\'effort', 'Digerer les kilometres', 'Carburant optimal'],
+    'nature': ['Profiter du paysage', 'S\'adapter aux elements', 'Respirer l\'air frais'],
+    'photography': ['Capturer l\'instant', 'Belle image de progression', 'Moment a immortaliser'],
+    'family': ['Equilibrer les priorites', 'Montrer l\'exemple', 'Prendre soin de soi pour les autres'],
+    'competition': ['Se depasser', 'Viser plus haut', 'Battre ses records', 'Challenger ses limites'],
+}
+
+SPORT_APPROACH_EXAMPLES = {
+    'performance & competition': {
+        'focus': 'Metriques precises, comparaisons, objectifs, elements competitifs',
+        'example': 'Mission accomplie ! Record personnel atomise sur 5K (21:45) avec un negatif split de champion (4:28->4:15/km). Cette machine de guerre est prete pour la competition !',
+    },
+    'health & wellness': {
+        'focus': 'Bien-etre, stress relief, niveaux d\'energie, sante globale',
+        'example': 'Sortie bien-etre parfaite ! 90 minutes d\'endurance fondamentale (92% zone 1-2) avec un ressenti de reve. Le corps ronronne, l\'esprit se libere.',
+    },
+    'social & fun': {
+        'focus': 'Plaisir, aspects sociaux, communaute, experiences partagees',
+        'example': 'Sortie de groupe qui fait du bien ! 10K en mode convivial avec une belle regularite. Ces moments partages valent tous les chronos du monde.',
+    },
+    'personal challenge': {
+        'focus': 'Amelioration personnelle, depasser les obstacles, croissance',
+        'example': 'Defi releve ! Sortie plus longue que d\'habitude, repoussant les limites. Chaque km de plus est une victoire personnelle.',
+    },
+    'stress relief': {
+        'focus': 'Benefices mentaux, relaxation, echappatoire du quotidien',
+        'example': 'Sortie decompression parfaite. Le rythme regulier, l\'air frais, l\'esprit qui se vide - la meilleure therapie.',
+    },
+    'weight management': {
+        'focus': 'Regularite, habitudes saines, progres durables',
+        'example': 'Encore une sortie de faite ! La regularite paye, chaque km compte dans cette progression durable.',
+    },
+}
+
+
+def build_profile_context(user_profile: Optional[Dict[str, Any]]) -> str:
+    """Build profile-specific context with examples for the system prompt.
+
+    Only includes the sections matching the current user's profile,
+    instead of the full catalog of all age/interest/approach combinations.
+    """
+    if not user_profile:
+        return ""
+
+    sections = []
+
+    # Age-specific expressions and example
+    age = user_profile.get('age_range', '')
+    age_data = AGE_CONTEXT.get(age)
+    if age_data:
+        sections.append(
+            f"### Age Context ({age})\n"
+            f"Tone: {age_data['tone']}\n"
+            f"Suggested expressions: {', '.join(age_data['expressions'][:4])}\n"
+            f"Example: \"{age_data['example']}\"\n"
+            f"Use max 1 age-appropriate reference per activity. Keep it subtle."
+        )
+
+    # Interest expressions
+    interests = user_profile.get('interests', [])
+    if interests:
+        lines = []
+        for interest in interests[:5]:
+            exprs = INTEREST_EXPRESSIONS.get(interest.lower(), [])
+            if exprs:
+                lines.append(f"- {interest}: {', '.join(exprs[:3])}")
+        if lines:
+            sections.append(
+                "### Interest References\n"
+                "Use 1-2 subtle references naturally. Don't force them.\n"
+                + "\n".join(lines)
+            )
+
+    # Sport approach example
+    approach = user_profile.get('sport_approach', '')
+    approach_data = SPORT_APPROACH_EXAMPLES.get(approach)
+    if approach_data:
+        sections.append(
+            f"### Sport Approach: {approach}\n"
+            f"Focus: {approach_data['focus']}\n"
+            f"Example: \"{approach_data['example']}\""
+        )
+
+    if not sections:
+        return ""
+
+    return "\n\n## Profile Context (for this user)\n\n" + "\n\n".join(sections)
+
+
+def build_preference_instructions(user_profile: Optional[Dict[str, Any]]) -> str:
+    """Build targeted style instructions from user preferences instead of raw JSON."""
+    if not user_profile:
+        return "No user profile provided"
+
+    prefs = user_profile.get('content_preferences', {})
+    instructions = []
+
+    # Tone
+    tone = prefs.get('tone', 'motivational & energetic')
+    tone_map = {
+        'technical & analytical': 'Data-driven language, precise metrics, scientific terms. Include phase-by-phase analysis when streams available.',
+        'motivational & energetic': 'Exclamation marks, action verbs, uplifting and celebratory language.',
+        'casual & friendly': 'Conversational tone, contractions, friendly and accessible language.',
+        'humorous & fun': 'Light humor, playful metaphors, creative wordplay. Keep it fun.',
+        'authentic & personal': 'Genuine insights, personal perspective, introspective tone.',
+    }
+    instructions.append(f"- TONE: {tone_map.get(tone, tone)}")
+
+    # Emoji limits
+    emoji = prefs.get('emoji_usage', 'moderate')
+    emoji_limits = {'none': 0, 'minimal': 2, 'moderate': 5, 'enthusiastic': 10}
+    max_emoji = emoji_limits.get(emoji, 5)
+    if max_emoji == 0:
+        instructions.append("- EMOJIS: ZERO emojis. No emoji characters at all.")
+    else:
+        instructions.append(f"- EMOJIS: Maximum {max_emoji} emojis in description.")
+
+    # Content length
+    length = prefs.get('length', 'medium')
+    length_limits = {'short': 300, 'medium': 800, 'detailed': 1500}
+    if length in length_limits:
+        instructions.append(f"- LENGTH: MAX {length_limits[length]} characters ({length}). Includes signature.")
+
+    # Language
+    lang = prefs.get('language', 'french')
+    instructions.append(f"- LANGUAGE: Generate ALL content (title + description) in {lang}.")
+    if lang != 'french':
+        instructions.append(f"  OVERRIDE: Do NOT use French. Write everything in {lang.upper()}.")
+
+    # Sport approach
+    approach = user_profile.get('sport_approach', 'health & wellness')
+    approach_map = {
+        'health & wellness': 'Emphasize feeling good, stress relief, energy levels, overall wellbeing.',
+        'performance & competition': 'Emphasize metrics, improvements, goals, competitive elements.',
+        'social & fun': 'Highlight enjoyment, social aspects, community, shared experiences.',
+        'personal challenge': 'Focus on self-improvement, overcoming obstacles, personal growth.',
+        'stress relief': 'Emphasize mental benefits, relaxation, escape from daily pressures.',
+        'weight management': 'Focus on consistency, healthy habits, sustainable progress.',
+    }
+    instructions.append(f"- FOCUS: {approach_map.get(approach, approach)}")
+
+    # Technical detail
+    technical = prefs.get('technical_detail', 'intermediate')
+    technical_map = {
+        'basic': 'Key metrics only (distance, duration, pace). No deep analysis.',
+        'intermediate': 'Include key metrics with brief insights. No full stream analysis unless intervals.',
+        'advanced': 'Full phase-by-phase stream analysis. Include HR zones, pace variations, physiological insights.',
+    }
+    instructions.append(f"- TECHNICAL: {technical_map.get(technical, technical)}")
+
+    # Age context and interests are injected via build_profile_context() in the system prompt
+    # with richer expressions and examples — no need to duplicate here.
+
+    return "STYLE INSTRUCTIONS (from user preferences):\n" + "\n".join(instructions)
+
+
 def format_workout_phases_for_prompt(workout_phases):
     """Format workout_phases into a readable string for the LLM prompt"""
     if not workout_phases:
@@ -354,7 +547,8 @@ def invoke(payload, context=None):
 
                 if records:
                     feedback_instructions = "\n\n## FEEDBACK UTILISATEUR (Préférences Apprises)\n\n"
-                    feedback_instructions += "**Ces préférences ont été extraites automatiquement depuis tes modifications. RESPECTE-LES.**\n\n"
+                    feedback_instructions += "**Ces préférences ont été extraites automatiquement depuis tes modifications. RESPECTE-LES.**\n"
+                    feedback_instructions += "**En cas de conflit avec les STYLE INSTRUCTIONS du user prompt, les STYLE INSTRUCTIONS ont priorité (choix explicite de l'utilisateur).**\n\n"
 
                     for record in records:
                         content = record.get('content', {})
@@ -371,7 +565,13 @@ def invoke(payload, context=None):
         # Append feedback instructions if available
         if feedback_instructions:
             system_prompt += feedback_instructions
-        
+
+        # Inject profile-specific context (age, interests, sport approach examples)
+        user_profile = payload.get('user_profile')
+        profile_context = build_profile_context(user_profile)
+        if profile_context:
+            system_prompt += profile_context
+
         # Create Strands agent WITHOUT guardrails on the model
         # Guardrails are applied manually on user inputs only (title/description)
         from strands.models import BedrockModel
@@ -426,10 +626,9 @@ def invoke(payload, context=None):
         # Add callback handler to agent for reasoning logs
         agent.callback_handler = reasoning_callback_handler
         
-        # Extract remaining parameters from payload
+        # Extract remaining parameters from payload (user_profile already extracted above)
         streams_compressed = payload.get('streams_compressed')  # Compressed 30s blocks (no interpretation)
         workout_phases = payload.get('workout_phases', [])
-        user_profile = payload.get('user_profile')
         active_modules = payload.get('active_modules', [])
         campus_coach_session = payload.get('campus_coach_session')
         enduraw_data = payload.get('enduraw_data')
@@ -607,7 +806,7 @@ def invoke(payload, context=None):
         laps = activity_data.get('laps', [])
         
         # Build data payload for agent (system_prompt already has all instructions)
-        user_profile_str = json.dumps(user_profile, indent=2) if user_profile else 'No user profile provided'
+        user_profile_str = build_preference_instructions(user_profile)
         active_modules_str = ', '.join([m.get('name', 'unknown') for m in active_modules]) if active_modules else 'No active modules'
         campus_session_str = json.dumps(campus_coach_session, indent=2) if campus_coach_session else 'No Campus Coach session matched'
         enduraw_str = json.dumps(enduraw_data, indent=2) if enduraw_data else 'No Enduraw data available'
@@ -617,7 +816,6 @@ def invoke(payload, context=None):
         location_city = activity_data.get('location_city', '')
         location_country = activity_data.get('location_country', '')
         avg_temp = activity_data.get('average_temp')
-        start_latlng = activity_data.get('start_latlng', [])
         fetched_weather = activity_data.get('fetched_weather', {})  # From Open-Meteo via activity_fetcher
         
         location_context = ""
@@ -634,7 +832,6 @@ def invoke(payload, context=None):
         # Extract achievements and performance highlights
         achievement_count = activity_data.get('achievement_count', 0)
         pr_count = activity_data.get('pr_count', 0)
-        kudos_count = activity_data.get('kudos_count', 0)
         segment_efforts = activity_data.get('segment_efforts', [])
         best_efforts = activity_data.get('best_efforts', [])
         
@@ -696,7 +893,7 @@ def invoke(payload, context=None):
         
         # Build data-only prompt (instructions are in system_prompt from CONTENT_GENERATION_PROMPT)
         # BUT add explicit size reminder since model ignores system prompt limits
-        content_length_pref = user_profile.get('content_preferences', {}).get('length', 'medium')
+        content_length_pref = user_profile.get('content_preferences', {}).get('length', 'medium') if user_profile else 'medium'
         size_limits = {
             'short': 300,
             'medium': 800,
@@ -714,7 +911,16 @@ def invoke(payload, context=None):
         else:
             max_chars = size_limits.get(content_length_pref, 800)
         
-        prompt = f"""⚠️ CRITICAL SIZE LIMIT: User preference is "{content_length_pref}" = MAX {max_chars} characters for description (including signature)!
+        # P1: Enforce content_language user preference
+        content_lang = user_profile.get('content_preferences', {}).get('language', 'french') if user_profile else 'french'
+        language_override = ""
+        if content_lang != 'french':
+            language_override = f"""⚠️ LANGUAGE OVERRIDE: User preference content_language is "{content_lang}".
+Generate ALL content (title + description) in {content_lang.upper()}. Do NOT use French.
+
+"""
+
+        prompt = f"""{language_override}⚠️ CRITICAL SIZE LIMIT: User preference is "{content_length_pref}" = MAX {max_chars} characters for description (including signature)!
 If you exceed {max_chars} chars, CUT content to fit. Keep most important elements, preserve signature.
 
 ACTIVITY DATA:
@@ -758,7 +964,6 @@ ORIGINAL USER INPUT:
 LOCATION & WEATHER:
 {location_context}
 
-USER PROFILE:
 {user_profile_str}
 
 ACTIVE MODULES:
