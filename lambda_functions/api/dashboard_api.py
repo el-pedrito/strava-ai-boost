@@ -626,6 +626,20 @@ def get_activity_history(query_params: Dict[str, str]) -> Dict[str, Any]:
         # Format activities for display
         formatted_activities = []
         for activity in paginated_activities:
+            gen_metadata = activity.get('generation_metadata') or {}
+            confidence = gen_metadata.get('confidence', 0)
+            if hasattr(confidence, '__float__'):
+                confidence = float(confidence)
+
+            similarity = activity.get('similarity_score', '')
+            if similarity and hasattr(similarity, '__float__'):
+                similarity = float(similarity)
+            elif similarity:
+                try:
+                    similarity = float(similarity)
+                except (ValueError, TypeError):
+                    similarity = 0
+
             formatted_activity = {
                 'activity_id': activity.get('activity_id'),
                 'original_name': activity.get('original_name', ''),
@@ -640,7 +654,12 @@ def get_activity_history(query_params: Dict[str, str]) -> Dict[str, Any]:
                 'updated_at': activity.get('updated_at', ''),
                 'error_message': activity.get('error_message', ''),
                 'kudos_count': activity.get('kudos_count', 0),
-                'comment_count': activity.get('comment_count', 0)
+                'comment_count': activity.get('comment_count', 0),
+                'confidence': confidence,
+                'description_modified': activity.get('description_modified', None),
+                'similarity_score': similarity,
+                'feedback_analyzed': activity.get('feedback_analyzed', False),
+                'generated_at': gen_metadata.get('generated_at', ''),
             }
             formatted_activities.append(formatted_activity)
         

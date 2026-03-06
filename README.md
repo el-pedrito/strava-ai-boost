@@ -71,6 +71,7 @@ npm install && npm run dev
 2. Configure your preferences (age, interests, style)
 3. Enable modules (Campus Coach, Enduraw)
 4. Upload or edit a Strava activity and watch it get enhanced!
+5. Check the **Content Quality** page to track confidence, edit rates, and similarity scores
 
 **Deployment Modes**: Phase 1 only gives a fully functional system with Bedrock fallback. Phase 1 + 2 adds advanced personalization with AgentCore Memory.
 

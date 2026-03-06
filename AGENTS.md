@@ -112,8 +112,8 @@ strava-ai-boost/
 │   ├── src/
 │   │   ├── api/                        # API client + tests
 │   │   ├── components/                 # Cloudscape components + tests
-│   │   ├── pages/                      # Page components
-│   │   ├── layouts/                    # Layout components
+│   │   ├── pages/                      # Page components (Dashboard, Config, Preferences, Quality)
+│   │   ├── layouts/                    # Layout components (Shell, TopNav, Breadcrumbs)
 │   │   ├── utils/                      # Pure utility functions + tests
 │   │   ├── test/                       # Test setup (Vitest + Testing Library)
 │   │   └── config.ts                   # Runtime configuration

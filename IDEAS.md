@@ -61,11 +61,17 @@
 - Would enrich content with fitness/fatigue context
 - Free API with athlete-level access
 
-### Content Quality Dashboard
-- Track edit rate: how often users modify AI-generated content
-- Track AgentCore confidence scores over time
-- Memory effectiveness: does content variety improve over time?
-- Feedback loop metrics: preference extraction success rate
+### ~~Content Quality Dashboard~~ DONE
+
+**What was implemented:**
+- New frontend page at `/quality` with full Cloudscape UI
+- 4 metric cards: Avg Confidence (90%), Edit Rate (10%), Avg Similarity (99%), Feedback Analyzed count
+- Detailed table: Activity name (with sport icon), Date, Confidence (ProgressBar), User Edit status (Kept as-is/Edited/Pending), Similarity score, Processing time
+- Backend: `dashboard_api.py` enriched with `confidence`, `description_modified`, `similarity_score`, `feedback_analyzed`, `generated_at` from `generation_metadata` + feedback fields
+- Client-side stats computation from `/dashboard/activities?limit=100` endpoint
+- Navigation: "Quality" button in top nav bar, breadcrumb support
+- Auto-refresh every 60s, sorting enabled on columns
+- Still TODO: Track trends over time (confidence/edit rate charts), memory effectiveness metrics
 
 ### Cost Optimization
 - Lambda ARM64 (Graviton) for ~20% cost reduction

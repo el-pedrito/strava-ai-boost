@@ -12,6 +12,19 @@ export interface Activity {
   status: 'completed' | 'processing' | 'error' | 'unknown';
   modules_used: string[];
   activity_type?: string;
+  confidence?: number;
+  description_modified?: boolean | null;
+  similarity_score?: number;
+  feedback_analyzed?: boolean;
+  generated_at?: string;
+}
+
+export interface QualityStats {
+  avg_confidence: number;
+  edit_rate: number;
+  avg_similarity: number;
+  total_analyzed: number;
+  total_feedback: number;
 }
 
 export interface OAuthStatus {

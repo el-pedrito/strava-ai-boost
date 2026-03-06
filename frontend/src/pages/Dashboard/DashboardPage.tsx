@@ -22,6 +22,11 @@ interface RawActivity {
   processing_status?: string;
   modules_used?: string[];
   activity_type?: string;
+  confidence?: number;
+  description_modified?: boolean | null;
+  similarity_score?: number;
+  feedback_analyzed?: boolean;
+  generated_at?: string;
 }
 
 function transformActivities(raw: RawActivity[]): Activity[] {
@@ -32,6 +37,11 @@ function transformActivities(raw: RawActivity[]): Activity[] {
     status: (act.processing_status as Activity['status']) || 'unknown',
     modules_used: act.modules_used || [],
     activity_type: act.activity_type,
+    confidence: act.confidence,
+    description_modified: act.description_modified,
+    similarity_score: act.similarity_score,
+    feedback_analyzed: act.feedback_analyzed,
+    generated_at: act.generated_at,
   }));
 }
 
