@@ -35,7 +35,7 @@ export AWS_PROFILE=your-aws-profile
 ./scripts/configure_strava_webhook.sh dev --auto-configure
 ```
 
-**What this deploys**: 7 CDK stacks, DynamoDB tables, 13 Lambda functions, Step Functions, Secrets Manager, Bedrock fallback mode (Claude Sonnet 4.5), structured logging with AWS Lambda Powertools. System is immediately functional.
+**What this deploys**: 7 CDK stacks, DynamoDB tables, 12 Lambda functions (grouped in 4 packages), Step Functions, Secrets Manager, Bedrock fallback mode (Claude Sonnet 4.5), structured logging with AWS Lambda Powertools. System is immediately functional.
 
 ### Phase 2: AgentCore Enhancement (Optional)
 
@@ -173,7 +173,7 @@ graph TB
 
         subgraph "Content Stack"
             SF[Step Functions<br/>Workflow]
-            Lambda13[13 Lambda Functions<br/>Processing Pipeline]
+            Lambda12[12 Lambda Functions<br/>4 Role-Based Packages]
         end
 
         subgraph "API Stack"
@@ -200,22 +200,22 @@ graph TB
     end
 
     Browser --> APIGW
-    APIGW --> Lambda13
-    Lambda13 --> DDB
-    Lambda13 --> Secrets
+    APIGW --> Lambda12
+    Lambda12 --> DDB
+    Lambda12 --> Secrets
 
     Strava --> WebhookAPI
     WebhookAPI --> SQS
     SQS --> SF
-    SF --> Lambda13
+    SF --> Lambda12
 
-    Lambda13 --> Guardrails
+    Lambda12 --> Guardrails
     Guardrails --> Bedrock
-    Lambda13 --> AgentCore
-    Lambda13 --> Strava
-    Lambda13 --> Campus
+    Lambda12 --> AgentCore
+    Lambda12 --> Strava
+    Lambda12 --> Campus
 
-    Lambda13 --> CW
+    Lambda12 --> CW
 ```
 
 ### Infrastructure Components
@@ -223,11 +223,11 @@ graph TB
 | Component | Details |
 |-----------|---------|
 | **7 CDK Stacks** | Core, Security, Webhook, Content, API, Monitoring, Feedback |
-| **13 Lambda Functions** | 5 processing pipeline + 4 API endpoints + 3 utilities + 1 feedback |
+| **12 Lambda Functions** | 4 API + 3 processing + 3 webhooks + 2 support (in role-based packages) |
 | **3 DynamoDB Tables** | `activities` (GSI, TTL), `user_config`, `coaching_sessions` (GSI) |
 | **2 AgentCore Agents** | `content_gen` (LTM memory), `campus_coach` (Browser Tool) |
 | **External APIs** | Strava API, Campus Coach (optional) |
-| **Shared Utilities** | `lambda_functions/shared/` - Structured logging, metrics, correlation IDs |
+| **Shared Utilities** | `lambda_functions/shared/` - Logger, responses, env validation, OAuth |
 
 ### Data Flow: Activity Enhancement
 
@@ -258,7 +258,7 @@ sequenceDiagram
 
 **Infrastructure**: AWS CDK (Python), Python 3.12, eu-west-1
 
-**AWS Services**: Lambda (13 functions, Powertools), DynamoDB (3 tables, GSI, TTL), Step Functions, SQS + DLQ, Bedrock (Claude Sonnet 4.5), Secrets Manager, API Gateway
+**AWS Services**: Lambda (12 functions, Powertools), DynamoDB (3 tables, GSI, TTL), Step Functions, SQS + DLQ, Bedrock (Claude Sonnet 4.5), Secrets Manager, API Gateway
 
 **AI/ML**: Strands Agents, AgentCore Memory (2 LTM memories), AgentCore Browser Tool, Claude Sonnet 4.5
 
@@ -363,18 +363,21 @@ The Lambda Layer cannot be replaced via CDK due to CloudFormation cross-stack ex
 ## Testing
 
 ```bash
-# Full test suite (73 tests)
+# Lambda unit tests (123 tests, ~0.7s — no AWS credentials needed)
+pytest tests/unit/ -v
+
+# Infrastructure/integration tests (73 tests — requires AWS credentials)
 export AWS_PROFILE=your-aws-profile
-pytest tests/ -v
+pytest tests/ -v --ignore=tests/unit/
 
-# Specific categories
-pytest tests/test_api_gateway.py -v      # API Gateway endpoints
-pytest tests/test_cdk_infrastructure.py -v  # CDK infrastructure
-pytest tests/test_end_to_end.py -v       # Integration tests
-
-# Frontend tests
+# Frontend unit tests (40 tests, ~4s)
 cd frontend && npm test
+
+# All backend tests
+pytest tests/ -v
 ```
+
+**Test coverage:** 236 total tests (123 Lambda unit + 40 frontend unit + 73 infra/integration).
 
 ## Security
 

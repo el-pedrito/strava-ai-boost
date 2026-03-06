@@ -1,7 +1,7 @@
 # AGENTS.md - AI Assistant Context for Strava AI Boost
 
-**Version:** 2.4.0
-**Last Updated:** 2026-03-05
+**Version:** 2.5.0
+**Last Updated:** 2026-03-06
 **Purpose:** Comprehensive context for AI coding assistants
 
 ---
@@ -25,12 +25,12 @@
 Strava AI Boost is a **serverless AWS application** that automatically enhances Strava activity titles and descriptions using AI. The system uses a **React + Cloudscape frontend** that calls API Gateway directly.
 
 ### Key Statistics
-- **1,701 files** total
-- **~23,051 LOC** in core components
-- **13 Lambda functions**
+- **~16,600 LOC** in core components
+- **12 Lambda functions** (4 API, 3 processing, 3 webhooks, 2 support)
 - **2 AgentCore agents**
 - **7 CDK stacks**
-- **Python 3.12** runtime
+- **236 tests** (123 Lambda unit + 40 frontend unit + 73 infra/integration)
+- **Python 3.12** runtime, **React 19 + TypeScript + Vite** frontend
 
 ### Architecture Pattern
 **Event-Driven Serverless:**
@@ -88,7 +88,10 @@ strava-ai-boost/
 │   │   └── stepfunctions_error_handler.py  # Error handler
 │   └── shared/                         # Shared utilities module
 │       ├── __init__.py
-│       └── logger.py                   # Powertools Logger, Metrics, correlation IDs
+│       ├── logger.py                   # Powertools Logger, Metrics, correlation IDs
+│       ├── env_validation.py           # Environment variable validation
+│       ├── responses.py                # Standardized API responses
+│       └── strava_oauth.py             # OAuth token management
 │
 ├── src/
 │   ├── agents/                 # AgentCore agents (2 agents)
@@ -106,16 +109,28 @@ strava-ai-boost/
 │       └── llm_config.py               # LLM configuration
 │
 ├── frontend/                   # React web application
-│   ├── src/                            # React + TypeScript source
-│   ├── public/                         # Static assets
+│   ├── src/
+│   │   ├── api/                        # API client + tests
+│   │   ├── components/                 # Cloudscape components + tests
+│   │   ├── pages/                      # Page components
+│   │   ├── layouts/                    # Layout components
+│   │   ├── utils/                      # Pure utility functions + tests
+│   │   ├── test/                       # Test setup (Vitest + Testing Library)
+│   │   └── config.ts                   # Runtime configuration
 │   ├── package.json                    # Dependencies
-│   └── vite.config.ts                  # Vite configuration
+│   └── vite.config.ts                  # Vite + Vitest configuration
 │
 ├── tests/                      # Test suite
+│   ├── unit/                           # Lambda unit tests (123 tests)
+│   │   ├── conftest.py                 # Env vars for Lambda imports
+│   │   ├── test_webhook_handler.py     # 30 tests: validation, routing, signature
+│   │   ├── test_content_generator.py   # 36 tests: DynamoDB, parsing, storage
+│   │   ├── test_streams_analysis.py    # 30 tests: pace zones, classification, phases
+│   │   └── test_dashboard_api.py       # 27 tests: validation, routing, caching
 │   ├── test_cdk_infrastructure.py      # Stack tests
 │   ├── test_api_gateway.py             # API tests
 │   ├── test_lambda_functions.py        # Lambda tests
-│   ├── test_end_to_end.py              # E2E tests
+│   ├── test_end_to_end.py              # Integration tests
 │   ├── aws_config.py                   # Test config helper
 │   └── conftest.py                     # Pytest fixtures
 │
@@ -324,20 +339,25 @@ class MyModule(BaseModule):
 
 ### Running Tests
 
-**All Tests:**
+**Lambda Unit Tests (123 tests, ~0.7s):**
 ```bash
-cd .
+pytest tests/unit/ -v
+```
+
+**Infrastructure/Integration Tests (73 tests):**
+```bash
+export AWS_PROFILE=your-aws-profile
+pytest tests/ -v --ignore=tests/unit/
+```
+
+**Frontend Tests (40 tests, ~4s):**
+```bash
+cd frontend && npm test
+```
+
+**All Backend Tests:**
+```bash
 pytest tests/ -v
-```
-
-**Specific Test File:**
-```bash
-pytest tests/test_api_gateway.py -v
-```
-
-**Specific Test:**
-```bash
-pytest tests/test_api_gateway.py::TestHealthEndpoints::test_agentcore_health -v
 ```
 
 **With Coverage:**
@@ -389,28 +409,26 @@ class TestMyFunction:
 
 ### Test Fixtures
 
-**Location:** `tests/conftest.py`
+**Unit tests:** `tests/unit/conftest.py` — Sets env vars at module level (before Lambda imports that use `os.environ['KEY']` at import time).
 
-**Common Fixtures:**
+**Integration tests:** `tests/conftest.py` — AWS credentials and sample data fixtures.
+
+**Frontend tests:** `frontend/src/test/setup.ts` — Vitest + @testing-library/jest-dom matchers.
+
+### Unit Test Pattern (Lambda)
+
 ```python
-@pytest.fixture
-def aws_credentials():
-    """Mock AWS credentials."""
-    os.environ['AWS_ACCESS_KEY_ID'] = 'testing'
-    os.environ['AWS_SECRET_ACCESS_KEY'] = 'testing'
-    os.environ['AWS_SECURITY_TOKEN'] = 'testing'
-    os.environ['AWS_SESSION_TOKEN'] = 'testing'
+"""Mock DynamoDB/SQS at the module level with unittest.mock.patch"""
+from unittest.mock import patch, MagicMock
 
-@pytest.fixture
-def sample_activity_data():
-    """Sample activity data for testing."""
-    return {
-        'activity_id': '123456',
-        'name': 'Morning Run',
-        'type': 'Run',
-        'distance': 10000,
-        'moving_time': 3600
-    }
+class TestMyHandler:
+    @patch('api.my_module.dynamodb')
+    def test_success(self, mock_dynamo):
+        mock_table = MagicMock()
+        mock_table.get_item.return_value = {'Item': {...}}
+        mock_dynamo.Table.return_value = mock_table
+        result = handler(event, None)
+        assert result['statusCode'] == 200
 ```
 
 ---
@@ -713,13 +731,13 @@ aws logs tail /aws/lambda/StravaAIBoost-ContentGenerator --follow --profile your
 
 **Test Locally:**
 ```python
-# Create test event
-event = {'key': 'value'}
-context = {}
+# Set env vars first (see tests/unit/conftest.py)
+import os
+os.environ['ACTIVITIES_TABLE'] = 'test-activities'
+# ...
 
-# Import and test
-from lambda_functions.my_function import handler
-result = handler(event, context)
+from processing.content_generator import handler
+result = handler({'activity_id': '123', 'user_id': 'user1'}, None)
 print(result)
 ```
 
