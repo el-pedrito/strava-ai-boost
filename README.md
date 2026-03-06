@@ -392,6 +392,24 @@ pytest tests/ -v
 
 **Test coverage:** 236 total tests (123 Lambda unit + 40 frontend unit + 73 infra/integration).
 
+## Cost Tracking
+
+All resources are tagged for AWS Cost Explorer cost allocation:
+
+| Tag | Value | Purpose |
+|-----|-------|---------|
+| `Project` | `StravaAIBoost` | Project identification |
+| `Environment` | `dev` (default, via CDK context) | Environment separation |
+| `Owner` | `admin` (default, via CDK context) | Resource ownership |
+| `CostCenter` | `strava-ai-boost` | Cost allocation |
+| `ManagedBy` | `CDK` or `AgentCore-CLI` | Deployment method |
+
+**Coverage:**
+- **CDK resources** (Lambda, DynamoDB, SQS, Step Functions, API Gateway, Secrets Manager, CloudWatch, Guardrails, IAM): Tagged automatically via `cdk.Tags.of(app)` in `app.py`
+- **AgentCore resources** (2 runtimes, 2 memories): Tagged via boto3 `tag_resource` in deployment scripts (`scripts/deploy_agentcore_agents.sh`, `scripts/create_agentcore_memories.sh`)
+
+**To activate in Cost Explorer:** Billing console → Cost Allocation Tags → select `Project`, `Environment`, `Owner`, `CostCenter`, `ManagedBy` → Activate (takes ~24h to propagate).
+
 ## Security
 
 - **Bedrock Guardrails**: AI safety and prompt injection protection
