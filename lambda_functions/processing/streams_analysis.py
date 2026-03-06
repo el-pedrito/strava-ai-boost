@@ -7,14 +7,14 @@ and Enduraw report extraction.
 
 import json
 import os
-import logging
 import re
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
 
 import boto3
+from shared.logger import get_logger
 
-logger = logging.getLogger()
+logger = get_logger("streams-analysis")
 
 REGION = os.environ.get('AWS_REGION', 'eu-west-1')
 dynamodb = boto3.resource('dynamodb', region_name=REGION)

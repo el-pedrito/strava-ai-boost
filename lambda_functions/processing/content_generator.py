@@ -9,7 +9,6 @@ import json
 import os
 import re
 import uuid
-import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -22,9 +21,9 @@ from processing.streams_analysis import (
     extract_enduraw_report,
 )
 from processing.modules_processing import get_active_modules, apply_module_processing
+from shared.logger import get_logger
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger = get_logger("content-generator")
 
 # AWS clients
 REGION = os.environ.get('AWS_REGION', 'eu-west-1')

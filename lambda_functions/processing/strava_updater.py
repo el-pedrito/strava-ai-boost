@@ -7,15 +7,14 @@ Handles error recovery for Strava API updates.
 
 import json
 import os
-import logging
 from typing import Dict, Any
 import boto3
 from botocore.exceptions import ClientError
 import requests
 from datetime import datetime
+from shared.logger import get_logger
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger = get_logger("strava-updater")
 
 # Initialize AWS clients
 dynamodb = boto3.resource('dynamodb')

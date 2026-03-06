@@ -7,16 +7,14 @@ Validates webhook signatures.
 
 import json
 import os
-import logging
 from typing import Dict, Any, Optional
 import boto3
 from botocore.exceptions import ClientError
 import hmac
 import hashlib
+from shared.logger import get_logger
 
-# Configure logging
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger = get_logger("webhook-handler")
 
 # Environment variables
 PROCESSING_QUEUE_URL = os.environ['PROCESSING_QUEUE_URL']

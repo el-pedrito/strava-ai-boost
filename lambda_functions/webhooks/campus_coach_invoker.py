@@ -7,15 +7,14 @@ Handles retry logic for cold start issues and session data storage.
 
 import json
 import os
-import logging
 from typing import Dict, Any, Optional, List
 import boto3
 from botocore.exceptions import ClientError
 from datetime import datetime
 import time
+from shared.logger import get_logger
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger = get_logger("campus-coach-invoker")
 
 # Initialize AWS clients with region
 REGION = os.environ.get('AWS_REGION', 'eu-west-1')
