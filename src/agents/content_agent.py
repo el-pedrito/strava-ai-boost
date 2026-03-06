@@ -452,6 +452,50 @@ def build_preference_instructions(user_profile: Optional[Dict[str, Any]]) -> str
     return "STYLE INSTRUCTIONS (from user preferences):\n" + "\n".join(instructions)
 
 
+def _build_intervals_icu_context(intervals_icu_data: dict | None) -> str:
+    """Build a compact fitness/fatigue context string from Intervals.icu data."""
+    if not intervals_icu_data:
+        return ""
+
+    lines = [
+        "FORME & RÉCUPÉRATION (Intervals.icu):",
+        "Légende: CTL = charge chronique (fitness long terme, 0-20 débutant, 40-60 intermédiaire, 80+ élite)",
+        "         ATL = charge aiguë (fatigue récente, élevée = grosse semaine)",
+        "         Form = CTL-ATL (>5 frais, 0 à -10 normal, <-20 très fatigué — explique les sensations lourdes)",
+        "         Ramp = vitesse de montée en charge (>5 attention surcharge, <3 progression douce)",
+        "         Decoupling = dérive cardiaque (<3% excellent aérobie, >5% fatigue ou manque d'endurance)",
+    ]
+    fitness = intervals_icu_data.get('fitness', {})
+    if fitness:
+        parts = []
+        if fitness.get('ctl') is not None:
+            parts.append(f"CTL={fitness['ctl']:.0f}")
+        if fitness.get('atl') is not None:
+            parts.append(f"ATL={fitness['atl']:.0f}")
+        if fitness.get('form') is not None:
+            form = fitness['form']
+            label = "frais" if form > 5 else "neutre" if form > -5 else "fatigué" if form > -20 else "très fatigué"
+            parts.append(f"Form={form:.0f} ({label})")
+        if fitness.get('ramp_rate') is not None:
+            parts.append(f"Ramp={fitness['ramp_rate']:.1f}")
+        if parts:
+            lines.append(f"📊 {' | '.join(parts)}")
+
+        if fitness.get('hrv') is not None:
+            lines.append(f"❤️ HRV: {fitness['hrv']}ms")
+
+    decoupling = intervals_icu_data.get('decoupling')
+    if decoupling is not None:
+        label = "excellent" if decoupling < 3 else "bon" if decoupling < 5 else "dérive notable"
+        lines.append(f"🔄 Decoupling: {decoupling}% ({label})")
+
+    if len(lines) <= 6:
+        return ""
+
+    lines.append("→ Intègre ces métriques dans le récit : mentionne le chiffre ET son interprétation (ex: 'Form à -24 = grosse fatigue accumulée', 'decoupling 2.5% = aérobie solide'). Pas de listing sec, tisse-les dans le narratif.")
+    return "\n".join(lines) + "\n"
+
+
 def format_workout_phases_for_prompt(workout_phases):
     """Format workout_phases into a readable string for the LLM prompt"""
     if not workout_phases:
@@ -642,6 +686,7 @@ def invoke(payload, context=None):
         active_modules = payload.get('active_modules', [])
         campus_coach_session = payload.get('campus_coach_session')
         enduraw_data = payload.get('enduraw_data')
+        intervals_icu_data = payload.get('intervals_icu_data')
         athlete_stats = payload.get('athlete_stats', {})
         athlete_profile = payload.get('athlete_profile', {})
         # Log Campus Coach data details
@@ -956,6 +1001,7 @@ CAMPUS COACH SESSION:
 ENDURAW DATA:
 {enduraw_str}
 
+{_build_intervals_icu_context(intervals_icu_data)}
 WORKOUT PHASES (pre-computed phase detection from streams):
 {format_workout_phases_for_prompt(workout_phases)}
 

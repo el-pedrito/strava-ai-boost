@@ -55,11 +55,15 @@
 
 ## Medium Priority
 
-### Intervals.icu Integration
-- Module skeleton already exists in code (`intervals_icu` in module config)
-- Intervals.icu provides advanced training metrics (CTL, ATL, TSB, HRV)
-- Would enrich content with fitness/fatigue context
-- Free API with athlete-level access
+### ~~Intervals.icu Integration~~ DONE (v2)
+
+**What was implemented:**
+- Full backend fetch in `activity_fetcher.py` — wellness API (CTL/ATL/Form/ramp rate/HRV) + activity API (decoupling)
+- Trimmed to only unique data vs Strava/Enduraw/Campus Coach — removed duplicates (HR zones, weight, intensity, GAP, efficiency factor)
+- Agent prompt injection via `_build_intervals_icu_context()` in `content_agent.py` — compact "FORME & RÉCUPÉRATION" block with interpreted labels (frais/fatigué/dérive notable)
+- Frontend config UI with toggle + API key input already existed
+- CDK infra (Secrets Manager, IAM, env vars) already in place
+- Still TODO: Enable module for user + configure API key in Secrets Manager to activate
 
 ### ~~Content Quality Dashboard~~ DONE
 
