@@ -73,13 +73,9 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         athlete_id = activity_data.get('athlete', {}).get('id') or user_id
         athlete_stats = fetch_athlete_stats(athlete_id, access_token)
         
-        # Fetch athlete profile for FTP, weight, and gear details
+        # Fetch athlete profile for FTP, weight
         athlete_profile = fetch_athlete_profile(access_token)
-        
-        # Fetch gear details if gear_id is present
-        gear_id = activity_data.get('gear_id')
-        gear_details = fetch_gear_details(gear_id, access_token) if gear_id else None
-        
+
         # Fetch user configuration for module decisions
         user_config = fetch_user_configuration(user_id)
 
@@ -93,7 +89,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             streams_data=streams_data,
             athlete_stats=athlete_stats,
             athlete_profile=athlete_profile,
-            gear_details=gear_details,
+            gear_details=None,
             user_config=user_config,
             intervals_icu_data=intervals_icu_data
         )

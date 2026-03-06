@@ -15,13 +15,17 @@
 - CDK handler paths updated
 - Still TODO: Move `typing_extensions.py` to requirements.txt, delete vendored file (-4317 lines)
 
-### Prompt Engineering - More Storytelling
-- Current prompts are functional but could generate more engaging narratives
-- Add storytelling elements: race metaphors, journey arcs, emotional beats
-- Adapt storytelling style to user preferences (tone, sport_approach, age_range) — e.g. competition-focused users get race narratives, wellness users get mindfulness arcs
-- Experiment with different Claude system prompts for varied writing styles
-- A/B test prompt variations and track user edit rates as quality signal
-- Leverage route landmarks and workout phases for narrative structure
+### ~~Prompt Engineering - More Storytelling~~ DONE
+
+**What was implemented:**
+- Added "Storytelling & Narrative Structure" section to `embedded_prompts.py` with 4-beat narrative arc (opening hook → rising action → climax → resolution)
+- Narrative style adapts to `sport_approach`: competition → race narrative, wellness → mindfulness journey, challenge → hero's journey, stress relief → escape narrative, etc.
+- `SPORT_APPROACH_EXAMPLES` in `content_agent.py` now includes `narrative` field injected into system prompt via `build_profile_context()`
+- Route landmarks used as story anchors (not listed, but narrated through)
+- Workout phases map to story progression (warm-up = setup, intervals = rising action, best split = climax, cool-down = resolution)
+- Variety rules: 5 opener styles + 5 closer styles to rotate, avoiding repetitive patterns
+- Full storytelling example included for LLM reference
+- Still TODO: A/B test prompt variations and track user edit rates as quality signal
 
 ### ~~User Preferences — Enforce Impact on Content Generation~~ DONE
 
