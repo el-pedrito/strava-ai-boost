@@ -7,13 +7,12 @@ Sends failed activity information to DLQ for manual review.
 
 import json
 import os
-import logging
 from typing import Dict, Any
 import boto3
 from datetime import datetime, UTC
+from shared.logger import get_logger
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger = get_logger("stepfunctions-error-handler")
 
 # Initialize AWS clients
 sqs = boto3.client('sqs')

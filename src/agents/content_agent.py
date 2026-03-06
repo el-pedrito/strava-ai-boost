@@ -1046,7 +1046,7 @@ Generate content now."""
         logger.error(f"Error: {str(e)}")
         logger.error(f"Activity ID: {payload.get('activity_data', {}).get('id', 'unknown')}")
         return {
-            "error": str(e),
+            "error": "Content generation failed. Check CloudWatch logs for details.",
             "user_id": payload.get('user_id', 'unknown'),
             "activity_id": payload.get('activity_data', {}).get('id', 'unknown'),
             "model_id": MODEL_ID,

@@ -7,7 +7,6 @@ Handles comprehensive data retrieval for analysis.
 
 import json
 import os
-import logging
 from typing import Dict, Any, Optional
 import boto3
 from botocore.exceptions import ClientError
@@ -15,9 +14,9 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from datetime import datetime, timedelta
+from shared.logger import get_logger
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger = get_logger("activity-fetcher")
 
 # Initialize AWS clients with region
 REGION = os.environ.get('AWS_REGION', 'eu-west-1')

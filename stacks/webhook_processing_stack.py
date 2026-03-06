@@ -318,7 +318,10 @@ class WebhookProcessingStack(Stack):
         # Create webhook resource
         webhook_resource = self.webhook_api.root.add_resource("webhook")
         
-        # Add GET method for webhook verification (Strava requirement)
+        # Webhook endpoints are intentionally PUBLIC (no API key / IAM auth).
+        # Strava requires unauthenticated GET (subscription verification) and POST
+        # (event notifications) endpoints. Security is handled at the application
+        # level via HMAC-SHA1 signature verification in webhook_handler.py.
         webhook_resource.add_method(
             "GET",
             apigateway.LambdaIntegration(self.webhook_handler),
@@ -327,8 +330,7 @@ class WebhookProcessingStack(Stack):
                 apigateway.MethodResponse(status_code="400")
             ]
         )
-        
-        # Add POST method for webhook notifications
+
         webhook_resource.add_method(
             "POST",
             apigateway.LambdaIntegration(self.webhook_handler),

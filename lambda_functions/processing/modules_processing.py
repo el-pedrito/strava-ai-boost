@@ -6,15 +6,15 @@ Handles module discovery, activation, and per-module processing
 """
 
 import os
-import logging
 import asyncio
 from typing import Dict, Any, Optional, List
 from decimal import Decimal
 from datetime import datetime, timedelta, timezone
 
 import boto3
+from shared.logger import get_logger
 
-logger = logging.getLogger()
+logger = get_logger("modules-processing")
 
 REGION = os.environ.get('AWS_REGION', 'eu-west-1')
 dynamodb = boto3.resource('dynamodb', region_name=REGION)
