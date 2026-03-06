@@ -69,7 +69,7 @@ npm install && npm run dev
 
 1. Click **"Connect with Strava"** and authorize the application
 2. Configure your preferences (age, interests, style)
-3. Enable modules (Campus Coach, Enduraw)
+3. Enable modules (Campus Coach, Enduraw, Intervals.icu)
 4. Upload or edit a Strava activity and watch it get enhanced!
 5. Check the **Content Quality** page to track confidence, edit rates, and similarity scores
 
@@ -109,6 +109,18 @@ Enhanced analytics with weather and wind impact analysis.
 - Then enable "Enduraw Integration" in modules
 - System waits 2 minutes for Enduraw data via SQS delay (graceful fallback if unavailable)
 
+#### Intervals.icu (Optional)
+
+Fitness/fatigue context from [Intervals.icu](https://intervals.icu) training analytics.
+
+1. Go to Configuration > Modules, enable "Intervals.icu"
+2. Enter your Intervals.icu API key (Settings > Developer in Intervals.icu)
+3. Provides unique data not available from Strava/Enduraw:
+   - **CTL/ATL/Form**: Chronic training load, acute fatigue, and form balance — explains why legs feel heavy or light
+   - **Ramp rate**: Training load progression speed — detects overtraining risk
+   - **HRV**: Heart rate variability when available
+   - **Decoupling**: Cardiac drift percentage — aerobic efficiency indicator for long runs
+
 ### Personal Profile
 
 Customize AI content generation in Configuration > Personal Profile:
@@ -144,7 +156,7 @@ VITE_DEFAULT_USER_ID=YOUR_USER_ID
 
 1. **React Frontend** - No cloud hosting complexity, runs on localhost
 2. **Zero AWS SDK in Frontend** - All AWS operations via API Gateway + Lambda
-3. **Modular Design** - Extensible module system (Campus Coach, Enduraw, future modules)
+3. **Modular Design** - Extensible module system (Campus Coach, Enduraw, Intervals.icu)
 4. **Dual-Mode AI** - AgentCore (primary) + Bedrock fallback (always available)
 5. **Serverless** - Pay-per-use, auto-scaling, no server management
 6. **Security First** - Guardrails, encryption, least privilege IAM
@@ -227,7 +239,7 @@ graph TB
 | **12 Lambda Functions** | 4 API + 3 processing + 3 webhooks + 2 support (in role-based packages) |
 | **3 DynamoDB Tables** | `activities` (GSI, TTL), `user_config`, `coaching_sessions` (GSI) |
 | **2 AgentCore Agents** | `content_gen` (LTM memory), `campus_coach` (Browser Tool) |
-| **External APIs** | Strava API, Campus Coach (optional) |
+| **External APIs** | Strava API, Campus Coach, Intervals.icu, Enduraw (all optional) |
 | **Shared Utilities** | `lambda_functions/shared/` - Logger, responses, env validation, OAuth |
 
 ### Data Flow: Activity Enhancement

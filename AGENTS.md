@@ -104,6 +104,7 @@ strava-ai-boost/
 │   │   ├── campus_coach_module.py      # Campus Coach integration
 │   │   ├── enduraw_module.py           # Enduraw integration
 │   │   └── registry.py                 # Module registration
+│   │   # Note: Intervals.icu is integrated directly in activity_fetcher.py + content_agent.py (no separate module file)
 │   │
 │   └── config/                 # Configuration
 │       └── llm_config.py               # LLM configuration
@@ -520,7 +521,7 @@ class TestMyModule:
 
 **Location:** `src/agents/`
 
-**Content Agent** (`content_agent.py`): Generate enhanced activity content with LTM memory, Claude Sonnet 4.5, Guardrails enabled.
+**Content Agent** (`content_agent.py`): Generate enhanced activity content with LTM memory, Claude Sonnet 4.5, Guardrails enabled. Integrates data from Strava, Campus Coach, Enduraw, and Intervals.icu (CTL/ATL/Form/HRV/Decoupling).
 
 **Campus Coach Agent** (`campus_coach_agent.py`): Extract training sessions via Browser Tool, Claude Sonnet 4.5.
 

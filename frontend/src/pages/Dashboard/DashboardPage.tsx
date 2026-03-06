@@ -6,13 +6,12 @@ import Alert from '@cloudscape-design/components/alert';
 import Button from '@cloudscape-design/components/button';
 import { SystemOverview } from './SystemOverview.tsx';
 import { ConnectionStatus } from './ConnectionStatus.tsx';
-import { ModuleStatus } from './ModuleStatus.tsx';
 import { RecentActivities } from './RecentActivities.tsx';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh.ts';
 import { useFlash } from '../../layouts/AppLayout.tsx';
 import { api } from '../../api/client.ts';
 import { formatDateTime, computeProcessingTime } from '../../utils/formatDate.ts';
-import type { DashboardStats, SystemStatus, Activity, ModulesMap } from '../../types/index.ts';
+import type { DashboardStats, SystemStatus, Activity } from '../../types/index.ts';
 
 interface RawActivity {
   enhanced_title?: string;
@@ -81,17 +80,15 @@ export function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [activities, setActivities] = useState<Activity[]>([]);
-  const [modules, setModules] = useState<ModulesMap | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
     try {
       setError(null);
-      const [actRes, enhRes, modRes] = await Promise.all([
+      const [actRes, enhRes] = await Promise.all([
         api.get<{ activities: RawActivity[] }>('/dashboard/activities?limit=100').catch(() => null),
         api.get<{ enhancement_enabled: boolean; status: string }>('/config/enhancement').catch(() => null),
-        api.get<{ modules: ModulesMap }>('/config/modules').catch(() => null),
       ]);
 
       if (actRes?.activities) {
@@ -107,8 +104,6 @@ export function DashboardPage() {
         enhancement_enabled: enhRes?.enhancement_enabled ?? true,
         enhancement_status: (enhRes?.status as 'active' | 'paused') ?? 'active',
       }));
-
-      if (modRes?.modules) setModules(modRes.modules);
     } catch {
       setError('Failed to load dashboard data');
     } finally {
@@ -182,7 +177,6 @@ export function DashboardPage() {
           loading={loading}
           onToggleEnhancement={handleToggleEnhancement}
         />
-        <ModuleStatus modules={modules} loading={loading} />
         <RecentActivities activities={activities} loading={loading} onRefresh={fetchAll} />
       </SpaceBetween>
     </ContentLayout>

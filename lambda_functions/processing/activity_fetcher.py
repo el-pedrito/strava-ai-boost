@@ -434,20 +434,22 @@ def fetch_athlete_profile(access_token: str) -> Optional[Dict[str, Any]]:
 
 def fetch_intervals_icu_data(activity_data: Dict[str, Any], user_config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
-    Fetch wellness and activity metrics from Intervals.icu API.
+    Fetch fitness/fatigue context from Intervals.icu API.
 
-    Returns compact dict with fitness/fatigue context (CTL/ATL/TSB), HRV,
-    and activity-level metrics (decoupling, efficiency factor, GAP, HR zones).
+    Only fetches data that is unique and differentiating vs Strava/Enduraw/Campus Coach:
+    - CTL (fitness), ATL (fatigue), TSB (form) — training load balance
+    - Ramp rate — progression speed
+    - HRV — recovery indicator
+    - Decoupling — aerobic efficiency (from activity endpoint)
+
     Returns None if module is not enabled or API call fails.
     """
-    # Check if intervals_icu module is enabled
     modules_config = user_config.get('modules_config', {})
     intervals_config = modules_config.get('intervals_icu', {})
     if not intervals_config.get('enabled', False):
         logger.info("Intervals.icu module not enabled, skipping")
         return None
 
-    # Get API key from Secrets Manager
     intervals_secret_name = os.environ.get('INTERVALS_ICU_SECRET', 'strava-ai-boost-intervals-icu-credentials')
     try:
         response = secretsmanager.get_secret_value(SecretId=intervals_secret_name)
@@ -460,7 +462,6 @@ def fetch_intervals_icu_data(activity_data: Dict[str, Any], user_config: Dict[st
         logger.warning(f"Failed to get Intervals.icu credentials: {e}")
         return None
 
-    # Extract activity date (YYYY-MM-DD)
     start_date_str = activity_data.get('start_date', '')
     if not start_date_str:
         logger.warning("No start_date in activity_data, cannot fetch Intervals.icu data")
@@ -473,29 +474,24 @@ def fetch_intervals_icu_data(activity_data: Dict[str, Any], user_config: Dict[st
         return None
 
     base_url = "https://intervals.icu/api/v1/athlete/0"
-    auth = (api_key, api_key)
+    auth = ("API_KEY", api_key)
     result = {}
 
-    # 1. Fetch wellness data for activity date
+    # 1. Wellness: CTL/ATL/TSB (form), ramp rate, HRV
     try:
-        wellness_url = f"{base_url}/wellness/{activity_date}"
-        resp = _get_http_session().get(wellness_url, auth=auth, timeout=10)
+        resp = _get_http_session().get(f"{base_url}/wellness/{activity_date}", auth=auth, timeout=10)
         if resp.status_code == 200:
             w = resp.json()
-            result['wellness'] = {
-                'ctl': w.get('ctl'),
-                'atl': w.get('atl'),
-                'tsb': round(w.get('ctl', 0) - w.get('atl', 0), 1) if w.get('ctl') is not None and w.get('atl') is not None else None,
+            ctl = w.get('ctl')
+            atl = w.get('atl')
+            result['fitness'] = {
+                'ctl': ctl,
+                'atl': atl,
+                'form': round(ctl - atl, 1) if ctl is not None and atl is not None else None,
                 'ramp_rate': w.get('rampRate'),
                 'hrv': w.get('hrv'),
-                'resting_hr': w.get('restingHR'),
-                'sleep_quality': w.get('sleepQuality'),
-                'fatigue': w.get('fatigue'),
-                'mood': w.get('mood'),
-                'readiness': w.get('readiness'),
-                'weight': w.get('weight')
             }
-            logger.info(f"Intervals.icu wellness: CTL={w.get('ctl')}, ATL={w.get('atl')}, HRV={w.get('hrv')}")
+            logger.info(f"Intervals.icu: CTL={ctl}, ATL={atl}, Form={result['fitness']['form']}, HRV={w.get('hrv')}")
         elif resp.status_code == 404:
             logger.info(f"No Intervals.icu wellness data for {activity_date}")
         else:
@@ -503,38 +499,17 @@ def fetch_intervals_icu_data(activity_data: Dict[str, Any], user_config: Dict[st
     except requests.exceptions.RequestException as e:
         logger.warning(f"Intervals.icu wellness API request failed: {e}")
 
-    # 2. Fetch activity data for enrichment
+    # 2. Activity: decoupling only (unique vs Strava/Enduraw)
     try:
-        activities_url = (
-            f"{base_url}/activities"
-            f"?oldest={activity_date}&newest={activity_date}"
-            f"&fields=icu_training_load,icu_intensity,icu_efficiency_factor,"
-            f"icu_variability_index,decoupling,icu_hr_zone_times,gap,"
-            f"icu_ctl,icu_atl,icu_hrr,feel"
-        )
+        activities_url = f"{base_url}/activities?oldest={activity_date}&newest={activity_date}&fields=decoupling"
         resp = _get_http_session().get(activities_url, auth=auth, timeout=10)
         if resp.status_code == 200:
             activities = resp.json()
             if activities:
-                # Match by closest start time or take first activity on that date
-                a = activities[0]
-                activity_entry = {
-                    'training_load': a.get('icu_training_load'),
-                    'intensity': a.get('icu_intensity'),
-                    'efficiency_factor': a.get('icu_efficiency_factor'),
-                    'variability_index': a.get('icu_variability_index'),
-                    'decoupling': a.get('decoupling'),
-                    'gap': a.get('gap'),
-                    'hr_zone_times': a.get('icu_hr_zone_times'),
-                    'hrr': a.get('icu_hrr'),
-                    'feel': a.get('feel'),
-                    'icu_ctl': a.get('icu_ctl'),
-                    'icu_atl': a.get('icu_atl')
-                }
-                result['activity'] = activity_entry
-                logger.info(f"Intervals.icu activity: load={a.get('icu_training_load')}, decoupling={a.get('decoupling')}")
-            else:
-                logger.info(f"No Intervals.icu activities found for {activity_date}")
+                decoupling = activities[0].get('decoupling')
+                if decoupling is not None:
+                    result['decoupling'] = decoupling
+                    logger.info(f"Intervals.icu decoupling: {decoupling}%")
         else:
             logger.warning(f"Intervals.icu activities API returned {resp.status_code}")
     except requests.exceptions.RequestException as e:
