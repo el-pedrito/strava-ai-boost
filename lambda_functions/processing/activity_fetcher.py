@@ -431,6 +431,61 @@ def fetch_athlete_profile(access_token: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _compute_wellness_trends(wellness_history: list, activity_date: str) -> Dict[str, Any]:
+    """Compute 30-day trends from wellness history for key metrics."""
+    trends = {}
+    metric_keys = {
+        'vo2max': 'vo2max',
+        'hrv': 'hrv',
+        'restingHR': 'resting_hr',
+        'ctl': 'ctl',
+        'sleepSecs': 'sleep_duration',
+        'sleepQuality': 'sleep_quality',
+    }
+
+    for api_key, trend_key in metric_keys.items():
+        values = [
+            (entry.get('id', ''), entry.get(api_key))
+            for entry in wellness_history
+            if entry.get(api_key) is not None
+        ]
+        if len(values) < 2:
+            continue
+
+        values.sort(key=lambda x: x[0])
+        all_vals = [v for _, v in values]
+
+        current = all_vals[-1]
+        avg_30d = round(sum(all_vals) / len(all_vals), 1)
+
+        # Compare last 7 days vs previous 7 days for short-term trend
+        last_7 = [v for d, v in values if d >= (datetime.strptime(activity_date, '%Y-%m-%d') - timedelta(days=7)).strftime('%Y-%m-%d')]
+        prev_7 = [v for d, v in values if (datetime.strptime(activity_date, '%Y-%m-%d') - timedelta(days=14)).strftime('%Y-%m-%d') <= d < (datetime.strptime(activity_date, '%Y-%m-%d') - timedelta(days=7)).strftime('%Y-%m-%d')]
+
+        delta = None
+        direction = 'stable'
+        if last_7 and prev_7:
+            avg_last = sum(last_7) / len(last_7)
+            avg_prev = sum(prev_7) / len(prev_7)
+            delta = round(avg_last - avg_prev, 1)
+            if abs(delta) < 0.5:
+                direction = 'stable'
+            elif delta > 0:
+                direction = 'up'
+            else:
+                direction = 'down'
+
+        trends[trend_key] = {
+            'current': current,
+            'avg_30d': avg_30d,
+            'delta_7d': delta,
+            'direction': direction,
+            'data_points': len(all_vals),
+        }
+
+    return trends
+
+
 def fetch_intervals_icu_data(activity_data: Dict[str, Any], user_config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Fetch fitness/fatigue context from Intervals.icu API.
@@ -439,6 +494,9 @@ def fetch_intervals_icu_data(activity_data: Dict[str, Any], user_config: Dict[st
     - CTL (fitness), ATL (fatigue), TSB (form) — training load balance
     - Ramp rate — progression speed
     - HRV — recovery indicator
+    - Resting HR — baseline heart rate
+    - VO2max — estimated aerobic capacity
+    - Sleep data — duration, quality
     - Decoupling — aerobic efficiency (from activity endpoint)
 
     Returns None if module is not enabled or API call fails.
@@ -476,7 +534,7 @@ def fetch_intervals_icu_data(activity_data: Dict[str, Any], user_config: Dict[st
     auth = ("API_KEY", api_key)
     result = {}
 
-    # 1. Wellness: CTL/ATL/TSB (form), ramp rate, HRV
+    # 1. Wellness day-of: CTL/ATL/Form + tracker metrics (sleep, HRV, restingHR, VO2max)
     try:
         resp = _get_http_session().get(f"{base_url}/wellness/{activity_date}", auth=auth, timeout=10)
         if resp.status_code == 200:
@@ -489,8 +547,17 @@ def fetch_intervals_icu_data(activity_data: Dict[str, Any], user_config: Dict[st
                 'form': round(ctl - atl, 1) if ctl is not None and atl is not None else None,
                 'ramp_rate': w.get('rampRate'),
                 'hrv': w.get('hrv'),
+                'resting_hr': w.get('restingHR'),
+                'vo2max': w.get('vo2max'),
             }
-            logger.info(f"Intervals.icu: CTL={ctl}, ATL={atl}, Form={result['fitness']['form']}, HRV={w.get('hrv')}")
+            sleep_time = w.get('sleepSecs')
+            sleep_quality = w.get('sleepQuality')
+            if sleep_time is not None or sleep_quality is not None:
+                result['sleep'] = {
+                    'duration_seconds': sleep_time,
+                    'quality': sleep_quality,
+                }
+            logger.info(f"Intervals.icu day-of ({activity_date}): CTL={ctl}, ATL={atl}, Form={result['fitness']['form']}, HRV={w.get('hrv')}, VO2max={w.get('vo2max')}, Sleep={sleep_time}")
         elif resp.status_code == 404:
             logger.info(f"No Intervals.icu wellness data for {activity_date}")
         else:
@@ -498,7 +565,51 @@ def fetch_intervals_icu_data(activity_data: Dict[str, Any], user_config: Dict[st
     except requests.exceptions.RequestException as e:
         logger.warning(f"Intervals.icu wellness API request failed: {e}")
 
-    # 2. Activity: decoupling only (unique vs Strava/Enduraw)
+    # 1b. Fallback J-1: tracker data may not be synced yet on activity day
+    try:
+        prev_date = (datetime.fromisoformat(start_date_str.replace('Z', '+00:00')) - timedelta(days=1)).strftime('%Y-%m-%d')
+        resp = _get_http_session().get(f"{base_url}/wellness/{prev_date}", auth=auth, timeout=10)
+        if resp.status_code == 200:
+            w_prev = resp.json()
+            # Fallback sleep if day-of is missing
+            if 'sleep' not in result:
+                sleep_time = w_prev.get('sleepSecs')
+                sleep_quality = w_prev.get('sleepQuality')
+                if sleep_time is not None or sleep_quality is not None:
+                    result['sleep'] = {
+                        'duration_seconds': sleep_time,
+                        'quality': sleep_quality,
+                    }
+                    logger.info(f"Intervals.icu sleep fallback from {prev_date}: {sleep_time}s")
+            # Fallback HRV/restingHR/VO2max if day-of is null
+            if result.get('fitness'):
+                for key, api_key in [('hrv', 'hrv'), ('resting_hr', 'restingHR'), ('vo2max', 'vo2max')]:
+                    if result['fitness'].get(key) is None and w_prev.get(api_key) is not None:
+                        result['fitness'][key] = w_prev.get(api_key)
+                        logger.info(f"Intervals.icu {key} fallback from {prev_date}: {w_prev.get(api_key)}")
+        else:
+            logger.info(f"No Intervals.icu wellness data for previous day {prev_date}")
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"Intervals.icu previous day wellness request failed: {e}")
+
+    # 2. Wellness range (30 days): trends for VO2max, HRV, resting HR, sleep
+    try:
+        oldest = (datetime.fromisoformat(start_date_str.replace('Z', '+00:00')) - timedelta(days=30)).strftime('%Y-%m-%d')
+        resp = _get_http_session().get(
+            f"{base_url}/wellness",
+            params={"oldest": oldest, "newest": activity_date},
+            auth=auth, timeout=15,
+        )
+        if resp.status_code == 200:
+            wellness_history = resp.json()
+            result['trends'] = _compute_wellness_trends(wellness_history, activity_date)
+            logger.info(f"Intervals.icu trends computed from {len(wellness_history)} days of wellness data")
+        else:
+            logger.warning(f"Intervals.icu wellness range API returned {resp.status_code}")
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"Intervals.icu wellness range API request failed: {e}")
+
+    # 3. Activity: decoupling only (unique vs Strava/Enduraw)
     try:
         activities_url = f"{base_url}/activities?oldest={activity_date}&newest={activity_date}&fields=decoupling"
         resp = _get_http_session().get(activities_url, auth=auth, timeout=10)

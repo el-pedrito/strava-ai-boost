@@ -464,6 +464,8 @@ def _build_intervals_icu_context(intervals_icu_data: dict | None) -> str:
         "         Form = CTL-ATL (>5 frais, 0 à -10 normal, <-20 très fatigué — explique les sensations lourdes)",
         "         Ramp = vitesse de montée en charge (>5 attention surcharge, <3 progression douce)",
         "         Decoupling = dérive cardiaque (<3% excellent aérobie, >5% fatigue ou manque d'endurance)",
+        "         VO2max = capacité aérobie estimée (30-40 moyen, 45-55 bon, 60+ excellent)",
+        "         RestingHR = FC repos (plus bas = meilleure condition, hausse = fatigue/stress)",
     ]
     fitness = intervals_icu_data.get('fitness', {})
     if fitness:
@@ -483,16 +485,72 @@ def _build_intervals_icu_context(intervals_icu_data: dict | None) -> str:
 
         if fitness.get('hrv') is not None:
             lines.append(f"❤️ HRV: {fitness['hrv']}ms")
+        if fitness.get('resting_hr') is not None:
+            lines.append(f"💓 FC repos: {fitness['resting_hr']} bpm")
+        if fitness.get('vo2max') is not None:
+            lines.append(f"🫁 VO2max: {fitness['vo2max']:.1f} ml/kg/min")
+
+    sleep = intervals_icu_data.get('sleep', {})
+    if sleep:
+        sleep_parts = []
+        duration = sleep.get('duration_seconds')
+        if duration is not None:
+            hours = duration // 3600
+            minutes = (duration % 3600) // 60
+            sleep_parts.append(f"{hours}h{minutes:02d}")
+        quality = sleep.get('quality')
+        if quality is not None:
+            sleep_parts.append(f"qualité {quality}/5")
+        if sleep_parts:
+            lines.append(f"😴 Sommeil: {' — '.join(sleep_parts)}")
 
     decoupling = intervals_icu_data.get('decoupling')
     if decoupling is not None:
         label = "excellent" if decoupling < 3 else "bon" if decoupling < 5 else "dérive notable"
         lines.append(f"🔄 Decoupling: {decoupling}% ({label})")
 
+    # Trends (30-day evolution)
+    trends = intervals_icu_data.get('trends', {})
+    if trends:
+        lines.append("")
+        lines.append("TENDANCES (évolution sur 30 jours) :")
+        trend_labels = {
+            'vo2max': ('VO2max', 'ml/kg/min'),
+            'hrv': ('HRV', 'ms'),
+            'resting_hr': ('FC repos', 'bpm'),
+            'ctl': ('CTL', ''),
+            'sleep_duration': ('Sommeil', ''),
+            'sleep_quality': ('Qualité sommeil', '/5'),
+        }
+        direction_arrows = {'up': '↗️', 'down': '↘️', 'stable': '→'}
+        for key, (label, unit) in trend_labels.items():
+            t = trends.get(key)
+            if not t:
+                continue
+            arrow = direction_arrows.get(t['direction'], '→')
+            delta_str = ""
+            if t.get('delta_7d') is not None:
+                sign = '+' if t['delta_7d'] > 0 else ''
+                if key == 'sleep_duration':
+                    delta_min = int(t['delta_7d'] / 60)
+                    delta_str = f" ({sign}{delta_min}min vs sem. précédente)"
+                else:
+                    delta_str = f" ({sign}{t['delta_7d']}{unit} vs sem. précédente)"
+            if key == 'sleep_duration':
+                current_h = int(t['current'] // 3600)
+                current_m = int((t['current'] % 3600) // 60)
+                avg_h = int(t['avg_30d'] // 3600)
+                avg_m = int((t['avg_30d'] % 3600) // 60)
+                lines.append(f"  {arrow} {label}: {current_h}h{current_m:02d} aujourd'hui, moy. 30j: {avg_h}h{avg_m:02d}{delta_str}")
+            else:
+                lines.append(f"  {arrow} {label}: {t['current']}{unit} aujourd'hui, moy. 30j: {t['avg_30d']}{unit}{delta_str}")
+
     if len(lines) <= 6:
         return ""
 
-    lines.append("→ Intègre ces métriques dans le récit : mentionne le chiffre ET son interprétation (ex: 'Form à -24 = grosse fatigue accumulée', 'decoupling 2.5% = aérobie solide'). Pas de listing sec, tisse-les dans le narratif.")
+    lines.append("→ Intègre ces métriques dans le récit : mentionne le chiffre ET son interprétation (ex: 'Form à -24 = grosse fatigue accumulée', 'decoupling 2.5% = aérobie solide', 'VO2max à 52 = bon niveau aérobie', '6h30 de sommeil seulement'). Pas de listing sec, tisse-les dans le narratif.")
+    lines.append("→ CORRÉLATIONS : croise ces données avec la performance de la séance. Exemples : sommeil court + bonne perf = 'belle perf malgré seulement 6h de sommeil', sommeil court + séance difficile = 'les jambes lourdes s'expliquent par une nuit trop courte', HRV bas + FC élevée = 'le corps n'avait pas récupéré', Form très négatif + séance dure = 'normal que ce soit dur avec cette fatigue accumulée', bonne nuit + bons chronos = 'une nuit réparatrice, ça se sent dans les jambes'. Toujours expliquer le POURQUOI, pas juste constater.")
+    lines.append("→ TENDANCES : si une tendance est notable (hausse/baisse), mentionne-la dans le récit. Ex: 'VO2max en hausse régulière à 52.3, +1.2 sur la semaine — la progression paie', 'HRV en baisse depuis une semaine, signe de fatigue accumulée', 'le sommeil s'est amélioré cette semaine et ça se ressent'. Ne mentionne que les tendances significatives, pas les métriques stables.")
     return "\n".join(lines) + "\n"
 
 
