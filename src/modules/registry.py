@@ -6,7 +6,6 @@ Registers all available modules with the module registry system.
 
 import logging
 from .base_module import module_registry
-from .campus_coach_module import CampusCoachModule
 from .enduraw_module import EndurawModule
 
 logger = logging.getLogger(__name__)
@@ -15,9 +14,6 @@ logger = logging.getLogger(__name__)
 def register_all_modules() -> None:
     """Register all available modules with the registry"""
     try:
-        # Register Campus Coach module
-        module_registry.register_module(CampusCoachModule, "campus_coach")
-        
         # Register Enduraw module
         module_registry.register_module(EndurawModule, "enduraw")
         

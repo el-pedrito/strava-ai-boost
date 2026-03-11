@@ -2,7 +2,7 @@
 Content Generator Lambda Function
 
 Generates enhanced content using AgentCore agents.
-Delegates stream analysis and module processing to dedicated modules.
+Delegates module processing and content generation to dedicated modules.
 """
 
 import json
@@ -15,9 +15,8 @@ from decimal import Decimal
 
 import boto3
 
-from processing.streams_analysis import (
-    classify_workout_from_streams,
-    detect_workout_phases,
+from processing.workout_analysis import (
+    classify_workout_from_laps,
     extract_enduraw_report,
 )
 from processing.modules_processing import get_active_modules, apply_module_processing
@@ -51,10 +50,10 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             raise ValueError(f"Activity data not found in DynamoDB for activity {activity_id}")
 
         activity_data = activity_data_full.get('activity_data', {})
-        streams_compressed = activity_data_full.get('streams_compressed')
         athlete_stats = activity_data_full.get('athlete_stats')
         athlete_profile = activity_data_full.get('athlete_profile')
         intervals_icu_data = activity_data_full.get('intervals_icu_data')
+        laps_data = activity_data_full.get('laps_data')
 
         # Get user configuration and modules
         user_config = get_user_configuration(user_id)
@@ -64,14 +63,18 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Extract Enduraw Report if available
         enduraw_data = extract_enduraw_report(activity_data)
 
+        # Inject laps into activity_data for module access (Campus Coach matching)
+        if laps_data:
+            activity_data['laps_data'] = laps_data
+
         # Apply module-specific processing
         enhanced_modules = apply_module_processing(activity_data, None, active_modules)
 
         # Generate enhanced content via AgentCore
         enhanced_content = generate_enhanced_content(
-            activity_data, streams_compressed, user_id, enhanced_modules,
+            activity_data, user_id, enhanced_modules,
             user_profile, athlete_stats, athlete_profile,
-            enduraw_data, intervals_icu_data
+            enduraw_data, intervals_icu_data, laps_data
         )
 
         # Store generated content
@@ -110,10 +113,10 @@ def retrieve_activity_data_from_dynamodb(activity_id: str) -> Optional[Dict[str,
         item = response['Item']
 
         activity_data = json.loads(item.get('activity_data_json', '{}'))
-        streams_compressed = json.loads(item.get('streams_compressed_json', 'null')) if item.get('streams_compressed_json') else None
         athlete_stats = json.loads(item.get('athlete_stats_json', 'null')) if item.get('athlete_stats_json') else None
         athlete_profile = json.loads(item.get('athlete_profile_json', 'null')) if item.get('athlete_profile_json') else None
         intervals_icu_data = json.loads(item.get('intervals_icu_json', 'null')) if item.get('intervals_icu_json') else None
+        laps_data = json.loads(item.get('laps_json', 'null')) if item.get('laps_json') else None
 
         def convert_numeric_strings(obj: Any) -> Any:
             """Recursively convert numeric strings to float/int (DynamoDB Decimal issue)"""
@@ -132,17 +135,17 @@ def retrieve_activity_data_from_dynamodb(activity_id: str) -> Optional[Dict[str,
             return obj
 
         activity_data = convert_numeric_strings(activity_data)
-        streams_compressed = convert_numeric_strings(streams_compressed) if streams_compressed else None
         athlete_stats = convert_numeric_strings(athlete_stats) if athlete_stats else None
         athlete_profile = convert_numeric_strings(athlete_profile) if athlete_profile else None
         intervals_icu_data = convert_numeric_strings(intervals_icu_data) if intervals_icu_data else None
+        laps_data = convert_numeric_strings(laps_data) if laps_data else None
 
         return {
             'activity_data': activity_data,
-            'streams_compressed': streams_compressed,
             'athlete_stats': athlete_stats,
             'athlete_profile': athlete_profile,
-            'intervals_icu_data': intervals_icu_data
+            'intervals_icu_data': intervals_icu_data,
+            'laps_data': laps_data
         }
 
     except Exception as e:
@@ -210,14 +213,14 @@ def build_user_profile_from_config(user_config: Dict[str, Any]) -> Optional[Dict
 
 def generate_enhanced_content(
     activity_data: Dict[str, Any],
-    streams_compressed: Optional[Dict[str, Any]],
     user_id: str,
     modules: List[Dict[str, Any]],
     user_profile: Optional[Dict[str, Any]] = None,
     athlete_stats: Optional[Dict[str, Any]] = None,
     athlete_profile: Optional[Dict[str, Any]] = None,
     enduraw_data: Optional[Dict[str, Any]] = None,
-    intervals_icu_data: Optional[Dict[str, Any]] = None
+    intervals_icu_data: Optional[Dict[str, Any]] = None,
+    laps_data: Optional[list] = None
 ) -> Dict[str, Any]:
     """Generate enhanced content using AgentCore agent. Raises on failure."""
 
@@ -236,12 +239,9 @@ def generate_enhanced_content(
             campus_coach_sessions = module.get('campus_coach_sessions', [])
             break
 
-    # Pre-compute workout analysis
-    workout_phases = detect_workout_phases(streams_compressed) if streams_compressed else []
-    route_landmarks = streams_compressed.get('route_landmarks', []) if streams_compressed else []
-    blocks = streams_compressed.get('blocks', []) if streams_compressed else []
+    # Classify workout from laps
     user_pace_zones = user_profile.get('pace_zones') if user_profile else None
-    workout_classification = classify_workout_from_streams(blocks, pace_zones=user_pace_zones) if blocks else None
+    workout_classification = classify_workout_from_laps(laps_data or [], pace_zones=user_pace_zones) if laps_data else None
 
     # Clean activity_data to remove previous AI content but KEEP original user description
     clean_activity_data = {k: v for k, v in activity_data.items()
@@ -260,7 +260,7 @@ def generate_enhanced_content(
     if workout_classification and workout_classification.get('type') not in ('intervals', 'unknown', None):
         wc_label = workout_classification.get('label', workout_classification['type'])
         classification_instruction = (
-            f"CRITICAL INSTRUCTION — Workout type detected from GPS/HR stream analysis: {wc_label}. "
+            f"CRITICAL INSTRUCTION — Workout type detected from laps analysis: {wc_label}. "
             f"You MUST generate a title and description that matches this workout type. "
             f"Do NOT use 'fractionne', 'intervalles', or 'interval' unless the classification type is 'intervals'. "
             f"Do NOT copy or reproduce the existing activity title — generate a completely new one based on the classification."
@@ -272,9 +272,7 @@ def generate_enhanced_content(
         'classification_instruction': classification_instruction,
         'workout_classification': workout_classification,
         'activity_data': clean_activity_data,
-        'workout_phases': workout_phases,
-        'compressed_blocks': blocks,
-        'route_landmarks': route_landmarks,
+        'laps_data': laps_data,
         'athlete_stats': athlete_stats,
         'athlete_profile': athlete_profile,
         'user_id': user_id,

@@ -1,7 +1,7 @@
 # AGENTS.md - AI Assistant Context for Strava AI Boost
 
-**Version:** 2.5.0
-**Last Updated:** 2026-03-06
+**Version:** 3.0.0
+**Last Updated:** 2026-03-11
 **Purpose:** Comprehensive context for AI coding assistants
 
 ---
@@ -36,6 +36,13 @@ Strava AI Boost is a **serverless AWS application** that automatically enhances 
 **Event-Driven Serverless:**
 ```
 Strava Webhook → SQS → Step Functions → Lambda Pipeline → Strava Update
+```
+
+**Data Pipeline:**
+```
+Activity Fetcher: Strava API → activity data + laps (GET /activities/{id}/laps) → DynamoDB
+Content Generator: DynamoDB → classify workout from laps → build prompt with formatted laps → AgentCore agent → store + update Strava
+Campus Coach: Sessions stored in DynamoDB → passed to content_gen agent prompt → LLM does the matching
 ```
 
 ---
@@ -77,8 +84,8 @@ strava-ai-boost/
 │   │   ├── activity_fetcher.py         # Data fetcher
 │   │   ├── content_generator.py        # AI content generation
 │   │   ├── strava_updater.py           # Strava API updater
-│   │   ├── streams_analysis.py         # Stream compression, workout classification
-│   │   └── modules_processing.py       # Module discovery, Campus Coach matching
+│   │   ├── workout_analysis.py         # Workout classification from laps, Enduraw extraction
+│   │   └── modules_processing.py       # Module discovery, Campus Coach session retrieval
 │   ├── webhooks/                       # Event ingestion
 │   │   ├── webhook_handler.py          # Webhook receiver
 │   │   ├── activity_processor.py       # SQS processor
@@ -99,12 +106,12 @@ strava-ai-boost/
 │   │   ├── campus_coach_agent.py       # Campus Coach scraper
 │   │   └── embedded_prompts.py         # Prompt templates
 │   │
-│   ├── modules/                # Module system (3 modules)
+│   ├── modules/                # Module system (Enduraw only)
 │   │   ├── base_module.py              # Base class & registry
-│   │   ├── campus_coach_module.py      # Campus Coach integration
-│   │   ├── enduraw_module.py           # Enduraw integration
+│   │   ├── enduraw_module.py           # Enduraw integration (fetches its own streams independently)
 │   │   └── registry.py                 # Module registration
-│   │   # Note: Intervals.icu is integrated directly in activity_fetcher.py + content_agent.py (no separate module file)
+│   │   # Campus Coach: no module — sessions fetched from DynamoDB by modules_processing.py, matching done by content_gen agent
+│   │   # Intervals.icu: integrated directly in activity_fetcher.py + content_agent.py (no separate module file)
 │   │
 │   └── config/                 # Configuration
 │       └── llm_config.py               # LLM configuration
@@ -126,7 +133,7 @@ strava-ai-boost/
 │   │   ├── conftest.py                 # Env vars for Lambda imports
 │   │   ├── test_webhook_handler.py     # 30 tests: validation, routing, signature
 │   │   ├── test_content_generator.py   # 36 tests: DynamoDB, parsing, storage
-│   │   ├── test_streams_analysis.py    # 30 tests: pace zones, classification, phases
+│   │   ├── test_workout_analysis.py    # Laps classification, pace zones, Enduraw extraction
 │   │   └── test_dashboard_api.py       # 27 tests: validation, routing, caching
 │   ├── test_cdk_infrastructure.py      # Stack tests
 │   ├── test_api_gateway.py             # API tests
@@ -521,9 +528,9 @@ class TestMyModule:
 
 **Location:** `src/agents/`
 
-**Content Agent** (`content_agent.py`): Generate enhanced activity content with LTM memory, Claude Sonnet 4.5, Guardrails enabled. Integrates data from Strava, Campus Coach, Enduraw, and Intervals.icu (CTL/ATL/Form/HRV/Decoupling).
+**Content Agent** (`content_agent.py`): Generate enhanced activity content with LTM memory, Claude Sonnet 4.5, Guardrails enabled. Receives device-recorded laps (from Strava Laps API), Campus Coach sessions, Enduraw reports, and Intervals.icu data (CTL/ATL/Form/HRV/Decoupling). Handles all matching logic (Campus Coach session matching, workout classification) via prompt rules in `embedded_prompts.py`.
 
-**Campus Coach Agent** (`campus_coach_agent.py`): Extract training sessions via Browser Tool, Claude Sonnet 4.5.
+**Campus Coach Agent** (`campus_coach_agent.py`): Extract training sessions via Browser Tool, Claude Sonnet 4.5. Stores sessions in DynamoDB — no analysis, matching is done by the content agent.
 
 ### Memory Strategy
 

@@ -396,7 +396,7 @@ def build_preference_instructions(user_profile: Optional[Dict[str, Any]]) -> str
     # Tone
     tone = prefs.get('tone', 'motivational & energetic')
     tone_map = {
-        'technical & analytical': 'Data-driven language, precise metrics, scientific terms. Include phase-by-phase analysis when streams available.',
+        'technical & analytical': 'Data-driven language, precise metrics, scientific terms. Include lap-by-lap analysis when laps available.',
         'motivational & energetic': 'Exclamation marks, action verbs, uplifting and celebratory language.',
         'casual & friendly': 'Conversational tone, contractions, friendly and accessible language.',
         'humorous & fun': 'Light humor, playful metaphors, creative wordplay. Keep it fun.',
@@ -441,8 +441,8 @@ def build_preference_instructions(user_profile: Optional[Dict[str, Any]]) -> str
     technical = prefs.get('technical_detail', 'intermediate')
     technical_map = {
         'basic': 'Key metrics only (distance, duration, pace). No deep analysis.',
-        'intermediate': 'Include key metrics with brief insights. No full stream analysis unless intervals.',
-        'advanced': 'Full phase-by-phase stream analysis. Include HR zones, pace variations, physiological insights.',
+        'intermediate': 'Include key metrics with brief insights. Use lap data for intervals.',
+        'advanced': 'Full lap-by-lap analysis. Include HR zones, pace variations, physiological insights.',
     }
     instructions.append(f"- TECHNICAL: {technical_map.get(technical, technical)}")
 
@@ -554,57 +554,88 @@ def _build_intervals_icu_context(intervals_icu_data: dict | None) -> str:
     return "\n".join(lines) + "\n"
 
 
-def format_workout_phases_for_prompt(workout_phases):
-    """Format workout_phases into a readable string for the LLM prompt"""
-    if not workout_phases:
-        return "No workout phases detected"
+def _format_laps_for_prompt(laps: list) -> str:
+    """Format device-recorded laps into a readable string for the LLM prompt.
 
-    lines = [f"{len(workout_phases)} phases detected:\n"]
-    for i, phase in enumerate(workout_phases, 1):
-        duration = phase.get('duration_min', 0)
-        pace = phase.get('avg_pace', 'N/A')
-        hr = phase.get('avg_hr')
-        blocks = phase.get('blocks_count', 0)
+    Each lap contains pace, distance, time, HR and cadence as recorded by the
+    athlete's watch (auto-lap every km or manual lap button for intervals).
+    """
+    if not laps:
+        return "No laps recorded"
 
-        line = f"  Phase {i}: {duration:.1f} min at {pace}"
-        if hr:
-            line += f", HR {hr:.0f} bpm"
-        line += f" ({blocks} blocks)"
+    lines = [f"- Laps: {len(laps)} lap(s) recorded by device"]
+    for lap in laps:
+        idx = lap.get('lap_index', 0)
+        name = lap.get('name', f'Lap {idx}')
+        distance_m = lap.get('distance', 0)
+        moving_time = lap.get('moving_time', 0)
+        elapsed_time = lap.get('elapsed_time', 0)
+        avg_speed = lap.get('average_speed', 0)
+        max_speed = lap.get('max_speed', 0)
+        avg_hr = lap.get('average_heartrate')
+        max_hr = lap.get('max_heartrate')
+        avg_cadence = lap.get('average_cadence')
+        pace_zone = lap.get('pace_zone')
+        elevation = lap.get('total_elevation_gain', 0)
+
+        # Format pace from m/s
+        if avg_speed > 0:
+            pace_total_s = 1000 / avg_speed
+            pace_str = f"{int(pace_total_s // 60)}:{int(pace_total_s % 60):02d}/km"
+        else:
+            pace_str = "N/A"
+
+        if max_speed > 0:
+            max_pace_s = 1000 / max_speed
+            max_pace_str = f"{int(max_pace_s // 60)}:{int(max_pace_s % 60):02d}/km"
+        else:
+            max_pace_str = "N/A"
+
+        time_str = f"{moving_time // 60}:{moving_time % 60:02d}"
+
+        line = f"  {name}: {distance_m:.0f}m in {time_str} — pace {pace_str} (max {max_pace_str})"
+        if avg_hr:
+            line += f", HR {avg_hr:.0f}"
+            if max_hr:
+                line += f"/{max_hr:.0f}"
+            line += " bpm"
+        if avg_cadence:
+            line += f", cadence {avg_cadence:.0f} spm"
+        if pace_zone:
+            line += f", zone {pace_zone}"
+        if elevation and elevation > 0:
+            line += f", D+ {elevation:.0f}m"
+
         lines.append(line)
 
     return "\n".join(lines)
 
 
-def resolve_adaptive_content_length(workout_phases, duration_min, user_profile):
+def resolve_adaptive_content_length(laps, duration_min, user_profile):
     """
     Resolve 'adaptive' content_length to a concrete value.
 
     Rules:
-    - If intervals detected (>=5 phases with pace variation >30s/km) + technical profile → detailed (1500)
-    - If long activity (>60min) or technical_detail: advanced → detailed (1500)
-    - If short activity (<30min) without intervals → medium (800)
-    - Otherwise → medium (800)
+    - If intervals detected (>=5 laps with significant pace variation) + technical profile -> detailed (1500)
+    - If long activity (>60min) or technical_detail: advanced -> detailed (1500)
+    - If short activity (<30min) without intervals -> medium (800)
+    - Otherwise -> medium (800)
     """
     content_prefs = user_profile.get('content_preferences', {}) if user_profile else {}
     technical_detail = content_prefs.get('technical_detail', 'basic')
     content_tone = content_prefs.get('tone', '')
 
-    # Check for interval structure: >=5 phases with significant pace variation
+    # Check for interval structure from laps
     has_intervals = False
-    if len(workout_phases) >= 5:
-        paces = []
-        for phase in workout_phases:
-            pace_str = phase.get('avg_pace', '')
-            if pace_str and '/km' in pace_str:
-                try:
-                    parts = pace_str.replace('/km', '').split(':')
-                    pace_seconds = int(parts[0]) * 60 + int(parts[1])
-                    paces.append(pace_seconds)
-                except (ValueError, IndexError):
-                    continue
+    if laps and len(laps) >= 5:
+        paces_s = []
+        for lap in laps:
+            avg_speed = lap.get('average_speed', 0)
+            if avg_speed > 0:
+                paces_s.append(1000 / avg_speed)  # seconds per km
 
-        if len(paces) >= 4:
-            pace_variation = max(paces) - min(paces)
+        if len(paces_s) >= 4:
+            pace_variation = max(paces_s) - min(paces_s)
             has_intervals = pace_variation > 30  # >30 seconds/km variation
 
     is_technical = technical_detail == 'advanced' or 'technical' in content_tone.lower()
@@ -739,12 +770,11 @@ def invoke(payload, context=None):
         agent.callback_handler = reasoning_callback_handler
         
         # Extract remaining parameters from payload (user_profile already extracted above)
-        streams_compressed = payload.get('streams_compressed')  # Compressed 30s blocks (no interpretation)
-        workout_phases = payload.get('workout_phases', [])
         active_modules = payload.get('active_modules', [])
         campus_coach_session = payload.get('campus_coach_session')
         enduraw_data = payload.get('enduraw_data')
         intervals_icu_data = payload.get('intervals_icu_data')
+        laps_data = payload.get('laps_data')
         athlete_stats = payload.get('athlete_stats', {})
         athlete_profile = payload.get('athlete_profile', {})
         # Log Campus Coach data details
@@ -776,8 +806,8 @@ def invoke(payload, context=None):
         logger.info(f"Active Modules: {[m.get('name') for m in active_modules]}")
         logger.info(f"Campus Coach Session: {'Yes' if campus_coach_session else 'No'}")
         logger.info(f"Enduraw Data: {'Yes' if enduraw_data else 'No'}")
-        logger.info(f"Streams Compressed: {'Yes' if streams_compressed else 'No'}")
-        logger.info(f"Workout Phases: {len(workout_phases)} phases detected")
+        logger.info(f"Laps Data: {'Yes (' + str(len(laps_data)) + ' laps)' if laps_data else 'No'}")
+        logger.info(f"Workout Classification: {payload.get('workout_classification', {}).get('type', 'unknown')}")
         logger.info(f"Memory Enabled: {MEMORY_ID is not None}")
         logger.info(f"Achievements: {activity_data.get('achievement_count', 0)}, PRs: {activity_data.get('pr_count', 0)}, Kudos: {activity_data.get('kudos_count', 0)}")
         logger.info(f"Segment Efforts: {len(activity_data.get('segment_efforts', []))}, Best Efforts: {len(activity_data.get('best_efforts', []))}")
@@ -886,17 +916,16 @@ def invoke(payload, context=None):
             athlete_context += f"💪 Power-to-Weight: {watts_per_kg:.1f} W/kg (FTP: {ftp}W, Weight: {weight}kg)\n"
             athlete_context += f"📊 Effort Level: {ftp_percentage:.0f}% of FTP\n"
 
-        # Splits
+        # Splits and Laps
         splits_metric = activity_data.get('splits_metric', [])
         splits_standard = activity_data.get('splits_standard', [])
-        laps = activity_data.get('laps', [])
+        laps = laps_data if laps_data else activity_data.get('laps', [])
         
         # Build data payload for agent (system_prompt already has all instructions)
         user_profile_str = build_preference_instructions(user_profile)
         active_modules_str = ', '.join([m.get('name', 'unknown') for m in active_modules]) if active_modules else 'No active modules'
         campus_session_str = json.dumps(campus_coach_session, indent=2) if campus_coach_session else 'No Campus Coach session matched'
         enduraw_str = json.dumps(enduraw_data, indent=2) if enduraw_data else 'No Enduraw data available'
-        streams_compressed_str = json.dumps(streams_compressed, indent=2) if streams_compressed else 'No compressed streams data available'
         
         # Extract location and weather data (always used when available)
         location_city = activity_data.get('location_city', '')
@@ -989,10 +1018,10 @@ def invoke(payload, context=None):
         # Resolve "adaptive" content_length intelligently
         if content_length_pref == 'adaptive':
             resolved_length, max_chars = resolve_adaptive_content_length(
-                workout_phases, duration, user_profile
+                laps, duration, user_profile
             )
             logger.info(f"Adaptive content_length resolved to '{resolved_length}' ({max_chars} chars)")
-            logger.info(f"  Phases: {len(workout_phases)}, Duration: {duration:.0f}min")
+            logger.info(f"  Laps: {len(laps) if laps else 0}, Duration: {duration:.0f}min")
             content_length_pref = resolved_length
         else:
             max_chars = size_limits.get(content_length_pref, 800)
@@ -1043,7 +1072,7 @@ ATHLETE STATS (Yearly Progress & Records):
 SPLITS & LAPS:
 {f"- Metric Splits: {len(splits_metric)} km splits available" if splits_metric else ""}
 {f"- Standard Splits: {len(splits_standard)} mile splits available" if splits_standard else ""}
-{f"- Laps: {len(laps)} lap(s) recorded" if laps else ""}
+{_format_laps_for_prompt(laps)}
 
 LOCATION & WEATHER:
 {location_context}
@@ -1060,12 +1089,6 @@ ENDURAW DATA:
 {enduraw_str}
 
 {_build_intervals_icu_context(intervals_icu_data)}
-WORKOUT PHASES (pre-computed phase detection from streams):
-{format_workout_phases_for_prompt(workout_phases)}
-
-STREAMS DATA (compressed 30s blocks):
-{streams_compressed_str}
-
 AVANT DE GÉNÉRER, réfléchis étape par étape (dans un bloc <thinking>):
 1. Quelles sensations/émotions l'utilisateur exprime dans son titre et sa description ?
 2. Comment les données (FC, pace, phases) confirment ou enrichissent ces sensations ?

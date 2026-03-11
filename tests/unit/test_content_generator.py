@@ -34,7 +34,7 @@ class TestHandler:
                                    mock_modules, mock_apply, mock_generate, mock_store):
         mock_retrieve.return_value = {
             'activity_data': {'name': 'Morning Run', 'type': 'Run', 'distance': 5000},
-            'streams_compressed': None,
+            'laps_data': None,
             'athlete_stats': None,
             'athlete_profile': None,
             'intervals_icu_data': None,
@@ -88,7 +88,7 @@ class TestRetrieveActivityData:
             'Item': {
                 'activity_id': '123',
                 'activity_data_json': json.dumps({'name': 'Run', 'distance': 5000}),
-                'streams_compressed_json': None,
+                'laps_json': None,
                 'athlete_stats_json': None,
             }
         }
