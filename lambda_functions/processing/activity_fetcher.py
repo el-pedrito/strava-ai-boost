@@ -557,16 +557,8 @@ def fetch_intervals_icu_data(activity_data: Dict[str, Any], user_config: Dict[st
         resp = _get_http_session().get(f"{base_url}/wellness/{prev_date}", auth=auth, timeout=10)
         if resp.status_code == 200:
             w_prev = resp.json()
-            # Fallback sleep if day-of is missing
-            if 'sleep' not in result:
-                sleep_time = w_prev.get('sleepSecs')
-                sleep_quality = w_prev.get('sleepQuality')
-                if sleep_time is not None or sleep_quality is not None:
-                    result['sleep'] = {
-                        'duration_seconds': sleep_time,
-                        'quality': sleep_quality,
-                    }
-                    logger.info(f"Intervals.icu sleep fallback from {prev_date}: {sleep_time}s")
+            # No sleep fallback to J-1: it would show the wrong night (2 nights before activity)
+            # Sleep data for day J = night before J. If not synced yet, skip rather than show stale data.
             # Fallback HRV/restingHR/VO2max if day-of is null
             if result.get('fitness'):
                 for key, api_key in [('hrv', 'hrv'), ('resting_hr', 'restingHR'), ('vo2max', 'vo2max')]:
