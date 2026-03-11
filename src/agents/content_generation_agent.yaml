@@ -37,9 +37,9 @@ tools:
         type: object
         description: "Complete Strava activity data"
         required: true
-      streams_data:
-        type: object
-        description: "Optional streams data for detailed analysis"
+      laps_data:
+        type: array
+        description: "Optional device-recorded laps from Strava API"
         required: false
       user_id:
         type: string
@@ -158,35 +158,42 @@ input_schema:
           type: number
           description: "Effort perçu (1-10)"
     
-    streams_data:
-      type: object
-      description: "Données de streams Strava pour analyse détaillée"
-      properties:
-        velocity_smooth:
-          type: array
-          items:
+    laps_data:
+      type: array
+      description: "Laps enregistrés par la montre (auto-lap ou bouton lap)"
+      items:
+        type: object
+        properties:
+          average_speed:
             type: number
-          description: "Vitesse lissée seconde par seconde"
-        heartrate:
-          type: array
-          items:
+            description: "Vitesse moyenne du lap (m/s)"
+          max_speed:
+            type: number
+            description: "Vitesse max du lap (m/s)"
+          distance:
+            type: number
+            description: "Distance du lap (mètres)"
+          elapsed_time:
             type: integer
-          description: "Fréquence cardiaque seconde par seconde"
-        time:
-          type: array
-          items:
+            description: "Temps écoulé du lap (secondes)"
+          moving_time:
             type: integer
-          description: "Temps écoulé seconde par seconde"
-        distance:
-          type: array
-          items:
+            description: "Temps en mouvement du lap (secondes)"
+          average_heartrate:
             type: number
-          description: "Distance cumulative seconde par seconde"
-        altitude:
-          type: array
-          items:
+            description: "FC moyenne du lap"
+          max_heartrate:
+            type: integer
+            description: "FC max du lap"
+          average_cadence:
             type: number
-          description: "Altitude seconde par seconde"
+            description: "Cadence moyenne du lap"
+          pace_zone:
+            type: integer
+            description: "Zone d'allure du lap"
+          total_elevation_gain:
+            type: number
+            description: "Dénivelé positif du lap (mètres)"
     
     user_id:
       type: string

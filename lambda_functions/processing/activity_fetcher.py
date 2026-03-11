@@ -1,7 +1,7 @@
 """
 Activity Fetcher Lambda Function
 
-Fetches complete activity data from Strava API including streams data.
+Fetches complete activity data, laps, and athlete context from Strava API.
 Handles comprehensive data retrieval for analysis.
 """
 
@@ -47,31 +47,31 @@ STRAVA_API_BASE = "https://www.strava.com/api/v3"
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Lambda handler for fetching activity data from Strava API
-    
-    Fetches complete activity data and streams for comprehensive analysis
+
+    Fetches activity data, laps, athlete context, and optional integrations.
     """
     try:
         activity_id = event.get('activity_id')
         user_id = event.get('user_id')
-        
+
         if not activity_id or not user_id:
             raise ValueError("Missing required parameters: activity_id, user_id")
-        
+
         logger.info(f"Fetching activity data for activity {activity_id}")
-        
+
         # Get OAuth tokens
         access_token = get_access_token(user_id)
-        
+
         # Fetch activity data
         activity_data = fetch_activity_data(activity_id, access_token)
-        
-        # Fetch streams data for detailed analysis
-        streams_data = fetch_streams_data(activity_id, access_token)
-        
+
+        # Fetch laps data (device-recorded intervals/auto-laps)
+        laps_data = fetch_laps_data(activity_id, access_token)
+
         # Fetch athlete stats for context (yearly totals, records, etc.)
         athlete_id = activity_data.get('athlete', {}).get('id') or user_id
         athlete_stats = fetch_athlete_stats(athlete_id, access_token)
-        
+
         # Fetch athlete profile for FTP, weight
         athlete_profile = fetch_athlete_profile(access_token)
 
@@ -85,11 +85,11 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         store_activity_data(
             activity_id=activity_id,
             activity_data=activity_data,
-            streams_data=streams_data,
             athlete_stats=athlete_stats,
             athlete_profile=athlete_profile,
             user_config=user_config,
-            intervals_icu_data=intervals_icu_data
+            intervals_icu_data=intervals_icu_data,
+            laps_data=laps_data
         )
         
         # Return minimal payload - only references, no large data
@@ -303,60 +303,46 @@ def fetch_activity_data(activity_id: str, access_token: str) -> Dict[str, Any]:
         raise
 
 
-def fetch_streams_data(activity_id: str, access_token: str) -> Optional[Dict[str, Any]]:
+def fetch_laps_data(activity_id: str, access_token: str) -> Optional[list]:
     """
-    Fetch complete Strava streams data with second-by-second granularity
-    
-    Retrieves velocity_smooth, heartrate, time, distance, altitude streams
+    Fetch activity laps from Strava API.
+
+    Returns the laps recorded by the device (auto-lap or manual lap button).
+    Each lap includes average_speed, max_speed, distance, elapsed_time,
+    moving_time, average_cadence, pace_zone, total_elevation_gain, etc.
+
+    Available to all users (no premium requirement). Requires activity:read scope.
     """
     try:
         headers = {'Authorization': f'Bearer {access_token}'}
-        
-        # Request all available stream types for maximum precision
-        stream_types = [
-            'velocity_smooth',  # Smoothed velocity data
-            'heartrate',        # Heart rate data
-            'time',            # Time series
-            'distance',        # Distance series
-            'altitude',        # Elevation data
-            'cadence',         # Cadence (if available)
-            'watts',           # Power data (if available)
-            'temp',            # Temperature (if available)
-            'moving',          # Moving/stopped indicator
-            'grade_smooth'     # Smoothed grade data
-        ]
-        
-        url = f"{STRAVA_API_BASE}/activities/{activity_id}/streams"
-        params = {
-            'keys': ','.join(stream_types),
-            'key_by_type': 'true'
-        }
-        
-        response = _get_http_session().get(url, headers=headers, params=params, timeout=30)
-        
+        url = f"{STRAVA_API_BASE}/activities/{activity_id}/laps"
+
+        response = _get_http_session().get(url, headers=headers, timeout=30)
+
         if response.status_code == 404:
-            logger.info(f"No streams data available for activity {activity_id}")
+            logger.info(f"No laps data available for activity {activity_id}")
             return None
-        
+
         response.raise_for_status()
-        streams_data = response.json()
-        
-        logger.info(f"Fetched streams data: {list(streams_data.keys())} streams")
-        
-        # Log stream lengths for debugging
-        for stream_type, stream_data in streams_data.items():
-            if isinstance(stream_data, dict) and 'data' in stream_data:
-                logger.debug(f"{stream_type}: {len(stream_data['data'])} points")
-        
-        return streams_data
-        
+        laps = response.json()
+
+        if not laps:
+            logger.info(f"Empty laps response for activity {activity_id}")
+            return None
+
+        logger.info(f"Fetched {len(laps)} laps for activity {activity_id}")
+        for i, lap in enumerate(laps):
+            avg_speed = lap.get('average_speed', 0)
+            pace = f"{int(1000/(avg_speed*60))}:{int((1000/(avg_speed*60) % 1)*60):02d}/km" if avg_speed > 0 else "N/A"
+            logger.debug(f"  Lap {i+1}: {lap.get('distance', 0):.0f}m in {lap.get('moving_time', 0)}s ({pace})")
+
+        return laps
+
     except requests.exceptions.RequestException as e:
-        logger.error(f"Streams API request failed: {str(e)}")
-        # Don't raise - streams data is optional
+        logger.warning(f"Laps API request failed: {str(e)}")
         return None
     except Exception as e:
-        logger.error(f"Failed to fetch streams data: {str(e)}")
-        # Don't raise - streams data is optional
+        logger.warning(f"Failed to fetch laps data: {str(e)}")
         return None
 
 
@@ -635,31 +621,31 @@ def fetch_intervals_icu_data(activity_data: Dict[str, Any], user_config: Dict[st
 def store_activity_data(
     activity_id: str,
     activity_data: Dict[str, Any],
-    streams_data: Optional[Dict[str, Any]],
     athlete_stats: Optional[Dict[str, Any]],
     athlete_profile: Optional[Dict[str, Any]],
     user_config: Dict[str, Any],
-    intervals_icu_data: Optional[Dict[str, Any]] = None
+    intervals_icu_data: Optional[Dict[str, Any]] = None,
+    laps_data: Optional[list] = None
 ) -> None:
     """
     Store ALL activity data in DynamoDB to avoid Step Functions 256KB payload limit
-    
+
     This stores the complete fetched data so downstream Lambdas can retrieve it
     without passing large payloads through Step Functions
     """
     try:
         from decimal import Decimal
         import json
-        
+
         table = dynamodb.Table(ACTIVITIES_TABLE)
-        
+
         original_description = activity_data.get('description', '')
         original_name = activity_data.get('name', '')
-        
+
         # Convert floats to Decimal for DynamoDB
         distance = activity_data.get('distance', 0)
         elevation = activity_data.get('total_elevation_gain', 0)
-        
+
         # Extract location data (from Strava directly)
         location_city = activity_data.get('location_city')
         location_country = activity_data.get('location_country')
@@ -674,15 +660,7 @@ def store_activity_data(
             elif isinstance(obj, list):
                 return [convert_floats(item) for item in obj]
             return obj
-        
-        # Compress streams for all activities (light 10s blocks for <60min, 30s blocks for longer)
-        # This enables workout phase detection for interval sessions of any duration
-        streams_compressed = None
-        if streams_data:
-            from processing.streams_analysis import compress_streams_to_blocks
-            streams_compressed = compress_streams_to_blocks(streams_data, activity_data, activity_id)
-            logger.info(f"Compressed streams for activity ({activity_data.get('moving_time', 0)/60:.0f}min)")
-        
+
         # Build DynamoDB item with ALL data
         item = {
             'activity_id': activity_id,
@@ -698,11 +676,10 @@ def store_activity_data(
             'updated_at': datetime.utcnow().isoformat(),
             # Store complete data as JSON strings
             'activity_data_json': json.dumps(convert_floats(activity_data), default=str),
-            # Store compressed streams (10s blocks for <60min, 30s for longer)
-            'streams_compressed_json': json.dumps(convert_floats(streams_compressed), default=str) if streams_compressed else None,
             'athlete_stats_json': json.dumps(convert_floats(athlete_stats), default=str) if athlete_stats else None,
             'athlete_profile_json': json.dumps(convert_floats(athlete_profile), default=str) if athlete_profile else None,
-            'intervals_icu_json': json.dumps(convert_floats(intervals_icu_data), default=str) if intervals_icu_data else None
+            'intervals_icu_json': json.dumps(convert_floats(intervals_icu_data), default=str) if intervals_icu_data else None,
+            'laps_json': json.dumps(convert_floats(laps_data), default=str) if laps_data else None
         }
         
         # Set TTL: expire after 365 days
