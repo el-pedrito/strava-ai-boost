@@ -15,7 +15,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 AWS_PROFILE="${AWS_PROFILE:-your-aws-profile}"
-AWS_REGION="eu-west-1"
+AWS_REGION="${AWS_REGION:-us-east-1}"
 
 # Memory names (must match agent names + "_mem")
 CONTENT_MEMORY_NAME="content_gen_mem"

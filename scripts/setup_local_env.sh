@@ -5,7 +5,7 @@
 set -e
 
 PROFILE="${AWS_PROFILE:-your-aws-profile}"
-REGION="eu-west-1"
+REGION="${AWS_REGION:-us-east-1}"
 STACK_NAME="StravaAIBoost-API"
 
 echo "🔧 Setting up local environment variables..."
