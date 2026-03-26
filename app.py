@@ -20,7 +20,7 @@ app = cdk.App()
 # Environment configuration
 env = cdk.Environment(
     account=app.node.try_get_context("account"),
-    region=app.node.try_get_context("region") or "eu-west-1"
+    region=app.node.try_get_context("region") or "us-east-1"
 )
 
 # Core infrastructure stack - DynamoDB tables, IAM roles

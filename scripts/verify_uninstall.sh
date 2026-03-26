@@ -13,7 +13,7 @@ set -e
 ENVIRONMENT="${1:-dev}"
 
 # Configuration
-REGION="eu-west-1"
+REGION="${AWS_REGION:-us-east-1}"
 PROFILE="${AWS_PROFILE:-your-aws-profile}"
 PROJECT_NAME="strava-ai-boost"
 

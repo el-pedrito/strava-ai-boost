@@ -111,4 +111,4 @@ bedrock_agentcore.yml
 agentcore_deployment/
 .agentcore_deployment/
 agentcore_build/
-.agentcore_build/
+.agentcore_build/docs/MIGRATION.md

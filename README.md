@@ -6,7 +6,7 @@ Strava AI Boost is a production-ready, modular serverless application that autom
 
 ### Prerequisites
 
-- AWS Account with CLI configured (`your-aws-profile` profile)
+- AWS Account with CLI configured
 - Python 3.12+, Node.js (for CDK)
 - AgentCore CLI (for Phase 2 only)
 - Strava Account with API application registered
@@ -20,7 +20,10 @@ cd strava-ai-boost
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-export AWS_PROFILE=your-aws-profile
+export AWS_PROFILE=<your-aws-profile>
+
+# Optional: deploy to a different region (default: us-east-1)
+export AWS_REGION=eu-west-1
 
 # 2. Deploy CDK Infrastructure (~10-15 min)
 ./scripts/deploy.sh dev
@@ -55,7 +58,7 @@ Add advanced personalization with Long-Term Memory:
 ./scripts/deploy_agentcore_agents.sh
 
 # 5. Final CDK Deployment (~5 min)
-cdk deploy --all --profile your-aws-profile --require-approval never
+cdk deploy --all --require-approval never
 ```
 
 ### Start Using the System
@@ -88,7 +91,7 @@ npm install && npm run dev
    aws secretsmanager put-secret-value \
      --secret-id strava-ai-boost-app-config \
      --secret-string '{"client_id":"YOUR_CLIENT_ID","client_secret":"YOUR_CLIENT_SECRET"}' \
-     --profile your-aws-profile --region eu-west-1
+     --profile <your-aws-profile> --region <your-region>
    ```
 
 ### Module Configuration
@@ -143,10 +146,15 @@ Customize AI content generation in Configuration > Personal Profile:
 
 Configure in `frontend/.env.local` (copy from `.env.example`):
 ```bash
-VITE_API_GATEWAY_URL=https://your-api-id.execute-api.eu-west-1.amazonaws.com/prod
-VITE_API_GATEWAY_KEY=your-api-key
-VITE_DEFAULT_USER_ID=YOUR_USER_ID
+VITE_API_GATEWAY_URL=https://your-api-id.execute-api.<your-region>.amazonaws.com/prod
+VITE_API_GATEWAY_KEY=your-api-key-value
+VITE_DEFAULT_USER_ID=YOUR_STRAVA_ATHLETE_ID
 ```
+
+> **Important:** `VITE_API_GATEWAY_KEY` must be the API key **value** (long alphanumeric string), not the API key **ID**. You can find it with:
+> ```bash
+> aws apigateway get-api-keys --include-values --query 'items[?starts_with(name, `strava-ai-boost`)].value' --output text --profile <your-aws-profile> --region <your-region>
+> ```
 
 ---
 
@@ -269,7 +277,7 @@ sequenceDiagram
 
 ### Technology Stack
 
-**Infrastructure**: AWS CDK (Python), Python 3.12, eu-west-1
+**Infrastructure**: AWS CDK (Python), Python 3.12, us-east-1 (configurable via `--context region=<region>`)
 
 **AWS Services**: Lambda (12 functions, Powertools), DynamoDB (3 tables, GSI, TTL), Step Functions, SQS + DLQ, Bedrock (Claude Sonnet 4.5), Secrets Manager, API Gateway
 
@@ -290,16 +298,16 @@ sequenceDiagram
 
 ```bash
 # Check AWS connectivity
-aws sts get-caller-identity --profile your-aws-profile
+aws sts get-caller-identity --profile <your-aws-profile>
 
 # Check Lambda logs (structured JSON with correlation IDs)
-aws logs tail /aws/lambda/StravaAIBoost-WebhookHandler --follow --profile your-aws-profile
+aws logs tail /aws/lambda/StravaAIBoost-WebhookHandler --follow --profile <your-aws-profile>
 
 # Filter by error level
 aws logs filter-log-events \
   --log-group-name /aws/lambda/StravaAIBoost-ConfigurationAPI \
   --filter-pattern '{ $.level = "ERROR" }' \
-  --profile your-aws-profile
+  --profile <your-aws-profile>
 
 # Validate deployment
 ./scripts/validate_deployment.sh dev
@@ -340,9 +348,9 @@ aws logs filter-log-events \
 ```bash
 # Check DLQ message count
 aws sqs get-queue-attributes \
-  --queue-url $(aws sqs get-queue-url --queue-name strava-ai-boost-activity-processing-dlq --profile your-aws-profile --query 'QueueUrl' --output text) \
+  --queue-url $(aws sqs get-queue-url --queue-name strava-ai-boost-activity-processing-dlq --profile <your-aws-profile> --query 'QueueUrl' --output text) \
   --attribute-names ApproximateNumberOfMessages \
-  --profile your-aws-profile
+  --profile <your-aws-profile>
 
 # Reprocess all DLQ messages
 ./scripts/reprocess_dlq.sh
@@ -380,7 +388,7 @@ The Lambda Layer cannot be replaced via CDK due to CloudFormation cross-stack ex
 pytest tests/unit/ -v
 
 # Infrastructure/integration tests (73 tests — requires AWS credentials)
-export AWS_PROFILE=your-aws-profile
+export AWS_PROFILE=<your-aws-profile>
 pytest tests/ -v --ignore=tests/unit/
 
 # Frontend unit tests (40 tests, ~4s)
@@ -430,7 +438,7 @@ All resources are tagged for AWS Cost Explorer cost allocation:
 
 1. Follow property-based testing for infrastructure changes
 2. Ensure all tests pass before committing
-3. Use `your-aws-profile` for all AWS operations
+3. Set `AWS_PROFILE` before running commands
 
 ## License
 
