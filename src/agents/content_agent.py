@@ -541,16 +541,17 @@ def _build_intervals_icu_context(intervals_icu_data: dict | None) -> str:
                 current_m = int((t['current'] % 3600) // 60)
                 avg_h = int(t['avg_30d'] // 3600)
                 avg_m = int((t['avg_30d'] % 3600) // 60)
-                lines.append(f"  {arrow} {label}: {current_h}h{current_m:02d} aujourd'hui, moy. 30j: {avg_h}h{avg_m:02d}{delta_str}")
+                lines.append(f"  {arrow} {label}: {current_h}h{current_m:02d} moy. 30j (⚠️ PAS la nuit avant cette activité), moy. 30j: {avg_h}h{avg_m:02d}{delta_str}")
             else:
                 lines.append(f"  {arrow} {label}: {t['current']}{unit} aujourd'hui, moy. 30j: {t['avg_30d']}{unit}{delta_str}")
 
     if len(lines) <= 6:
         return ""
 
-    lines.append("→ Intègre ces métriques dans le récit : mentionne le chiffre ET son interprétation (ex: 'Form à -24 = grosse fatigue accumulée', 'decoupling 2.5% = aérobie solide', 'VO2max à 52 = bon niveau aérobie', '6h30 de sommeil seulement'). Pas de listing sec, tisse-les dans le narratif.")
-    lines.append("→ CORRÉLATIONS : croise ces données avec la performance de la séance. Exemples : sommeil court + bonne perf = 'belle perf malgré seulement 6h de sommeil', sommeil court + séance difficile = 'les jambes lourdes s'expliquent par une nuit trop courte', HRV bas + FC élevée = 'le corps n'avait pas récupéré', Form très négatif + séance dure = 'normal que ce soit dur avec cette fatigue accumulée', bonne nuit + bons chronos = 'une nuit réparatrice, ça se sent dans les jambes'. Toujours expliquer le POURQUOI, pas juste constater.")
-    lines.append("→ TENDANCES : si une tendance est notable (hausse/baisse), mentionne-la dans le récit. Ex: 'VO2max en hausse régulière à 52.3, +1.2 sur la semaine — la progression paie', 'HRV en baisse depuis une semaine, signe de fatigue accumulée', 'le sommeil s'est amélioré cette semaine et ça se ressent'. Ne mentionne que les tendances significatives, pas les métriques stables.")
+    lines.append("→ Intègre ces métriques dans le récit : mentionne le chiffre ET son interprétation (ex: 'Form à -24 = grosse fatigue accumulée', 'decoupling 2.5% = aérobie solide', 'VO2max à 52 = bon niveau aérobie'). Pas de listing sec, tisse-les dans le narratif.")
+    lines.append("→ CORRÉLATIONS : croise ces données avec la performance. Exemples : Form très négatif + séance dure = 'normal avec cette fatigue accumulée', HRV bas + FC élevée = 'le corps n'avait pas récupéré'. Toujours expliquer le POURQUOI.")
+    lines.append("→ TENDANCES : si une tendance est notable (hausse/baisse), mentionne-la. Ne mentionne que les tendances significatives, pas les métriques stables.")
+    lines.append("⚠️ RÈGLE ABSOLUE : Ne JAMAIS inventer d'heure de réveil, de coucher, ou de durée de sommeil. Si aucune ligne 😴 Sommeil n'apparaît ci-dessus, la donnée n'est PAS disponible pour cette activité — ne l'invente pas. Les données 'Sommeil' dans TENDANCES sont des moyennes 30 jours, PAS la nuit précédant cette activité.")
     return "\n".join(lines) + "\n"
 
 
