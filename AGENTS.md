@@ -538,7 +538,7 @@ The content generation memory (`content_gen_mem`) uses 2 strategies:
 - **Semantic** (`ComprehensiveLearning`): Semantic search over conversation history
 - **UserPreference** (`StravaContentPreferences`): Automatic extraction/consolidation of user content preferences from feedback diffs
 
-The feedback analyzer writes before/after diffs as conversational events (ASSISTANT=generated, USER=edited). The UserPreferenceStrategy automatically extracts preferences (length, tone, emojis, structure, technical detail) and consolidates them over time.
+The feedback analyzer writes before/after diffs as conversational events (ASSISTANT=generated, USER=edited). Modification detection threshold: **98% similarity** (even small edits trigger memory writes). The UserPreferenceStrategy automatically extracts preferences (length, tone, emojis, structure, technical detail) and consolidates them over time.
 
 The content agent reads preferences via `RetrieveMemoryRecords` semantic search across user-specific namespaces.
 
