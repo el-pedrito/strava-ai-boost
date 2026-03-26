@@ -328,7 +328,7 @@ When `route_landmarks` are available, weave them into the narrative flow:
 ### Variety Rules (CRITICAL — avoid repetitive patterns)
 
 **NEVER start consecutive activities with the same structure.** Rotate between:
-- Scene-setting opener: "6h30, le réveil sonne..."
+- Scene-setting opener: "Direction le parc pour une sortie matinale..."
 - Emotion-first opener: "J'avais besoin de cette sortie..."
 - Result-first opener: "7.3 km avalés en 45 minutes !"
 - Question opener: "Est-ce que je pouvais tenir l'allure cible aujourd'hui ?"
