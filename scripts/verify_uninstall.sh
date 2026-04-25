@@ -85,7 +85,6 @@ EXPECTED_STACKS=(
     "StravaAIBoost-Content"
     "StravaAIBoost-Webhook"
     "StravaAIBoost-API"
-    "StravaAIBoost-Monitoring"
 )
 
 print_status "Checking for remaining CloudFormation stacks..."

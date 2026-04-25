@@ -28,7 +28,7 @@ Strava AI Boost is a **serverless AWS application** that automatically enhances 
 - **~16,600 LOC** in core components
 - **12 Lambda functions** (4 API, 3 processing, 3 webhooks, 2 support)
 - **2 AgentCore agents**
-- **7 CDK stacks**
+- **6 CDK stacks**
 - **236 tests** (123 Lambda unit + 40 frontend unit + 73 infra/integration)
 - **Python 3.12** runtime, **React 19 + TypeScript + Vite** frontend
 
@@ -65,13 +65,13 @@ strava-ai-boost/
 │   ├── uninstall.sh
 │   └── verify_uninstall.sh
 │
-├── stacks/                     # CDK infrastructure (7 stacks)
+├── stacks/                     # CDK infrastructure (6 stacks)
 │   ├── core_infrastructure_stack.py    # DynamoDB, Secrets, Layer
 │   ├── security_stack.py               # Guardrails, Memory Execution Role, Observability
 │   ├── webhook_processing_stack.py     # Webhook, SQS, Processor
 │   ├── content_generation_stack.py     # Step Functions, Lambdas
 │   ├── api_gateway_stack.py            # REST API, API Lambdas
-│   ├── monitoring_stack.py             # CloudWatch, Alarms
+# monitoring_stack.py REMOVED (overkill for personal project)
 │   └── feedback_loop_stack.py          # Feedback analyzer
 │
 ├── lambda_functions/           # Lambda handlers (grouped by role)

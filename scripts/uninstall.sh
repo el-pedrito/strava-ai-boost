@@ -196,8 +196,7 @@ if [ "$CREATE_BACKUP" = true ]; then
         "StravaAIBoost-Content"
         "StravaAIBoost-Webhook"
         "StravaAIBoost-API"
-        "StravaAIBoost-Monitoring"
-    )
+        )
     
     for stack in "${STACKS[@]}"; do
         if aws cloudformation describe-stacks --stack-name $stack --profile $PROFILE --region $REGION > /dev/null 2>&1; then
@@ -412,7 +411,6 @@ print_phase "☁️  Phase 4: Removing CDK stacks"
 
 # Define stacks in reverse dependency order for safe deletion
 STACKS=(
-    "StravaAIBoost-Monitoring"
     "StravaAIBoost-API"
     "StravaAIBoost-Webhook"
     "StravaAIBoost-Content"

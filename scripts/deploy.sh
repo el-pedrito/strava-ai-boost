@@ -440,7 +440,7 @@ echo "  💡 Note: System is fully functional - AgentCore is optional for enhanc
 
 echo ""
 print_status "📋 Deployed Resources (Phase 1):"
-echo "  ✅ CDK Stacks: Core, Content, Webhook, API, Monitoring"
+echo "  ✅ CDK Stacks: Core, Content, Webhook, API, Feedback"
 echo "  ✅ DynamoDB Tables: Activities, Configuration, Rate Limits, Sessions"
 echo "  ✅ Lambda Functions: Webhook Handler, Content Generator, etc."
 echo "  ✅ SQS Queues: Activity Processing with DLQ"
@@ -497,7 +497,6 @@ cat > $DEPLOYMENT_INFO_FILE << EOF
     "StravaAIBoost-Content", 
     "StravaAIBoost-Webhook",
     "StravaAIBoost-API",
-    "StravaAIBoost-Monitoring"
   ],
   "secrets_created": [
     "strava-ai-boost-oauth-tokens",
