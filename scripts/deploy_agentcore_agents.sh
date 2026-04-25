@@ -450,6 +450,16 @@ main() {
     # Apply cost allocation tags to all AgentCore resources
     tag_agentcore_resources
 
+    # Configure UserPreferenceStrategy on content_gen_mem (Haiku extraction/consolidation)
+    # Idempotent: adds strategy if missing, updates modelId if already present.
+    print_status ""
+    print_status "🧠 Configuring Memory UserPreferenceStrategy (Haiku 4.5)..."
+    if python3 "$(dirname "${BASH_SOURCE[0]}")/configure_memory_strategy.py"; then
+        print_success "Memory strategy configured"
+    else
+        print_warning "Memory strategy configuration failed (non-fatal)"
+    fi
+
     # Summary
     print_success ""
     print_success "🎉 AgentCore agents deployed successfully with LTM!"
