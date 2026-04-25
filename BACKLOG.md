@@ -90,6 +90,80 @@ Pas d'API disponible a date. Surveiller si Campus Coach expose une API — rempl
 
 ---
 
+## Open-Source Release Readiness
+
+Audit (2026-04-25) : projet prêt à **~80%**. À traiter avant publication GitHub + blog post.
+
+### P0 — Bloquants pour un sample OSS "propre"
+
+#### Disclaimer non-production dans README
+Le README présente le projet comme production-ready à plusieurs endroits,
+mais il a des known issues (AgentCore Browser cold starts, Lambda timeout
+120s, pas de CI/CD). Ajouter un bloc "Non-Production Sample" en tête :
+
+> This is a demo/personal-use sample. Not meant to be deployed to production
+> as-is. Known issues: ... (liste courte).
+
+#### Fichiers OSS standards absents
+- `CONTRIBUTING.md` — comment contribuer, format PR, tests requis
+- `CODE_OF_CONDUCT.md` — Contributor Covenant standard
+- `SECURITY.md` — comment reporter une vuln
+- `.github/ISSUE_TEMPLATE.md` + `.github/pull_request_template.md`
+
+#### Dépendances avec CVE connues
+`pip-audit` (2026-04-25) liste 9 CVE mineures :
+- cryptography 46.0.5 → 46.0.7 (CVE-2026-34073, CVE-2026-39892)
+- urllib3, requests, pytest, pygments, lxml, pillow, pip
+Aucune critique mais visible pour les contributeurs. Bump via `requirements.txt`
++ `lambda_layer/requirements.txt` + rebuild du layer.
+
+### P1 — Nice to have pour lancement propre
+
+#### Licence MIT → MIT-0 (si alignement aws-samples)
+AWS samples publics utilisent MIT-0 (MIT No Attribution). À décider selon
+stratégie de publication.
+
+#### Screenshots + GIF démo dans README
+Un GIF du frontend (dashboard + configuration) + 1 exemple avant/après
+de description Strava enrichie. Beaucoup plus parlant qu'un texte seul.
+
+#### Threat model simple
+`docs/THREAT-MODEL.md` : 1 page listant les 5-10 menaces principales
+(prompt injection sur credentials, webhook spoofing, secrets leak,
+fork-based attack, etc.) avec les mitigations en place.
+
+#### Scan ASH (Automated Security Helper)
+`ash --mode local --source-dir .` — passe Bandit, Semgrep, Checkov,
+cfn-nag, detect-secrets, cdk-nag, npm-audit en un seul shot. Publier
+le rapport summary pour transparence.
+
+### P2 — Pour plus tard
+
+#### Tag v0.1.0 + CHANGELOG.md
+Créer une première release avec tag Git et CHANGELOG listant les
+milestones (v0 = fonctionnalité initiale, v0.1 = optimisation cost).
+
+#### Architecture diagram officiel
+Le mermaid du README est bien. Un PNG haute résolution généré via
+`aws-diagram-mcp-server` serait plus "professionnel" pour le blog post.
+
+#### Blog post
+Structure proposée :
+- **Problème** : enrichir ses activités Strava de façon personnalisée et authentique
+- **Approche** : serverless + AgentCore + Strands + feedback loop
+- **Cost story** : $513/mo → $26/mo, leçons apprises sur AgentCore Browser
+- **Open questions** : cold starts, personnalisation progressive, multi-tenant
+
+### Non-goals (décidés le 2026-04-25)
+
+- **Pas de soumission PCSR** (Public Code Security Review Amazon) — ce n'est
+  pas un sample AWS officiel mais un projet perso open-source. MIT + bonnes
+  pratiques + disclaimer suffisent.
+- **Pas de CI/CD pipeline** à la publication initiale — cdk deploy manuel
+  documenté. GitHub Actions peut venir après les premiers retours utilisateurs.
+
+---
+
 ## Vision — Coach bienveillant & onboarding riche
 
 Projet open-source, **pas de SaaS multi-users**. Chacun déploie sur son compte.
