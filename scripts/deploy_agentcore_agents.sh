@@ -403,7 +403,13 @@ main() {
     
     # Check prerequisites
     check_agentcore_cli
-    
+
+    # Enable AWS X-Ray Transaction Search for CloudWatch GenAI Observability Dashboard
+    print_status ""
+    print_status "🔭 Enabling AgentCore Observability prerequisites..."
+    bash "$(dirname "${BASH_SOURCE[0]}")/enable_agentcore_observability.sh" || \
+        print_warning "Observability setup warnings (non-fatal)"
+
     # Verify memories exist
     print_status ""
     print_status "🔍 Verifying LTM memories exist..."

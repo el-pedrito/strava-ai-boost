@@ -201,11 +201,7 @@ graph TB
             APIGW[API Gateway<br/>Frontend API]
         end
 
-        subgraph "Monitoring Stack"
-            CW[CloudWatch<br/>Logs & Metrics]
-        end
-
-        subgraph "Feedback Stack"
+subgraph "Feedback Stack"
             FB[Feedback Analyzer<br/>EventBridge Schedule]
         end
     end
@@ -236,7 +232,6 @@ graph TB
     Lambda12 --> Strava
     Lambda12 --> Campus
 
-    Lambda12 --> CW
 ```
 
 ### Infrastructure Components
@@ -293,6 +288,19 @@ sequenceDiagram
 ---
 
 ## Troubleshooting
+
+### Observability
+
+Built-in AgentCore runtime metrics and traces flow to the
+**CloudWatch GenAI Observability Dashboard**:
+https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#gen-ai-observability/agent-core
+
+Shows per-agent invocation count, latency, tool call counts, token usage,
+and end-to-end X-Ray traces. Enabled via `./scripts/enable_agentcore_observability.sh`
+(auto-run by `deploy_agentcore_agents.sh`).
+
+For Lambda/SQS/Step Functions metrics, use the default AWS namespaces
+in CloudWatch — no custom dashboard needed.
 
 ### Quick Diagnostics
 
