@@ -433,6 +433,7 @@ All resources are tagged for AWS Cost Explorer cost allocation:
 - **HTTPS**: All API endpoints use secure communication
 - **Secrets Manager**: OAuth tokens and credentials with automatic rotation
 - **IAM**: Least privilege with scoped resource ARNs
+- **CloudWatch Data Protection**: Passwords, emails, and auth headers are automatically masked in AgentCore runtime logs (applied by `scripts/tag_agentcore_resources.py` — audit + de-identify on `EmailAddress`, `AwsSecretKey`, and custom `Password:`/`Authorization:` regexes)
 - **Frontend**: Local-only access (localhost:3000), ErrorBoundary for graceful recovery
 - **User Isolation**: Per-user configuration keyed by Strava athlete ID
 
