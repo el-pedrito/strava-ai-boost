@@ -292,26 +292,31 @@ Voir P0.6 ci-dessus. Modèle retenu : **Claude 4.5 Haiku** (pas 3.5).
 
 ### P2 — Ce mois
 
-#### P2.1 — Réduire le system prompt
+#### P2.1 — Réduire le system prompt — ❌ ABANDONNÉ (2026-04-25)
 
-**Quoi** : déplacer les dictionnaires statiques du `embedded_prompts.py` (AGE_CONTEXT, INTEREST_EXPRESSIONS, SPORT_APPROACH_EXAMPLES, ~8K chars) vers la mémoire LTM ou le code Python `build_profile_context()`
+**Quoi initialement prévu** : déplacer AGE_CONTEXT, INTEREST_EXPRESSIONS, SPORT_APPROACH_EXAMPLES hors du prompt.
 
-**Impact** : -20% input tokens sur content_gen
+**Pourquoi abandonné** : après audit du code, ces dictionnaires sont **déjà** dans `content_agent.py` (pas dans `embedded_prompts.py`) et `build_profile_context()` n'injecte dynamiquement que la section correspondant au profil de l'utilisateur (~800 chars), pas le catalogue complet. L'optimisation est donc **déjà en place**.
 
-#### P2.2 — Améliorer la personnalisation
+Le reste du CONTENT_GENERATION_PROMPT (~29KB) contient les règles business critiques (Campus Coach matching, storytelling, fun facts, landmarks, format JSON). Toucher à ces sections = régression probable sur la qualité de génération. Gain potentiel faible (déjà couvert par P1.2 prompt caching à -90% sur cache hit).
 
-**Quoi** :
-- Réactiver le hook STM dans content_agent.py
-- Créer des namespaces séparés par type de préférence (style, contenu, sport)
-- Implémenter un "style fingerprint" évolutif basé sur les diffs feedback
+#### P2.2 — Améliorer la personnalisation — ❌ ABANDONNÉ (2026-04-25)
 
-#### P2.3 — Memory Strategy → Haiku
+**Quoi initialement prévu** : réactiver le hook STM dans `content_agent.py`.
 
-**Quoi** : changer le modèle dans `configure_memory_strategy.py` de Sonnet 4.5 vers Haiku pour extraction et consolidation
+**Pourquoi abandonné** : le hook STM d'écriture est désactivé **intentionnellement** (commentaire dans le code : "Memory writes only after feedback validation"). L'apprentissage est géré par `feedback_analyzer.py` (Lambda scheduled EventBridge) qui écrit les diffs ASSISTANT=généré vs USER=modifié. Réactiver le hook STM = apprendre de nos propres générations au lieu du feedback utilisateur réel = dégrade la personnalisation sur le long terme.
 
-#### P2.4 — Cleanup CloudWatch
+Les points 2 et 3 du plan initial (namespaces séparés par type de préférence, style fingerprint évolutif) sont intéressants mais demandent une refonte de la strategy AgentCore Memory. Hors scope de l'optimisation coûts.
 
-**Quoi** : réduire les custom metrics ($5.40/mois) et supprimer le dashboard s'il n'est pas utilisé ($2.40/mois)
+#### P2.3 — Memory Strategy → Haiku — ✅ FAIT (2026-04-25)
+
+Commit `9a12fc2`. Extraction + consolidation passent à `global.anthropic.claude-haiku-4-5-20251001-v1:0` (~4x moins cher que Sonnet). Script rendu idempotent (detect + modify si la strategy existe déjà). Appliqué live.
+
+#### P2.4 — Cleanup CloudWatch — ✅ FAIT (2026-04-25)
+
+Commits `e009ef8` + `662853d`. `MonitoringStack` supprimée complètement (code + CloudFormation live). Remplacée par le **CloudWatch GenAI Observability Dashboard natif** d'AgentCore (inclus dans le pricing runtime, pas de surcoût). Script `enable_agentcore_observability.sh` auto-appelé par `deploy_agentcore_agents.sh` pour garantir X-Ray Transaction Search activé.
+
+Économie : **-$8/mo** (dashboard $2.40 + custom metrics $5.40).
 
 ---
 
