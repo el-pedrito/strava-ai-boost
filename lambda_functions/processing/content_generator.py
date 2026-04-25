@@ -80,6 +80,11 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Store generated content
         store_generated_content(activity_id, enhanced_content)
 
+        # P0.2: Mark Campus Coach session as done if the agent matched one
+        matched_session_id = enhanced_content.get('matched_session_id')
+        if matched_session_id:
+            mark_campus_session_done(matched_session_id, activity_id)
+
         return {
             'statusCode': 200,
             'activity_id': activity_id,
@@ -482,11 +487,42 @@ def _parse_agent_response(
         'patterns_detected': patterns_detected,
         'analysis_type': 'agentcore_memory',
         'memory_used': memory_used,
-        'expressions_avoided': expressions_avoided
+        'expressions_avoided': expressions_avoided,
+        'matched_session_id': agent_response.get('matched_session_id')
     }
 
 
 # --- Storage ---
+
+def mark_campus_session_done(session_id: str, activity_id: str) -> None:
+    """P0.2: Mark a Campus Coach session as 'Fait' after content generator matched it."""
+    try:
+        coaching_table_name = os.environ.get('COACHING_SESSIONS_TABLE')
+        if not coaching_table_name or not session_id:
+            return
+        # session_id format: "{week_number}-{session_number}" e.g. "15-12-1/5"
+        # DDB PK: session_date = "week-{week_number}", SK: session_id
+        week_number = session_id.rsplit('-', 1)[0] if '-' in session_id else None
+        if not week_number:
+            logger.warning(f"Cannot derive week_number from session_id: {session_id}")
+            return
+        session_date = f"week-{week_number}"
+        table = dynamodb.Table(coaching_table_name)
+        table.update_item(
+            Key={'session_date': session_date, 'session_id': session_id},
+            UpdateExpression='SET #s = :done, completed_at = :ts, matched_activity_id = :aid',
+            ExpressionAttributeNames={'#s': 'status'},
+            ExpressionAttributeValues={
+                ':done': 'Fait',
+                ':ts': datetime.now(timezone.utc).isoformat(),
+                ':aid': activity_id
+            }
+        )
+        logger.info(f"✅ Marked Campus Coach session {session_id} as Fait (activity {activity_id})")
+    except Exception as e:
+        logger.warning(f"Failed to mark session {session_id} as Fait: {e}")
+
+
 
 def store_generated_content(activity_id: str, content: Dict[str, Any]) -> None:
     """Store generated content in DynamoDB"""

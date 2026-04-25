@@ -259,11 +259,11 @@ class ContentGenerationStack(Stack):
         self.campus_coach_schedule = events.Rule(
             self, "CampusCoachDailySchedule",
             rule_name="StravaAIBoost-CampusCoach-DailyExtraction",
-            description="Daily Campus Coach session extraction (6 AM Paris time)",
+            description="Weekly Campus Coach session extraction (Monday 5 UTC = 6-7 AM Paris)",
             schedule=events.Schedule.cron(
                 minute="0",
-                hour="5",  # 5 UTC = 6 AM Paris (winter time)
-                week_day="*",
+                hour="5",
+                week_day="MON",  # P0.1: weekly instead of daily (plan changes 1x/week)
                 month="*",
                 year="*"
             ),
