@@ -258,7 +258,15 @@ async def scrape_campus_sessions(region, campus_username, campus_password):
         
         ÉTAPE 1 - CONNEXION:
         1. Va sur https://app.campus.coach/auth
-        2. Si popup cookies: accepter
+           ⚠️ Le navigate Playwright peut timeout ~35s sur Campus Coach à cause
+           du popup cookies Axeptio qui envoie des analytics en continu
+           (networkidle ne se déclenche jamais). C'EST NORMAL.
+           Si navigate retourne une erreur de timeout, IGNORE-LA et continue
+           directement avec l'étape 2 — la page est très probablement chargée
+           en fond. Utilise `get_html` ou `evaluate` pour vérifier le contenu
+           au lieu de re-naviguer.
+        2. Si popup cookies Axeptio visible: clique "Accepter les cookies"
+           ou "Fermer sans accepter" pour débloquer les events réseau
         3. Clique "Continue with your email" puis "Log In"
         4. Email: {campus_username}
         5. Password: {campus_password}
@@ -268,11 +276,14 @@ async def scrape_campus_sessions(region, campus_username, campus_password):
         ⚠️ IMPORTANT - ERROR HANDLING:
         Distingue STRICTEMENT trois cas et retourne le JSON correspondant:
 
-        CAS A - Page lente à charger / timeout de navigation (fréquent au cold start):
-        La page met du temps à afficher, timeout après navigate, page blanche.
-        → SOIS PATIENT: retry navigate + attends encore, essaie d'interagir avec la page même si elle semble lente.
-        → N'ABANDONNE PAS à la 1ère difficulté de chargement. Essaie au moins 2-3 fois avant de renoncer.
-        → Si après 3 retries la page ne charge toujours pas:
+        CAS A - Site VRAIMENT injoignable (rare):
+        La page ne répond pas du tout après plusieurs tentatives get_html/evaluate,
+        DOM vide ou erreur HTTP visible. PAS juste un timeout de navigate (qui est normal).
+        → SOIS PATIENT: navigate peut timeout mais la page est souvent là en fond.
+          Utilise get_html / evaluate pour vérifier, pas seulement navigate.
+        → N'ABANDONNE PAS à la 1ère difficulté de chargement. Essaie au moins
+          2-3 interactions différentes avant de renoncer.
+        → Si après 3 tentatives le DOM est toujours vide:
           {{"error": "Site unreachable", "total_found": 0, "sessions_found": []}}
 
         CAS B - Vrais identifiants refusés (uniquement APRÈS soumission du login):
