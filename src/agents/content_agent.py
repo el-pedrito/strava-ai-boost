@@ -671,8 +671,13 @@ def invoke(payload, context=None):
         user_id = payload.get('user_id', 'default_user')
         
         # Use the embedded complete prompt
-        system_prompt = CONTENT_GENERATION_PROMPT
-        
+        # P1.2: Split into cached static part + dynamic part for prompt caching.
+        # The static CONTENT_GENERATION_PROMPT is ~35KB (~9K tokens) — well above
+        # the 1024-token minimum. Dynamic parts (memory feedback + profile) are
+        # appended after the cache point so cache hits still work.
+        static_system_prompt = CONTENT_GENERATION_PROMPT
+        dynamic_system_prompt = ""
+
         # Load user preferences from AgentCore Memory via semantic search
         feedback_instructions = ""
         if MEMORY_ID:
@@ -1103,7 +1108,16 @@ Generate content now."""
         logger.info(f"🎯 User original input - Title: '{validated_title}' | Description: '{validated_description[:150]}'")
         logger.info(f"🎯 Prompt starts with: {prompt[:500]}")
         result = agent(prompt)
-        
+
+        # P1.2: Log prompt cache metrics
+        try:
+            usage = result.metrics.accumulated_usage
+            cache_write = usage.get('cacheWriteInputTokens', 0)
+            cache_read = usage.get('cacheReadInputTokens', 0)
+            logger.info(f"📦 Prompt cache: write={cache_write} read={cache_read} tokens")
+        except Exception:
+            pass
+
         # No need to check guardrail intervention on model (we validated inputs separately)
         # Parse the response directly
         response_text = result.message.get('content', [{}])[0].get('text', str(result))
