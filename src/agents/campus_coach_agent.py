@@ -37,7 +37,11 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 
 # Environment variables
 REGION = os.getenv("AWS_REGION", "eu-west-1")
-MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-4-5-20250929-v1:0")
+# Campus Coach uses Haiku 4.5 (scraping task, no need for Sonnet's capabilities)
+# Cost: ~4x cheaper than Sonnet 4.5. See docs/OPTIMIZATION-PLAN.md P0.6
+MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "global.anthropic.claude-haiku-4-5-20251001-v1:0")
+# Max turns to prevent infinite loops. Successful run = ~130 turns. See P0.3
+MAX_TURNS = int(os.getenv("CAMPUS_COACH_MAX_TURNS", "150"))
 COACHING_SESSIONS_TABLE = os.getenv("COACHING_SESSIONS_TABLE", "strava-ai-boost-campus-coaching-sessions")
 CAMPUS_COACH_SECRET = os.getenv("CAMPUS_COACH_SECRET", "strava-ai-boost-campus-coach-credentials")
 
@@ -208,6 +212,7 @@ async def scrape_campus_sessions(region, campus_username, campus_password):
             tools=[browser_tool.browser],
             system_prompt=CAMPUS_COACH_PROMPT,
             hooks=[AgentCoreMemoryHook()] if MEMORY_ID else [],
+            max_turns=MAX_TURNS,
             state={
                 "session_id": f"campus-extraction-{datetime.now().strftime('%Y%m%d')}",
                 "actor_id": "campus_coach_agent"
@@ -231,6 +236,12 @@ async def scrape_campus_sessions(region, campus_username, campus_password):
         5. Password: {campus_password}
         6. Clique connexion
         7. Attendre redirection dashboard
+
+        ⚠️ IMPORTANT - AUTH FAILURE HANDLING:
+        Si la connexion échoue (message d'erreur visible, pas de redirection après 3 tentatives max de click),
+        ABANDONNE IMMÉDIATEMENT et retourne ce JSON sans tenter de recommencer depuis zéro:
+        {{"error": "Authentication failed", "total_found": 0, "sessions_found": []}}
+        NE RECOMMENCE PAS le flow de login depuis le début. Une auth qui échoue = on stoppe.
         
         ÉTAPE 2 - EXTRACTION:
         1. Scroll progressivement pour voir toutes les séances
@@ -277,7 +288,18 @@ async def scrape_campus_sessions(region, campus_username, campus_password):
                 json_text = response_text.strip()
             
             sessions_data = json.loads(json_text)
-            
+
+            # P0.4: Abort on auth failure - do not retry, just return
+            if sessions_data.get('error') and 'auth' in str(sessions_data['error']).lower():
+                logger.error(f"❌ Auth failed, aborting (no retry): {sessions_data['error']}")
+                agent.cleanup()
+                return {
+                    "success": False,
+                    "error": sessions_data['error'],
+                    "retry": False,
+                    "message": "Campus Coach authentication failed - credentials may need refresh"
+                }
+
             logger.info("💾 Saving to DynamoDB...")
             saved_count = save_sessions_to_dynamodb(sessions_data, region)
             logger.info(f"✅ {saved_count} sessions saved")
