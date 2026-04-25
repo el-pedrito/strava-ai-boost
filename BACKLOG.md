@@ -97,6 +97,12 @@ Le but de cette évolution : sortir du simple "enhance title/description"
 pour aller vers un **coach personnel numérique** qui connaît l'utilisateur
 et lui parle comme un pote attentionné — sans jamais sonner "AI generated".
 
+**⚠️ Ce n'est pas un nouveau module activable.** C'est une **évolution
+du `content_gen` actuel** : les commentaires enrichis aujourd'hui
+incluront en plus des signaux de coaching bienveillant quand c'est pertinent.
+Ça reste la même chaîne (webhook → Step Functions → content_gen → Strava update),
+juste un prompt plus riche et un payload enrichi.
+
 ### Phase 1 — Onboarding riche au 1er déploiement
 
 Aujourd'hui le profil utilisateur est basique (age_range, sport_approach,
@@ -133,10 +139,11 @@ Injection dans le prompt : étendre `build_profile_context()` pour exposer
 ces nouveaux champs à l'agent content_gen. Tout reste optionnel — profil
 vide = comportement actuel.
 
-### Phase 2 — Feedback bienveillant / coaching dans les descriptions
+### Phase 2 — Signaux coaching intégrés dans chaque description
 
-Au-delà d'enrichir la description d'une activité, détecter **automatiquement
-des signaux positifs** à mentionner avec le ton du user :
+**Intégré directement dans le flux content_gen actuel**, pas un module séparé.
+À chaque activité enrichie, détecter **automatiquement des signaux positifs**
+à mentionner dans la description, avec le ton du user :
 
 - **Progression** : "cette foulée à 180 spm, c'est ton meilleur score du mois",
   "+15% de volume vs la même semaine l'an dernier", "3e sortie >10K d'affilée".
@@ -149,24 +156,17 @@ des signaux positifs** à mentionner avec le ton du user :
 - **Encouragements ciblés** : si la personne a renseigné un objectif "semi en mai",
   commenter la pertinence de la sortie vis-à-vis de l'objectif.
 
-**Implémentation (tout en prompt, pas de nouveau Lambda)** :
+**Implémentation (tout dans le flux existant)** :
 - Étendre `activity_fetcher` pour récupérer **l'historique court** (30 derniers
   jours d'activités) depuis DynamoDB
 - Calculer côté Python des stats simples (volume hebdo, cadence moyenne,
   streak de régularité) — pas de LLM pour le math
 - Les injecter dans le payload du content_gen qui choisit **1 ou 2 signaux**
   à mentionner (pas tous, sinon ça devient un tableau de bord)
-- Règle dans le prompt : "ne célèbre que si c'est vrai, ne force pas, et
-  mentionne-le dans le style du user"
-
-### Phase 3 — Module "Coach" activable
-
-Packaging : créer un module `coach` (au même niveau que Campus Coach,
-Enduraw, Intervals.icu) activable/désactivable depuis le frontend.
-Module désactivé = on reste sur le comportement actuel (enhance simple).
-
-Cohérent avec la philosophie "tout est optionnel, chacun compose
-sa stack selon ses besoins".
+- Règles dans le prompt :
+  - "intègre au max 1-2 signaux de progression quand c'est pertinent et vrai"
+  - "au style du user, pas en mode rapport de coach"
+  - "jamais à tout prix : si rien de remarquable, reste sur la narration de la sortie"
 
 ### Non-goals explicites
 
@@ -178,6 +178,8 @@ sa stack selon ses besoins".
   pourrait même être retirée à terme, c'est à débattre.)
 - **Pas de notifications proactives** — l'agent n'écrit que sur la
   description de l'activité que l'utilisateur a lui-même publiée.
+- **Pas un nouveau module activable** — le coaching est une extension
+  naturelle du `content_gen` existant, pas une case à cocher de plus.
 
 ---
 
