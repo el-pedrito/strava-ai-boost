@@ -713,13 +713,24 @@ def invoke(payload, context=None):
 
         # Append feedback instructions if available
         if feedback_instructions:
-            system_prompt += feedback_instructions
+            dynamic_system_prompt += feedback_instructions
 
         # Inject profile-specific context (age, interests, sport approach examples)
         user_profile = payload.get('user_profile')
         profile_context = build_profile_context(user_profile)
         if profile_context:
-            system_prompt += profile_context
+            dynamic_system_prompt += profile_context
+
+        # P1.2: Build SystemContentBlock array with cache point after static prompt.
+        # Bedrock min cache threshold ≈ 1024 tokens (~4KB). Fall back to string if shorter.
+        from strands.types.content import SystemContentBlock
+        if len(static_system_prompt) >= 4096:
+            system_prompt = [SystemContentBlock(text=static_system_prompt),
+                             SystemContentBlock(cachePoint={"type": "default"})]
+            if dynamic_system_prompt:
+                system_prompt.append(SystemContentBlock(text=dynamic_system_prompt))
+        else:
+            system_prompt = static_system_prompt + dynamic_system_prompt
 
         # Create Strands agent WITHOUT guardrails on the model
         # Guardrails are applied manually on user inputs only (title/description)
