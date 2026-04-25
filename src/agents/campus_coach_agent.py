@@ -265,11 +265,26 @@ async def scrape_campus_sessions(region, campus_username, campus_password):
         6. Clique connexion
         7. Attendre redirection dashboard
 
-        ⚠️ IMPORTANT - AUTH FAILURE HANDLING:
-        Si la connexion échoue (message d'erreur visible, pas de redirection après 3 tentatives max de click),
-        ABANDONNE IMMÉDIATEMENT et retourne ce JSON sans tenter de recommencer depuis zéro:
-        {{"error": "Authentication failed", "total_found": 0, "sessions_found": []}}
-        NE RECOMMENCE PAS le flow de login depuis le début. Une auth qui échoue = on stoppe.
+        ⚠️ IMPORTANT - ERROR HANDLING:
+        Distingue STRICTEMENT trois cas et retourne le JSON correspondant:
+
+        CAS A - Page lente à charger / timeout de navigation (fréquent au cold start):
+        La page met du temps à afficher, timeout après navigate, page blanche.
+        → SOIS PATIENT: retry navigate + attends encore, essaie d'interagir avec la page même si elle semble lente.
+        → N'ABANDONNE PAS à la 1ère difficulté de chargement. Essaie au moins 2-3 fois avant de renoncer.
+        → Si après 3 retries la page ne charge toujours pas:
+          {{"error": "Site unreachable", "total_found": 0, "sessions_found": []}}
+
+        CAS B - Vrais identifiants refusés (uniquement APRÈS soumission du login):
+        Message d'erreur EXPLICITE affiché: "Invalid credentials", "Wrong password",
+        "Mot de passe incorrect", "Email inconnu", ou équivalent visible à l'écran.
+        → Retourne UNIQUEMENT si ce message est visible:
+          {{"error": "Invalid credentials", "total_found": 0, "sessions_found": []}}
+        → Ne JAMAIS renvoyer "Invalid credentials" si tu n'as pas pu soumettre le formulaire.
+
+        CAS C - Extraction normale réussie: retourne les séances trouvées (voir format ci-dessous).
+
+        NE RETOURNE JAMAIS "Authentication failed" — ce terme n'existe pas dans nos cas.
         
         ÉTAPE 2 - EXTRACTION:
         1. Scroll progressivement pour voir toutes les séances
