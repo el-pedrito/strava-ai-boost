@@ -317,15 +317,18 @@ async def scrape_campus_sessions(region, campus_username, campus_password):
             
             sessions_data = json.loads(json_text)
 
-            # P0.4: Abort on auth failure - do not retry, just return
-            if sessions_data.get('error') and 'auth' in str(sessions_data['error']).lower():
-                logger.error(f"❌ Auth failed, aborting (no retry): {sessions_data['error']}")
+            # P0.4: Only abort on REAL auth failure (invalid credentials).
+            # Do NOT abort on transient errors (timeout, site unreachable) — these are
+            # network/cold-start issues, not credential problems.
+            err = str(sessions_data.get('error', '')).lower()
+            if err and ('invalid credentials' in err or 'wrong password' in err or 'incorrect email' in err):
+                logger.error(f"❌ Invalid credentials, aborting (no retry): {sessions_data['error']}")
                 agent.cleanup()
                 return {
                     "success": False,
                     "error": sessions_data['error'],
                     "retry": False,
-                    "message": "Campus Coach authentication failed - credentials may need refresh"
+                    "message": "Campus Coach credentials are invalid — manual refresh required"
                 }
 
             logger.info("💾 Saving to DynamoDB...")
