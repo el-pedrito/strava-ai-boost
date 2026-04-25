@@ -4,7 +4,7 @@
 
 Le projet est fonctionnel et en production (dev). Toute la chaine fonctionne end-to-end :
 - Webhook Strava → Step Functions → AI content generation → update Strava activity
-- Campus Coach scraping automatique (daily via EventBridge)
+- Campus Coach scraping automatique (weekly via EventBridge, session status sync on match)
 - Frontend React avec configuration modules, profil utilisateur, feedback loop
 - 163 unit tests (Lambda + frontend)
 - Observability (X-Ray + CloudWatch), cost allocation tags, DLQ error handling
@@ -18,7 +18,15 @@ Le projet est fonctionnel et en production (dev). Toute la chaine fonctionne end
 - Erreur exposee au client — Message generique dans `content_agent.py`
 - Webhook API sans auth — Documente (exigence Strava, HMAC-SHA1)
 - Logger inconsistant — Harmonise sur `shared.logger.get_logger()`
-- Cost allocation tags — CDK + AgentCore resources
+- Cost allocation tags — CDK + AgentCore resources + IAM execution roles (per-agent Bedrock cost via CUR 2.0)
+- **Cost optimization pass (April 2026)** — $513/mo -> ~$26/mo. See [docs/OPTIMIZATION-PLAN.md](docs/OPTIMIZATION-PLAN.md).
+  - Campus Coach cron weekly (was daily) + mark session done on match
+  - Campus Coach + Memory Strategy -> Haiku 4.5 (was Sonnet)
+  - Bedrock prompt caching on content_gen system prompt
+  - `MaxToolCountsHook` prevents infinite loops on Campus Coach
+  - `MonitoringStack` removed — rely on AgentCore Observability + default AWS namespaces
+- **Credentials leak in AgentCore logs** — CloudWatch Data Protection Policy masks `Password:`, `EmailAddress`, `AwsSecretKey`, `Authorization:` in all AgentCore runtime log groups. Applied by `scripts/tag_agentcore_resources.py`.
+- **Campus Coach scraping reliability** — Diagnosed Axeptio cookies popup blocking Playwright `networkidle` (upstream bug microsoft/playwright#19835). Fixed via prompt-level instruction.
 
 ---
 
@@ -61,11 +69,10 @@ Duplique dans 4 fichiers : `strava_updater.py`, `feedback_analyzer.py`, `activit
 ### Strava Rate Limiting & Retry
 `strava_updater.py` catch le 429 mais ne retry pas. Ajouter exponential backoff ou re-queue dans Step Functions.
 
-### Credentials dans le prompt Campus Coach
-`campus_coach_agent.py` — username/password injectes dans le prompt f-string. Finissent dans logs CloudWatch et memoire AgentCore. Pas genant dans le contexte actuel (single user, projet perso, credentials d'une app de coaching). A traiter si multi-users.
+### Credentials dans le prompt Campus Coach — partiellement résolu
+`campus_coach_agent.py` — username/password sont toujours injectes dans le prompt f-string, mais la fuite dans CloudWatch Logs est maintenant bloquee par CloudWatch Data Protection Policy.
+- **Reste pour multi-users/prod :** Browser Profiles AWS pour auth persistante via cookies (évite de passer les credentials à chaque invocation).
 - **Note :** Cet agent est fragile — sensible a la casse et au format de la page Campus Coach. Un changement cote Campus Coach peut casser l'extraction.
-- **Fix leger :** Desactiver `on_message_added` dans le memory hook, supprimer log du username et du resultat brut.
-- **Fix complet (multi-users/prod) :** Browser Profiles AWS pour auth persistante via cookies.
 
 ### CI/CD Pipeline
 Pas de pipeline — `cdk deploy` manuel. GitHub Actions avec `cdk diff` sur PR + deploy on merge.
