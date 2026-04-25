@@ -58,6 +58,14 @@ When evaluating new preferences against existing ones:
 Preferences should be concise and actionable. Each preference should directly inform how to generate content.
 """
 
+# P2.3: Use Haiku 4.5 for extraction/consolidation (~4x cheaper than Sonnet).
+# The memory strategy prompts are simple classification tasks that don't need Sonnet.
+# Override with EXTRACTION_MODEL_ID env var if needed.
+EXTRACTION_MODEL_ID = os.environ.get(
+    'MEMORY_STRATEGY_MODEL_ID',
+    'global.anthropic.claude-haiku-4-5-20251001-v1:0'
+)
+
 
 def main():
     # Load memory config from YAML
@@ -91,14 +99,51 @@ def main():
 
     print(f"Memory Execution Role: {role_arn}")
 
-    # Update memory with UserPreferenceStrategy
+    # Update memory with UserPreferenceStrategy (idempotent)
     agentcore_cp = boto3.client('bedrock-agentcore-control', region_name=REGION)
 
+    # Check if StravaContentPreferences already exists → modify, else add
+    existing_id = None
     try:
-        response = agentcore_cp.update_memory(
-            memoryId=memory_id,
-            memoryExecutionRoleArn=role_arn,
-            memoryStrategies={
+        mem = agentcore_cp.get_memory(memoryId=memory_id)
+        for s in mem.get('memory', {}).get('strategies', []):
+            if s.get('name') == 'StravaContentPreferences':
+                existing_id = s.get('strategyId') or s.get('id')
+                break
+    except Exception as e:
+        print(f"Warning: could not read existing strategies: {e}")
+
+    try:
+        if existing_id:
+            print(f"Strategy exists ({existing_id}) — updating modelId to {EXTRACTION_MODEL_ID}")
+            strategies = {
+                'modifyMemoryStrategies': [
+                    {
+                        'memoryStrategyId': existing_id,
+                        'configuration': {
+                            'extraction': {
+                                'customExtractionConfiguration': {
+                                    'userPreferenceExtractionOverride': {
+                                        'appendToPrompt': EXTRACTION_PROMPT,
+                                        'modelId': EXTRACTION_MODEL_ID
+                                    }
+                                }
+                            },
+                            'consolidation': {
+                                'customConsolidationConfiguration': {
+                                    'userPreferenceConsolidationOverride': {
+                                        'appendToPrompt': CONSOLIDATION_PROMPT,
+                                        'modelId': EXTRACTION_MODEL_ID
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ]
+            }
+        else:
+            print(f"Creating StravaContentPreferences strategy with modelId {EXTRACTION_MODEL_ID}")
+            strategies = {
                 'addMemoryStrategies': [
                     {
                         'customMemoryStrategy': {
@@ -108,11 +153,11 @@ def main():
                                 'userPreferenceOverride': {
                                     'extraction': {
                                         'appendToPrompt': EXTRACTION_PROMPT,
-                                        'modelId': 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0'
+                                        'modelId': EXTRACTION_MODEL_ID
                                     },
                                     'consolidation': {
                                         'appendToPrompt': CONSOLIDATION_PROMPT,
-                                        'modelId': 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0'
+                                        'modelId': EXTRACTION_MODEL_ID
                                     }
                                 }
                             }
@@ -120,8 +165,12 @@ def main():
                     }
                 ]
             }
-        )
 
+        response = agentcore_cp.update_memory(
+            memoryId=memory_id,
+            memoryExecutionRoleArn=role_arn,
+            memoryStrategies=strategies
+        )
         print(f"\nMemory updated successfully!")
         print(f"Response: {json.dumps(response.get('ResponseMetadata', {}), indent=2)}")
 
