@@ -84,7 +84,6 @@ EXPECTED_STACKS=(
     "StravaAIBoost-Content"
     "StravaAIBoost-Webhook"
     "StravaAIBoost-API"
-    "StravaAIBoost-Monitoring"
 )
 
 for stack in "${EXPECTED_STACKS[@]}"; do

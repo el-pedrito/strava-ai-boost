@@ -38,7 +38,7 @@ export AWS_REGION=eu-west-1
 ./scripts/configure_strava_webhook.sh dev --auto-configure
 ```
 
-**What this deploys**: 7 CDK stacks, DynamoDB tables, 12 Lambda functions (grouped in 4 packages), Step Functions, Secrets Manager, Bedrock fallback mode (Claude Sonnet 4.5), structured logging with AWS Lambda Powertools. System is immediately functional.
+**What this deploys**: 6 CDK stacks, DynamoDB tables, 12 Lambda functions (grouped in 4 packages), Step Functions, Secrets Manager, Bedrock fallback mode (Claude Sonnet 4.5), structured logging with AWS Lambda Powertools. System is immediately functional.
 
 ### Phase 2: AgentCore Enhancement (Optional)
 
@@ -177,7 +177,7 @@ graph TB
         Browser[Web Browser<br/>localhost:3000]
     end
 
-    subgraph "AWS Infrastructure - 7 CDK Stacks"
+    subgraph "AWS Infrastructure - 6 CDK Stacks"
         subgraph "Core Stack"
             DDB[(DynamoDB<br/>3 Tables)]
             Secrets[Secrets Manager<br/>OAuth & Credentials]
@@ -243,7 +243,7 @@ graph TB
 
 | Component | Details |
 |-----------|---------|
-| **7 CDK Stacks** | Core, Security, Webhook, Content, API, Monitoring, Feedback |
+| **6 CDK Stacks** | Core, Security, Webhook, Content, API, Feedback |
 | **12 Lambda Functions** | 4 API + 3 processing + 3 webhooks + 2 support (in role-based packages) |
 | **3 DynamoDB Tables** | `activities` (GSI, TTL), `user_config`, `coaching_sessions` (GSI) |
 | **2 AgentCore Agents** | `content_gen` (LTM memory), `campus_coach` (Browser Tool) |

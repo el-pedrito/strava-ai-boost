@@ -12,7 +12,6 @@ from stacks.security_stack import SecurityStack
 from stacks.api_gateway_stack import ApiGatewayStack
 from stacks.webhook_processing_stack import WebhookProcessingStack
 from stacks.content_generation_stack import ContentGenerationStack
-from stacks.monitoring_stack import MonitoringStack
 from stacks.feedback_loop_stack import FeedbackLoopStack
 
 app = cdk.App()
@@ -75,22 +74,6 @@ api_stack = ApiGatewayStack(
 )
 # Explicit dependency on core stack
 api_stack.add_dependency(core_stack)
-
-# Monitoring stack - CloudWatch alarms and dashboards
-monitoring_stack = MonitoringStack(
-    app,
-    "StravaAIBoost-Monitoring",
-    core_stack=core_stack,
-    webhook_stack=webhook_stack,
-    content_stack=content_stack,
-    env=env,
-    description="Monitoring and observability infrastructure"
-)
-# Explicit dependencies on all other stacks
-monitoring_stack.add_dependency(core_stack)
-monitoring_stack.add_dependency(content_stack)
-monitoring_stack.add_dependency(webhook_stack)
-monitoring_stack.add_dependency(api_stack)
 
 # Feedback loop stack - Automatic learning from user modifications
 feedback_stack = FeedbackLoopStack(
