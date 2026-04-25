@@ -145,19 +145,26 @@ require rewriting agent invocations for a feature we don't currently need.
 
 ## 5. Open issues
 
-### AgentCore Browser Tool reliability
+### AgentCore Browser Tool — Playwright `networkidle` trap
 
-The `campus_coach` agent occasionally returns `"Site unreachable"` because
-`browser.navigate(url)` returns after ~35 seconds without a page load result.
-Suspected cold start of the AgentCore Browser service itself (re:Post threads
-report a ~30 % first-call failure rate). The agent retries up to 3 times per
-session before giving up; the weekly cron will retry on the next Monday.
+**Symptom:** `browser.navigate('https://app.campus.coach/auth')` times out
+after ~35 seconds even though the page loads fine in a regular browser
+(confirmed via Chrome DevTools MCP test).
 
-If this becomes consistently problematic, options are:
-- Pre-warm a Browser session before the scrape (would add cost)
-- Switch to a non-AgentCore scraper (Lambda + Playwright) at the cost of losing
-  the AgentCore Memory integration for this agent
-- Accept occasional missed weekly extractions (current stance)
+**Root cause:** The Campus Coach site displays an Axeptio cookie consent
+popup that keeps sending analytics requests to its backend. Playwright's
+default `wait_until='networkidle'` never resolves because the network
+never goes idle. This is a [known Playwright issue](https://github.com/microsoft/playwright/issues/19835).
+
+**Fix applied (commit `4f53a22`):** Prompt-level instruction. The agent
+is told explicitly that `navigate` timeout is *normal* on Campus Coach,
+that the page is loaded behind the timeout, and to use `get_html`/`evaluate`
+to inspect the DOM rather than retrying `navigate`. Also prioritizes
+clicking "Accepter les cookies" early to unblock network events.
+
+**Validated in prod (2026-04-25):** 3 sessions correctly scraped and
+saved to DynamoDB after the prompt fix. Scrape takes ~110s end-to-end
+(vs. previously failing after 3 minutes of timeouts).
 
 ### Lambda invoker → AgentCore runtime sync call timeout
 
