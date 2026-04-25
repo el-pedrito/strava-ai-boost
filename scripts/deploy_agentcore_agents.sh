@@ -46,14 +46,15 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Function to tag AgentCore resources (runtimes + memories) with cost allocation tags
+# Function to tag AgentCore resources (runtimes + memories + IAM roles) with cost allocation tags
 tag_agentcore_resources() {
     print_status "Applying cost allocation tags to AgentCore resources..."
 
     python3 << EOF
 import boto3
 client = boto3.client('bedrock-agentcore-control', region_name='$AWS_REGION')
-tags = {
+iam = boto3.client('iam')
+base_tags = {
     'Project': '$TAGS_PROJECT',
     'Environment': '$TAGS_ENVIRONMENT',
     'Owner': '$TAGS_OWNER',
@@ -61,22 +62,33 @@ tags = {
     'ManagedBy': '$TAGS_MANAGED_BY',
 }
 
-# Tag runtimes
+# Tag runtimes + their execution roles (P0.5: IAM Principal cost allocation in CUR 2.0)
 for rt in client.list_agent_runtimes().get('agentRuntimes', []):
     arn = rt.get('agentRuntimeArn', '')
     name = rt.get('agentRuntimeName', 'unknown')
     try:
-        client.tag_resource(resourceArn=arn, tags=tags)
+        client.tag_resource(resourceArn=arn, tags=base_tags)
         print(f'  Tagged runtime: {name}')
     except Exception as e:
         print(f'  Failed to tag runtime {name}: {e}')
+    # Tag the runtime's execution IAM role with agent= for per-agent cost attribution
+    try:
+        details = client.get_agent_runtime(agentRuntimeId=rt.get('agentRuntimeId', ''))
+        role_arn = details.get('roleArn', '')
+        role_name = role_arn.split('/')[-1] if role_arn else ''
+        if role_name:
+            role_tags = [{'Key': 'agent', 'Value': name}] + [{'Key': k, 'Value': v} for k, v in base_tags.items()]
+            iam.tag_role(RoleName=role_name, Tags=role_tags)
+            print(f'  Tagged IAM role: {role_name} (agent={name})')
+    except Exception as e:
+        print(f'  Failed to tag IAM role for {name}: {e}')
 
 # Tag memories
 for mem in client.list_memories().get('memories', []):
     arn = mem.get('memoryArn', mem.get('arn', ''))
     name = arn.split('/')[-1] if arn else 'unknown'
     try:
-        client.tag_resource(resourceArn=arn, tags=tags)
+        client.tag_resource(resourceArn=arn, tags=base_tags)
         print(f'  Tagged memory: {name}')
     except Exception as e:
         print(f'  Failed to tag memory {name}: {e}')
