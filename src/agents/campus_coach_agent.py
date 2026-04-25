@@ -22,7 +22,7 @@ from bedrock_agentcore import BedrockAgentCoreApp
 from bedrock_agentcore.memory import MemoryClient
 from strands import Agent
 from strands_tools.browser import AgentCoreBrowser
-from strands.hooks import AgentInitializedEvent, HookProvider, MessageAddedEvent
+from strands.hooks import AgentInitializedEvent, BeforeToolCallEvent, HookProvider, MessageAddedEvent
 
 # Import embedded prompts
 from embedded_prompts import CAMPUS_COACH_PROMPT
@@ -57,6 +57,32 @@ if MEMORY_ID:
     except Exception as e:
         logger.warning(f"Failed to initialize memory client: {e}")
         memory_client = None
+
+
+class MaxToolCountsHook(HookProvider):
+    """P0.3: Stop the agent loop after max_tool_calls tool invocations.
+
+    Strands Python SDK has no native max_turns arg; we use the official hook
+    pattern: set request_state["stop_event_loop"] = True to break the loop.
+    See: https://strandsagents.com/docs/user-guide/concepts/agents/hooks/#limit-tool-counts
+    """
+
+    def __init__(self, max_tool_calls: int):
+        self.max_tool_calls = max_tool_calls
+        self.count = 0
+
+    def _on_before_tool_call(self, event):
+        self.count += 1
+        if self.count > self.max_tool_calls:
+            event.cancel_tool = (
+                f"Max tool call limit ({self.max_tool_calls}) reached. "
+                "Stop immediately and return the JSON with what you have."
+            )
+            event.invocation_state.setdefault("request_state", {})["stop_event_loop"] = True
+            logger.warning(f"⛔ Max tool calls ({self.max_tool_calls}) reached, stopping agent loop")
+
+    def register_hooks(self, registry):
+        registry.add_callback(BeforeToolCallEvent, self._on_before_tool_call)
 
 
 class AgentCoreMemoryHook(HookProvider):
@@ -207,12 +233,14 @@ async def scrape_campus_sessions(region, campus_username, campus_password):
         logger.info("Campus Coach agent: Guardrails disabled (internal scraping agent)")
         model = MODEL_ID
         
+        hooks = [MaxToolCountsHook(MAX_TURNS)]
+        if MEMORY_ID:
+            hooks.append(AgentCoreMemoryHook())
         agent = Agent(
             model=model,
             tools=[browser_tool.browser],
             system_prompt=CAMPUS_COACH_PROMPT,
-            hooks=[AgentCoreMemoryHook()] if MEMORY_ID else [],
-            max_turns=MAX_TURNS,
+            hooks=hooks,
             state={
                 "session_id": f"campus-extraction-{datetime.now().strftime('%Y%m%d')}",
                 "actor_id": "campus_coach_agent"
