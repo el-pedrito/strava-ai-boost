@@ -61,6 +61,7 @@ Uninstall order: Webhook > AgentCore agents > AgentCore memories > CDK stacks (M
 | `validate_deployment.sh` | Post-deploy validation | `[dev\|prod]` |
 | `create_agentcore_memories.sh` | AgentCore LTM memories (semantic search, 365d) | |
 | `deploy_agentcore_agents.sh` | Deploy agents (content_gen, campus_coach) | |
+| `tag_agentcore_resources.sh` | Tag runtimes + memories + IAM execution roles for cost allocation | |
 | `configure_agentcore_integration.sh` | IAM policies + Lambda env vars for AgentCore | |
 | `configure_memory_strategy.py` | UserPreferenceStrategy on content_gen memory | |
 | `reprocess_dlq.sh` | Reprocess DLQ messages | `--dry-run`, `--max-messages N`, `--delete-after` |

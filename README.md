@@ -414,7 +414,7 @@ All resources are tagged for AWS Cost Explorer cost allocation:
 
 **Coverage:**
 - **CDK resources** (Lambda, DynamoDB, SQS, Step Functions, API Gateway, Secrets Manager, CloudWatch, Guardrails, IAM): Tagged automatically via `cdk.Tags.of(app)` in `app.py`
-- **AgentCore resources** (2 runtimes, 2 memories): Tagged via boto3 `tag_resource` in deployment scripts (`scripts/deploy_agentcore_agents.sh`, `scripts/create_agentcore_memories.sh`)
+- **AgentCore resources** (2 runtimes, 2 memories, IAM execution roles): Tagged via `scripts/tag_agentcore_resources.sh` (called automatically by `deploy_agentcore_agents.sh`, also runnable standalone). IAM role tagging enables per-agent Bedrock cost attribution via CUR 2.0 IAM Principal data.
 
 **To activate in Cost Explorer:** Billing console → Cost Allocation Tags → select `Project`, `Environment`, `Owner`, `CostCenter`, `ManagedBy` → Activate (takes ~24h to propagate).
 
