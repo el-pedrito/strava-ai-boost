@@ -27,6 +27,7 @@ Le projet est fonctionnel et en production (dev). Toute la chaine fonctionne end
   - `MonitoringStack` removed — rely on AgentCore Observability + default AWS namespaces
 - **Credentials leak in AgentCore logs** — CloudWatch Data Protection Policy masks `Password:`, `EmailAddress`, `AwsSecretKey`, `Authorization:` in all AgentCore runtime log groups. Applied by `scripts/tag_agentcore_resources.py`.
 - **Campus Coach scraping reliability** — Diagnosed Axeptio cookies popup blocking Playwright `networkidle` (upstream bug microsoft/playwright#19835). Fixed via prompt-level instruction.
+- **Campus Coach fire-and-forget fix (2026-04-27)** — Lambda invoker timeout 120s systematique : `asyncio.create_task` dans `@app.entrypoint` gardait la coroutine attachee au worker loop AgentCore, bloquant la reponse HTTP. Fix : `threading.Thread` + `asyncio.run()` dans le handler. Lambda retourne maintenant en <15s. Commit `69486ef`.
 
 ---
 
@@ -83,10 +84,22 @@ Tags cost allocation en place mais pas d'alerte. Ajouter `aws budgets` avec seui
 ### DLQ Monitoring
 Le DLQ existe mais personne ne le lit. Alarme CloudWatch sur `ApproximateNumberOfMessagesVisible > 0`.
 
+### Lambda Layer build automation
+Dette technique #1+#4 : hash `LAYER_ASSET_HASH` et build du layer sont manuels. Oubli = deps stales ou cross-stack export cassé. Makefile ou `scripts/build_layer.sh` qui rebuild + update le hash automatiquement.
+
+### CDK Feature Flags manquants
+Dette technique #2 : ~35/58 flags configurés dans `cdk.json` — warnings a chaque `cdk synth/deploy`. Bruit log + risque comportement par defaut legacy sur upgrade CDK. Passer `cdk flags` puis aligner.
+
 ## P3 — Low
 
 ### Campus Coach API
 Pas d'API disponible a date. Surveiller si Campus Coach expose une API — remplacerait le scraping browser (plus rapide, fiable, moins cher).
+
+### Migration config dead code
+Dette technique #7 : `activity_fetcher.py` fait une migration old→new format de config a chaque fetch. Tous les users sont migrés depuis longtemps. Retirer le code.
+
+### Embedded prompts externalization
+Dette technique #6 : `embedded_prompts.py` = ~20k chars, difficile a reviewer/A-B tester. Externaliser (S3 + version) pour decoupler du cycle de deploy de l'agent. Low priority car fonctionne.
 
 ---
 
