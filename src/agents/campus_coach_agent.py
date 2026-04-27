@@ -216,9 +216,8 @@ def save_sessions_to_dynamodb(sessions_data: dict, region: str = "eu-west-1"):
     return saved_count
 
 
-@app.async_task
 async def scrape_campus_sessions(region, campus_username, campus_password):
-    """Background task to scrape Campus Coach sessions"""
+    """Background task to scrape Campus Coach sessions (tracked manually by entrypoint)"""
     
     logger.info(f"✅ Credentials retrieved for user: {campus_username}")
     
@@ -417,12 +416,24 @@ async def invoke(payload, context=None):
     if not campus_username or not campus_password:
         return {"success": False, "error": "Failed to retrieve credentials from Secrets Manager"}
     
-    # Launch async task in background without awaiting
+    # Launch in dedicated thread with own event loop — true fire-and-forget.
+    # asyncio.create_task on the worker loop keeps the HTTP response waiting;
+    # a separate thread detaches the work completely.
     logger.info("🚀 Starting background scraping task...")
-    import asyncio
-    asyncio.create_task(scrape_campus_sessions(region, campus_username, campus_password))
-    
-    return {"success": True, "message": "Scraping task started in background"}
+    import asyncio, threading
+    task_id = app.add_async_task("scrape_campus_sessions")
+
+    def _run():
+        try:
+            asyncio.run(scrape_campus_sessions(region, campus_username, campus_password))
+        except Exception as e:
+            logger.exception(f"Background scrape failed: {e}")
+        finally:
+            app.complete_async_task(task_id)
+
+    threading.Thread(target=_run, daemon=True).start()
+
+    return {"success": True, "message": "Scraping task started in background", "task_id": task_id}
 
 
 if __name__ == "__main__":
