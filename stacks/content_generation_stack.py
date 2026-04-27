@@ -118,7 +118,8 @@ class ContentGenerationStack(Stack):
             )
         )
 
-        # Add permissions for Bedrock access (foundation models and inference profiles across all regions)
+        # Add permissions for Bedrock access (scoped to specific models via inference profiles)
+        # @secure_recommendation: least privilege — only Sonnet 4.5 + Haiku 4.5 (models used by content_gen and campus_coach)
         content_lambda_role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
@@ -127,10 +128,12 @@ class ContentGenerationStack(Stack):
                     "bedrock:InvokeModelWithResponseStream"
                 ],
                 resources=[
-                    # Foundation models in all regions
-                    "arn:aws:bedrock:*::foundation-model/*",
-                    # Inference profiles in current account and region
-                    f"arn:aws:bedrock:{Aws.REGION}:{Aws.ACCOUNT_ID}:inference-profile/*"
+                    # Global inference profiles (what the code actually invokes via modelId)
+                    f"arn:aws:bedrock:{Aws.REGION}:{Aws.ACCOUNT_ID}:inference-profile/global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                    f"arn:aws:bedrock:{Aws.REGION}:{Aws.ACCOUNT_ID}:inference-profile/global.anthropic.claude-haiku-4-5-20251001-v1:0",
+                    # Underlying foundation models routed to by those inference profiles (cross-region)
+                    "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
+                    "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
                 ]
             )
         )
