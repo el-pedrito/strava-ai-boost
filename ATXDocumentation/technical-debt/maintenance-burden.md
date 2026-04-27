@@ -29,6 +29,8 @@ The Campus Coach agent uses AgentCore's Browser Tool (headless Chrome) for web s
 
 **Current Mitigation**: The agent is invoked asynchronously (fire-and-forget), so failures don't block the activity enhancement pipeline. Sessions are stored in DynamoDB and reused across multiple activities. The Memory hook stores extraction history for learning.
 
+**Implementation gotcha**: True fire-and-forget requires spawning a `threading.Thread` with its own event loop (`asyncio.run(...)`) inside the `@app.entrypoint`. Using `asyncio.create_task(...)` instead keeps the coroutine attached to the AgentCore worker loop, which blocks the HTTP response until the task finishes (caused 120s Lambda timeouts before the fix in commit `69486ef`).
+
 ## Manual Lambda Dependency Build
 **Severity**: Low | **Impact**: Developer experience, deployment reliability
 
