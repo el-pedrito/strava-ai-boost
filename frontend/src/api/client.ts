@@ -10,18 +10,23 @@ export class ApiError extends Error {
 }
 
 function getIdToken(): string | null {
-  const config = getConfig();
-  const pool = new CognitoUserPool({
-    UserPoolId: config.cognitoUserPoolId,
-    ClientId: config.cognitoClientId,
-  });
-  const user = pool.getCurrentUser();
-  if (!user) return null;
-  let token: string | null = null;
-  user.getSession((err: Error | null, session: { getIdToken: () => { getJwtToken: () => string } } | null) => {
-    if (!err && session) token = session.getIdToken().getJwtToken();
-  });
-  return token;
+  try {
+    const config = getConfig();
+    if (!config.cognitoUserPoolId || !config.cognitoClientId) return null;
+    const pool = new CognitoUserPool({
+      UserPoolId: config.cognitoUserPoolId,
+      ClientId: config.cognitoClientId,
+    });
+    const user = pool.getCurrentUser();
+    if (!user) return null;
+    let token: string | null = null;
+    user.getSession((err: Error | null, session: { getIdToken: () => { getJwtToken: () => string } } | null) => {
+      if (!err && session) token = session.getIdToken().getJwtToken();
+    });
+    return token;
+  } catch {
+    return null;
+  }
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {

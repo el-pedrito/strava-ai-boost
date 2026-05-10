@@ -207,6 +207,10 @@ def build_user_profile_from_config(user_config: Dict[str, Any]) -> Optional[Dict
         if pace_zones:
             user_profile['pace_zones'] = pace_zones
 
+        athlete_profile_text = preferences.get('athlete_profile', '')
+        if athlete_profile_text:
+            user_profile['athlete_profile'] = athlete_profile_text
+
         return user_profile
 
     except Exception as e:

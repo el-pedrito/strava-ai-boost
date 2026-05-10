@@ -11,6 +11,7 @@ import SpaceBetween from '@cloudscape-design/components/space-between';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import Box from '@cloudscape-design/components/box';
 import Alert from '@cloudscape-design/components/alert';
+import Textarea from '@cloudscape-design/components/textarea';
 import type { SelectProps } from '@cloudscape-design/components/select';
 import type { MultiselectProps } from '@cloudscape-design/components/multiselect';
 import { api } from '../../api/client.ts';
@@ -134,6 +135,7 @@ export function PreferencesPage() {
   const [contentLanguage, setContentLanguage] = useState<SelectProps.Option | null>(findOption(LANGUAGE_OPTIONS, DEFAULTS.content_language));
   const [interests, setInterests] = useState<MultiselectProps.Option[]>([]);
   const [paceZones, setPaceZones] = useState<PaceZones>({ ...DEFAULT_PACE_ZONES });
+  const [athleteProfile, setAthleteProfile] = useState('');
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
@@ -155,6 +157,7 @@ export function PreferencesPage() {
         if (p.pace_zones && typeof p.pace_zones === 'object') {
           setPaceZones({ ...DEFAULT_PACE_ZONES, ...(p.pace_zones as PaceZones) });
         }
+        setAthleteProfile((p.athlete_profile as string) || '');
       }
     } catch {
       // Use defaults
@@ -182,6 +185,7 @@ export function PreferencesPage() {
         content_language: contentLanguage?.value,
         interests: interests.map((i) => i.value),
         pace_zones: paceZones,
+        athlete_profile: athleteProfile,
       });
       flash('success', 'Preferences saved successfully! Future activities will use these settings.');
     } catch (err) {
@@ -235,6 +239,28 @@ export function PreferencesPage() {
               />
             </FormField>
           </SpaceBetween>
+        </Container>
+
+        <Container
+          header={
+            <Header variant="h2" description="Décris ton profil pour que l'IA personnalise encore mieux tes descriptions">
+              Athlete Profile
+            </Header>
+          }
+        >
+          <FormField
+            label="Ton profil athlète"
+            description={`${athleteProfile.length}/2000 caractères`}
+          >
+            <Textarea
+              value={athleteProfile}
+              onChange={({ detail }) => {
+                if (detail.value.length <= 2000) setAthleteProfile(detail.value);
+              }}
+              placeholder="Décris-toi : tes objectifs, ton historique sportif, ton expérience, tes blessures, ce que tu veux améliorer..."
+              rows={8}
+            />
+          </FormField>
         </Container>
 
         <Container

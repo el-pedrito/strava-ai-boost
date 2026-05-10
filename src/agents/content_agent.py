@@ -1062,7 +1062,7 @@ Description: "{validated_description}"
 {f"⚠️ Note: Description was sanitized by security filters" if desc_blocked else ""}
 ⚠️ Construis ton récit AUTOUR de ces sensations. Elles sont le fil narratif, les données viennent les enrichir — pas l'inverse.
 
-ACTIVITY DATA:
+{f"## Athlete Profile\n{user_profile.get('athlete_profile', '')}\n\n" if user_profile and user_profile.get('athlete_profile') else ""}ACTIVITY DATA:
 - Type: {activity_type}
 - Distance: {distance:.2f} km
 - Duration: {duration:.0f} minutes (Moving: {duration:.0f} min, Elapsed: {elapsed_time:.0f} min)
