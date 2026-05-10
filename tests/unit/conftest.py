@@ -13,3 +13,4 @@ os.environ.setdefault("DLQ_URL", "https://sqs.eu-west-1.amazonaws.com/0000000000
 os.environ.setdefault("STRAVA_OAUTH_SECRET", "test-oauth-secret")
 os.environ.setdefault("BEDROCK_MODEL_ID", "anthropic.claude-v2")
 os.environ.setdefault("CONTENT_GENERATION_AGENT_ARN", "arn:aws:bedrock-agentcore:eu-west-1:000000000000:runtime/test")
+os.environ.setdefault("MEMORY_ID", "test-memory-id")
