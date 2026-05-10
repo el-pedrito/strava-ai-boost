@@ -298,6 +298,7 @@ class ContentGenerationStack(Stack):
             environment={
                 "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
                 "MEMORY_ID": os.environ.get("BEDROCK_AGENTCORE_MEMORY_ID", ""),
+                "COACH_AGENT_ARN": os.environ.get("COACH_AGENT_ARN", "arn:aws:bedrock-agentcore:us-east-1:123456789012:runtime/strava_ai_boost_coach-LSz0qXBpd6"),
                 "BEDROCK_MODEL_ID": get_bedrock_model_id(),
                 **self._get_base_environment_variables()
             }

@@ -1,5 +1,9 @@
 """
-Coach Agent - Generates coaching feedback using Bedrock Converse API directly.
+Coach Agent - Generates coaching feedback.
+
+Works as:
+- A module imported by the Lambda (generate_coaching_feedback function)
+- An AgentCore agent entry point (when deployed to AgentCore runtime)
 """
 
 import json
@@ -10,14 +14,13 @@ from typing import Any, Dict, List, Optional
 
 import boto3
 
-from agents.embedded_prompts import COACH_AGENT_SYSTEM_PROMPT
+from embedded_prompts import COACH_AGENT_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
-MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "anthropic.claude-sonnet-4-5-20250514-v1:0")
-REGION = os.environ.get("AWS_REGION", "us-east-1")
-
-bedrock_client = boto3.client("bedrock-runtime", region_name=REGION)
+MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-4-5-20250929-v1:0")
+REGION = os.environ.get("AWS_REGION", "eu-west-1")
+MEMORY_ID = os.environ.get("BEDROCK_AGENTCORE_MEMORY_ID")
 
 
 def retrieve_coaching_observations(memory_id: str, user_id: str) -> List[str]:
@@ -37,44 +40,74 @@ def retrieve_coaching_observations(memory_id: str, user_id: str) -> List[str]:
         return []
 
 
+def _build_prompt_parts(
+    activity_data: Dict[str, Any],
+    user_config: Dict[str, Any],
+    historical_summary: Optional[Dict[str, Any]] = None,
+    memory_id: Optional[str] = None,
+) -> tuple:
+    """Build system prompt and user message. Returns (system_prompt, user_message)."""
+    user_prefs = user_config.get("user_preferences", {})
+    athlete_profile = user_prefs.get("athlete_profile", "Non renseigné")
+    historical_context = json.dumps(historical_summary or {}, ensure_ascii=False, default=str)
+    activity_json = json.dumps(activity_data, ensure_ascii=False, default=str)
+
+    past_observations = ""
+    if memory_id:
+        user_id = user_config.get("user_id", "")
+        obs = retrieve_coaching_observations(memory_id, user_id)
+        if obs:
+            past_observations = "\n\n## OBSERVATIONS PASSÉES\n" + "\n---\n".join(obs[:5])
+
+    system_prompt = COACH_AGENT_SYSTEM_PROMPT.replace(
+        "{ATHLETE_PROFILE}", athlete_profile
+    ).replace(
+        "{HISTORICAL_CONTEXT}", historical_context
+    ).replace(
+        "{PAST_OBSERVATIONS}", past_observations
+    )
+
+    user_message = f"Analyse cette activité et donne ton feedback coach :\n\n{activity_json}"
+    return system_prompt, user_message
+
+
+def _parse_coach_response(response_text: str) -> Optional[Dict[str, Any]]:
+    """Parse JSON coaching response from model output."""
+    if not response_text:
+        return None
+
+    cleaned = re.sub(r"```json\s*", "", response_text)
+    cleaned = re.sub(r"```\s*", "", cleaned)
+
+    match = re.search(r"\{[^{}]*\"strava_block\"[^{}]*\}", cleaned, re.DOTALL)
+    if not match:
+        match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+
+    if match:
+        result = json.loads(match.group())
+        if "strava_block" in result:
+            return result
+
+    logger.warning(f"Could not parse coach JSON: {response_text[:200]}")
+    return None
+
+
 def generate_coaching_feedback(
     activity_data: Dict[str, Any],
     user_config: Dict[str, Any],
     historical_summary: Optional[Dict[str, Any]] = None,
     memory_id: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Generate coaching feedback for an activity.
+    """Generate coaching feedback via direct Bedrock Converse API.
 
     Returns dict with 'strava_block' and 'detailed_analysis', or None on failure.
     """
     try:
-        # Build context
-        user_prefs = user_config.get("user_preferences", {})
-        athlete_profile = user_prefs.get("athlete_profile", "Non renseigné")
-        historical_context = json.dumps(historical_summary or {}, ensure_ascii=False, default=str)
-        activity_json = json.dumps(activity_data, ensure_ascii=False, default=str)
-
-        # Retrieve past observations if memory available
-        past_observations = ""
-        if memory_id:
-            user_id = user_config.get("user_id", "")
-            obs = retrieve_coaching_observations(memory_id, user_id)
-            if obs:
-                past_observations = "\n\n## OBSERVATIONS PASSÉES\n" + "\n---\n".join(obs[:5])
-
-        # Build system prompt
-        system_prompt = COACH_AGENT_SYSTEM_PROMPT.replace(
-            "{ATHLETE_PROFILE}", athlete_profile
-        ).replace(
-            "{HISTORICAL_CONTEXT}", historical_context
-        ).replace(
-            "{PAST_OBSERVATIONS}", past_observations
+        system_prompt, user_message = _build_prompt_parts(
+            activity_data, user_config, historical_summary, memory_id
         )
 
-        # Build user message
-        user_message = f"Analyse cette activité et donne ton feedback coach :\n\n{activity_json}"
-
-        # Call Bedrock Converse API
+        bedrock_client = boto3.client("bedrock-runtime", region_name=REGION)
         response = bedrock_client.converse(
             modelId=MODEL_ID,
             messages=[{"role": "user", "content": [{"text": user_message}]}],
@@ -82,37 +115,56 @@ def generate_coaching_feedback(
             inferenceConfig={"maxTokens": 1500, "temperature": 0.7},
         )
 
-        # Extract response text
         output = response.get("output", {}).get("message", {}).get("content", [])
-        response_text = ""
-        for block in output:
-            if "text" in block:
-                response_text += block["text"]
+        response_text = "".join(block.get("text", "") for block in output)
 
-        if not response_text:
-            logger.warning("Empty response from Bedrock")
-            return None
-
-        # Parse JSON from response
-        # Strip markdown code blocks if present
-        cleaned = re.sub(r"```json\s*", "", response_text)
-        cleaned = re.sub(r"```\s*", "", cleaned)
-
-        # Find JSON object
-        match = re.search(r"\{[^{}]*\"strava_block\"[^{}]*\}", cleaned, re.DOTALL)
-        if not match:
-            # Try broader match
-            match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-
-        if match:
-            result = json.loads(match.group())
-            if "strava_block" in result:
-                logger.info(f"Coach feedback generated: {len(result.get('strava_block', ''))} chars")
-                return result
-
-        logger.warning(f"Could not parse coach JSON from response: {response_text[:200]}")
-        return None
+        return _parse_coach_response(response_text)
 
     except Exception as e:
         logger.error(f"Coach agent error: {e}")
         return None
+
+
+# --- AgentCore Runtime Entrypoint ---
+
+try:
+    from bedrock_agentcore import BedrockAgentCoreApp
+    from strands import Agent
+
+    app = BedrockAgentCoreApp()
+
+    @app.entrypoint
+    def invoke(payload, context=None):
+        """AgentCore entrypoint for coach agent."""
+        try:
+            activity_data = payload.get("activity_data", {})
+            user_config = payload.get("user_config", {})
+            historical_summary = payload.get("historical_summary")
+            mem_id = MEMORY_ID or payload.get("memory_id")
+
+            system_prompt, user_message = _build_prompt_parts(
+                activity_data, user_config, historical_summary, mem_id
+            )
+
+            agent = Agent(model=MODEL_ID, system_prompt=system_prompt)
+            result = agent(user_message)
+
+            response_text = result.message.get("content", [{}])[0].get("text", str(result))
+
+            return {
+                "response": response_text,
+                "user_id": user_config.get("user_id", "unknown"),
+                "activity_id": activity_data.get("id", "unknown"),
+            }
+        except Exception as e:
+            logger.error(f"AgentCore coach invoke error: {e}")
+            return {"error": str(e)}
+
+except ImportError:
+    # bedrock_agentcore not available (Lambda environment) — module-only mode
+    app = None
+
+
+if __name__ == "__main__":
+    if app:
+        app.run()

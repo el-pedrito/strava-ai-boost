@@ -41,10 +41,11 @@ class TestHandler:
     @patch('processing.coach_generator.store_coach_feedback')
     @patch('processing.coach_generator.build_historical_summary', return_value={"weeks": 4, "total_activities": 0})
     @patch('processing.coach_generator.retrieve_activity_data')
-    def test_handler_success(self, mock_retrieve, mock_history, mock_store, mock_write,
+    @patch('processing.coach_generator._invoke_coach_agent')
+    def test_handler_success(self, mock_invoke, mock_retrieve, mock_history, mock_store, mock_write,
                              activity_event, activity_data, coach_feedback):
         mock_retrieve.return_value = activity_data
-        mock_coach_agent.generate_coaching_feedback.return_value = coach_feedback
+        mock_invoke.return_value = coach_feedback
 
         response = handler(activity_event, None)
 
@@ -59,11 +60,11 @@ class TestHandler:
         assert response["statusCode"] == 500
         assert "not found" in response["error"]
 
+    @patch('processing.coach_generator._invoke_coach_agent', return_value=None)
     @patch('processing.coach_generator.build_historical_summary', return_value={"weeks": 4, "total_activities": 0})
     @patch('processing.coach_generator.retrieve_activity_data')
-    def test_handler_coach_agent_failure(self, mock_retrieve, mock_history, activity_event, activity_data):
+    def test_handler_coach_agent_failure(self, mock_retrieve, mock_history, mock_invoke, activity_event, activity_data):
         mock_retrieve.return_value = activity_data
-        mock_coach_agent.generate_coaching_feedback.return_value = None
 
         response = handler(activity_event, None)
 
@@ -77,13 +78,14 @@ class TestHandler:
 
     @patch('processing.coach_generator.write_coaching_observation')
     @patch('processing.coach_generator.store_coach_feedback')
+    @patch('processing.coach_generator._invoke_coach_agent')
     @patch('processing.coach_generator.build_historical_summary', return_value={"weeks": 4, "total_activities": 0})
     @patch('processing.coach_generator.retrieve_activity_data')
     @patch.dict(os.environ, {"MEMORY_ID": ""}, clear=False)
-    def test_handler_no_memory_id(self, mock_retrieve, mock_history, mock_store, mock_write,
+    def test_handler_no_memory_id(self, mock_retrieve, mock_history, mock_invoke, mock_store, mock_write,
                                   activity_event, activity_data, coach_feedback):
         mock_retrieve.return_value = activity_data
-        mock_coach_agent.generate_coaching_feedback.return_value = coach_feedback
+        mock_invoke.return_value = coach_feedback
 
         response = handler(activity_event, None)
 
