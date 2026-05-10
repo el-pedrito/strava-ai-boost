@@ -1,5 +1,5 @@
 """
-Coach Agent - Generates coaching feedback using Strands Agent with Claude Sonnet.
+Coach Agent - Generates coaching feedback using Bedrock Converse API directly.
 """
 
 import json
@@ -9,13 +9,15 @@ import re
 from typing import Any, Dict, List, Optional
 
 import boto3
-from strands import Agent
+
 from agents.embedded_prompts import COACH_AGENT_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
-MODEL_ID = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
-REGION = os.getenv("AWS_REGION", "eu-west-1")
+MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "anthropic.claude-sonnet-4-5-20250514-v1:0")
+REGION = os.environ.get("AWS_REGION", "us-east-1")
+
+bedrock_client = boto3.client("bedrock-runtime", region_name=REGION)
 
 
 def retrieve_coaching_observations(memory_id: str, user_id: str) -> List[str]:
@@ -25,18 +27,11 @@ def retrieve_coaching_observations(memory_id: str, user_id: str) -> List[str]:
         response = client.retrieve_memory_records(
             memoryId=memory_id,
             namespace=f"coaching_observations/{user_id}",
-            searchCriteria={"searchQuery": "recent coaching observations patterns progress"},
-            maxResults=5,
+            searchQuery="recent coaching observations and athlete patterns",
+            topK=5,
         )
-        records = response.get("memoryRecordSummaries", [])
-        observations = []
-        for r in records:
-            text = r.get("content", {}).get("text", "")
-            if text:
-                observations.append(text)
-        if observations:
-            logger.info(f"Retrieved {len(observations)} coaching observations from memory")
-        return observations
+        records = response.get("memoryRecords", [])
+        return [r.get("content", {}).get("text", "") for r in records if r.get("content")]
     except Exception as e:
         logger.warning(f"Failed to retrieve coaching observations: {e}")
         return []
@@ -53,55 +48,71 @@ def generate_coaching_feedback(
     Returns dict with 'strava_block' and 'detailed_analysis', or None on failure.
     """
     try:
-        # Build prompt variables
-        athlete_profile = json.dumps(user_config.get("user_preferences", {}), ensure_ascii=False)
-        historical_context = json.dumps(historical_summary or {}, ensure_ascii=False)
+        # Build context
+        user_prefs = user_config.get("user_preferences", {})
+        athlete_profile = user_prefs.get("athlete_profile", "Non renseigné")
+        historical_context = json.dumps(historical_summary or {}, ensure_ascii=False, default=str)
         activity_json = json.dumps(activity_data, ensure_ascii=False, default=str)
 
-        # Retrieve past coaching observations from memory
-        observations_context = ""
-        user_id = user_config.get("user_id") or activity_data.get("athlete", {}).get("id")
-        if memory_id and user_id:
-            observations = retrieve_coaching_observations(memory_id, str(user_id))
-            if observations:
-                observations_context = (
-                    "\n\n## PAST COACHING OBSERVATIONS (from long-term memory)\n"
-                    + "\n".join(f"- {obs}" for obs in observations)
-                    + "\n\nUse these to ensure continuity and track progress.\n"
-                )
+        # Retrieve past observations if memory available
+        past_observations = ""
+        if memory_id:
+            user_id = user_config.get("user_id", "")
+            obs = retrieve_coaching_observations(memory_id, user_id)
+            if obs:
+                past_observations = "\n\n## OBSERVATIONS PASSÉES\n" + "\n---\n".join(obs[:5])
 
-        system_prompt = (
-            COACH_AGENT_SYSTEM_PROMPT
-            .replace("{athlete_profile}", athlete_profile)
-            .replace("{historical_context}", historical_context)
-            .replace("{activity_data}", activity_json)
-        ) + observations_context
+        # Build system prompt
+        system_prompt = COACH_AGENT_SYSTEM_PROMPT.replace(
+            "{ATHLETE_PROFILE}", athlete_profile
+        ).replace(
+            "{HISTORICAL_CONTEXT}", historical_context
+        ).replace(
+            "{PAST_OBSERVATIONS}", past_observations
+        )
 
-        agent = Agent(model=MODEL_ID, system_prompt=system_prompt)
+        # Build user message
+        user_message = f"Analyse cette activité et donne ton feedback coach :\n\n{activity_json}"
 
-        result = agent("Analyse cette activité et génère le coaching feedback en JSON.")
+        # Call Bedrock Converse API
+        response = bedrock_client.converse(
+            modelId=MODEL_ID,
+            messages=[{"role": "user", "content": [{"text": user_message}]}],
+            system=[{"text": system_prompt}],
+            inferenceConfig={"maxTokens": 1500, "temperature": 0.7},
+        )
 
-        response_text = result.message.get("content", [{}])[0].get("text", str(result))
+        # Extract response text
+        output = response.get("output", {}).get("message", {}).get("content", [])
+        response_text = ""
+        for block in output:
+            if "text" in block:
+                response_text += block["text"]
 
-        # Extract JSON from response
-        response_text = re.sub(r"```json\s*", "", response_text)
-        response_text = re.sub(r"```\s*$", "", response_text)
-        json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
-        if not json_match:
-            logger.error("No JSON found in coach agent response")
+        if not response_text:
+            logger.warning("Empty response from Bedrock")
             return None
 
-        parsed = json.loads(json_match.group())
+        # Parse JSON from response
+        # Strip markdown code blocks if present
+        cleaned = re.sub(r"```json\s*", "", response_text)
+        cleaned = re.sub(r"```\s*", "", cleaned)
 
-        strava_block = parsed.get("strava_block")
-        detailed_analysis = parsed.get("detailed_analysis")
+        # Find JSON object
+        match = re.search(r"\{[^{}]*\"strava_block\"[^{}]*\}", cleaned, re.DOTALL)
+        if not match:
+            # Try broader match
+            match = re.search(r"\{.*\}", cleaned, re.DOTALL)
 
-        if not strava_block or not detailed_analysis:
-            logger.error(f"Missing required fields in coach response: {list(parsed.keys())}")
-            return None
+        if match:
+            result = json.loads(match.group())
+            if "strava_block" in result:
+                logger.info(f"Coach feedback generated: {len(result.get('strava_block', ''))} chars")
+                return result
 
-        return {"strava_block": strava_block, "detailed_analysis": detailed_analysis}
+        logger.warning(f"Could not parse coach JSON from response: {response_text[:200]}")
+        return None
 
     except Exception as e:
-        logger.error(f"Coach agent failed: {e}")
+        logger.error(f"Coach agent error: {e}")
         return None
