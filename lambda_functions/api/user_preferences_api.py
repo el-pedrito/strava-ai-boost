@@ -90,7 +90,8 @@ def get_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
                 'emoji_usage': preferences.get('emoji_usage', 'moderate'),
                 'technical_detail': preferences.get('technical_detail', 'intermediate'),
                 'content_language': preferences.get('content_language', 'french'),
-                'pace_zones': preferences.get('pace_zones', None)
+                'pace_zones': preferences.get('pace_zones', None),
+                'athlete_profile': preferences.get('athlete_profile', '')
             }
         }
 
@@ -140,6 +141,11 @@ def update_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(interests, list) or len(interests) > 20:
             return create_error_response(400, 'interests must be a list with at most 20 items', cors_headers=CORS_HEADERS)
 
+        # Validate athlete_profile (free-text, max 2000 chars)
+        athlete_profile = body.get('athlete_profile', '')
+        if not isinstance(athlete_profile, str) or len(athlete_profile) > 2000:
+            return create_error_response(400, 'athlete_profile must be a string with at most 2000 characters', cors_headers=CORS_HEADERS)
+
         preferences = {
             'age_range': age_range,
             'interests': interests,
@@ -148,7 +154,8 @@ def update_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
             'content_tone': content_tone,
             'emoji_usage': emoji_usage,
             'technical_detail': technical_detail,
-            'content_language': content_language
+            'content_language': content_language,
+            'athlete_profile': athlete_profile
         }
 
         # Add pace_zones if provided (validated format: {zone: {min: "mm:ss", max: "mm:ss"}})
