@@ -1,0 +1,8 @@
+{
+  "apiGatewayUrl": "https://uprxy587ri.execute-api.us-east-1.amazonaws.com/prod",
+  "apiGatewayKey": "",
+  "defaultUserId": "138362426",
+  "cognitoUserPoolId": "us-east-1_KzemZ5qIG",
+  "cognitoClientId": "14qeb2oe765ocujhdnhg5ibga9",
+  "cognitoRegion": "us-east-1"
+}
