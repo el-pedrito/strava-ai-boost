@@ -836,6 +836,29 @@ aws stepfunctions describe-execution \
 
 ---
 
+## Next Steps (Backlog)
+
+### P1 — Short Term (validate coach)
+- [ ] Fill Athlete Profile in Preferences (objectives, history, experience)
+- [ ] Run 3-5 activities and review coach feedback quality
+- [ ] Iterate on COACH_AGENT_SYSTEM_PROMPT based on real outputs
+- [ ] Verify coach memory accumulates observations over time
+
+### P2 — Medium Term (improve coach)
+- [ ] Add Efficiency Factor tracking (pace:HR ratio trend over weeks)
+- [ ] Add weekly synthesis (EventBridge schedule, Sunday summary)
+- [ ] Add "nothing to report" logic (skip trivial sessions)
+- [ ] Add grey zone detection (flag when EF runs are too fast)
+- [ ] Frontend Coach page: add charts (volume trend, pace progression)
+
+### P3 — Long Term (expand)
+- [ ] Morning briefing (pre-run guidance based on Form/fatigue)
+- [ ] Conversational mode (ask the coach questions)
+- [ ] Race readiness assessment (periodic check vs goal pace)
+- [ ] Integration with Campus Coach plan (compliance scoring)
+
+---
+
 ## Additional Resources
 
 ### Documentation
