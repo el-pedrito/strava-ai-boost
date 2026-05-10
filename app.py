@@ -65,16 +65,27 @@ webhook_stack = WebhookProcessingStack(
 webhook_stack.add_dependency(core_stack)
 webhook_stack.add_dependency(content_stack)
 
+# Frontend hosting stack - S3, CloudFront, Cognito
+frontend_stack = FrontendHostingStack(
+    app,
+    "StravaAIBoost-Frontend",
+    env=env,
+    description="Frontend hosting with S3, CloudFront, and Cognito authentication"
+)
+
 # API Gateway stack - Local interface endpoints
 api_stack = ApiGatewayStack(
     app,
     "StravaAIBoost-API",
     core_stack=core_stack,
+    user_pool=frontend_stack.user_pool,
+    cloudfront_domain=frontend_stack.distribution.distribution_domain_name,
     env=env,
     description="API Gateway for local web interface"
 )
-# Explicit dependency on core stack
+# Explicit dependency on core stack and frontend (for Cognito)
 api_stack.add_dependency(core_stack)
+api_stack.add_dependency(frontend_stack)
 
 # Feedback loop stack - Automatic learning from user modifications
 feedback_stack = FeedbackLoopStack(
@@ -87,16 +98,7 @@ feedback_stack = FeedbackLoopStack(
     env=env,
     description="Feedback loop infrastructure for learning from user modifications"
 )
-# Explicit dependency on core stack
 feedback_stack.add_dependency(core_stack)
-
-# Frontend hosting stack - S3, CloudFront, Cognito
-frontend_stack = FrontendHostingStack(
-    app,
-    "StravaAIBoost-Frontend",
-    env=env,
-    description="Frontend hosting with S3, CloudFront, and Cognito authentication"
-)
 
 # Global resource tags for cost allocation
 environment = app.node.try_get_context('environment') or 'dev'

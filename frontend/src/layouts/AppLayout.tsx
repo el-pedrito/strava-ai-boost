@@ -4,6 +4,7 @@ import TopNavigation from '@cloudscape-design/components/top-navigation';
 import Flashbar from '@cloudscape-design/components/flashbar';
 import BreadcrumbGroup from '@cloudscape-design/components/breadcrumb-group';
 import { useFlashMessages } from '../hooks/useFlashMessages.ts';
+import { useAuth } from '../auth/AuthContext.tsx';
 import { createContext, useContext } from 'react';
 
 type AddMessageFn = (type: 'success' | 'error' | 'warning' | 'info', content: string) => void;
@@ -25,6 +26,7 @@ export function Shell() {
   const location = useLocation();
   const navigate = useNavigate();
   const { items, addMessage } = useFlashMessages();
+  const { signOut } = useAuth();
 
   const breadcrumbs = [
     { text: 'Strava AI Boost', href: '/' },
@@ -50,6 +52,7 @@ export function Shell() {
             { type: 'button', text: location.pathname === '/config' ? '[ Configuration ]' : 'Configuration', onClick: () => navigate('/config') },
             { type: 'button', text: location.pathname === '/preferences' ? '[ Preferences ]' : 'Preferences', onClick: () => navigate('/preferences') },
             { type: 'button', text: location.pathname === '/quality' ? '[ Quality ]' : 'Quality', onClick: () => navigate('/quality') },
+            { type: 'button', text: 'Sign out', onClick: () => signOut() },
           ]}
           i18nStrings={{ overflowMenuTriggerText: 'More', overflowMenuTitleText: 'All' }}
         />
