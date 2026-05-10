@@ -13,6 +13,7 @@ from stacks.api_gateway_stack import ApiGatewayStack
 from stacks.webhook_processing_stack import WebhookProcessingStack
 from stacks.content_generation_stack import ContentGenerationStack
 from stacks.feedback_loop_stack import FeedbackLoopStack
+from stacks.frontend_hosting_stack import FrontendHostingStack
 
 app = cdk.App()
 
@@ -88,6 +89,14 @@ feedback_stack = FeedbackLoopStack(
 )
 # Explicit dependency on core stack
 feedback_stack.add_dependency(core_stack)
+
+# Frontend hosting stack - S3, CloudFront, Cognito
+frontend_stack = FrontendHostingStack(
+    app,
+    "StravaAIBoost-Frontend",
+    env=env,
+    description="Frontend hosting with S3, CloudFront, and Cognito authentication"
+)
 
 # Global resource tags for cost allocation
 environment = app.node.try_get_context('environment') or 'dev'
