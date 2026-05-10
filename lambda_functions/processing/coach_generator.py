@@ -24,6 +24,7 @@ dynamodb = boto3.resource("dynamodb", region_name=REGION)
 
 # Environment variables
 ACTIVITIES_TABLE = os.environ.get("ACTIVITIES_TABLE", "strava-ai-boost-activities")
+MEMORY_ID = os.environ.get("MEMORY_ID")
 
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -52,7 +53,9 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Generate coaching feedback
         from agents.coach_agent import generate_coaching_feedback
 
-        feedback = generate_coaching_feedback(activity_data, user_config, historical_summary)
+        feedback = generate_coaching_feedback(
+            activity_data, user_config, historical_summary, memory_id=MEMORY_ID
+        )
 
         if not feedback:
             logger.warning(f"Coach agent returned no feedback for activity {activity_id}")
@@ -62,6 +65,9 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 "user_id": user_id,
                 "coach_feedback": None,
             }
+
+        # Write coaching observation to memory for long-term learning
+        write_coaching_observation(user_id, feedback)
 
         # Store feedback in DynamoDB
         store_coach_feedback(activity_id, feedback)
@@ -176,3 +182,44 @@ def store_coach_feedback(activity_id: str, feedback: Dict[str, Any]) -> None:
         logger.info(f"Stored coach feedback for activity {activity_id}")
     except Exception as e:
         logger.error(f"Failed to store coach feedback: {e}")
+
+
+def write_coaching_observation(user_id: str, feedback: Dict[str, Any]) -> None:
+    """Write a coaching observation summary to AgentCore Memory."""
+    if not MEMORY_ID:
+        return
+    try:
+        from bedrock_agentcore.memory import MemoryClient
+
+        # Extract a concise observation from the detailed analysis
+        analysis = feedback.get("detailed_analysis", {})
+        observation_parts = []
+        if analysis.get("key_metrics"):
+            observation_parts.append(f"Metrics: {analysis['key_metrics']}")
+        if analysis.get("progress_note"):
+            observation_parts.append(f"Progress: {analysis['progress_note']}")
+        if analysis.get("recommendation"):
+            observation_parts.append(f"Recommendation: {analysis['recommendation']}")
+
+        # Fallback: use strava_block summary if detailed_analysis lacks fields
+        if not observation_parts:
+            strava = feedback.get("strava_block", {})
+            summary = strava.get("summary") or strava.get("text", "")
+            if summary:
+                observation_parts.append(summary[:500])
+
+        if not observation_parts:
+            return
+
+        observation_text = " | ".join(observation_parts)
+
+        client = MemoryClient(region_name=REGION)
+        client.create_event(
+            memory_id=MEMORY_ID,
+            actor_id=str(user_id),
+            session_id=f"coaching_observations/{user_id}",
+            messages=[(observation_text, "assistant")],
+        )
+        logger.info(f"Wrote coaching observation to memory for user {user_id}")
+    except Exception as e:
+        logger.warning(f"Failed to write coaching observation to memory: {e}")
