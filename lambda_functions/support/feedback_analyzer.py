@@ -357,8 +357,8 @@ def detect_modification(enhanced: str, final: str) -> Tuple[bool, float]:
     # Calculate similarity
     similarity = difflib.SequenceMatcher(None, enhanced_norm, final_norm).ratio()
     
-    # Consider modified if similarity < 98% (capture even small edits for memory learning)
-    is_modified = similarity < 0.98
+    # Consider modified if similarity < 99.5% (capture even minor edits for memory learning)
+    is_modified = similarity < 0.995
     
     return is_modified, similarity
 
