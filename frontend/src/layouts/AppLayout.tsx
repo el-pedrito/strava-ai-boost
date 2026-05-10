@@ -20,6 +20,7 @@ const BREADCRUMB_MAP: Record<string, string> = {
   '/config': 'Configuration',
   '/preferences': 'Preferences',
   '/quality': 'Content Quality',
+  '/coach': 'Coach',
 };
 
 export function Shell() {
@@ -52,6 +53,7 @@ export function Shell() {
             { type: 'button', text: location.pathname === '/config' ? '[ Configuration ]' : 'Configuration', onClick: () => navigate('/config') },
             { type: 'button', text: location.pathname === '/preferences' ? '[ Preferences ]' : 'Preferences', onClick: () => navigate('/preferences') },
             { type: 'button', text: location.pathname === '/quality' ? '[ Quality ]' : 'Quality', onClick: () => navigate('/quality') },
+            { type: 'button', text: location.pathname === '/coach' ? '[ Coach ]' : 'Coach', onClick: () => navigate('/coach') },
             { type: 'button', text: 'Sign out', onClick: () => signOut() },
           ]}
           i18nStrings={{ overflowMenuTriggerText: 'More', overflowMenuTitleText: 'All' }}
