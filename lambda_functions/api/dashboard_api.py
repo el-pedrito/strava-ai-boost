@@ -113,6 +113,9 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         elif '/dashboard/system' in path:
             response_data = get_system_stats()
             return create_success_response(response_data)
+        elif '/coach/summary' in path:
+            response_data = get_coach_summary()
+            return create_success_response(response_data)
         else:
             return create_error_response(404, 'Endpoint not found')
         
@@ -771,4 +774,127 @@ def get_system_stats() -> Dict[str, Any]:
             'queue_depth': 0,
             'dlq_depth': 0,
             'error': 'Failed to load system stats'
+        }
+
+
+def get_coach_summary() -> Dict[str, Any]:
+    """Get coach summary: recent feedback, training trends, and athlete profile."""
+    try:
+        table = dynamodb.Table(ACTIVITIES_TABLE)
+        config_table = dynamodb.Table(USER_CONFIG_TABLE)
+
+        # Get athlete profile from user preferences
+        athlete_profile = ''
+        try:
+            user_id = os.environ.get('DEFAULT_USER_ID', '')
+            if user_id:
+                config_response = config_table.get_item(Key={'user_id': user_id})
+                prefs = config_response.get('Item', {}).get('user_preferences', {})
+                athlete_profile = prefs.get('athlete_profile', '')
+        except ClientError:
+            pass
+
+        # Get recent activities (last 30 days) sorted by date
+        now = datetime.utcnow()
+        start_date = now - timedelta(days=30)
+
+        response = table.scan()
+        all_activities = response.get('Items', [])
+
+        # Filter recent and sort by date descending
+        recent = []
+        for a in all_activities:
+            created_at = a.get('created_at', '')
+            if created_at:
+                try:
+                    dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                    if dt >= start_date.replace(tzinfo=dt.tzinfo if dt.tzinfo else None):
+                        recent.append(a)
+                except ValueError:
+                    continue
+
+        recent.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+
+        # Recent feedback: last 5 activities with coach_feedback
+        recent_feedback = []
+        for a in recent:
+            fb = a.get('coach_feedback')
+            if fb:
+                if isinstance(fb, str):
+                    try:
+                        fb = json.loads(fb)
+                    except (json.JSONDecodeError, TypeError):
+                        fb = None
+                if fb:
+                    recent_feedback.append({
+                        'activity_id': a.get('activity_id', ''),
+                        'date': a.get('created_at', '')[:10],
+                        'title': a.get('enhanced_title') or a.get('original_name', 'Activité'),
+                        'coach_feedback': fb,
+                    })
+            if len(recent_feedback) >= 5:
+                break
+
+        # Compute weekly trends (last 4 weeks)
+        weekly_volume = [0.0] * 4
+        sessions_per_week = [0] * 4
+        weekly_moving_time = [0.0] * 4
+        weekly_distance_for_pace = [0.0] * 4
+
+        for a in recent:
+            created_at = a.get('created_at', '')
+            if not created_at:
+                continue
+            try:
+                dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                days_ago = (now - dt.replace(tzinfo=None)).days
+                week_idx = days_ago // 7
+                if week_idx >= 4:
+                    continue
+                distance_m = float(a.get('distance', 0) or 0)
+                moving_time_s = float(a.get('moving_time', 0) or 0)
+                weekly_volume[week_idx] += distance_m / 1000
+                sessions_per_week[week_idx] += 1
+                if distance_m > 0 and moving_time_s > 0:
+                    weekly_moving_time[week_idx] += moving_time_s
+                    weekly_distance_for_pace[week_idx] += distance_m
+            except (ValueError, TypeError):
+                continue
+
+        # Compute avg pace per week (min/km)
+        avg_pace_per_week = []
+        for i in range(4):
+            if weekly_distance_for_pace[i] > 0:
+                pace_s_per_km = weekly_moving_time[i] / (weekly_distance_for_pace[i] / 1000)
+                mins = int(pace_s_per_km // 60)
+                secs = int(pace_s_per_km % 60)
+                avg_pace_per_week.append(f"{mins}:{secs:02d}")
+            else:
+                avg_pace_per_week.append("-")
+
+        # Reverse so oldest week is first (chronological order)
+        weekly_volume.reverse()
+        sessions_per_week.reverse()
+        avg_pace_per_week.reverse()
+
+        return {
+            'athlete_profile': athlete_profile,
+            'recent_feedback': recent_feedback,
+            'trends': {
+                'weekly_volume_km': [round(v, 1) for v in weekly_volume],
+                'sessions_per_week': sessions_per_week,
+                'avg_pace_per_week': avg_pace_per_week,
+            }
+        }
+
+    except (ClientError, ValueError, TypeError) as e:
+        logger.error(f"Failed to get coach summary: {str(e)}")
+        return {
+            'athlete_profile': '',
+            'recent_feedback': [],
+            'trends': {
+                'weekly_volume_km': [0, 0, 0, 0],
+                'sessions_per_week': [0, 0, 0, 0],
+                'avg_pace_per_week': ['-', '-', '-', '-'],
+            }
         }

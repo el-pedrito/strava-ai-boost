@@ -367,6 +367,17 @@ class ApiGatewayStack(Stack):
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
         )
 
+        # /coach resource for coaching summary
+        coach_resource = self.api.root.add_resource("coach")
+        coach_summary_resource = coach_resource.add_resource("summary")
+        coach_summary_resource.add_method(
+            "GET",
+            apigateway.LambdaIntegration(self.dashboard_lambda),
+            api_key_required=False,
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
+        )
+
         # /preferences resource for user preferences
         preferences_resource = self.api.root.add_resource("preferences")
         preferences_resource.add_method(
