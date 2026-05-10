@@ -1,7 +1,7 @@
 # AGENTS.md - AI Assistant Context for Strava AI Boost
 
-**Version:** 3.0.0
-**Last Updated:** 2026-03-11
+**Version:** 4.0.0
+**Last Updated:** 2026-05-10
 **Purpose:** Comprehensive context for AI coding assistants
 
 ---
@@ -22,15 +22,17 @@
 
 ## Project Overview
 
-Strava AI Boost is a **serverless AWS application** that automatically enhances Strava activity titles and descriptions using AI. The system uses a **React + Cloudscape frontend** that calls API Gateway directly.
+Strava AI Boost is a **serverless AWS application** that automatically enhances Strava activity titles and descriptions using AI. The system uses a **React + Cloudscape frontend** hosted on CloudFront (with Cognito authentication) that calls API Gateway directly.
 
 ### Key Statistics
 - **~16,600 LOC** in core components
 - **12 Lambda functions** (4 API, 3 processing, 3 webhooks, 2 support)
 - **2 AgentCore agents**
-- **6 CDK stacks**
+- **7 CDK stacks**
 - **236 tests** (123 Lambda unit + 40 frontend unit + 73 infra/integration)
 - **Python 3.12** runtime, **React 19 + TypeScript + Vite** frontend
+- **Cognito authentication** (JWT, no self-registration)
+- **CloudFront + S3** frontend hosting (OAC)
 
 ### Architecture Pattern
 **Event-Driven Serverless:**
@@ -65,14 +67,15 @@ strava-ai-boost/
 │   ├── uninstall.sh
 │   └── verify_uninstall.sh
 │
-├── stacks/                     # CDK infrastructure (6 stacks)
+├── stacks/                     # CDK infrastructure (7 stacks)
 │   ├── core_infrastructure_stack.py    # DynamoDB, Secrets, Layer
 │   ├── security_stack.py               # Guardrails, Memory Execution Role, Observability
 │   ├── webhook_processing_stack.py     # Webhook, SQS, Processor
 │   ├── content_generation_stack.py     # Step Functions, Lambdas
-│   ├── api_gateway_stack.py            # REST API, API Lambdas
+│   ├── api_gateway_stack.py            # REST API, Cognito Authorizer, API Lambdas
 # monitoring_stack.py REMOVED (overkill for personal project)
-│   └── feedback_loop_stack.py          # Feedback analyzer
+│   ├── feedback_loop_stack.py          # Feedback analyzer
+│   └── frontend_hosting_stack.py       # S3, CloudFront (OAC), Cognito User Pool
 │
 ├── lambda_functions/           # Lambda handlers (grouped by role)
 │   ├── api/                            # API endpoint handlers
@@ -119,9 +122,12 @@ strava-ai-boost/
 ├── frontend/                   # React web application
 │   ├── src/
 │   │   ├── api/                        # API client + tests
+│   │   ├── auth/                       # Authentication
+│   │   │   ├── AuthContext.tsx         # Cognito auth context + JWT management
+│   │   │   └── ProtectedRoute.tsx      # Route guard (redirects to login)
 │   │   ├── components/                 # Cloudscape components + tests
-│   │   ├── pages/                      # Page components (Dashboard, Config, Preferences, Quality)
-│   │   ├── layouts/                    # Layout components (Shell, TopNav, Breadcrumbs)
+│   │   ├── pages/                      # Page components (Dashboard, Config, Preferences, Quality, LoginPage)
+│   │   ├── layouts/                    # Layout components (Shell, TopNav w/ Sign Out, Breadcrumbs)
 │   │   ├── utils/                      # Pure utility functions + tests
 │   │   ├── test/                       # Test setup (Vitest + Testing Library)
 │   │   └── config.ts                   # Runtime configuration
@@ -530,7 +536,24 @@ class TestMyModule:
 
 **Content Agent** (`content_agent.py`): Generate enhanced activity content with LTM memory, Claude Sonnet 4.5, Guardrails enabled. Receives device-recorded laps (from Strava Laps API), Campus Coach sessions, Enduraw reports, and Intervals.icu data (CTL/ATL/Form/HRV/Decoupling). Handles all matching logic (Campus Coach session matching, workout classification) via prompt rules in `embedded_prompts.py`.
 
+**Anti-AI Writing Rules** (enforced in content generation prompts):
+- Em dash (—) and en dash (–) are **banned** from all generated content
+- Banned cliché expressions: "la machine", "le corps se réveille", "chaque foulée", "repousser les limites", etc.
+- Pierre's real writing style examples used as positive anchors in prompts
+- Goal: authentic, personal voice — not generic AI-sounding text
+
 **Campus Coach Agent** (`campus_coach_agent.py`): Extract training sessions via Browser Tool, Claude Sonnet 4.5. Stores sessions in DynamoDB — no analysis, matching is done by the content agent.
+
+### Authentication
+
+**Cognito User Pool** (deployed in Frontend stack):
+- `self_sign_up_enabled=False` — users created via `admin-create-user` only
+- Email-based sign-in
+- Password policy: 12+ characters
+- First login requires password change (FORCE_CHANGE_PASSWORD)
+- API Gateway uses Cognito authorizer (replaced API key auth)
+- Frontend sends JWT token in `Authorization` header
+- Sign Out button in TopNav layout
 
 ### Memory Strategy
 
@@ -538,7 +561,7 @@ The content generation memory (`content_gen_mem`) uses 2 strategies:
 - **Semantic** (`ComprehensiveLearning`): Semantic search over conversation history
 - **UserPreference** (`StravaContentPreferences`): Automatic extraction/consolidation of user content preferences from feedback diffs
 
-The feedback analyzer writes before/after diffs as conversational events (ASSISTANT=generated, USER=edited). Modification detection threshold: **98% similarity** (even small edits trigger memory writes). The UserPreferenceStrategy automatically extracts preferences (length, tone, emojis, structure, technical detail) and consolidates them over time.
+The feedback analyzer writes before/after diffs as conversational events (ASSISTANT=generated, USER=edited). Modification detection threshold: **99.5% similarity** (even minor edits trigger memory writes). The UserPreferenceStrategy automatically extracts preferences (length, tone, emojis, structure, technical detail) and consolidates them over time.
 
 The content agent reads preferences via `RetrieveMemoryRecords` semantic search across user-specific namespaces.
 
@@ -563,7 +586,7 @@ python scripts/configure_memory_strategy.py     # Step 4: Configure UserPreferen
 - AgentCore CLI installed
 - Python 3.12+
 
-**Step 1: Deploy Infrastructure**
+**Step 1: Deploy Infrastructure (includes Frontend stack)**
 ```bash
 ./scripts/deploy.sh dev
 ```
@@ -573,9 +596,14 @@ python scripts/configure_memory_strategy.py     # Step 4: Configure UserPreferen
 ./scripts/validate_deployment.sh dev
 ```
 
-**Step 3: Setup Local Environment**
+**Step 3: Create Cognito User**
 ```bash
-./scripts/setup_local_env.sh
+aws cognito-idp admin-create-user \
+  --user-pool-id <pool-id> \
+  --username your@email.com \
+  --temporary-password "TempPass123!" \
+  --user-attributes Name=email,Value=your@email.com \
+  --profile your-aws-profile --region us-east-1
 ```
 
 **Step 4: Configure Webhook**
@@ -590,6 +618,8 @@ python scripts/configure_memory_strategy.py     # Step 4: Configure UserPreferen
 ./scripts/configure_agentcore_integration.sh
 ```
 
+**Frontend URL:** https://d1p03w7uoqpahh.cloudfront.net (deployed automatically with the Frontend stack)
+
 ### Updating Existing Deployment
 
 **Update CDK Stacks:**
@@ -600,6 +630,11 @@ cdk deploy --all --profile your-aws-profile
 **Update Specific Stack:**
 ```bash
 cdk deploy StravaAIBoost-ContentGenerationStack --profile your-aws-profile
+```
+
+**Update Frontend (rebuild + deploy to S3/CloudFront):**
+```bash
+cdk deploy StravaAIBoost-Frontend --profile your-aws-profile
 ```
 
 **Update Lambda Function:**
