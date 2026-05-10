@@ -38,7 +38,7 @@ export AWS_REGION=eu-west-1
 ./scripts/configure_strava_webhook.sh dev --auto-configure
 ```
 
-**What this deploys**: 6 CDK stacks, DynamoDB tables, 12 Lambda functions (grouped in 4 packages), Step Functions, Secrets Manager, Bedrock fallback mode (Claude Sonnet 4.5), structured logging with AWS Lambda Powertools. System is immediately functional.
+**What this deploys**: 7 CDK stacks, DynamoDB tables, 12 Lambda functions (grouped in 4 packages), Step Functions, Secrets Manager, Bedrock fallback mode (Claude Sonnet 4.5), structured logging with AWS Lambda Powertools, CloudFront-hosted frontend with Cognito authentication. System is immediately functional.
 
 ### Phase 2: AgentCore Enhancement (Optional)
 
@@ -63,18 +63,26 @@ cdk deploy --all --require-approval never
 
 ### Start Using the System
 
-```bash
-cd frontend
-cp .env.example .env.local  # Edit with your API Gateway URL, API key, and user ID
-npm install && npm run dev
-# Open http://localhost:3000
-```
+The frontend is hosted on CloudFront with Cognito authentication:
 
-1. Click **"Connect with Strava"** and authorize the application
-2. Configure your preferences (age, interests, style)
-3. Enable modules (Campus Coach, Enduraw, Intervals.icu)
-4. Upload or edit a Strava activity and watch it get enhanced!
-5. Check the **Content Quality** page to track confidence, edit rates, and similarity scores
+**Live URL:** https://d1p03w7uoqpahh.cloudfront.net
+
+1. **Create a user** (no self-registration — admin only):
+   ```bash
+   aws cognito-idp admin-create-user \
+     --user-pool-id <pool-id> \
+     --username your@email.com \
+     --temporary-password "TempPass123!" \
+     --user-attributes Name=email,Value=your@email.com \
+     --profile <your-aws-profile> --region us-east-1
+   ```
+2. Open the CloudFront URL and log in with your email
+3. On first login, you'll be prompted to change your password (12+ characters required)
+4. Click **"Connect with Strava"** and authorize the application
+5. Configure your preferences (age, interests, style)
+6. Enable modules (Campus Coach, Enduraw, Intervals.icu)
+7. Upload or edit a Strava activity and watch it get enhanced!
+8. Check the **Content Quality** page to track confidence, edit rates, and similarity scores
 
 **Deployment Modes**: Phase 1 only gives a fully functional system with Bedrock fallback. Phase 1 + 2 adds advanced personalization with AgentCore Memory.
 
@@ -147,14 +155,12 @@ Customize AI content generation in Configuration > Personal Profile:
 Configure in `frontend/.env.local` (copy from `.env.example`):
 ```bash
 VITE_API_GATEWAY_URL=https://your-api-id.execute-api.<your-region>.amazonaws.com/prod
-VITE_API_GATEWAY_KEY=your-api-key-value
+VITE_COGNITO_USER_POOL_ID=us-east-1_XXXXXXXXX
+VITE_COGNITO_CLIENT_ID=your-cognito-app-client-id
 VITE_DEFAULT_USER_ID=YOUR_STRAVA_ATHLETE_ID
 ```
 
-> **Important:** `VITE_API_GATEWAY_KEY` must be the API key **value** (long alphanumeric string), not the API key **ID**. You can find it with:
-> ```bash
-> aws apigateway get-api-keys --include-values --query 'items[?starts_with(name, `strava-ai-boost`)].value' --output text --profile <your-aws-profile> --region <your-region>
-> ```
+> **Note:** API authentication is handled via Cognito JWT tokens (sent in the `Authorization` header). The frontend automatically manages token refresh after login.
 
 ---
 
@@ -162,22 +168,29 @@ VITE_DEFAULT_USER_ID=YOUR_STRAVA_ATHLETE_ID
 
 ### Key Architecture Decisions
 
-1. **React Frontend** - No cloud hosting complexity, runs on localhost
+1. **React Frontend** - Hosted on CloudFront with S3 origin (OAC), Cognito authentication
 2. **Zero AWS SDK in Frontend** - All AWS operations via API Gateway + Lambda
 3. **Modular Design** - Extensible module system (Campus Coach, Enduraw, Intervals.icu)
 4. **Dual-Mode AI** - AgentCore (primary) + Bedrock fallback (always available)
 5. **Serverless** - Pay-per-use, auto-scaling, no server management
-6. **Security First** - Guardrails, encryption, least privilege IAM
+6. **Security First** - Cognito auth, Guardrails, encryption, least privilege IAM
+7. **Anti-AI Writing Rules** - Banned clichés, em/en dashes, with real style anchors
 
 ### System Components
 
 ```mermaid
 graph TB
     subgraph "User Layer"
-        Browser[Web Browser<br/>localhost:3000]
+        Browser[Web Browser<br/>CloudFront CDN]
     end
 
-    subgraph "AWS Infrastructure - 6 CDK Stacks"
+    subgraph "AWS Infrastructure - 7 CDK Stacks"
+        subgraph "Frontend Stack"
+            S3[S3 Bucket<br/>Private + OAC]
+            CF[CloudFront<br/>Distribution]
+            Cognito[Cognito User Pool<br/>Authentication]
+        end
+
         subgraph "Core Stack"
             DDB[(DynamoDB<br/>3 Tables)]
             Secrets[Secrets Manager<br/>OAuth & Credentials]
@@ -198,10 +211,10 @@ graph TB
         end
 
         subgraph "API Stack"
-            APIGW[API Gateway<br/>Frontend API]
+            APIGW[API Gateway<br/>Cognito Authorizer]
         end
 
-subgraph "Feedback Stack"
+        subgraph "Feedback Stack"
             FB[Feedback Analyzer<br/>EventBridge Schedule]
         end
     end
@@ -216,7 +229,10 @@ subgraph "Feedback Stack"
         Campus[Campus Coach]
     end
 
-    Browser --> APIGW
+    Browser --> CF
+    CF --> S3
+    Browser --> Cognito
+    Cognito --> APIGW
     APIGW --> Lambda12
     Lambda12 --> DDB
     Lambda12 --> Secrets
@@ -238,10 +254,12 @@ subgraph "Feedback Stack"
 
 | Component | Details |
 |-----------|---------|
-| **6 CDK Stacks** | Core, Security, Webhook, Content, API, Feedback |
+| **7 CDK Stacks** | Core, Security, Webhook, Content, API, Feedback, Frontend |
 | **12 Lambda Functions** | 4 API + 3 processing + 3 webhooks + 2 support (in role-based packages) |
 | **3 DynamoDB Tables** | `activities` (GSI, TTL), `user_config`, `coaching_sessions` (GSI) |
 | **2 AgentCore Agents** | `content_gen` (LTM memory), `campus_coach` (Browser Tool) |
+| **CloudFront + S3** | Frontend hosting with OAC, private bucket, versioning, encryption |
+| **Cognito User Pool** | JWT authentication, no self-registration, 12+ char password policy |
 | **External APIs** | Strava API, Campus Coach, Intervals.icu, Enduraw (all optional) |
 | **Shared Utilities** | `lambda_functions/shared/` - Logger, responses, env validation, OAuth |
 
@@ -274,7 +292,7 @@ sequenceDiagram
 
 **Infrastructure**: AWS CDK (Python), Python 3.12, us-east-1 (configurable via `--context region=<region>`)
 
-**AWS Services**: Lambda (12 functions, Powertools), DynamoDB (3 tables, GSI, TTL), Step Functions, SQS + DLQ, Bedrock (Claude Sonnet 4.5), Secrets Manager, API Gateway
+**AWS Services**: Lambda (12 functions, Powertools), DynamoDB (3 tables, GSI, TTL), Step Functions, SQS + DLQ, Bedrock (Claude Sonnet 4.5), Secrets Manager, API Gateway (Cognito authorizer), CloudFront + S3 (OAC), Cognito User Pool
 
 **AI/ML**: Strands Agents, AgentCore Memory (2 LTM memories), AgentCore Browser Tool, Claude Sonnet 4.5
 
@@ -338,9 +356,10 @@ aws logs filter-log-events \
 - If still occurring, disconnect and reconnect Strava OAuth
 
 **Frontend won't load**
-- Verify `frontend/.env.local` is configured (copy from `.env.example`)
-- Check port 3000 is available: `lsof -i :3000`
-- Restart: `cd frontend && npm install && npm run dev`
+- Verify CloudFront distribution is deployed: check https://d1p03w7uoqpahh.cloudfront.net
+- Check Cognito User Pool exists and user is created
+- If login fails, verify password meets 12+ character requirement
+- Check browser console for CORS errors (CloudFront domain must be in API Gateway CORS config)
 
 **Processing takes too long**
 - Basic enhancement: 30-60s | With Campus Coach: 2-3min | With Enduraw: +2min wait
@@ -428,13 +447,16 @@ All resources are tagged for AWS Cost Explorer cost allocation:
 
 ## Security
 
+- **Cognito Authentication**: All frontend routes and API endpoints protected by Cognito User Pool (JWT tokens in Authorization header). No self-registration — users created via `admin-create-user`. Password policy: 12+ characters.
 - **Bedrock Guardrails**: AI safety and prompt injection protection
-- **Data Encryption**: AWS managed encryption for all DynamoDB tables
-- **HTTPS**: All API endpoints use secure communication
+- **Anti-AI Writing Rules**: Em/en dashes banned, cliché expressions blocked, real style examples as anchors
+- **Data Encryption**: AWS managed encryption for all DynamoDB tables, S3 bucket encrypted with SSE
+- **HTTPS**: All API endpoints and CloudFront distribution use secure communication
 - **Secrets Manager**: OAuth tokens and credentials with automatic rotation
 - **IAM**: Least privilege with scoped resource ARNs
+- **CloudFront OAC**: S3 bucket is private (BLOCK_ALL public access), only accessible via CloudFront Origin Access Control
 - **CloudWatch Data Protection**: Passwords, emails, and auth headers are automatically masked in AgentCore runtime logs (applied by `scripts/tag_agentcore_resources.py` — audit + de-identify on `EmailAddress`, `AwsSecretKey`, and custom `Password:`/`Authorization:` regexes)
-- **Frontend**: Local-only access (localhost:3000), ErrorBoundary for graceful recovery
+- **Frontend**: ErrorBoundary for graceful recovery, Sign Out button in TopNav
 - **User Isolation**: Per-user configuration keyed by Strava athlete ID
 
 ## Documentation
