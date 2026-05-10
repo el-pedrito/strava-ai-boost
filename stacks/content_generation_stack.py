@@ -284,6 +284,39 @@ class ContentGenerationStack(Stack):
             )
         )
 
+        # Coach Generator Lambda (parallel branch)
+        self.coach_generator = lambda_.Function(
+            self, "CoachGenerator",
+            function_name="StravaAIBoost-CoachGenerator",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="processing.coach_generator.handler",
+            code=lambda_.Code.from_asset("lambda_functions"),
+            layers=[self.core_stack.dependencies_layer],
+            timeout=Duration.minutes(2),
+            memory_size=1024,
+            role=content_lambda_role,
+            environment={
+                "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
+                "MEMORY_ID": os.environ.get("BEDROCK_AGENTCORE_MEMORY_ID", ""),
+                "BEDROCK_MODEL_ID": get_bedrock_model_id(),
+                **self._get_base_environment_variables()
+            }
+        )
+
+        # Assembly Lambda (merges parallel outputs)
+        self.assembly_lambda = lambda_.Function(
+            self, "AssemblyLambda",
+            function_name="StravaAIBoost-Assembly",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="processing.assembly_lambda.handler",
+            code=lambda_.Code.from_asset("lambda_functions"),
+            layers=[self.core_stack.dependencies_layer],
+            timeout=Duration.seconds(30),
+            memory_size=256,
+            role=content_lambda_role,
+            environment={}
+        )
+
         # Activity data fetcher Lambda
         self.activity_fetcher = lambda_.Function(
             self, "ActivityFetcher",
@@ -418,11 +451,44 @@ class ContentGenerationStack(Stack):
             }
         )
 
-        # Generate content task (Campus Coach sessions already in DynamoDB via daily EventBridge)
+        # Generate content task (Branch 1)
         generate_content = sfn_tasks.LambdaInvoke(
             self, "GenerateContent",
             lambda_function=self.content_generator,
-            comment="Generate enhanced content using Bedrock AI and AgentCore Memory (Campus Coach sessions from DynamoDB)",
+            comment="Generate enhanced content using Bedrock AI and AgentCore Memory",
+            payload_response_only=True,
+            retry_on_service_exceptions=True
+        )
+
+        # Coach generator task (Branch 2)
+        generate_coach = sfn_tasks.LambdaInvoke(
+            self, "GenerateCoach",
+            lambda_function=self.coach_generator,
+            comment="Generate coaching feedback with historical context",
+            payload_response_only=True,
+            retry_on_service_exceptions=True
+        )
+
+        # Coach branch catches errors and returns null result
+        coach_error_fallback = sfn.Pass(
+            self, "CoachErrorFallback",
+            result=sfn.Result.from_object({"statusCode": 500, "coach_feedback": None})
+        )
+        generate_coach.add_catch(coach_error_fallback, errors=["States.ALL"])
+
+        # Parallel execution of content + coach
+        parallel_generation = sfn.Parallel(
+            self, "ParallelGeneration",
+            comment="Run content generation and coach generation in parallel"
+        )
+        parallel_generation.branch(generate_content)
+        parallel_generation.branch(generate_coach)
+
+        # Assembly task (merges parallel outputs)
+        assemble_content = sfn_tasks.LambdaInvoke(
+            self, "AssembleContent",
+            lambda_function=self.assembly_lambda,
+            comment="Merge content and coach outputs",
             payload_response_only=True,
             retry_on_service_exceptions=True
         )
@@ -449,28 +515,16 @@ class ContentGenerationStack(Stack):
             cause="Step Functions workflow execution failed"
         )
 
-        # Error handling for each step
-        fetch_activity.add_catch(
-            failure,
-            errors=["States.ALL"]
-        )
+        # Error handling
+        fetch_activity.add_catch(failure, errors=["States.ALL"])
+        parallel_generation.add_catch(failure, errors=["States.ALL"])
+        assemble_content.add_catch(failure, errors=["States.ALL"])
+        update_strava.add_catch(failure, errors=["States.ALL"])
 
-        generate_content.add_catch(
-            failure,
-            errors=["States.ALL"]
-        )
-
-        update_strava.add_catch(
-            failure,
-            errors=["States.ALL"]
-        )
-
-        # Define workflow with error handling and Campus Coach conditional logic
-        
-        # Configure fetch success check - go directly to content generation
+        # Configure fetch success check - go to parallel generation
         check_fetch_success.when(
             sfn.Condition.number_equals("$.statusCode", 200),
-            generate_content
+            parallel_generation
         ).otherwise(
             fetch_failed
         )
@@ -481,8 +535,8 @@ class ContentGenerationStack(Stack):
             .next(check_fetch_success)
         )
         
-        # Content generation leads to update, then success
-        generate_content.next(update_strava).next(success)
+        # Parallel → Assembly → Update → Success
+        parallel_generation.next(assemble_content).next(update_strava).next(success)
 
         # Create Step Functions state machine
         self.state_machine = sfn.StateMachine(
@@ -501,6 +555,8 @@ class ContentGenerationStack(Stack):
         for lambda_function in [
             self.activity_fetcher,
             self.content_generator,
+            self.coach_generator,
+            self.assembly_lambda,
             self.strava_updater
         ]:
             lambda_function.grant_invoke(step_functions_role)

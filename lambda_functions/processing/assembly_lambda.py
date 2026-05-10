@@ -1,0 +1,56 @@
+"""
+Assembly Lambda Function
+
+Merges outputs from parallel Content Generator and Coach Generator branches.
+Inserts coach strava_block into the description before the fun fact.
+"""
+
+import json
+from typing import Any, Dict
+
+from shared.logger import get_logger
+
+logger = get_logger("assembly")
+
+
+def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """Merge content_gen and coach_gen parallel outputs for Strava Updater."""
+    logger.info(f"Assembly received event: {json.dumps(event, default=str)}")
+
+    # Parallel state returns [branch1_output, branch2_output]
+    content_result = event[0] if len(event) > 0 else {}
+    coach_result = event[1] if len(event) > 1 else {}
+
+    # Pass through content_gen as base
+    merged = dict(content_result)
+
+    # Extract coach strava_block if coach succeeded
+    coach_feedback = coach_result.get("coach_feedback") if isinstance(coach_result, dict) else None
+    strava_block = None
+    if coach_feedback and isinstance(coach_feedback, dict):
+        strava_block = coach_feedback.get("strava_block")
+
+    if not strava_block:
+        logger.info("No coach strava_block available, passing through content_gen output")
+        return merged
+
+    # Inject coach block into enhanced_content description
+    enhanced = merged.get("enhanced_content", {})
+    description = enhanced.get("description", "")
+
+    if not description:
+        return merged
+
+    coach_section = f"\n\n📊 Coach\n{strava_block}"
+
+    # Insert before fun fact (💡) if present, otherwise append
+    if "💡" in description:
+        parts = description.split("💡", 1)
+        description = f"{parts[0].rstrip()}{coach_section}\n\n💡{parts[1]}"
+    else:
+        description = f"{description}{coach_section}"
+
+    enhanced["description"] = description
+    merged["enhanced_content"] = enhanced
+    logger.info("Coach block merged into description")
+    return merged
