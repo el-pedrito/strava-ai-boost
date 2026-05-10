@@ -34,6 +34,10 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         logger.info("No coach strava_block available, passing through content_gen output")
         return merged
 
+    # Type guard: ensure strava_block is a string
+    if not isinstance(strava_block, str):
+        strava_block = str(strava_block)
+
     # Inject coach block into enhanced_content description
     enhanced = merged.get("enhanced_content", {})
     description = enhanced.get("description", "")

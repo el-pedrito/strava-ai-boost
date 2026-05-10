@@ -5,6 +5,7 @@ Coach Agent - Generates coaching feedback using Strands Agent with Claude Sonnet
 import json
 import logging
 import os
+import re
 from typing import Any, Dict, List, Optional
 
 import boto3
@@ -83,7 +84,6 @@ def generate_coaching_feedback(
         response_text = result.message.get("content", [{}])[0].get("text", str(result))
 
         # Extract JSON from response
-        import re
         response_text = re.sub(r"```json\s*", "", response_text)
         response_text = re.sub(r"```\s*$", "", response_text)
         json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
