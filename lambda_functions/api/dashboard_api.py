@@ -13,7 +13,7 @@ import os
 from typing import Dict, Any, List
 import boto3
 from botocore.exceptions import ClientError
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from shared.responses import (
     CORS_HEADERS_READ as CORS_HEADERS,
     create_success_response,
@@ -795,7 +795,7 @@ def get_coach_summary() -> Dict[str, Any]:
             pass
 
         # Get recent activities (last 30 days) sorted by date
-        now = datetime.utcnow()
+        now = datetime.now(tz=timezone.utc)
         start_date = now - timedelta(days=30)
 
         response = table.scan()
