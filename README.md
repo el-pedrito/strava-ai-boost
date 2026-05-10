@@ -38,7 +38,7 @@ export AWS_REGION=eu-west-1
 ./scripts/configure_strava_webhook.sh dev --auto-configure
 ```
 
-**What this deploys**: 7 CDK stacks, DynamoDB tables, 12 Lambda functions (grouped in 4 packages), Step Functions, Secrets Manager, Bedrock fallback mode (Claude Sonnet 4.5), structured logging with AWS Lambda Powertools, CloudFront-hosted frontend with Cognito authentication. System is immediately functional.
+**What this deploys**: 7 CDK stacks, DynamoDB tables, 14 Lambda functions (grouped in 4 packages), Step Functions (parallel execution), Secrets Manager, Bedrock fallback mode (Claude Sonnet 4.5), structured logging with AWS Lambda Powertools, CloudFront-hosted frontend with Cognito authentication. System is immediately functional.
 
 ### Phase 2: AgentCore Enhancement (Optional)
 
@@ -83,6 +83,7 @@ The frontend is hosted on CloudFront with Cognito authentication:
 6. Enable modules (Campus Coach, Enduraw, Intervals.icu)
 7. Upload or edit a Strava activity and watch it get enhanced!
 8. Check the **Content Quality** page to track confidence, edit rates, and similarity scores
+9. Check the **Coach** page for training feedback, trends, and athlete profile
 
 **Deployment Modes**: Phase 1 only gives a fully functional system with Bedrock fallback. Phase 1 + 2 adds advanced personalization with AgentCore Memory.
 
@@ -144,6 +145,7 @@ Customize AI content generation in Configuration > Personal Profile:
 | **Emoji Usage** | None, Minimal (1-2), Moderate (3-5), Enthusiastic (5+) |
 | **Technical Detail** | Basic, Intermediate, Advanced |
 | **Language** | French, English, Spanish, German, Italian |
+| **Athlete Profile** | Free-text field for objectives, training history, experience level |
 
 ### Enhancement Control
 
@@ -206,8 +208,8 @@ graph TB
         end
 
         subgraph "Content Stack"
-            SF[Step Functions<br/>Workflow]
-            Lambda12[12 Lambda Functions<br/>4 Role-Based Packages]
+            SF[Step Functions<br/>Parallel Workflow]
+            Lambda12[14 Lambda Functions<br/>4 Role-Based Packages]
         end
 
         subgraph "API Stack"
@@ -220,7 +222,7 @@ graph TB
     end
 
     subgraph "AI Services"
-        AgentCore[AgentCore<br/>2 Agents + 2 Memories]
+        AgentCore[AgentCore<br/>3 Agents + 2 Memories]
         Bedrock[Bedrock<br/>Claude Sonnet 4.5]
     end
 
@@ -255,9 +257,9 @@ graph TB
 | Component | Details |
 |-----------|---------|
 | **7 CDK Stacks** | Core, Security, Webhook, Content, API, Feedback, Frontend |
-| **12 Lambda Functions** | 4 API + 3 processing + 3 webhooks + 2 support (in role-based packages) |
+| **14 Lambda Functions** | 4 API + 3 processing + 3 webhooks + 2 support + 2 coach (in role-based packages) |
 | **3 DynamoDB Tables** | `activities` (GSI, TTL), `user_config`, `coaching_sessions` (GSI) |
-| **2 AgentCore Agents** | `content_gen` (LTM memory), `campus_coach` (Browser Tool) |
+| **3 AgentCore Agents** | `content_gen` (LTM memory), `campus_coach` (Browser Tool), `coach_agent` (LTM memory) |
 | **CloudFront + S3** | Frontend hosting with OAC, private bucket, versioning, encryption |
 | **Cognito User Pool** | JWT authentication, no self-registration, 12+ char password policy |
 | **External APIs** | Strava API, Campus Coach, Intervals.icu, Enduraw (all optional) |
@@ -281,8 +283,13 @@ sequenceDiagram
     Webhook->>DynamoDB: Check Enhancement Status
     Webhook->>SQS: Queue Activity
     SQS->>StepFunctions: Trigger Workflow
-    StepFunctions->>Lambda: Fetch + Enrich + Generate
-    Lambda->>AgentCore: Invoke Content Agent (with Memory)
+    StepFunctions->>Lambda: Fetch Activity Data
+    par Content Generation
+        Lambda->>AgentCore: Invoke Content Agent (with Memory)
+    and Coach Generation
+        Lambda->>AgentCore: Invoke Coach Agent (with Memory)
+    end
+    Lambda->>Lambda: Assembly (merge content + coach)
     Lambda->>Strava: Update Title & Description
     Lambda->>DynamoDB: Mark Completed
     User->>Strava: View Enhanced Activity
@@ -292,7 +299,7 @@ sequenceDiagram
 
 **Infrastructure**: AWS CDK (Python), Python 3.12, us-east-1 (configurable via `--context region=<region>`)
 
-**AWS Services**: Lambda (12 functions, Powertools), DynamoDB (3 tables, GSI, TTL), Step Functions, SQS + DLQ, Bedrock (Claude Sonnet 4.5), Secrets Manager, API Gateway (Cognito authorizer), CloudFront + S3 (OAC), Cognito User Pool
+**AWS Services**: Lambda (14 functions, Powertools), DynamoDB (3 tables, GSI, TTL), Step Functions, SQS + DLQ, Bedrock (Claude Sonnet 4.5), Secrets Manager, API Gateway (Cognito authorizer), CloudFront + S3 (OAC), Cognito User Pool
 
 **AI/ML**: Strands Agents, AgentCore Memory (2 LTM memories), AgentCore Browser Tool, Claude Sonnet 4.5
 
@@ -411,7 +418,7 @@ The Lambda Layer cannot be replaced via CDK due to CloudFormation cross-stack ex
 ## Testing
 
 ```bash
-# Lambda unit tests (123 tests, ~0.7s — no AWS credentials needed)
+# Lambda unit tests (127 tests, ~0.7s — no AWS credentials needed)
 pytest tests/unit/ -v
 
 # Infrastructure/integration tests (73 tests — requires AWS credentials)
@@ -425,7 +432,7 @@ cd frontend && npm test
 pytest tests/ -v
 ```
 
-**Test coverage:** 236 total tests (123 Lambda unit + 40 frontend unit + 73 infra/integration).
+**Test coverage:** 167 total tests (127 backend + 40 frontend).
 
 ## Cost Tracking
 
@@ -441,7 +448,7 @@ All resources are tagged for AWS Cost Explorer cost allocation:
 
 **Coverage:**
 - **CDK resources** (Lambda, DynamoDB, SQS, Step Functions, API Gateway, Secrets Manager, CloudWatch, Guardrails, IAM): Tagged automatically via `cdk.Tags.of(app)` in `app.py`
-- **AgentCore resources** (2 runtimes, 2 memories, IAM execution roles): Tagged via `scripts/tag_agentcore_resources.sh` (called automatically by `deploy_agentcore_agents.sh`, also runnable standalone). IAM role tagging enables per-agent Bedrock cost attribution via CUR 2.0 IAM Principal data.
+- **AgentCore resources** (3 runtimes, 2 memories, IAM execution roles): Tagged via `scripts/tag_agentcore_resources.sh` (called automatically by `deploy_agentcore_agents.sh`, also runnable standalone). IAM role tagging enables per-agent Bedrock cost attribution via CUR 2.0 IAM Principal data.
 
 **To activate in Cost Explorer:** Billing console → Cost Allocation Tags → select `Project`, `Environment`, `Owner`, `CostCenter`, `ManagedBy` → Activate (takes ~24h to propagate).
 

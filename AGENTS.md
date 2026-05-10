@@ -26,24 +26,29 @@ Strava AI Boost is a **serverless AWS application** that automatically enhances 
 
 ### Key Statistics
 - **~16,600 LOC** in core components
-- **12 Lambda functions** (4 API, 3 processing, 3 webhooks, 2 support)
-- **2 AgentCore agents**
+- **14 Lambda functions** (4 API, 3 processing, 3 webhooks, 2 support, 2 coach)
+- **3 AgentCore agents**
 - **7 CDK stacks**
-- **236 tests** (123 Lambda unit + 40 frontend unit + 73 infra/integration)
+- **167 tests** (127 backend + 40 frontend)
 - **Python 3.12** runtime, **React 19 + TypeScript + Vite** frontend
 - **Cognito authentication** (JWT, no self-registration)
 - **CloudFront + S3** frontend hosting (OAC)
 
 ### Architecture Pattern
-**Event-Driven Serverless:**
+**Event-Driven Serverless (Parallel Execution):**
 ```
-Strava Webhook → SQS → Step Functions → Lambda Pipeline → Strava Update
+Strava Webhook → SQS → Step Functions → Activity Fetcher →
+  ├── Content Generator → AgentCore content_gen agent
+  ├── Coach Generator → AgentCore coach_agent
+  └── Assembly Lambda → Strava Update
 ```
 
 **Data Pipeline:**
 ```
 Activity Fetcher: Strava API → activity data + laps (GET /activities/{id}/laps) → DynamoDB
-Content Generator: DynamoDB → classify workout from laps → build prompt with formatted laps → AgentCore agent → store + update Strava
+Content Generator: DynamoDB → classify workout from laps → build prompt with formatted laps → AgentCore agent → store
+Coach Generator: DynamoDB → athlete profile + activity history → AgentCore coach_agent → coaching feedback
+Assembly Lambda: Merge content + coach outputs → update Strava + store results
 Campus Coach: Sessions stored in DynamoDB → passed to content_gen agent prompt → LLM does the matching
 ```
 
@@ -86,6 +91,8 @@ strava-ai-boost/
 │   ├── processing/                     # Content pipeline
 │   │   ├── activity_fetcher.py         # Data fetcher
 │   │   ├── content_generator.py        # AI content generation
+│   │   ├── coach_generator.py          # AI coaching feedback generation
+│   │   ├── assembly_lambda.py          # Merge content + coach → Strava update
 │   │   ├── strava_updater.py           # Strava API updater
 │   │   ├── workout_analysis.py         # Workout classification from laps, Enduraw extraction
 │   │   └── modules_processing.py       # Module discovery, Campus Coach session retrieval
@@ -104,9 +111,10 @@ strava-ai-boost/
 │       └── strava_oauth.py             # OAuth token management
 │
 ├── src/
-│   ├── agents/                 # AgentCore agents (2 agents)
+│   ├── agents/                 # AgentCore agents (3 agents)
 │   │   ├── content_agent.py            # Content generation agent
 │   │   ├── campus_coach_agent.py       # Campus Coach scraper
+│   │   ├── coach_agent.py              # Training coach agent
 │   │   └── embedded_prompts.py         # Prompt templates
 │   │
 │   ├── modules/                # Module system (Enduraw only)
@@ -126,7 +134,7 @@ strava-ai-boost/
 │   │   │   ├── AuthContext.tsx         # Cognito auth context + JWT management
 │   │   │   └── ProtectedRoute.tsx      # Route guard (redirects to login)
 │   │   ├── components/                 # Cloudscape components + tests
-│   │   ├── pages/                      # Page components (Dashboard, Config, Preferences, Quality, LoginPage)
+│   │   ├── pages/                      # Page components (Dashboard, Config, Preferences, Quality, Coach, LoginPage)
 │   │   ├── layouts/                    # Layout components (Shell, TopNav w/ Sign Out, Breadcrumbs)
 │   │   ├── utils/                      # Pure utility functions + tests
 │   │   ├── test/                       # Test setup (Vitest + Testing Library)
@@ -135,7 +143,7 @@ strava-ai-boost/
 │   └── vite.config.ts                  # Vite + Vitest configuration
 │
 ├── tests/                      # Test suite
-│   ├── unit/                           # Lambda unit tests (123 tests)
+│   ├── unit/                           # Lambda unit tests (127 tests)
 │   │   ├── conftest.py                 # Env vars for Lambda imports
 │   │   ├── test_webhook_handler.py     # 30 tests: validation, routing, signature
 │   │   ├── test_content_generator.py   # 36 tests: DynamoDB, parsing, storage
@@ -353,7 +361,7 @@ class MyModule(BaseModule):
 
 ### Running Tests
 
-**Lambda Unit Tests (123 tests, ~0.7s):**
+**Lambda Unit Tests (127 tests, ~0.7s):**
 ```bash
 pytest tests/unit/ -v
 ```
@@ -544,6 +552,8 @@ class TestMyModule:
 
 **Campus Coach Agent** (`campus_coach_agent.py`): Extract training sessions via Browser Tool, Claude Sonnet 4.5. Stores sessions in DynamoDB — no analysis, matching is done by the content agent.
 
+**Coach Agent** (`coach_agent.py`): Training feedback agent using Claude Sonnet 4.5 with LTM memory (`coaching_observations` namespace). Analyzes activity in context of athlete profile (objectives, history, experience), recent training trends, and historical observations. Produces training feedback, trend analysis, and personalized recommendations. Runs in parallel with content generation.
+
 ### Authentication
 
 **Cognito User Pool** (deployed in Frontend stack):
@@ -560,6 +570,8 @@ class TestMyModule:
 The content generation memory (`content_gen_mem`) uses 2 strategies:
 - **Semantic** (`ComprehensiveLearning`): Semantic search over conversation history
 - **UserPreference** (`StravaContentPreferences`): Automatic extraction/consolidation of user content preferences from feedback diffs
+
+The coach agent uses the same memory resource with a dedicated `coaching_observations` namespace for storing training observations, trends, and athlete progression data.
 
 The feedback analyzer writes before/after diffs as conversational events (ASSISTANT=generated, USER=edited). Modification detection threshold: **99.5% similarity** (even minor edits trigger memory writes). The UserPreferenceStrategy automatically extracts preferences (length, tone, emojis, structure, technical detail) and consolidates them over time.
 
