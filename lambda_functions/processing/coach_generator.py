@@ -1,17 +1,17 @@
 """
 Coach Generator Lambda Function
 
-Generates coaching feedback using the coach agent with historical context.
+Generates coaching feedback using AgentCore agent (or direct Bedrock fallback).
 """
 
 import json
 import os
+import uuid
 from datetime import datetime, timezone, timedelta
-from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 import boto3
-from boto3.dynamodb.conditions import Key, Attr
+from boto3.dynamodb.conditions import Attr
 
 from shared.logger import get_logger, inject_correlation_id
 from shared.env_validation import validate_env_vars
@@ -25,6 +25,7 @@ dynamodb = boto3.resource("dynamodb", region_name=REGION)
 # Environment variables
 ACTIVITIES_TABLE = os.environ.get("ACTIVITIES_TABLE", "strava-ai-boost-activities")
 MEMORY_ID = os.environ.get("MEMORY_ID")
+COACH_AGENT_ARN = os.environ.get("COACH_AGENT_ARN", "")
 
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -50,11 +51,12 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Build historical summary from last 4 weeks
         historical_summary = build_historical_summary(user_id, activity_id)
 
-        # Generate coaching feedback
-        from agents.coach_agent import generate_coaching_feedback
+        # Generate coaching feedback via AgentCore
+        if not COACH_AGENT_ARN:
+            raise ValueError("COACH_AGENT_ARN not configured - coach agent must be deployed to AgentCore")
 
-        feedback = generate_coaching_feedback(
-            activity_data, user_config, historical_summary, memory_id=MEMORY_ID
+        feedback = _invoke_coach_agent(
+            activity_data, user_config, historical_summary
         )
 
         if not feedback:
@@ -87,6 +89,98 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             "activity_id": event.get("activity_id"),
             "user_id": event.get("user_id"),
         }
+
+
+def _invoke_coach_agent(
+    activity_data: Dict[str, Any],
+    user_config: Dict[str, Any],
+    historical_summary: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Invoke coach agent via AgentCore runtime with retry for cold starts."""
+    import re
+    import time
+
+    try:
+        agentcore_client = boto3.client("bedrock-agentcore", region_name=REGION)
+    except Exception:
+        agentcore_client = boto3.client("bedrock-agent-runtime", region_name=REGION)
+
+    session_id = f"coach-{uuid.uuid4().hex}"
+
+    payload = json.dumps({
+        "activity_data": activity_data,
+        "user_config": user_config,
+        "historical_summary": historical_summary,
+        "memory_id": MEMORY_ID,
+    }).encode("utf-8")
+
+    # Retry with exponential backoff for cold start (up to 3 attempts)
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = agentcore_client.invoke_agent_runtime(
+                agentRuntimeArn=COACH_AGENT_ARN,
+                runtimeSessionId=f"{session_id}-{attempt}",
+                payload=payload,
+            )
+            break  # Success
+        except Exception as e:
+            if "RuntimeClientError" in str(e) and attempt < max_retries - 1:
+                wait = (attempt + 1) * 10  # 10s, 20s
+                logger.warning(f"Coach agent cold start (attempt {attempt+1}), retrying in {wait}s...")
+                time.sleep(wait)
+            else:
+                raise
+
+    # Process response (same pattern as content_generator.py)
+    completion = ""
+    content_type = response.get("contentType", "")
+    if "text/event-stream" in content_type:
+        for line in response["response"].iter_lines(chunk_size=10):
+            if line:
+                try:
+                    line = line.decode("utf-8", errors="replace")
+                except Exception:
+                    continue
+                if line.startswith("data: "):
+                    completion += line[6:]
+    elif content_type == "application/json":
+        chunks = []
+        for chunk in response.get("response", []):
+            try:
+                chunks.append(chunk.decode("utf-8", errors="replace"))
+            except Exception:
+                continue
+        completion = "".join(chunks)
+    else:
+        completion = str(response.get("response", ""))
+
+    if not completion:
+        logger.warning("Empty response from AgentCore coach agent")
+        return None
+
+    # Parse outer response envelope
+    try:
+        outer = json.loads(completion)
+        response_text = outer.get("response", completion) if isinstance(outer, dict) else completion
+    except (json.JSONDecodeError, TypeError):
+        response_text = completion
+
+    # Parse coaching JSON
+    cleaned = re.sub(r"```json\s*", "", response_text)
+    cleaned = re.sub(r"```\s*", "", cleaned)
+    match = re.search(r"\{[^{}]*\"strava_block\"[^{}]*\}", cleaned, re.DOTALL)
+    if not match:
+        match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+
+    if match:
+        result = json.loads(match.group())
+        if "strava_block" in result:
+            logger.info("Coach feedback generated via AgentCore")
+            return result
+
+    logger.warning(f"Could not parse AgentCore coach response: {response_text[:200]}")
+    return None
 
 
 def retrieve_activity_data(activity_id: str) -> Optional[Dict[str, Any]]:
@@ -133,11 +227,8 @@ def build_historical_summary(user_id: str, current_activity_id: str) -> Dict[str
         total_time = sum(a.get("moving_time", 0) for a in activities) / 3600
         avg_pace_ms = (
             sum(a.get("average_speed", 0) for a in activities) / len(activities)
-            if activities
-            else 0
         )
 
-        # Weekly breakdown
         weekly_distances: Dict[int, float] = {}
         for a in activities:
             start = a.get("start_date_local") or a.get("start_date", "")
@@ -191,7 +282,6 @@ def write_coaching_observation(user_id: str, feedback: Dict[str, Any]) -> None:
     try:
         from bedrock_agentcore.memory import MemoryClient
 
-        # Extract a concise observation from the detailed analysis
         analysis = feedback.get("detailed_analysis", {})
         observation_parts = []
         if analysis.get("key_metrics"):
@@ -201,7 +291,6 @@ def write_coaching_observation(user_id: str, feedback: Dict[str, Any]) -> None:
         if analysis.get("recommendation"):
             observation_parts.append(f"Recommendation: {analysis['recommendation']}")
 
-        # Fallback: use strava_block summary if detailed_analysis lacks fields
         if not observation_parts:
             strava = feedback.get("strava_block", {})
             summary = strava.get("summary") or strava.get("text", "")

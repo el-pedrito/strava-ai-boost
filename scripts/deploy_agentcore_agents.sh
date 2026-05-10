@@ -20,6 +20,7 @@ AWS_REGION="${AWS_REGION:-us-east-1}"
 # Agent and memory names
 CONTENT_AGENT_NAME="content_gen"
 CAMPUS_AGENT_NAME="campus_coach"
+COACH_AGENT_NAME="strava_ai_boost_coach"
 CONTENT_MEMORY_NAME="content_gen_mem"
 CAMPUS_MEMORY_NAME="campus_coach_mem"
 
@@ -453,6 +454,15 @@ main() {
         exit 1
     fi
     
+    # Deploy coach agent (shares content_gen_mem with coaching_observations namespace)
+    local coach_arn=""
+    if coach_arn=$(deploy_agent_with_ltm "$COACH_AGENT_NAME" "src/agents/coach_agent.py" "$CONTENT_MEMORY_NAME"); then
+        print_success "✅ Coach Agent deployed"
+    else
+        print_error "❌ Coach Agent deployment failed"
+        exit 1
+    fi
+    
     # Apply cost allocation tags to all AgentCore resources
     tag_agentcore_resources
 
@@ -475,6 +485,7 @@ main() {
     print_status "  Memory Retention: 365 days"
     print_status "  Content Agent: $content_arn"
     print_status "  Campus Agent: $campus_arn"
+    print_status "  Coach Agent: $coach_arn"
     print_status ""
     print_status "🧠 Memory Features:"
     print_status "  - Semantic search for style patterns"
