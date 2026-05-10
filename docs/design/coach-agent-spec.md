@@ -595,7 +595,52 @@ final_description = inject_coach_block(description, coach_short)
 
 ---
 
-## 8. Inspiration from Research
+## 8. Graceful Degradation (Strava-Only Mode)
+
+The Coach Agent MUST provide useful feedback with Strava data alone (no Intervals.icu, no Enduraw, no Campus Coach). Integrations enrich but are never required.
+
+### Strava-Only Analysis Capabilities
+
+| Data Available (Strava) | Coach Can Analyze |
+|------------------------|-------------------|
+| Pace + HR per activity | Aerobic efficiency (pace at same HR over weeks) |
+| Laps data | Interval consistency, negative splits, pacing strategy |
+| Distance + time | Volume trend (weekly km), long run progression |
+| Activity frequency | Consistency score (sessions/week) |
+| HR over time in activity | Cardiac drift (long runs), recovery between intervals |
+| Elevation | Vertical load, hill performance |
+| Cadence | Running economy indicator |
+| Activity type | Sport-specific analysis |
+
+### Enrichment Layers (when available)
+
+| Integration | Additional Insights |
+|-------------|-------------------|
+| Intervals.icu | CTL/ATL/Form (precise load management), ramp rate, HRV |
+| Campus Coach | Planned vs realized (compliance), session intent |
+| Enduraw | Weather-adjusted pace (true performance), wind/heat cost |
+
+### Implementation Rule
+
+The coach prompt must use conditional sections:
+```
+IF intervals_icu_data available:
+  Include CTL/ATL/Form analysis, ramp rate check
+ELSE:
+  Estimate load from volume trend + HR patterns (less precise but still useful)
+
+IF campus_coach_sessions available:
+  Compare planned vs realized
+ELSE:
+  Analyze session structure from laps alone
+
+IF enduraw_data available:
+  Use adjusted pace for true performance comparison
+ELSE:
+  Note weather conditions if available from Strava, flag potential impact
+```
+
+## 9. Inspiration from Research
 
 ### 8.1 Patterns Borrowed
 
