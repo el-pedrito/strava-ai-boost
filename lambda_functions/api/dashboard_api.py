@@ -39,6 +39,42 @@ def _get_cloudwatch():
 ACTIVITIES_TABLE = os.environ['ACTIVITIES_TABLE']
 USER_CONFIG_TABLE = os.environ['USER_CONFIG_TABLE']
 COACHING_SESSIONS_TABLE = os.environ['COACHING_SESSIONS_TABLE']
+DEFAULT_USER_ID = os.environ.get('DEFAULT_USER_ID', '')
+
+
+def _query_user_activities(since: datetime = None, projection: str = None) -> List[Dict[str, Any]]:
+    """Query activities for the default user using GSI. Falls back to scan if no user_id."""
+    table = dynamodb.Table(ACTIVITIES_TABLE)
+
+    if DEFAULT_USER_ID:
+        kwargs: Dict[str, Any] = {
+            "IndexName": "UserActivitiesIndex",
+            "KeyConditionExpression": "user_id = :uid",
+            "ExpressionAttributeValues": {":uid": DEFAULT_USER_ID},
+            "ScanIndexForward": False,  # newest first
+        }
+        if since:
+            kwargs["KeyConditionExpression"] += " AND created_at >= :since"
+            kwargs["ExpressionAttributeValues"][":since"] = since.isoformat()
+        if projection:
+            kwargs["ProjectionExpression"] = projection
+        response = table.query(**kwargs)
+        items = response.get("Items", [])
+        while "LastEvaluatedKey" in response:
+            kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
+            response = table.query(**kwargs)
+            items.extend(response.get("Items", []))
+        return items
+
+    # Fallback: scan (no user_id configured)
+    response = table.scan()
+    items = response.get("Items", [])
+    while "LastEvaluatedKey" in response:
+        response = table.scan(ExclusiveStartKey=response["LastEvaluatedKey"])
+        items.extend(response.get("Items", []))
+    if since:
+        items = [i for i in items if i.get("created_at", "") >= since.isoformat()]
+    return items
 
 
 # Simple in-memory cache with TTL for performance optimization
@@ -292,24 +328,11 @@ def get_activity_processing_stats(start_date: datetime) -> Dict[str, Any]:
         
     except ClientError as e:
         logger.error(f"Failed to get activity processing stats with GSI: {str(e)}")
-        # Fallback to scan method
-        logger.info("Falling back to table scan method")
+        # Fallback to query helper
+        logger.info("Falling back to UserActivitiesIndex query")
 
         try:
-            response = table.scan()
-            activities = response.get('Items', [])
-            
-            # Filter activities by date range
-            recent_activities = []
-            for activity in activities:
-                created_at = activity.get('created_at', '')
-                if created_at:
-                    try:
-                        activity_date = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                        if activity_date >= start_date:
-                            recent_activities.append(activity)
-                    except ValueError:
-                        continue
+            recent_activities = _query_user_activities(since=start_date)
             
             # Calculate statistics
             total_activities = len(recent_activities)
@@ -440,41 +463,25 @@ def get_performance_metrics() -> Dict[str, Any]:
 def get_module_usage_stats(start_date: datetime) -> Dict[str, Any]:
     """Get module usage statistics"""
     try:
-        table = dynamodb.Table(ACTIVITIES_TABLE)
-        
-        # Get activities with module usage data
-        response = table.scan()
-        activities = response.get('Items', [])
-        
-        # Filter by date range
-        recent_activities = []
-        for activity in activities:
-            created_at = activity.get('created_at', '')
-            if created_at:
-                try:
-                    activity_date = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                    if activity_date >= start_date:
-                        recent_activities.append(activity)
-                except ValueError:
-                    continue
-        
+        recent_activities = _query_user_activities(since=start_date)
+
         # Count module usage
         module_counts = {}
         total_with_modules = 0
-        
+
         for activity in recent_activities:
             modules_used = activity.get('modules_used', [])
             if modules_used:
                 total_with_modules += 1
                 for module in modules_used:
                     module_counts[module] = module_counts.get(module, 0) + 1
-        
+
         return {
             'total_activities_with_modules': total_with_modules,
             'module_usage': module_counts,
             'most_used_module': max(module_counts.items(), key=lambda x: x[1])[0] if module_counts else None
         }
-        
+
     except ClientError as e:
         logger.error(f"Failed to get module usage stats: {str(e)}")
         return {
@@ -487,21 +494,7 @@ def get_module_usage_stats(start_date: datetime) -> Dict[str, Any]:
 def get_engagement_metrics(start_date: datetime) -> Dict[str, Any]:
     """Get engagement metrics from DynamoDB stored activity data"""
     try:
-        table = dynamodb.Table(ACTIVITIES_TABLE)
-        response = table.scan()
-        activities = response.get('Items', [])
-
-        # Filter activities by date range
-        recent_activities = []
-        for activity in activities:
-            created_at = activity.get('created_at', '')
-            if created_at:
-                try:
-                    activity_date = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                    if activity_date >= start_date:
-                        recent_activities.append(activity)
-                except ValueError:
-                    continue
+        recent_activities = _query_user_activities(since=start_date)
 
         total_kudos = 0
         total_comments = 0
@@ -584,13 +577,8 @@ def get_activity_history(query_params: Dict[str, str]) -> Dict[str, Any]:
                 )
                 all_activities = response.get('Items', [])
             except Exception as gsi_error:
-                logger.warning(f"GSI query failed, falling back to scan: {str(gsi_error)}")
-                # Fallback to scan with filter
-                response = table.scan(
-                    FilterExpression='processing_status = :status',
-                    ExpressionAttributeValues={':status': status_filter}
-                )
-                all_activities = response.get('Items', [])
+                logger.warning(f"GSI query failed, falling back to query: {str(gsi_error)}")
+                all_activities = _query_user_activities()
         else:
             # Get all activities - try GSI approach first
             try:
@@ -609,16 +597,13 @@ def get_activity_history(query_params: Dict[str, str]) -> Dict[str, Any]:
                         # Skip this status if query fails
                         continue
                 
-                # If no activities found via GSI, fallback to scan
+                # If no activities found via GSI, fallback to query helper
                 if not all_activities:
-                    response = table.scan()
-                    all_activities = response.get('Items', [])
+                    all_activities = _query_user_activities()
                     
             except Exception as gsi_error:
-                logger.warning(f"GSI queries failed, falling back to scan: {str(gsi_error)}")
-                # Fallback to scan
-                response = table.scan()
-                all_activities = response.get('Items', [])
+                logger.warning(f"GSI queries failed, falling back to query: {str(gsi_error)}")
+                all_activities = _query_user_activities()
         
         # Sort by created_at descending (in case GSI didn't sort properly)
         all_activities.sort(key=lambda x: x.get('created_at', ''), reverse=True)
@@ -696,29 +681,33 @@ def get_system_stats() -> Dict[str, Any]:
     """Get system-wide statistics (total activities, success rate, queue depth)"""
     try:
         table = dynamodb.Table(ACTIVITIES_TABLE)
-        
-        # Get total activities count
-        total_response = table.scan(Select='COUNT')
-        total_activities = total_response.get('Count', 0)
-        
+
+        # Get total activities count via query (or scan count as fallback)
+        if DEFAULT_USER_ID:
+            total_response = table.query(
+                IndexName="UserActivitiesIndex",
+                KeyConditionExpression="user_id = :uid",
+                ExpressionAttributeValues={":uid": DEFAULT_USER_ID},
+                Select='COUNT'
+            )
+            total_activities = total_response.get('Count', 0)
+        else:
+            total_response = table.scan(Select='COUNT')
+            total_activities = total_response.get('Count', 0)
+
         # Get activities from last 24 hours for success rate
-        from datetime import datetime, timedelta
-        cutoff_time = (datetime.utcnow() - timedelta(hours=24)).isoformat()
-        
-        recent_response = table.scan(
-            FilterExpression='created_at > :cutoff',
-            ExpressionAttributeValues={':cutoff': cutoff_time}
-        )
-        
-        recent_activities = recent_response.get('Items', [])
+        cutoff_time = (datetime.now(tz=timezone.utc) - timedelta(hours=24)).isoformat()
+        recent_activities = _query_user_activities(since=datetime.now(tz=timezone.utc) - timedelta(hours=24))
+
         total_recent = len(recent_activities)
         successful_recent = sum(1 for a in recent_activities if a.get('processing_status') == 'completed')
-        
+
         success_rate = (successful_recent / total_recent * 100) if total_recent > 0 else 0
-        
-        # Get processing activities count
-        processing_response = table.scan(
-            FilterExpression='processing_status = :status',
+
+        # Get processing activities count via ProcessingStatusIndex
+        processing_response = table.query(
+            IndexName='ProcessingStatusIndex',
+            KeyConditionExpression='processing_status = :status',
             ExpressionAttributeValues={':status': 'processing'},
             Select='COUNT'
         )
@@ -798,21 +787,7 @@ def get_coach_summary() -> Dict[str, Any]:
         now = datetime.now(tz=timezone.utc)
         start_date = now - timedelta(days=30)
 
-        response = table.scan()
-        all_activities = response.get('Items', [])
-
-        # Filter recent and sort by date descending
-        recent = []
-        for a in all_activities:
-            created_at = a.get('created_at', '')
-            if created_at:
-                try:
-                    dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                    if dt >= start_date.replace(tzinfo=dt.tzinfo if dt.tzinfo else None):
-                        recent.append(a)
-                except ValueError:
-                    continue
-
+        recent = _query_user_activities(since=start_date)
         recent.sort(key=lambda x: x.get('created_at', ''), reverse=True)
 
         # Recent feedback: last 5 activities with coach_feedback

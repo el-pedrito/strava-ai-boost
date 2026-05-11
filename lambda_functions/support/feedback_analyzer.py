@@ -186,9 +186,11 @@ def get_unanalyzed_activities(min_age_hours: int = 24) -> List[Dict[str, Any]]:
         cutoff = datetime.now(UTC) - timedelta(hours=min_age_hours)
         cutoff_str = cutoff.isoformat()
 
-        # Scan for completed, unanalyzed activities older than cutoff
-        response = table.scan(
-            FilterExpression='processing_status = :completed AND (attribute_not_exists(feedback_analyzed) OR feedback_analyzed = :false) AND attribute_exists(enhanced_description) AND created_at < :cutoff',
+        # Query for completed activities using ProcessingStatusIndex
+        response = table.query(
+            IndexName='ProcessingStatusIndex',
+            KeyConditionExpression='processing_status = :completed AND created_at < :cutoff',
+            FilterExpression='(attribute_not_exists(feedback_analyzed) OR feedback_analyzed = :false) AND attribute_exists(enhanced_description)',
             ExpressionAttributeValues={
                 ':completed': 'completed',
                 ':false': False,
@@ -200,8 +202,10 @@ def get_unanalyzed_activities(min_age_hours: int = 24) -> List[Dict[str, Any]]:
 
         # Handle pagination
         while 'LastEvaluatedKey' in response:
-            response = table.scan(
-                FilterExpression='processing_status = :completed AND (attribute_not_exists(feedback_analyzed) OR feedback_analyzed = :false) AND attribute_exists(enhanced_description) AND created_at < :cutoff',
+            response = table.query(
+                IndexName='ProcessingStatusIndex',
+                KeyConditionExpression='processing_status = :completed AND created_at < :cutoff',
+                FilterExpression='(attribute_not_exists(feedback_analyzed) OR feedback_analyzed = :false) AND attribute_exists(enhanced_description)',
                 ExpressionAttributeValues={
                     ':completed': 'completed',
                     ':false': False,
