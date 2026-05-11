@@ -39,6 +39,8 @@ interface CoachSummary {
     avg_pace_per_week: string[];
     interval_paces?: PacePoint[];
     ef_paces?: PacePoint[];
+    ramp_rate?: number | null;
+    compliance?: { planned: number; completed: number; percentage: number } | null;
   };
   athlete_profile: string;
 }
@@ -72,7 +74,6 @@ export function CoachPage() {
   const totalKm = vol.reduce((a, b) => a + b, 0);
   const totalSessions = sess.reduce((a, b) => a + b, 0);
   const lastEfPace = data?.trends?.ef_paces?.length ? data.trends.ef_paces[data.trends.ef_paces.length - 1].pace : '-';
-  const tendance = vol.length >= 4 ? (vol[3] >= vol[0] ? '↑' : '↓') : '-';
 
   return (
     <ContentLayout header={<Header variant="h1" description={t('coach.description')}>{t('coach.title')}</Header>}>
@@ -95,11 +96,21 @@ export function CoachPage() {
               <Box variant="small">{t('coach.kpi.efPace')}</Box>
             </div>
             <div>
-              <Box variant="h1">{tendance}</Box>
-              <Box variant="small">{t('coach.kpi.trend')}</Box>
+              <Box variant="h1" color={data?.trends?.ramp_rate != null ? (data.trends.ramp_rate > 10 ? 'text-status-error' : data.trends.ramp_rate > 0 ? 'text-status-success' : undefined) : undefined}>
+                {data?.trends?.ramp_rate != null ? (data.trends.ramp_rate > 10 ? `+${data.trends.ramp_rate}% ⚠️` : data.trends.ramp_rate > 0 ? `+${data.trends.ramp_rate}%` : `${data.trends.ramp_rate}%`) : '-'}
+              </Box>
+              <Box variant="small">{t('coach.kpi.rampRate')}</Box>
             </div>
           </ColumnLayout>
         </Container>
+
+        {data?.trends?.compliance && (
+          <Box padding="s" textAlign="center">
+            <StatusIndicator type={data.trends.compliance.percentage >= 80 ? 'success' : data.trends.compliance.percentage >= 50 ? 'warning' : 'error'}>
+              Plan Campus Coach: {data.trends.compliance.completed}/{data.trends.compliance.planned} séances ({data.trends.compliance.percentage}%)
+            </StatusIndicator>
+          </Box>
+        )}
 
         {/* Prochaine séance */}
         <Box padding="s">

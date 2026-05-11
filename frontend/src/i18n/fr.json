@@ -34,6 +34,7 @@
   "coach.kpi.totalSessions": "Séances (4 sem.)",
   "coach.kpi.currentEfPace": "Allure EF actuelle",
   "coach.kpi.volumeTrend": "Tendance volume",
+  "coach.kpi.rampRate": "Ramp Rate",
   "coach.nextSession": "Prochaine séance : consulte ton plan Campus Coach —",
   "coach.nextSession.configure": "Configurer",
   "coach.trends.title": "Tendances (4 dernières semaines)",
