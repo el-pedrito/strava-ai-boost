@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import ContentLayout from '@cloudscape-design/components/content-layout';
-import Header from '@cloudscape-design/components/header';
-import SpaceBetween from '@cloudscape-design/components/space-between';
+import { Card, CardDescription, CardHeader, CardTitle } from '@/ui';
 import { StravaAppSetup } from './StravaAppSetup.tsx';
 import { OAuthConnection } from './OAuthConnection.tsx';
 import { ModuleConfiguration } from './ModuleConfiguration.tsx';
@@ -46,26 +44,35 @@ export function ConfigurationPage() {
   }, []);
 
   useEffect(() => {
-    fetchStatus();
+    void fetchStatus();
   }, [fetchStatus]);
 
   return (
-    <ContentLayout
-      header={
-        <Header variant="h1" description="Configure Strava connection and modules">
-          Configuration
-        </Header>
-      }
-    >
-      <SpaceBetween size="l">
-        <StravaAppSetup configured={stravaConfigured} onConfigured={fetchStatus} />
-        <OAuthConnection
-          oauthStatus={oauthStatus}
-          stravaConfigured={stravaConfigured}
-          onDisconnected={fetchStatus}
-        />
+    <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-6 md:py-8">
+      <header className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">Configuration</h1>
+        <p className="text-sm text-muted-foreground">Connect Strava and configure modules.</p>
+      </header>
+
+      <Card padding="lg">
+        <CardHeader>
+          <CardTitle>Strava connection</CardTitle>
+          <CardDescription>Configure your Strava app and authorize access to your activities.</CardDescription>
+        </CardHeader>
+        {!stravaConfigured ? (
+          <StravaAppSetup onConfigured={fetchStatus} />
+        ) : (
+          <OAuthConnection oauthStatus={oauthStatus} onDisconnected={fetchStatus} />
+        )}
+      </Card>
+
+      <Card padding="lg">
+        <CardHeader>
+          <CardTitle>Modules</CardTitle>
+          <CardDescription>Enable optional integrations to enrich your activity descriptions.</CardDescription>
+        </CardHeader>
         <ModuleConfiguration modules={modules} onModuleChanged={fetchStatus} />
-      </SpaceBetween>
-    </ContentLayout>
+      </Card>
+    </div>
   );
 }

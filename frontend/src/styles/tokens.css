@@ -1,0 +1,180 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --radius-card: 12px;
+  --radius-pill: 9999px;
+
+  --color-strava: #fc4c02;
+  --color-strava-hover: #e04400;
+  --color-perf: #00c896;
+  --color-perf-hover: #00a87d;
+
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+/* Theme tokens — semantic vars */
+:root {
+  /* Light theme (default) */
+  --background: #fafbfc;
+  --foreground: #0f172a;
+
+  --surface: #ffffff;
+  --surface-elevated: #ffffff;
+  --surface-muted: #f4f6f8;
+
+  --border: #e5e7eb;
+  --border-strong: #cbd5e1;
+
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+
+  --primary: #fc4c02;
+  --primary-foreground: #ffffff;
+
+  --accent: #0f172a;
+  --accent-foreground: #ffffff;
+
+  --success: #00a87d;
+  --success-foreground: #ffffff;
+  --warning: #d97706;
+  --warning-foreground: #ffffff;
+  --danger: #dc2626;
+  --danger-foreground: #ffffff;
+  --info: #2563eb;
+  --info-foreground: #ffffff;
+
+  --ring: #fc4c02;
+  --shadow-color: 220 13% 18%;
+}
+
+.dark {
+  --background: #0a0e1a;
+  --foreground: #f5f7fa;
+
+  --surface: #111827;
+  --surface-elevated: #161b2c;
+  --surface-muted: #0f1422;
+
+  --border: #1f2937;
+  --border-strong: #334155;
+
+  --muted: #1a2032;
+  --muted-foreground: #94a3b8;
+
+  --primary: #fc4c02;
+  --primary-foreground: #ffffff;
+
+  --accent: #f5f7fa;
+  --accent-foreground: #0a0e1a;
+
+  --success: #00c896;
+  --success-foreground: #0a0e1a;
+  --warning: #f59e0b;
+  --warning-foreground: #0a0e1a;
+  --danger: #ef4444;
+  --danger-foreground: #ffffff;
+  --info: #3b82f6;
+  --info-foreground: #ffffff;
+
+  --ring: #fc4c02;
+  --shadow-color: 220 40% 2%;
+}
+
+/* Map semantic vars to Tailwind utilities via @theme inline */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-surface-muted: var(--surface-muted);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-ring: var(--ring);
+}
+
+/* Base styles */
+*,
+*::before,
+*::after {
+  border-color: var(--border);
+}
+
+html {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-feature-settings: 'cv11', 'ss01';
+  font-variation-settings: normal;
+}
+
+/* Numeric / mono — used for KPIs */
+.font-numeric {
+  font-family: var(--font-mono);
+  font-feature-settings: 'tnum', 'zero';
+  letter-spacing: -0.02em;
+}
+
+/* Subtle scrollbar in dark */
+.dark ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.dark ::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 6px;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
+
+/* Focus rings — consistent across components */
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Animations */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.animate-fade-in { animation: fade-in 0.3s ease-out; }
+.animate-fade-in-up { animation: fade-in-up 0.4s ease-out; }
+.animate-slide-in-right { animation: slide-in-right 0.3s ease-out; }
