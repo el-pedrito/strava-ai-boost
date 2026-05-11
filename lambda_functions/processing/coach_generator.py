@@ -23,6 +23,7 @@ dynamodb = boto3.resource("dynamodb", region_name=REGION)
 
 # Environment variables
 ACTIVITIES_TABLE = os.environ.get("ACTIVITIES_TABLE", "strava-ai-boost-activities")
+USER_CONFIG_TABLE = os.environ.get("USER_CONFIG_TABLE", "strava-ai-boost-user-configuration")
 MEMORY_ID = os.environ.get("BEDROCK_AGENTCORE_MEMORY_ID") or os.environ.get("MEMORY_ID")
 COACH_AGENT_ARN = os.environ.get("COACH_AGENT_ARN", "")
 
@@ -178,7 +179,7 @@ def _invoke_coach_agent(
         "user_config": user_config,
         "historical_summary": historical_summary,
         "memory_id": MEMORY_ID,
-    }, default=str).encode("utf-8")
+    }, default=lambda o: float(o) if hasattr(o, '__float__') else str(o)).encode("utf-8")
 
     # Retry with exponential backoff for cold start (up to 3 attempts)
     max_retries = 3
@@ -342,9 +343,6 @@ def _compute_coach_metrics(laps: list, activity_data: Dict[str, Any]) -> Dict[st
                         metrics["zone3_range_bpm"] = f"{z3_min}-{z3_max}bpm"
 
     return metrics
-
-
-USER_CONFIG_TABLE = os.environ.get("USER_CONFIG_TABLE", "strava-ai-boost-user-configuration")
 
 
 def extract_and_store_prs(user_id: str, activity_data: Dict[str, Any]) -> None:
@@ -648,6 +646,8 @@ def write_coaching_observation(user_id: str, feedback: Dict[str, Any]) -> None:
         observation_text = detailed_analysis or strava_block
         if not observation_text:
             return
+        if not isinstance(observation_text, str):
+            observation_text = json.dumps(observation_text, ensure_ascii=False)
 
         # Truncate to reasonable size for memory storage
         observation_text = observation_text[:1000]

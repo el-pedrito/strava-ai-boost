@@ -136,7 +136,7 @@ export function PreferencesPage() {
   const [interests, setInterests] = useState<MultiselectProps.Option[]>([]);
   const [paceZones, setPaceZones] = useState<PaceZones>({ ...DEFAULT_PACE_ZONES });
   const [athleteProfile, setAthleteProfile] = useState('');
-  const [personalRecords, setPersonalRecords] = useState<Array<{distance: string; time: string; date: string; event: string}>>([]);
+  const [personalRecords, setPersonalRecords] = useState<Array<{id: string; distance: string; time: string; date: string; event: string}>>([]);
   const [maxHr, setMaxHr] = useState<string>('');
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -161,7 +161,7 @@ export function PreferencesPage() {
         }
         setAthleteProfile((p.athlete_profile as string) || '');
         if (Array.isArray(p.personal_records)) {
-          setPersonalRecords(p.personal_records as Array<{distance: string; time: string; date: string; event: string}>);
+          setPersonalRecords((p.personal_records as Array<{distance: string; time: string; date: string; event: string}>).map(r => ({ ...r, id: crypto.randomUUID() })));
         }
         if (p.max_hr) setMaxHr(String(p.max_hr));
       }
@@ -310,7 +310,7 @@ export function PreferencesPage() {
               description="Tes records personnels (courses officielles, entraînements). Le coach les utilise pour contextualiser ta progression."
               actions={
                 <Button
-                  onClick={() => setPersonalRecords([...personalRecords, { distance: '', time: '', date: '', event: '' }])}
+                  onClick={() => setPersonalRecords([...personalRecords, { id: crypto.randomUUID(), distance: '', time: '', date: '', event: '' }])}
                   iconName="add-plus"
                 >
                   Ajouter un record
@@ -362,7 +362,7 @@ export function PreferencesPage() {
               const selectedDist = distOptions.find(o => o.value === record.distance);
 
               return (
-                <div key={idx} style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div key={record.id} style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                   <FormField label="Distance">
                     <SpaceBetween direction="horizontal" size="xs">
                       <Select

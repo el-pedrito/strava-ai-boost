@@ -43,6 +43,9 @@ interface CoachSummary {
 
 export function CoachPage() {
   const navigate = useNavigate();
+  // Safe min/max that handle empty arrays
+  const safeMin = (arr: number[], fallback = 0) => arr.length ? Math.min(...arr) : fallback;
+  const safeMax = (arr: number[], fallback = 1) => arr.length ? Math.max(...arr) : fallback;
   const [data, setData] = useState<CoachSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -114,7 +117,7 @@ export function CoachPage() {
                 <MixedLineBarChart
                   height={200}
                   xDomain={weeks}
-                  yDomain={[0, Math.max(...vol, 10) * 1.2]}
+                  yDomain={[0, safeMax(vol, 10) * 1.2]}
                   xTitle="Semaine"
                   yTitle="km"
                   series={[
@@ -126,7 +129,7 @@ export function CoachPage() {
                     {
                       title: 'Séances',
                       type: 'line',
-                      data: weeks.map((w, i) => ({ x: w, y: sess[i] * (Math.max(...vol) / Math.max(...sess, 1)) })),
+                      data: weeks.map((w, i) => ({ x: w, y: sess[i] * (safeMax(vol) / safeMax(sess, 1)) })),
                     },
                   ]}
                   xScaleType="categorical"
@@ -137,7 +140,7 @@ export function CoachPage() {
                 <MixedLineBarChart
                   height={200}
                   xDomain={weeks}
-                  yDomain={[Math.min(...paceSecs.filter(s => s > 0)) - 15, Math.max(...paceSecs.filter(s => s > 0)) + 15]}
+                  yDomain={[safeMin(paceSecs.filter(s => s > 0), 300) - 15, safeMax(paceSecs.filter(s => s > 0), 400) + 15]}
                   xTitle="Semaine"
                   yTitle="Allure (sec/km)"
                   series={[
@@ -176,8 +179,8 @@ export function CoachPage() {
                     height={200}
                     xDomain={data.trends.interval_paces.map(p => p.date)}
                     yDomain={[
-                      Math.min(...data.trends.interval_paces.map(p => p.pace_sec)) - 10,
-                      Math.max(...data.trends.interval_paces.map(p => p.pace_sec)) + 10
+                      safeMin(data.trends.interval_paces.map(p => p.pace_sec), 240) - 10,
+                      safeMax(data.trends.interval_paces.map(p => p.pace_sec), 300) + 10
                     ]}
                     series={[{
                       title: 'Allure fractions',
@@ -207,8 +210,8 @@ export function CoachPage() {
                     height={200}
                     xDomain={data.trends.ef_paces.map(p => p.date)}
                     yDomain={[
-                      Math.min(...data.trends.ef_paces.map(p => p.pace_sec)) - 10,
-                      Math.max(...data.trends.ef_paces.map(p => p.pace_sec)) + 10
+                      safeMin(data.trends.ef_paces.map(p => p.pace_sec), 350) - 10,
+                      safeMax(data.trends.ef_paces.map(p => p.pace_sec), 420) + 10
                     ]}
                     series={[
                       {
