@@ -34,6 +34,7 @@
   "coach.kpi.totalSessions": "Sessions (4 wks)",
   "coach.kpi.currentEfPace": "Current EF pace",
   "coach.kpi.volumeTrend": "Volume trend",
+  "coach.kpi.rampRate": "Ramp Rate",
   "coach.nextSession": "Next session: check your Campus Coach plan —",
   "coach.nextSession.configure": "Configure",
   "coach.trends.title": "Trends (last 4 weeks)",

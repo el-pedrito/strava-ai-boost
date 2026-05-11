@@ -876,6 +876,14 @@ def get_coach_summary() -> Dict[str, Any]:
         sessions_per_week.reverse()
         avg_pace_per_week.reverse()
 
+        # Compute ramp rate (week-over-week volume change percentage)
+        ramp_rate = None
+        if len(weekly_volume) >= 2:
+            prev_week = weekly_volume[-2]  # second to last (previous week)
+            curr_week = weekly_volume[-1]  # last (current week)
+            if prev_week > 0:
+                ramp_rate = round((curr_week - prev_week) / prev_week * 100, 1)
+
         # Compute detailed pace metrics from laps
         interval_paces = []  # [{date, pace_sec, hr}] - work intervals only
         ef_paces = []  # [{date, pace_sec, hr}] - easy runs only
@@ -931,6 +939,28 @@ def get_coach_summary() -> Dict[str, Any]:
         interval_trend = [{'date': p['date'], 'pace': _fmt_pace(p['pace_sec']), 'pace_sec': p['pace_sec'], 'hr': p.get('hr')} for p in sorted(interval_paces, key=lambda x: x['date'])]
         ef_trend = [{'date': p['date'], 'pace': _fmt_pace(p['pace_sec']), 'pace_sec': p['pace_sec'], 'hr': p.get('hr')} for p in sorted(ef_paces, key=lambda x: x['date'])]
 
+        # Compliance scoring: compare activities done vs Campus Coach plan
+        compliance = None
+        try:
+            sessions_table = dynamodb.Table(COACHING_SESSIONS_TABLE)
+            sessions_resp = sessions_table.scan(Limit=10)
+            sessions = sessions_resp.get('Items', [])
+            if sessions:
+                sessions.sort(key=lambda x: x.get('updated_at', ''), reverse=True)
+                current_week = sessions[0].get('week_number', '')
+                week_sessions = [s for s in sessions if s.get('week_number') == current_week]
+                total_planned = len(week_sessions)
+                # Count running sessions in current week from activities
+                completed_this_week = sessions_per_week[-1] if sessions_per_week else 0
+                if total_planned > 0:
+                    compliance = {
+                        'planned': total_planned,
+                        'completed': min(completed_this_week, total_planned),
+                        'percentage': min(round(completed_this_week / total_planned * 100), 100)
+                    }
+        except Exception as e:
+            logger.warning(f'Failed to compute compliance: {e}')
+
         return {
             'athlete_profile': athlete_profile,
             'recent_feedback': recent_feedback,
@@ -940,6 +970,8 @@ def get_coach_summary() -> Dict[str, Any]:
                 'avg_pace_per_week': avg_pace_per_week,
                 'interval_paces': interval_trend[-20:],
                 'ef_paces': ef_trend[-20:],
+                'ramp_rate': ramp_rate,
+                'compliance': compliance,
             }
         }
 

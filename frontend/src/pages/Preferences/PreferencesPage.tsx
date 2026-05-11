@@ -126,6 +126,16 @@ const DEFAULTS = {
   interests: [] as string[],
 };
 
+const formatTime = (secs: number) => {
+  if (secs >= 3600) {
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    return `${h}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+  }
+  return `${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2,'0')}`;
+};
+
 export function PreferencesPage() {
   const { t } = useTranslation();
   const flash = useFlash();
@@ -141,6 +151,7 @@ export function PreferencesPage() {
   const [athleteProfile, setAthleteProfile] = useState('');
   const [personalRecords, setPersonalRecords] = useState<Array<{id: string; distance: string; time: string; date: string; event: string}>>([]);
   const [maxHr, setMaxHr] = useState<string>('');
+  const [autoPrs, setAutoPrs] = useState<Record<string, {elapsed_time: number; date: string}>>({});
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
@@ -167,6 +178,9 @@ export function PreferencesPage() {
           setPersonalRecords((p.personal_records as Array<{distance: string; time: string; date: string; event: string}>).map(r => ({ ...r, id: crypto.randomUUID() })));
         }
         if (p.max_hr) setMaxHr(String(p.max_hr));
+        if (p.best_efforts_prs && typeof p.best_efforts_prs === 'object') {
+          setAutoPrs(p.best_efforts_prs as Record<string, {elapsed_time: number; date: string}>);
+        }
       }
     } catch {
       // Use defaults
@@ -392,6 +406,27 @@ export function PreferencesPage() {
             )}
           </SpaceBetween>
         </Container>
+
+        {/* 2b. Auto-detected PRs */}
+        {Object.keys(autoPrs).length > 0 && (
+          <Container
+            header={
+              <Header variant="h2" description="Détectés automatiquement depuis tes activités Strava">
+                PRs Auto-détectés (Strava)
+              </Header>
+            }
+          >
+            <SpaceBetween size="xs">
+              {Object.entries(autoPrs).map(([name, pr]) => (
+                <div key={name} style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
+                  <Box variant="small"><strong>{name}</strong></Box>
+                  <Box variant="small">{formatTime(pr.elapsed_time)}</Box>
+                  <Box variant="small" color="text-body-secondary">{pr.date}</Box>
+                </div>
+              ))}
+            </SpaceBetween>
+          </Container>
+        )}
 
         {/* 3. Pace Zones (collapsed) */}
         <Container

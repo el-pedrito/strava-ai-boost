@@ -73,10 +73,15 @@ def get_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
 
         if 'Item' in response:
             user_config = response['Item']
+            stored_config = user_config
             preferences = user_config.get('user_preferences', {})
         else:
             # Return default preferences
+            stored_config = {}
             preferences = {}
+
+        # Include auto-accumulated PRs if available
+        best_efforts_prs = stored_config.get('best_efforts_prs', {})
 
         # Return with defaults
         result = {
@@ -93,7 +98,8 @@ def get_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
                 'pace_zones': preferences.get('pace_zones', None),
                 'athlete_profile': preferences.get('athlete_profile', ''),
                 'personal_records': preferences.get('personal_records', []),
-                'max_hr': preferences.get('max_hr', None)
+                'max_hr': preferences.get('max_hr', None),
+                'best_efforts_prs': best_efforts_prs
             }
         }
 
