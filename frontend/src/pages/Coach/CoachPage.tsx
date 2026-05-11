@@ -56,8 +56,8 @@ export function CoachPage() {
 
   useEffect(() => {
     api.get<CoachSummary>('/coach/summary')
-      .then(setData)
-      .catch(() => setError('Impossible de charger les données coach'))
+      .then(d => { setData(d); })
+      .catch(e => { setError(`Impossible de charger les données coach: ${e.message || e}`); })
       .finally(() => setLoading(false));
   }, []);
 
