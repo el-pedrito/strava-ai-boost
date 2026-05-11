@@ -17,7 +17,7 @@ def register_all_modules() -> None:
         # Register Enduraw module
         module_registry.register_module(EndurawModule, "enduraw")
         
-        # TODO: Register other modules as they are implemented
+        # Additional modules can be registered here
         # module_registry.register_module(RunnaModule, "runna")
         # module_registry.register_module(TrainingPeaksModule, "training_peaks")
         
