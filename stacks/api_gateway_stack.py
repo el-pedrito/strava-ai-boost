@@ -110,7 +110,7 @@ class ApiGatewayStack(Stack):
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
                 "COACHING_SESSIONS_TABLE": self.core_stack.table_names["coaching_sessions"],
                 "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
-                "DEFAULT_USER_ID": "138362426"
+                "DEFAULT_USER_ID": self.node.try_get_context("default_user_id") or ""
             }
         )
         
