@@ -38,7 +38,7 @@ export AWS_REGION=eu-west-1
 ./scripts/configure_strava_webhook.sh dev --auto-configure
 ```
 
-**What this deploys**: 7 CDK stacks, DynamoDB tables, 14 Lambda functions (grouped in 4 packages), Step Functions (parallel execution), Secrets Manager, Bedrock fallback mode (Claude Sonnet 4.5), structured logging with AWS Lambda Powertools, CloudFront-hosted frontend with Cognito authentication. System is immediately functional.
+**What this deploys**: 7 CDK stacks, DynamoDB tables, 15 Lambda functions (grouped in 4 packages), Step Functions (parallel execution), Secrets Manager, Bedrock fallback mode (Claude Sonnet 4.5), structured logging with AWS Lambda Powertools, CloudFront-hosted frontend with Cognito authentication. System is immediately functional.
 
 ### Phase 2: AgentCore Enhancement (Optional)
 
@@ -94,7 +94,7 @@ The frontend is hosted on CloudFront with Cognito authentication:
 ### Strava OAuth Setup
 
 1. Go to https://www.strava.com/settings/api and create an app
-2. Set **Authorization Callback Domain** to `localhost` (no http://, no port)
+2. Set **Authorization Callback Domain** to your CloudFront domain (e.g., `d1p03w7uoqpahh.cloudfront.net`) — no http://, no path
 3. Store credentials in Secrets Manager:
    ```bash
    aws secretsmanager put-secret-value \
@@ -271,7 +271,7 @@ graph TB
 | Component | Details |
 |-----------|---------|
 | **7 CDK Stacks** | Core, Security, Webhook, Content, API, Feedback, Frontend |
-| **14 Lambda Functions** | 4 API + 3 processing + 3 webhooks + 2 support + 2 coach (in role-based packages) |
+| **15 Lambda Functions** | 4 API + 3 processing + 3 webhooks + 2 support + 2 coach (in role-based packages) |
 | **3 DynamoDB Tables** | `activities` (2 GSIs, TTL), `user_config`, `coaching_sessions` (GSI) |
 | **3 AgentCore Agents** | `content_gen` (LTM memory), `campus_coach` (Browser Tool), `coach_agent` (LTM memory) |
 | **CloudFront + S3** | Frontend hosting with OAC, private bucket, versioning, encryption |
@@ -363,7 +363,7 @@ aws logs filter-log-events \
 ### Common Issues
 
 **OAuth: "Failed to connect to Strava"**
-- Verify callback domain is exactly `localhost` (no http://, no port)
+- Verify callback domain is exactly your CloudFront domain (no http://, no path)
 - Check Client ID/Secret match your Strava app
 - Try incognito mode to clear cached state
 
@@ -446,7 +446,7 @@ cd frontend && npm test
 pytest tests/ -v
 ```
 
-**Test coverage:** 167 total tests (127 backend + 40 frontend).
+**Test coverage:** 176 total tests (136 backend + 40 frontend).
 
 ## Cost Tracking
 
