@@ -18,11 +18,20 @@ interface Message {
 
 export function CoachChat() {
   const { t } = useTranslation();
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>(() => {
+    try {
+      const saved = localStorage.getItem('coach_chat_messages');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [sessionId] = useState(() => `chat-${Date.now()}`);
+  const [sessionId] = useState(() => localStorage.getItem('coach_chat_session') || (() => { const id = `chat-${Date.now()}`; localStorage.setItem('coach_chat_session', id); return id; })());
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    localStorage.setItem('coach_chat_messages', JSON.stringify(messages.slice(-20)));
+  }, [messages]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
