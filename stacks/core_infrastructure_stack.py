@@ -259,7 +259,9 @@ class CoreInfrastructureStack(Stack):
                     "bedrock:InvokeModelWithResponseStream"
                 ],
                 resources=[
-                    get_model_arn(self.region)
+                    get_model_arn(self.region),
+                    f"arn:aws:bedrock:{self.region}:{Aws.ACCOUNT_ID}:inference-profile/*",
+                    "arn:aws:bedrock:*::foundation-model/*"
                 ]
             )
         )
