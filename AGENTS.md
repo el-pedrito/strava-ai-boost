@@ -25,15 +25,16 @@
 Strava AI Boost is a **serverless AWS application** that automatically enhances Strava activity titles and descriptions using AI. The system uses a **React + Cloudscape frontend** hosted on CloudFront (with Cognito authentication) that calls API Gateway directly.
 
 ### Key Statistics
-- **~16,600 LOC** in core components
-- **14 Lambda functions** (4 API, 3 processing, 3 webhooks, 2 support, 2 coach)
+- **~18,000 LOC** in core components
+- **15 Lambda functions** (5 API, 3 processing, 3 webhooks, 2 support, 2 coach)
 - **3 AgentCore agents**
 - **7 CDK stacks**
-- **167 tests** (127 backend + 40 frontend)
+- **176 tests** (136 backend + 40 frontend)
 - **Python 3.12** runtime, **React 19 + TypeScript + Vite** frontend
-- **Cognito authentication** (JWT, no self-registration)
+- **Cognito authentication** (JWT, custom:strava_id attribute, no self-registration)
 - **CloudFront + S3** frontend hosting (OAC)
 - **2 DynamoDB GSIs** (ProcessingStatusIndex, UserActivitiesIndex) — all queries, no scans
+- **i18n** FR/EN with react-i18next
 
 ### Architecture Pattern
 **Event-Driven Serverless (Parallel Execution):**
