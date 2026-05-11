@@ -859,18 +859,24 @@ aws stepfunctions describe-execution \
 - [ ] Iterate on COACH_AGENT_SYSTEM_PROMPT based on real outputs
 - [ ] Verify coach memory accumulates observations over time
 
-### P2 — Medium Term (improve coach)
-- [ ] Add weekly synthesis (EventBridge schedule, Sunday summary)
-- [ ] Add "nothing to report" logic (skip trivial sessions)
-- [ ] Add ramp rate explicit calculation (flag >10%/week)
-- [ ] Frontend Coach page: add charts (volume trend, pace progression)
+### P2 — Medium Term
+- [ ] Multi-user readiness: extract user_id from Cognito JWT instead of DEFAULT_USER_ID
+- [ ] Coach adaptatif: add `recommendation_next` field to coach feedback output
+- [ ] With Campus Coach: suggest adjustments (rest day if fatigued, complementary renfo)
+- [ ] Without Campus Coach: propose mini weekly plan based on history + objectives
+- [ ] Compliance scoring: track plan adherence percentage
+- [ ] Weekly synthesis (EventBridge schedule, Sunday summary)
+- [ ] Frontend Coach page: display 'Prochaine séance recommandée' from coach output
 - [ ] Frontend Preferences: display auto-accumulated PRs from best_efforts
+- [ ] Add ramp rate explicit alert (flag >10%/week)
 
-### P3 — Long Term (expand)
-- [ ] Morning briefing (pre-run guidance based on Form/fatigue)
-- [ ] Conversational mode (ask the coach questions)
+### P3 — Long Term
+- [ ] Conversational mode: `/coach/ask` endpoint + chat widget on Coach page
+- [ ] Morning briefing (pre-run guidance based on Form/fatigue/plan)
 - [ ] Race readiness assessment (periodic check vs goal pace)
-- [ ] Integration with Campus Coach plan (compliance scoring)
+- [ ] Multi-tenant AgentCore (single agent, user context per session)
+- [ ] HYROX-specific feedback (hybrid running + strength)
+- [ ] Nothing to report logic (skip trivial sessions)
 
 ---
 

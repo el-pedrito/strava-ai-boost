@@ -42,6 +42,23 @@ COACHING_SESSIONS_TABLE = os.environ['COACHING_SESSIONS_TABLE']
 DEFAULT_USER_ID = os.environ.get('DEFAULT_USER_ID', '')
 
 
+def _get_user_id(event: Dict[str, Any]) -> str:
+    """Extract user_id from Cognito JWT claims or fall back to DEFAULT_USER_ID."""
+    try:
+        claims = event.get('requestContext', {}).get('authorizer', {}).get('claims', {})
+        # custom:strava_id is set during OAuth callback
+        strava_id = claims.get('custom:strava_id', '')
+        if strava_id:
+            return strava_id
+        # Fall back to Cognito sub if no strava_id
+        sub = claims.get('sub', '')
+        if sub:
+            return sub
+    except (AttributeError, TypeError):
+        pass
+    return DEFAULT_USER_ID
+
+
 def _query_user_activities(since: datetime = None, projection: str = None) -> List[Dict[str, Any]]:
     """Query activities for the default user using GSI. Falls back to scan if no user_id."""
     table = dynamodb.Table(ACTIVITIES_TABLE)
