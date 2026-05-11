@@ -183,6 +183,7 @@ export function CoachPage() {
                       title: 'Allure fractions',
                       type: 'line',
                       data: data.trends.interval_paces.map(p => ({ x: p.date, y: p.pace_sec })),
+                      valueFormatter: (v) => { const m = Math.floor(v / 60); const s = Math.round(v % 60); return `${m}:${s.toString().padStart(2, '0')}/km`; },
                     }]}
                     xScaleType="categorical"
                     hideFilter
@@ -190,7 +191,7 @@ export function CoachPage() {
                     yTickFormatter={(v) => {
                       const m = Math.floor(Number(v) / 60);
                       const s = Math.round(Number(v) % 60);
-                      return `${m}:${s.toString().padStart(2, '0')}`;
+                      return `${m}:${s.toString().padStart(2, '0')}/km`;
                     }}
                     empty={<Box>Pas de fractions détectées</Box>}
                   />
@@ -214,21 +215,24 @@ export function CoachPage() {
                         title: 'Allure EF',
                         type: 'line',
                         data: data.trends.ef_paces.map(p => ({ x: p.date, y: p.pace_sec })),
+                        valueFormatter: (v) => { const m = Math.floor(v / 60); const s = Math.round(v % 60); return `${m}:${s.toString().padStart(2, '0')}/km`; },
                       },
                       ...(data.trends.ef_paces.some(p => p.hr) ? [{
                         title: 'FC (bpm)',
                         type: 'line' as const,
                         data: data.trends.ef_paces.filter(p => p.hr).map(p => ({ x: p.date, y: p.hr! })),
+                        valueFormatter: (v: number) => `${v} bpm`,
                       }] : []),
                     ]}
                     xScaleType="categorical"
                     hideFilter
                     hideLegend={false}
                     yTickFormatter={(v) => {
-                      if (Number(v) > 200) return `${v}`;
-                      const m = Math.floor(Number(v) / 60);
-                      const s = Math.round(Number(v) % 60);
-                      return `${m}:${s.toString().padStart(2, '0')}`;
+                      const n = Number(v);
+                      if (n > 200) return `${n} bpm`;
+                      const m = Math.floor(n / 60);
+                      const s = Math.round(n % 60);
+                      return `${m}:${s.toString().padStart(2, '0')}/km`;
                     }}
                     empty={<Box>Pas de sorties EF détectées</Box>}
                   />
