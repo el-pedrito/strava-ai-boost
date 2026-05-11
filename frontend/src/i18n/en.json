@@ -11,14 +11,12 @@
   "common.add": "Add",
   "common.noData": "No data",
   "common.refresh": "Refresh",
-
   "nav.dashboard": "Dashboard",
   "nav.configuration": "Configuration",
   "nav.preferences": "Preferences",
   "nav.coach": "Coach",
   "nav.quality": "Quality",
   "nav.signOut": "Sign out",
-
   "dashboard.title": "Dashboard",
   "dashboard.description": "Strava AI Boost system overview",
   "dashboard.systemOverview": "System Overview",
@@ -27,7 +25,6 @@
   "dashboard.avgProcessingTime": "Average Processing Time",
   "dashboard.totalActivities": "Total Activities",
   "dashboard.successRate": "Success Rate",
-
   "coach.title": "AI Coach",
   "coach.description": "Your personal training assistant. Analyzes your sessions, tracks your progress and guides you towards your goals.",
   "coach.kpi.totalKm": "Total volume (4 wks)",
@@ -64,7 +61,6 @@
   "coach.chat.thinking": "Coach is thinking...",
   "coach.chat.error": "Sorry, couldn't get a response. Try again.",
   "coach.error": "Unable to load coach data",
-
   "preferences.title": "Preferences",
   "preferences.description": "Customize AI content generation and coaching for your activities.",
   "preferences.athleteProfile.title": "Athlete Profile",
@@ -120,12 +116,58 @@
   "preferences.resetCurrent": "Reset",
   "preferences.saveSuccess": "Preferences saved! Future activities will use these settings.",
   "preferences.saveError": "Failed to save: {{error}}",
-
   "quality.title": "Content Quality",
   "quality.description": "Analyze the quality of AI-generated descriptions.",
   "quality.stats": "Statistics",
   "quality.activities": "Processed activities",
   "quality.confidence": "Average confidence",
   "quality.descriptionRate": "Modification rate",
-  "quality.similarity": "Average similarity"
+  "quality.similarity": "Average similarity",
+  "coach": {
+    "kpi": {
+      "efPace": "EF Pace",
+      "sessions": "Sessions"
+    },
+    "paceProgression": {
+      "avgHrEf": "Average EF HR",
+      "efExplanation": "Pace down + HR stable = aerobic progress"
+    },
+    "profile": {
+      "title": "Athlete Profile"
+    },
+    "trends": {
+      "sessions": "Sessions",
+      "sessionsPerWeek": "sessions/week"
+    }
+  },
+  "preferences": {
+    "demographics": {
+      "age": "Age Range"
+    },
+    "profile": {
+      "calculateTanaka": "Calculate (Tanaka)",
+      "description": "Describe your profile so the AI can better personalize your descriptions",
+      "fcMax": "Max HR (bpm)",
+      "fcMaxDescription": "Your maximum heart rate. Used to compute %HRmax in coach feedback.",
+      "fieldLabel": "Your athlete profile",
+      "tanakaFormula": "Tanaka formula: 208 - 0.7 × age",
+      "title": "Athlete Profile"
+    },
+    "records": {
+      "paceSpeed": "Pace / Speed"
+    },
+    "style": {
+      "description": "Control the format, tone, and language of generated descriptions.",
+      "emoji": "Emoji usage",
+      "language": "Language",
+      "length": "Description length",
+      "technical": "Technical detail",
+      "title": "Content Style",
+      "tone": "Tone"
+    },
+    "zones": {
+      "description": "Define your pace zones so the AI correctly classifies your workouts",
+      "title": "Pace Zones (10 zones)"
+    }
+  }
 }
