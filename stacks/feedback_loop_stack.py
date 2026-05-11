@@ -143,7 +143,6 @@ class FeedbackLoopStack(Stack):
         activities_table.grant_read_data(self.weekly_synthesis)
 
         # Grant write to user_config for storing synthesis + Bedrock for AI
-        from aws_cdk import aws_iam as iam, Aws
         self.weekly_synthesis.add_to_role_policy(iam.PolicyStatement(
             actions=["dynamodb:GetItem", "dynamodb:UpdateItem"],
             resources=[f"arn:aws:dynamodb:{Aws.REGION}:{Aws.ACCOUNT_ID}:table/strava-ai-boost-user-configuration"]
