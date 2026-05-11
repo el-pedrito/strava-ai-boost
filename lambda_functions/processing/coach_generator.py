@@ -658,7 +658,7 @@ def write_coaching_observation(user_id: str, feedback: Dict[str, Any]) -> None:
             memoryId=MEMORY_ID,
             actorId=str(user_id),
             sessionId=f"coaching_observations/{user_id}",
-            payload=[{"conversationMessage": {"role": "ASSISTANT", "content": observation_text}}],
+            payload=[{"conversational": {"role": "ASSISTANT", "content": [{"text": observation_text}]}}],
             eventTimestamp=time.time(),
         )
         logger.info(f"Wrote coaching observation to memory for user {user_id}")
