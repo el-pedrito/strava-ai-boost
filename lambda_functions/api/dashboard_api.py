@@ -701,18 +701,17 @@ def get_system_stats() -> Dict[str, Any]:
     try:
         table = dynamodb.Table(ACTIVITIES_TABLE)
 
-        # Get total activities count via query (or scan count as fallback)
-        if DEFAULT_USER_ID:
+        # Get total activities count via GSI query
+        if _current_user_id:
             total_response = table.query(
                 IndexName="UserActivitiesIndex",
                 KeyConditionExpression="user_id = :uid",
-                ExpressionAttributeValues={":uid": DEFAULT_USER_ID},
+                ExpressionAttributeValues={":uid": _current_user_id},
                 Select='COUNT'
             )
-            total_activities = total_response.get('Count', 0)
         else:
             total_response = table.scan(Select='COUNT')
-            total_activities = total_response.get('Count', 0)
+        total_activities = total_response.get('Count', 0)
 
         # Get activities from last 24 hours for success rate
         cutoff_time = (datetime.now(tz=timezone.utc) - timedelta(hours=24)).isoformat()
@@ -939,38 +938,45 @@ def get_coach_summary() -> Dict[str, Any]:
         compliance = None
         try:
             sessions_table = dynamodb.Table(COACHING_SESSIONS_TABLE)
-            sessions_resp = sessions_table.scan(Limit=200)
-            sessions = sessions_resp.get('Items', [])
-            if sessions:
-                # Find current week using iso_week
-                current_iso_week = now.strftime('%Y-W%W')
-                current_week_sessions = [s for s in sessions if s.get('iso_week') == current_iso_week]
+            # Query current week by iso_week GSI
+            current_iso_week = now.strftime('%Y-W%W')
+            resp = sessions_table.query(
+                IndexName="IsoWeekIndex",
+                KeyConditionExpression="iso_week = :iw",
+                ExpressionAttributeValues={":iw": current_iso_week},
+            )
+            current_week_sessions = resp.get("Items", [])
 
-                # Fallback: most recently updated week with 3-6 sessions (real single week plan)
-                if not current_week_sessions:
-                    from collections import defaultdict
-                    by_week: dict = defaultdict(list)
-                    for s in sessions:
-                        by_week[s.get('week_number', '')].append(s)
-                    # Filter: 3-6 sessions (a real week plan, not duplicates)
-                    real_weeks = [(wn, ss) for wn, ss in by_week.items() if 3 <= len(ss) <= 6]
-                    if real_weeks:
-                        real_weeks.sort(key=lambda x: max(s.get('updated_at', '') for s in x[1]), reverse=True)
-                        current_week_sessions = real_weeks[0][1]
+            # Fallback: query most recent week via WeekNumberIndex
+            if not current_week_sessions:
+                scan_resp = sessions_table.scan(Limit=5, ProjectionExpression="week_number, updated_at")
+                if scan_resp.get("Items"):
+                    latest = sorted(scan_resp["Items"], key=lambda x: x.get("updated_at", ""), reverse=True)[0]
+                    wn = latest.get("week_number", "")
+                    if wn:
+                        resp = sessions_table.query(
+                            IndexName="WeekNumberIndex",
+                            KeyConditionExpression="week_number = :wn",
+                            ExpressionAttributeValues={":wn": wn},
+                        )
+                        candidates = resp.get("Items", [])
+                        # Only use if 3-6 sessions (real week plan)
+                        if 3 <= len(candidates) <= 6:
+                            current_week_sessions = candidates
 
-                total_planned = len(current_week_sessions)
-                if total_planned > 0:
-                    seven_days_ago = (now - timedelta(days=7)).isoformat()
-                    this_week_activities = [
-                        a for a in recent
-                        if (a.get('start_date') or a.get('created_at', '')) >= seven_days_ago
-                    ]
-                    completed_count = len(this_week_activities)
-                    compliance = {
-                        'planned': total_planned,
-                        'completed': min(completed_count, total_planned),
-                        'percentage': min(round(completed_count / total_planned * 100), 100)
-                    }
+            total_planned = len(current_week_sessions)
+            if total_planned > 0:
+                seven_days_ago = (now - timedelta(days=7)).isoformat()
+                this_week_activities = [
+                    a for a in recent
+                    if (a.get('start_date') or a.get('created_at', '')) >= seven_days_ago
+                ]
+                completed_count = len(this_week_activities)
+                compliance = {
+                    'planned': total_planned,
+                    'completed': min(completed_count, total_planned),
+                    'percentage': min(round(completed_count / total_planned * 100), 100)
+                }
         except Exception as e:
             logger.warning(f'Failed to compute compliance: {e}')
 
