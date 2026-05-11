@@ -146,6 +146,8 @@ Customize AI content generation in Configuration > Personal Profile:
 | **Technical Detail** | Basic, Intermediate, Advanced |
 | **Language** | French, English, Spanish, German, Italian |
 | **Athlete Profile** | Free-text field for objectives, training history, experience level |
+| **FC Max** | Manual or calculated (Tanaka: 208 - 0.7 × age). Auto-updated if activity shows higher HR |
+| **Personal Records** | Manual PRs with distance, time, date, event. Auto-calculates pace & speed |
 
 ### Enhancement Control
 
@@ -258,7 +260,7 @@ graph TB
 |-----------|---------|
 | **7 CDK Stacks** | Core, Security, Webhook, Content, API, Feedback, Frontend |
 | **14 Lambda Functions** | 4 API + 3 processing + 3 webhooks + 2 support + 2 coach (in role-based packages) |
-| **3 DynamoDB Tables** | `activities` (GSI, TTL), `user_config`, `coaching_sessions` (GSI) |
+| **3 DynamoDB Tables** | `activities` (2 GSIs, TTL), `user_config`, `coaching_sessions` (GSI) |
 | **3 AgentCore Agents** | `content_gen` (LTM memory), `campus_coach` (Browser Tool), `coach_agent` (LTM memory) |
 | **CloudFront + S3** | Frontend hosting with OAC, private bucket, versioning, encryption |
 | **Cognito User Pool** | JWT authentication, no self-registration, 12+ char password policy |
