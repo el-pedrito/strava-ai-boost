@@ -163,7 +163,8 @@ Règles:
 - Réponses concises (3-5 phrases max sauf si question complexe)
 - Factuel, cite des chiffres quand pertinent
 - Si tu ne sais pas, dis-le
-- Réponds en prose, PAS en JSON"""
+- Texte brut uniquement: PAS de **bold**, PAS de *italic*, PAS de listes à puces, PAS de markdown
+- Utilise des tirets simples ou des retours à la ligne pour structurer si besoin"""
 
                 agent = Agent(model=MODEL_ID, system_prompt=conv_prompt)
                 result = agent(question)
