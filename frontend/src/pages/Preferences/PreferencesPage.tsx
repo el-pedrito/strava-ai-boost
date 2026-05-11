@@ -324,8 +324,9 @@ export function PreferencesPage() {
           <SpaceBetween size="m">
             {personalRecords.map((record, idx) => {
               // Known distances in km
-              const KNOWN_DISTANCES: Record<string, number> = { '5K': 5, '10K': 10, 'Semi': 21.097, 'Marathon': 42.195 };
-              const distKm = KNOWN_DISTANCES[record.distance] || parseFloat(record.distance) || 0;
+              const KNOWN_DISTANCES: Record<string, number> = { '5K': 5, '10K': 10, 'Semi': 21.097, 'Marathon': 42.195, '5k': 5, '10k': 10, 'semi': 21.097, 'marathon': 42.195, 'Semi-marathon': 21.097, 'semi-marathon': 21.097, '21K': 21.097, '21k': 21.097, '42K': 42.195, '42k': 42.195 };
+              const distRaw = record.distance.replace(/\s*(km|K)\s*$/i, '').trim();
+              const distKm = KNOWN_DISTANCES[record.distance] || KNOWN_DISTANCES[distRaw] || parseFloat(distRaw) || 0;
 
               // Parse time (mm:ss or h:mm:ss)
               let totalSec = 0;
