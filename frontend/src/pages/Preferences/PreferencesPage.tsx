@@ -323,44 +323,69 @@ export function PreferencesPage() {
         >
           <SpaceBetween size="m">
             {personalRecords.map((record, idx) => {
-              // Auto-calculate pace and speed
+              // Known distances in km
+              const KNOWN_DISTANCES: Record<string, number> = { '5K': 5, '10K': 10, 'Semi': 21.097, 'Marathon': 42.195 };
+              const distKm = KNOWN_DISTANCES[record.distance] || parseFloat(record.distance) || 0;
+
+              // Parse time (mm:ss or h:mm:ss)
+              let totalSec = 0;
+              const hms = record.time.match(/^(\d+):(\d{2}):(\d{2})$/);
+              const ms = record.time.match(/^(\d+):(\d{2})$/);
+              if (hms) totalSec = parseInt(hms[1]) * 3600 + parseInt(hms[2]) * 60 + parseInt(hms[3]);
+              else if (ms) totalSec = parseInt(ms[1]) * 60 + parseInt(ms[2]);
+
+              // Compute pace and speed
               let paceStr = '';
               let speedStr = '';
-              const distMatch = record.distance.match(/^([\d.]+)\s*(km|m|K)?$/i);
-              const timeMatch = record.time.match(/^(\d+):(\d{2}):?(\d{2})?$/);
-              if (distMatch && timeMatch) {
-                let distKm = parseFloat(distMatch[1]);
-                const unit = (distMatch[2] || 'km').toLowerCase();
-                if (unit === 'm') distKm /= 1000;
-                else if (unit === 'k') distKm = distKm; // already km
-                const hours = parseInt(timeMatch[1]);
-                const mins = parseInt(timeMatch[2]);
-                const secs = timeMatch[3] ? parseInt(timeMatch[3]) : 0;
-                const totalMin = hours * 60 + mins + secs / 60;
-                if (distKm > 0 && totalMin > 0) {
-                  const paceMin = totalMin / distKm;
-                  const pM = Math.floor(paceMin);
-                  const pS = Math.round((paceMin - pM) * 60);
-                  paceStr = `${pM}:${pS.toString().padStart(2, '0')}/km`;
-                  speedStr = `${(distKm / (totalMin / 60)).toFixed(1)} km/h`;
-                }
+              if (distKm > 0 && totalSec > 0) {
+                const paceSec = totalSec / distKm;
+                const pM = Math.floor(paceSec / 60);
+                const pS = Math.round(paceSec % 60);
+                paceStr = `${pM}:${pS.toString().padStart(2, '0')}/km`;
+                speedStr = `${(distKm / (totalSec / 3600)).toFixed(1)} km/h`;
               }
+
+              const distOptions = [
+                { value: '5K', label: '5K' },
+                { value: '10K', label: '10K' },
+                { value: 'Semi', label: 'Semi-marathon' },
+                { value: 'Marathon', label: 'Marathon' },
+              ];
+              const selectedDist = distOptions.find(o => o.value === record.distance);
+
               return (
                 <div key={idx} style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                   <FormField label="Distance">
-                    <Input
-                      value={record.distance}
-                      onChange={({ detail }) => { const r = [...personalRecords]; r[idx] = { ...r[idx], distance: detail.value }; setPersonalRecords(r); }}
-                      placeholder="5K, 10K, 21.1km..."
-                    />
+                    <SpaceBetween direction="horizontal" size="xs">
+                      <Select
+                        selectedOption={selectedDist || null}
+                        onChange={({ detail }) => { const r = [...personalRecords]; r[idx] = { ...r[idx], distance: detail.selectedOption.value || '' }; setPersonalRecords(r); }}
+                        options={distOptions}
+                        placeholder="Choisir..."
+                      />
+                      {!selectedDist && (
+                        <Input
+                          value={record.distance}
+                          onChange={({ detail }) => { const r = [...personalRecords]; r[idx] = { ...r[idx], distance: detail.value }; setPersonalRecords(r); }}
+                          placeholder="Autre (km)"
+                        />
+                      )}
+                    </SpaceBetween>
                   </FormField>
                   <FormField label="Temps">
                     <Input
                       value={record.time}
                       onChange={({ detail }) => { const r = [...personalRecords]; r[idx] = { ...r[idx], time: detail.value }; setPersonalRecords(r); }}
-                      placeholder="22:15, 1:42:00..."
+                      placeholder="22:15 ou 1:42:00"
                     />
                   </FormField>
+                  {paceStr && (
+                    <FormField label="Allure / Vitesse">
+                      <Box variant="small" color="text-status-info">
+                        {paceStr} — {speedStr}
+                      </Box>
+                    </FormField>
+                  )}
                   <FormField label="Date">
                     <Input
                       value={record.date}
@@ -375,11 +400,6 @@ export function PreferencesPage() {
                       placeholder="Parkrun, Semi Paris..."
                     />
                   </FormField>
-                  {paceStr && (
-                    <Box variant="small" color="text-status-info">
-                      ⚡ {paceStr} | {speedStr}
-                    </Box>
-                  )}
                   <Button
                     variant="icon"
                     iconName="remove"
