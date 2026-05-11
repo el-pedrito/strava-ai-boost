@@ -22,12 +22,21 @@ interface CoachFeedbackItem {
   coach_feedback: { detailed_analysis?: string; strava_block?: string } | null;
 }
 
+interface PacePoint {
+  date: string;
+  pace: string;
+  pace_sec: number;
+  hr?: number;
+}
+
 interface CoachSummary {
   recent_feedback: CoachFeedbackItem[];
   trends: {
     weekly_volume_km: number[];
     sessions_per_week: number[];
     avg_pace_per_week: string[];
+    interval_paces?: PacePoint[];
+    ef_paces?: PacePoint[];
   };
   athlete_profile: string;
 }
@@ -150,11 +159,87 @@ export function CoachPage() {
                 />
               </ColumnLayout>
               <Box variant="small" textAlign="center" margin={{ top: 's' }} color="text-body-secondary">
-                Volume: {vol.map(v => `${v}km`).join(' → ')} | Séances: {sess.join(' → ')} | Allure: {paces.join(' → ')}
+                Volume: {vol.map(v => `${v}km`).join(' → ')} | Séances: {sess.join(' → ')}
               </Box>
             </Container>
           );
         })()}
+
+        {/* Detailed Pace Charts */}
+        {data?.trends && (data.trends.interval_paces?.length || data.trends.ef_paces?.length) ? (
+          <Container header={<Header variant="h2">Progression des allures</Header>}>
+            <ColumnLayout columns={2}>
+              {data.trends.interval_paces && data.trends.interval_paces.length > 0 && (
+                <div>
+                  <Box variant="h4" margin={{ bottom: 'xs' }}>🔥 Allure fractions (intervalles)</Box>
+                  <MixedLineBarChart
+                    height={200}
+                    xDomain={data.trends.interval_paces.map(p => p.date)}
+                    yDomain={[
+                      Math.min(...data.trends.interval_paces.map(p => p.pace_sec)) - 10,
+                      Math.max(...data.trends.interval_paces.map(p => p.pace_sec)) + 10
+                    ]}
+                    series={[{
+                      title: 'Allure fractions',
+                      type: 'line',
+                      data: data.trends.interval_paces.map(p => ({ x: p.date, y: p.pace_sec })),
+                    }]}
+                    xScaleType="categorical"
+                    hideFilter
+                    hideLegend
+                    yTickFormatter={(v) => {
+                      const m = Math.floor(Number(v) / 60);
+                      const s = Math.round(Number(v) % 60);
+                      return `${m}:${s.toString().padStart(2, '0')}`;
+                    }}
+                    empty={<Box>Pas de fractions détectées</Box>}
+                  />
+                  <Box variant="small" color="text-body-secondary" textAlign="center">
+                    Plus bas = plus rapide
+                  </Box>
+                </div>
+              )}
+              {data.trends.ef_paces && data.trends.ef_paces.length > 0 && (
+                <div>
+                  <Box variant="h4" margin={{ bottom: 'xs' }}>🏃 Allure EF (endurance facile)</Box>
+                  <MixedLineBarChart
+                    height={200}
+                    xDomain={data.trends.ef_paces.map(p => p.date)}
+                    yDomain={[
+                      Math.min(...data.trends.ef_paces.map(p => p.pace_sec)) - 10,
+                      Math.max(...data.trends.ef_paces.map(p => p.pace_sec)) + 10
+                    ]}
+                    series={[
+                      {
+                        title: 'Allure EF',
+                        type: 'line',
+                        data: data.trends.ef_paces.map(p => ({ x: p.date, y: p.pace_sec })),
+                      },
+                      ...(data.trends.ef_paces.some(p => p.hr) ? [{
+                        title: 'FC (bpm)',
+                        type: 'line' as const,
+                        data: data.trends.ef_paces.filter(p => p.hr).map(p => ({ x: p.date, y: p.hr! })),
+                      }] : []),
+                    ]}
+                    xScaleType="categorical"
+                    hideFilter
+                    hideLegend={false}
+                    yTickFormatter={(v) => {
+                      if (Number(v) > 200) return `${v}`;
+                      const m = Math.floor(Number(v) / 60);
+                      const s = Math.round(Number(v) % 60);
+                      return `${m}:${s.toString().padStart(2, '0')}`;
+                    }}
+                    empty={<Box>Pas de sorties EF détectées</Box>}
+                  />
+                  <Box variant="small" color="text-body-secondary" textAlign="center">
+                    Allure qui baisse + FC stable = progression aérobie
+                  </Box>
+                </div>
+              )}
+            </ColumnLayout>
+          </Container>
+        ) : null}
       </SpaceBetween>
     </ContentLayout>
   );
