@@ -328,13 +328,19 @@ export function PreferencesPage() {
               const distRaw = record.distance.replace(/\s*(km|K)\s*$/i, '').trim();
               const distKm = KNOWN_DISTANCES[record.distance] || KNOWN_DISTANCES[distRaw] || parseFloat(distRaw) || 0;
 
-              // Parse time (mm:ss or h:mm:ss or hh:mm:ss)
+              // Parse time (mm:ss, h:mm:ss, XhYY, Xh:YY, Xh:YY:SS)
               let totalSec = 0;
-              const cleaned = record.time.replace(/['"h]/g, ':').replace(/:+/g, ':').replace(/:$/, '');
-              const hms = cleaned.match(/^(\d+):(\d{1,2}):(\d{2})$/);
-              const ms = cleaned.match(/^(\d+):(\d{2})$/);
-              if (hms) totalSec = parseInt(hms[1]) * 3600 + parseInt(hms[2]) * 60 + parseInt(hms[3]);
-              else if (ms) totalSec = parseInt(ms[1]) * 60 + parseInt(ms[2]);
+              const t = record.time.trim();
+              const hOnly = t.match(/^(\d+)h(\d{1,2})(?::(\d{2}))?$/i);
+              if (hOnly) {
+                totalSec = parseInt(hOnly[1]) * 3600 + parseInt(hOnly[2]) * 60 + (hOnly[3] ? parseInt(hOnly[3]) : 0);
+              } else {
+                const cleaned = t.replace(/['"]/g, ':').replace(/:+/g, ':').replace(/:$/, '');
+                const hms = cleaned.match(/^(\d+):(\d{1,2}):(\d{2})$/);
+                const ms = cleaned.match(/^(\d+):(\d{2})$/);
+                if (hms) totalSec = parseInt(hms[1]) * 3600 + parseInt(hms[2]) * 60 + parseInt(hms[3]);
+                else if (ms) totalSec = parseInt(ms[1]) * 60 + parseInt(ms[2]);
+              }
 
               // Compute pace and speed
               let paceStr = '';
