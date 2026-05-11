@@ -166,6 +166,18 @@ VITE_DEFAULT_USER_ID=YOUR_STRAVA_ATHLETE_ID
 
 > **Note:** API authentication is handled via Cognito JWT tokens (sent in the `Authorization` header). The frontend automatically manages token refresh after login.
 
+**CDK Context** (`cdk.json`):
+```json
+{
+  "context": {
+    "region": "us-east-1",
+    "default_user_id": "YOUR_STRAVA_ATHLETE_ID"
+  }
+}
+```
+
+> The `default_user_id` is used by the dashboard Lambda to query activities via the `UserActivitiesIndex` GSI. Set it to your Strava athlete ID.
+
 ---
 
 ## Architecture Overview
