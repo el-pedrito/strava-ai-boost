@@ -833,13 +833,15 @@ def get_coach_summary() -> Dict[str, Any]:
         sessions_per_week = [0] * 4
         weekly_moving_time = [0.0] * 4
         weekly_distance_for_pace = [0.0] * 4
+        run_sessions_per_week = [0] * 4
+        other_sessions_per_week = [0] * 4
 
         for a in recent:
-            created_at = a.get('created_at', '')
-            if not created_at:
+            activity_date = a.get('start_date') or a.get('start_date_local') or a.get('created_at', '')
+            if not activity_date:
                 continue
             try:
-                dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                dt = datetime.fromisoformat(activity_date.replace('Z', '+00:00'))
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=timezone.utc)
                 days_ago = (now - dt).days
@@ -848,11 +850,17 @@ def get_coach_summary() -> Dict[str, Any]:
                     continue
                 distance_m = float(a.get('distance', 0) or 0)
                 moving_time_s = float(a.get('moving_time', 0) or 0)
-                weekly_volume[week_idx] += distance_m / 1000
+                activity_type = a.get('activity_type', '')
+
+                if activity_type == 'Run' and distance_m > 0:
+                    weekly_volume[week_idx] += distance_m / 1000
+                    run_sessions_per_week[week_idx] += 1
+                    if moving_time_s > 0:
+                        weekly_moving_time[week_idx] += moving_time_s
+                        weekly_distance_for_pace[week_idx] += distance_m
+                else:
+                    other_sessions_per_week[week_idx] += 1
                 sessions_per_week[week_idx] += 1
-                if distance_m > 0 and moving_time_s > 0:
-                    weekly_moving_time[week_idx] += moving_time_s
-                    weekly_distance_for_pace[week_idx] += distance_m
             except (ValueError, TypeError):
                 continue
 
@@ -870,6 +878,8 @@ def get_coach_summary() -> Dict[str, Any]:
         # Reverse so oldest week is first (chronological order)
         weekly_volume.reverse()
         sessions_per_week.reverse()
+        run_sessions_per_week.reverse()
+        other_sessions_per_week.reverse()
         avg_pace_per_week.reverse()
 
         # Compute ramp rate (week-over-week volume change percentage)
@@ -986,6 +996,8 @@ def get_coach_summary() -> Dict[str, Any]:
             'trends': {
                 'weekly_volume_km': [round(v, 1) for v in weekly_volume],
                 'sessions_per_week': sessions_per_week,
+                'run_sessions_per_week': run_sessions_per_week,
+                'other_sessions_per_week': other_sessions_per_week,
                 'avg_pace_per_week': avg_pace_per_week,
                 'interval_paces': interval_trend[-20:],
                 'ef_paces': ef_trend[-20:],
