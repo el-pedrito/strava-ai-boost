@@ -36,6 +36,8 @@ interface CoachSummary {
   trends: {
     weekly_volume_km: number[];
     sessions_per_week: number[];
+    run_sessions_per_week?: number[];
+    other_sessions_per_week?: number[];
     avg_pace_per_week: string[];
     interval_paces?: PacePoint[];
     ef_paces?: PacePoint[];
@@ -72,7 +74,8 @@ export function CoachPage() {
   const vol = data?.trends?.weekly_volume_km ?? [];
   const sess = data?.trends?.sessions_per_week ?? [];
   const totalKm = vol.reduce((a, b) => a + b, 0);
-  const totalSessions = sess.reduce((a, b) => a + b, 0);
+  const runSessions = (data?.trends?.run_sessions_per_week ?? []).reduce((a: number, b: number) => a + b, 0);
+  const otherSessions = (data?.trends?.other_sessions_per_week ?? []).reduce((a: number, b: number) => a + b, 0);
   const lastEfPace = data?.trends?.ef_paces?.length ? data.trends.ef_paces[data.trends.ef_paces.length - 1].pace : '-';
 
   return (
@@ -88,8 +91,8 @@ export function CoachPage() {
               <Box variant="small">{t('coach.kpi.totalKm')}</Box>
             </div>
             <div>
-              <Box variant="h1">{totalSessions}</Box>
-              <Box variant="small">{t('coach.kpi.sessions')}</Box>
+              <Box variant="h1">{runSessions} + {otherSessions}</Box>
+              <Box variant="small">{t('coach.kpi.sessions')} (runs + renfo)</Box>
             </div>
             <div>
               <Box variant="h1">{lastEfPace}</Box>
