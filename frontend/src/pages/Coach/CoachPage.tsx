@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Header from '@cloudscape-design/components/header';
@@ -42,6 +43,7 @@ interface CoachSummary {
 }
 
 export function CoachPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const safeMin = (arr: number[], fallback = 0) => arr.length ? Math.min(...arr) : fallback;
   const safeMax = (arr: number[], fallback = 1) => arr.length ? Math.max(...arr) : fallback;
@@ -58,7 +60,7 @@ export function CoachPage() {
 
   if (loading) {
     return (
-      <ContentLayout header={<Header variant="h1">Coach IA</Header>}>
+      <ContentLayout header={<Header variant="h1">{t('coach.title')}</Header>}>
         <Box textAlign="center" padding="xxl"><Spinner size="large" /></Box>
       </ContentLayout>
     );
@@ -72,7 +74,7 @@ export function CoachPage() {
   const tendance = vol.length >= 4 ? (vol[3] >= vol[0] ? '↑' : '↓') : '-';
 
   return (
-    <ContentLayout header={<Header variant="h1" description="Ton assistant d'entraînement personnel. Analyse tes séances, suit ta progression et te guide vers tes objectifs.">Coach IA</Header>}>
+    <ContentLayout header={<Header variant="h1" description={t('coach.description')}>{t('coach.title')}</Header>}>
       <SpaceBetween size="l">
         {error && <Alert type="error">{error}</Alert>}
 
@@ -81,19 +83,19 @@ export function CoachPage() {
           <ColumnLayout columns={4}>
             <div>
               <Box variant="h1">{Math.round(totalKm)} km</Box>
-              <Box variant="small">Volume total (4 sem.)</Box>
+              <Box variant="small">{t('coach.kpi.totalKm')}</Box>
             </div>
             <div>
               <Box variant="h1">{totalSessions}</Box>
-              <Box variant="small">Séances (4 sem.)</Box>
+              <Box variant="small">{t('coach.kpi.sessions')}</Box>
             </div>
             <div>
               <Box variant="h1">{lastEfPace}</Box>
-              <Box variant="small">Allure EF actuelle</Box>
+              <Box variant="small">{t('coach.kpi.efPace')}</Box>
             </div>
             <div>
               <Box variant="h1">{tendance}</Box>
-              <Box variant="small">Tendance volume</Box>
+              <Box variant="small">{t('coach.kpi.trend')}</Box>
             </div>
           </ColumnLayout>
         </Container>
@@ -101,7 +103,7 @@ export function CoachPage() {
         {/* Prochaine séance */}
         <Box padding="s">
           <StatusIndicator type="info">
-            Prochaine séance : consulte ton plan Campus Coach — <Link onFollow={() => navigate('/preferences')}>Configurer</Link>
+            {t('coach.nextSession')} — <Link onFollow={() => navigate('/preferences')}>Configurer</Link>
           </StatusIndicator>
         </Box>
 
@@ -116,7 +118,7 @@ export function CoachPage() {
           const paceSecs = paces.map(paceToSec);
 
           return (
-            <Container header={<Header variant="h2">Tendances (4 dernières semaines)</Header>}>
+            <Container header={<Header variant="h2">{t('coach.trends.title')}</Header>}>
               <ColumnLayout columns={2}>
                 <MixedLineBarChart
                   height={200}
@@ -135,7 +137,7 @@ export function CoachPage() {
                   xScaleType="categorical"
                   hideFilter
                   hideLegend={false}
-                  empty={<Box>Pas de données</Box>}
+                  empty={<Box>{t('common.noData')}</Box>}
                 />
                 <MixedLineBarChart
                   height={200}
@@ -159,11 +161,11 @@ export function CoachPage() {
                     const s = Math.round(Number(v) % 60);
                     return `${m}:${s.toString().padStart(2, '0')}`;
                   }}
-                  empty={<Box>Pas de données</Box>}
+                  empty={<Box>{t('common.noData')}</Box>}
                 />
               </ColumnLayout>
               <Box variant="small" textAlign="center" margin={{ top: 's' }} color="text-body-secondary">
-                Volume : {vol.map(v => `${v}km`).join(' → ')} | Séances : {sess.join(' → ')} séances/sem
+                {t('coach.trends.volume')} : {vol.map(v => `${v}km`).join(' → ')} | {t('coach.trends.sessions')} : {sess.join(' → ')} {t('coach.trends.sessionsPerWeek')}
               </Box>
             </Container>
           );
@@ -171,11 +173,11 @@ export function CoachPage() {
 
         {/* Progression des allures */}
         {data?.trends && (data.trends.interval_paces?.length || data.trends.ef_paces?.length) ? (
-          <Container header={<Header variant="h2">Progression des allures</Header>}>
+          <Container header={<Header variant="h2">{t('coach.paceProgression.title')}</Header>}>
             <ColumnLayout columns={2}>
               {data.trends.interval_paces && data.trends.interval_paces.length > 0 && (
                 <div>
-                  <Box variant="h4" margin={{ bottom: 'xs' }}>🔥 Allure fractions (intervalles)</Box>
+                  <Box variant="h4" margin={{ bottom: 'xs' }}>🔥 {t('coach.paceProgression.intervals')}</Box>
                   <MixedLineBarChart
                     height={200}
                     xDomain={data.trends.interval_paces.map(p => p.date)}
@@ -200,7 +202,7 @@ export function CoachPage() {
                     empty={<Box>Pas de fractions détectées</Box>}
                   />
                   <Box variant="small" color="text-body-secondary" textAlign="center">
-                    Plus bas = plus rapide
+                    {t('coach.paceProgression.lowerIsFaster')}
                   </Box>
                 </div>
               )}
@@ -209,7 +211,7 @@ export function CoachPage() {
                 const hrAnnotation = avgHr.length ? Math.round(avgHr.reduce((a, b) => a + b, 0) / avgHr.length) : null;
                 return (
                   <div>
-                    <Box variant="h4" margin={{ bottom: 'xs' }}>🏃 Allure EF (endurance facile)</Box>
+                    <Box variant="h4" margin={{ bottom: 'xs' }}>🏃 {t('coach.paceProgression.ef')}</Box>
                     <MixedLineBarChart
                       height={200}
                       xDomain={data.trends.ef_paces!.map(p => p.date)}
@@ -234,8 +236,8 @@ export function CoachPage() {
                       empty={<Box>Pas de sorties EF détectées</Box>}
                     />
                     <Box variant="small" color="text-body-secondary" textAlign="center">
-                      Allure qui baisse + FC stable = progression aérobie
-                      {hrAnnotation && ` · FC moyenne EF : ${hrAnnotation} bpm`}
+                      {t('coach.paceProgression.efExplanation')}
+                      {hrAnnotation && ` · ${t('coach.paceProgression.avgHrEf')} : ${hrAnnotation} bpm`}
                     </Box>
                   </div>
                 );
@@ -245,7 +247,7 @@ export function CoachPage() {
         ) : null}
 
         {/* Derniers retours coach */}
-        <Container header={<Header variant="h2">Derniers retours coach</Header>}>
+        <Container header={<Header variant="h2">{t('coach.feedback.title')}</Header>}>
           {!data?.recent_feedback?.length ? (
             <StatusIndicator type="info">Aucun feedback coach disponible pour le moment.</StatusIndicator>
           ) : (
@@ -255,7 +257,7 @@ export function CoachPage() {
                   <SpaceBetween size="s">
                     <Box variant="p">{item.coach_feedback?.strava_block || 'Pas de résumé disponible.'}</Box>
                     {item.coach_feedback?.detailed_analysis && (
-                      <ExpandableSection headerText="Analyse détaillée">
+                      <ExpandableSection headerText={t('coach.feedback.detailedAnalysis')}>
                         <Box variant="p" color="text-body-secondary">{item.coach_feedback.detailed_analysis}</Box>
                       </ExpandableSection>
                     )}
@@ -267,7 +269,7 @@ export function CoachPage() {
         </Container>
 
         {/* Profil Athlète */}
-        <Container header={<Header variant="h2" actions={<Button onClick={() => navigate('/preferences')}>Modifier</Button>}>Profil Athlète</Header>}>
+        <Container header={<Header variant="h2" actions={<Button onClick={() => navigate('/preferences')}>{t('common.edit')}</Button>}>{t('coach.profile.title')}</Header>}>
           {data?.athlete_profile ? (
             <Box variant="p">{data.athlete_profile}</Box>
           ) : (

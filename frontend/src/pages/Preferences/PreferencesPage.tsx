@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Container from '@cloudscape-design/components/container';
 import Header from '@cloudscape-design/components/header';
@@ -126,6 +127,7 @@ const DEFAULTS = {
 };
 
 export function PreferencesPage() {
+  const { t } = useTranslation();
   const flash = useFlash();
   const [ageRange, setAgeRange] = useState<SelectProps.Option | null>(findOption(AGE_OPTIONS, DEFAULTS.age_range));
   const [sportApproach, setSportApproach] = useState<SelectProps.Option | null>(findOption(SPORT_OPTIONS, DEFAULTS.sport_approach));
@@ -209,8 +211,8 @@ export function PreferencesPage() {
   return (
     <ContentLayout
       header={
-        <Header variant="h1" description="Personnalise la génération de contenu et le coaching IA pour tes activités.">
-          Préférences
+        <Header variant="h1" description={t('preferences.description')}>
+          {t('preferences.title')}
         </Header>
       }
     >
@@ -218,14 +220,14 @@ export function PreferencesPage() {
         {/* 1. Athlete Profile + FCmax */}
         <Container
           header={
-            <Header variant="h2" description="Décris ton profil pour que l'IA personnalise encore mieux tes descriptions">
-              Profil Athlète
+            <Header variant="h2" description={t('preferences.profile.description')}>
+              {t('preferences.profile.title')}
             </Header>
           }
         >
           <SpaceBetween size="l">
             <FormField
-              label="Ton profil athlète"
+              label={t('preferences.profile.fieldLabel')}
               description={`${athleteProfile.length}/2000 caractères`}
             >
               <Textarea
@@ -238,8 +240,8 @@ export function PreferencesPage() {
               />
             </FormField>
             <FormField
-              label="FC Max (bpm)"
-              description="Ta fréquence cardiaque maximale. Utilisée pour calculer les %FCmax dans le feedback coach."
+              label={t('preferences.profile.fcMax')}
+              description={t('preferences.profile.fcMaxDescription')}
             >
               <SpaceBetween direction="horizontal" size="xs">
                 <Input
@@ -260,11 +262,11 @@ export function PreferencesPage() {
                     }
                   }}
                 >
-                  Calculer (Tanaka)
+                  {t('preferences.profile.calculateTanaka')}
                 </Button>
                 {maxHr && ageRange?.value && (
                   <Box variant="small" color="text-status-info">
-                    Formule Tanaka : 208 - 0.7 × âge
+                    {t('preferences.profile.tanakaFormula')}
                   </Box>
                 )}
               </SpaceBetween>
@@ -277,17 +279,17 @@ export function PreferencesPage() {
           header={
             <Header
               variant="h2"
-              description="Tes records personnels (courses officielles, entraînements). Le coach les utilise pour contextualiser ta progression."
+              description={t('preferences.records.description')}
               actions={
                 <Button
                   onClick={() => setPersonalRecords([...personalRecords, { id: crypto.randomUUID(), distance: '', time: '', date: '', event: '' }])}
                   iconName="add-plus"
                 >
-                  Ajouter un record
+                  {t('preferences.records.add')}
                 </Button>
               }
             >
-              Records Personnels
+              {t('preferences.records.title')}
             </Header>
           }
         >
@@ -298,12 +300,12 @@ export function PreferencesPage() {
               const distKm = KNOWN_DISTANCES[record.distance] || KNOWN_DISTANCES[distRaw] || parseFloat(distRaw) || 0;
 
               let totalSec = 0;
-              const t = record.time.trim();
-              const hOnly = t.match(/^(\d+)h(\d{1,2})(?::(\d{2}))?$/i);
+              const timeStr = record.time.trim();
+              const hOnly = timeStr.match(/^(\d+)h(\d{1,2})(?::(\d{2}))?$/i);
               if (hOnly) {
                 totalSec = parseInt(hOnly[1]) * 3600 + parseInt(hOnly[2]) * 60 + (hOnly[3] ? parseInt(hOnly[3]) : 0);
               } else {
-                const cleaned = t.replace(/['"]/g, ':').replace(/:+/g, ':').replace(/:$/, '');
+                const cleaned = timeStr.replace(/['"]/g, ':').replace(/:+/g, ':').replace(/:$/, '');
                 const hms = cleaned.match(/^(\d+):(\d{1,2}):(\d{2})$/);
                 const ms = cleaned.match(/^(\d+):(\d{2})$/);
                 if (hms) totalSec = parseInt(hms[1]) * 3600 + parseInt(hms[2]) * 60 + parseInt(hms[3]);
@@ -332,7 +334,7 @@ export function PreferencesPage() {
 
               return (
                 <div key={record.id} style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                  <FormField label="Distance">
+                  <FormField label={t('preferences.records.distance')}>
                     <SpaceBetween direction="horizontal" size="xs">
                       <Select
                         selectedOption={selectedDist || (isCustom ? { value: 'custom', label: 'Autre...' } : null)}
@@ -349,26 +351,26 @@ export function PreferencesPage() {
                       )}
                     </SpaceBetween>
                   </FormField>
-                  <FormField label="Temps">
+                  <FormField label={t('preferences.records.time')}>
                     <Input
                       value={record.time}
                       onChange={({ detail }) => { const r = [...personalRecords]; r[idx] = { ...r[idx], time: detail.value }; setPersonalRecords(r); }}
                       placeholder="22:15 ou 1:42:00"
                     />
                   </FormField>
-                  <FormField label="Allure / Vitesse">
+                  <FormField label={t('preferences.records.paceSpeed')}>
                     <Box variant="small" color={paceStr ? "text-status-info" : "text-body-secondary"}>
                       {paceStr ? `${paceStr} — ${speedStr}` : '—'}
                     </Box>
                   </FormField>
-                  <FormField label="Date">
+                  <FormField label={t('preferences.records.date')}>
                     <Input
                       value={record.date}
                       onChange={({ detail }) => { const r = [...personalRecords]; r[idx] = { ...r[idx], date: detail.value }; setPersonalRecords(r); }}
                       placeholder="2026-03-15"
                     />
                   </FormField>
-                  <FormField label="Événement">
+                  <FormField label={t('preferences.records.event')}>
                     <Input
                       value={record.event}
                       onChange={({ detail }) => { const r = [...personalRecords]; r[idx] = { ...r[idx], event: detail.value }; setPersonalRecords(r); }}
@@ -385,7 +387,7 @@ export function PreferencesPage() {
             })}
             {personalRecords.length === 0 && (
               <Box variant="p" color="text-body-secondary">
-                Aucun record enregistré. Ajoute tes temps sur 5K, 10K, semi, marathon, etc.
+                {t('preferences.records.empty')}
               </Box>
             )}
           </SpaceBetween>
@@ -394,8 +396,8 @@ export function PreferencesPage() {
         {/* 3. Pace Zones (collapsed) */}
         <Container
           header={
-            <Header variant="h2" description="Définis tes zones d allure pour que l IA classifie correctement tes séances (EF, Tempo, Seuil, etc.)">
-              Zones d'allure
+            <Header variant="h2" description={t('preferences.zones.description')}>
+              {t('preferences.zones.title')}
             </Header>
           }
         >
@@ -461,13 +463,13 @@ export function PreferencesPage() {
         {/* 4. Content Style */}
         <Container
           header={
-            <Header variant="h2" description="Contrôle le format, le ton et la langue des descriptions générées.">
-              Style de Contenu
+            <Header variant="h2" description={t('preferences.style.description')}>
+              {t('preferences.style.title')}
             </Header>
           }
         >
           <SpaceBetween size="l">
-            <FormField label="Longueur de description" description="Preferred length for activity descriptions">
+            <FormField label={t('preferences.style.length')} description="Preferred length for activity descriptions">
               <Select
                 selectedOption={contentLength}
                 onChange={({ detail }) => setContentLength(detail.selectedOption)}
@@ -475,7 +477,7 @@ export function PreferencesPage() {
               />
             </FormField>
 
-            <FormField label="Ton" description="Communication style for descriptions">
+            <FormField label={t('preferences.style.tone')} description="Communication style for descriptions">
               <Select
                 selectedOption={contentTone}
                 onChange={({ detail }) => setContentTone(detail.selectedOption)}
@@ -483,7 +485,7 @@ export function PreferencesPage() {
               />
             </FormField>
 
-            <FormField label="Utilisation des emojis" description="How many emojis to include">
+            <FormField label={t('preferences.style.emoji')} description="How many emojis to include">
               <Select
                 selectedOption={emojiUsage}
                 onChange={({ detail }) => setEmojiUsage(detail.selectedOption)}
@@ -491,7 +493,7 @@ export function PreferencesPage() {
               />
             </FormField>
 
-            <FormField label="Détail technique" description="Level of technical detail in descriptions">
+            <FormField label={t('preferences.style.technical')} description="Level of technical detail in descriptions">
               <Select
                 selectedOption={technicalDetail}
                 onChange={({ detail }) => setTechnicalDetail(detail.selectedOption)}
@@ -499,7 +501,7 @@ export function PreferencesPage() {
               />
             </FormField>
 
-            <FormField label="Langue" description="Language for titles and descriptions">
+            <FormField label={t('preferences.style.language')} description="Language for titles and descriptions">
               <Select
                 selectedOption={contentLanguage}
                 onChange={({ detail }) => setContentLanguage(detail.selectedOption)}
@@ -518,7 +520,7 @@ export function PreferencesPage() {
           }
         >
           <SpaceBetween size="l">
-            <FormField label="Tranche d'âge" description="Helps adapt references and tone to your generation">
+            <FormField label={t('preferences.demographics.age')} description="Helps adapt references and tone to your generation">
               <Select
                 selectedOption={ageRange}
                 onChange={({ detail }) => setAgeRange(detail.selectedOption)}
@@ -534,7 +536,7 @@ export function PreferencesPage() {
               />
             </FormField>
 
-            <FormField label="Centres d'intérêt" description="AI will use these to add relevant references in content">
+            <FormField label={t('preferences.demographics.interests')} description="AI will use these to add relevant references in content">
               <Multiselect
                 selectedOptions={interests}
                 onChange={({ detail }) => setInterests([...detail.selectedOptions])}
@@ -549,7 +551,7 @@ export function PreferencesPage() {
         <div style={{ position: 'sticky', bottom: 0, background: 'var(--color-background-layout-main)', padding: '16px 0', zIndex: 1, borderTop: '1px solid var(--color-border-divider-default)' }}>
           <SpaceBetween direction="horizontal" size="xs">
             <Button onClick={loadPreferences}>Reset to Current</Button>
-            <Button variant="primary" onClick={handleSave} loading={saving}>Save Preferences</Button>
+            <Button variant="primary" onClick={handleSave} loading={saving}>{t('common.save')}</Button>
           </SpaceBetween>
         </div>
       </SpaceBetween>
