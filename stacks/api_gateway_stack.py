@@ -52,6 +52,9 @@ class ApiGatewayStack(Stack):
     def _create_lambda_functions(self) -> None:
         """Create Lambda functions for API endpoints"""
         
+        # IAM Note: API Lambdas share webhook_lambda_role for simplicity (single-user app).
+        # For multi-user production, split into per-Lambda roles with least-privilege.
+
         # Configuration API Lambda
         self.config_lambda = lambda_.Function(
             self, "ConfigurationAPI",

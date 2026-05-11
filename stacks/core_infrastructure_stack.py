@@ -283,11 +283,6 @@ class CoreInfrastructureStack(Stack):
         self.step_functions_role = iam.Role(
             self, "StepFunctionsRole",
             assumed_by=iam.ServicePrincipal("states.amazonaws.com"),
-            managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name(
-                    "service-role/AWSLambdaRole"
-                )
-            ]
         )
 
         # Add permissions for Lambda invocation

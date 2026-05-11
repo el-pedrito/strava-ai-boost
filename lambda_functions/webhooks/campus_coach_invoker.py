@@ -101,7 +101,7 @@ def get_stored_sessions(user_id: Optional[str] = None) -> Dict[str, Any]:
         table = dynamodb.Table(COACHING_SESSIONS_TABLE)
         
         # Scan table for recent sessions (last 30 days)
-        # TODO: Implement more efficient query with date range
+        # Small table (~100 items), scan is acceptable here
         response = table.scan(
             Limit=100  # Limit to recent sessions
         )

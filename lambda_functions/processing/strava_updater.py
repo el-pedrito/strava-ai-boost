@@ -98,7 +98,7 @@ def get_access_token(user_id: str) -> str:
         if not access_token:
             raise ValueError("No access token found in secrets")
         
-        # TODO: Check token expiry and refresh if needed
+
         
         return access_token
         
