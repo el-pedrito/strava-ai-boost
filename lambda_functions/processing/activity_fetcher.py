@@ -587,17 +587,24 @@ def fetch_intervals_icu_data(activity_data: Dict[str, Any], user_config: Dict[st
     except requests.exceptions.RequestException as e:
         logger.warning(f"Intervals.icu wellness range API request failed: {e}")
 
-    # 3. Activity: decoupling only (unique vs Strava/Enduraw)
+    # 3. Activity: decoupling + training load (unique vs Strava/Enduraw)
     try:
-        activities_url = f"{base_url}/activities?oldest={activity_date}&newest={activity_date}&fields=decoupling"
+        activities_url = f"{base_url}/activities?oldest={activity_date}&newest={activity_date}&fields=decoupling,icu_training_load,icu_intensity"
         resp = _get_http_session().get(activities_url, auth=auth, timeout=10)
         if resp.status_code == 200:
             activities = resp.json()
             if activities:
-                decoupling = activities[0].get('decoupling')
+                act = activities[0]
+                decoupling = act.get('decoupling')
                 if decoupling is not None:
                     result['decoupling'] = decoupling
                     logger.info(f"Intervals.icu decoupling: {decoupling}%")
+                training_load = act.get('icu_training_load')
+                if training_load is not None:
+                    result['training_load'] = training_load
+                intensity = act.get('icu_intensity')
+                if intensity is not None:
+                    result['intensity_pct'] = intensity
         else:
             logger.warning(f"Intervals.icu activities API returned {resp.status_code}")
     except requests.exceptions.RequestException as e:

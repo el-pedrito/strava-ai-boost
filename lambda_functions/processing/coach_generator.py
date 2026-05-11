@@ -561,6 +561,10 @@ def build_historical_summary(user_id: str, current_activity_id: str) -> Dict[str
                 decoupling = trends.get("decoupling", {}).get("current")
                 if decoupling:
                     entry["decoupling"] = decoupling
+                if not decoupling and icu.get("decoupling"):
+                    entry["decoupling"] = icu["decoupling"]
+                if icu.get("training_load"):
+                    entry["training_load"] = icu["training_load"]
             # Previous coach recommendation (if available)
             prev_fb = a.get("_prev_coach_feedback")
             if prev_fb and isinstance(prev_fb, dict):
