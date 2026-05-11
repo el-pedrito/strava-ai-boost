@@ -12,6 +12,7 @@ import ColumnLayout from '@cloudscape-design/components/column-layout';
 import Box from '@cloudscape-design/components/box';
 import Alert from '@cloudscape-design/components/alert';
 import Textarea from '@cloudscape-design/components/textarea';
+import ExpandableSection from '@cloudscape-design/components/expandable-section';
 import type { SelectProps } from '@cloudscape-design/components/select';
 import type { MultiselectProps } from '@cloudscape-design/components/multiselect';
 import { api } from '../../api/client.ts';
@@ -214,95 +215,64 @@ export function PreferencesPage() {
       }
     >
       <SpaceBetween size="l">
+        {/* 1. Athlete Profile + FCmax */}
         <Container
           header={
-            <Header variant="h2" description="Tell the AI about yourself so it can tailor content to your profile">
-              Personal Profile
+            <Header variant="h2" description="Décris ton profil pour que l'IA personnalise encore mieux tes descriptions">
+              Profil Athlète
             </Header>
           }
         >
           <SpaceBetween size="l">
-            <FormField label="Age Range" description="Helps adapt references and tone to your generation">
-              <Select
-                selectedOption={ageRange}
-                onChange={({ detail }) => setAgeRange(detail.selectedOption)}
-                options={AGE_OPTIONS}
+            <FormField
+              label="Ton profil athlète"
+              description={`${athleteProfile.length}/2000 caractères`}
+            >
+              <Textarea
+                value={athleteProfile}
+                onChange={({ detail }) => {
+                  if (detail.value.length <= 2000) setAthleteProfile(detail.value);
+                }}
+                placeholder="Décris-toi : tes objectifs, ton historique sportif, ton expérience, tes blessures, ce que tu veux améliorer..."
+                rows={8}
               />
             </FormField>
-
-            <FormField label="Sport Approach" description="Your main motivation for training">
-              <Select
-                selectedOption={sportApproach}
-                onChange={({ detail }) => setSportApproach(detail.selectedOption)}
-                options={SPORT_OPTIONS}
-              />
-            </FormField>
-
-            <FormField label="Interests (Optional)" description="AI will use these to add relevant references in content">
-              <Multiselect
-                selectedOptions={interests}
-                onChange={({ detail }) => setInterests([...detail.selectedOptions])}
-                options={INTEREST_OPTIONS}
-                placeholder="Select your interests"
-              />
+            <FormField
+              label="FC Max (bpm)"
+              description="Ta fréquence cardiaque maximale. Utilisée pour calculer les %FCmax dans le feedback coach."
+            >
+              <SpaceBetween direction="horizontal" size="xs">
+                <Input
+                  value={maxHr}
+                  onChange={({ detail }) => setMaxHr(detail.value.replace(/\D/g, ''))}
+                  placeholder="192"
+                  type="number"
+                  inputMode="numeric"
+                />
+                <Button
+                  variant="normal"
+                  onClick={() => {
+                    const ageOption = ageRange?.value;
+                    if (ageOption) {
+                      const midAge = parseInt(ageOption.split('-')[0]) + (ageOption.includes('+') ? 5 : Math.floor((parseInt(ageOption.split('-')[1]) - parseInt(ageOption.split('-')[0])) / 2));
+                      const theoretical = Math.round(208 - 0.7 * midAge);
+                      setMaxHr(String(theoretical));
+                    }
+                  }}
+                >
+                  Calculer (Tanaka)
+                </Button>
+                {maxHr && ageRange?.value && (
+                  <Box variant="small" color="text-status-info">
+                    Formule Tanaka : 208 - 0.7 × âge
+                  </Box>
+                )}
+              </SpaceBetween>
             </FormField>
           </SpaceBetween>
         </Container>
 
-        <Container
-          header={
-            <Header variant="h2" description="Décris ton profil pour que l'IA personnalise encore mieux tes descriptions">
-              Athlete Profile
-            </Header>
-          }
-        >
-          <FormField
-            label="Ton profil athlète"
-            description={`${athleteProfile.length}/2000 caractères`}
-          >
-            <Textarea
-              value={athleteProfile}
-              onChange={({ detail }) => {
-                if (detail.value.length <= 2000) setAthleteProfile(detail.value);
-              }}
-              placeholder="Décris-toi : tes objectifs, ton historique sportif, ton expérience, tes blessures, ce que tu veux améliorer..."
-              rows={8}
-            />
-          </FormField>
-          <FormField
-            label="FC Max (bpm)"
-            description="Ta fréquence cardiaque maximale. Utilisée pour calculer les %FCmax dans le feedback coach."
-          >
-            <SpaceBetween direction="horizontal" size="xs">
-              <Input
-                value={maxHr}
-                onChange={({ detail }) => setMaxHr(detail.value.replace(/\D/g, ''))}
-                placeholder="192"
-                type="number"
-                inputMode="numeric"
-              />
-              <Button
-                variant="normal"
-                onClick={() => {
-                  const ageOption = ageRange?.value;
-                  if (ageOption) {
-                    const midAge = parseInt(ageOption.split('-')[0]) + (ageOption.includes('+') ? 5 : Math.floor((parseInt(ageOption.split('-')[1]) - parseInt(ageOption.split('-')[0])) / 2));
-                    const theoretical = Math.round(208 - 0.7 * midAge);
-                    setMaxHr(String(theoretical));
-                  }
-                }}
-              >
-                Calculer (Tanaka)
-              </Button>
-              {maxHr && ageRange?.value && (
-                <Box variant="small" color="text-status-info">
-                  Formule Tanaka : 208 - 0.7 × âge
-                </Box>
-              )}
-            </SpaceBetween>
-          </FormField>
-        </Container>
-
+        {/* 2. Personal Records */}
         <Container
           header={
             <Header
@@ -317,18 +287,16 @@ export function PreferencesPage() {
                 </Button>
               }
             >
-              Personal Records
+              Records Personnels
             </Header>
           }
         >
           <SpaceBetween size="m">
             {personalRecords.map((record, idx) => {
-              // Known distances in km
               const KNOWN_DISTANCES: Record<string, number> = { '5K': 5, '10K': 10, 'Semi': 21.097, 'Marathon': 42.195, '5k': 5, '10k': 10, 'semi': 21.097, 'marathon': 42.195, 'Semi-marathon': 21.097, 'semi-marathon': 21.097, '21K': 21.097, '21k': 21.097, '42K': 42.195, '42k': 42.195 };
               const distRaw = record.distance.replace(/\s*(km|K)\s*$/i, '').trim();
               const distKm = KNOWN_DISTANCES[record.distance] || KNOWN_DISTANCES[distRaw] || parseFloat(distRaw) || 0;
 
-              // Parse time (mm:ss, h:mm:ss, XhYY, Xh:YY, Xh:YY:SS)
               let totalSec = 0;
               const t = record.time.trim();
               const hOnly = t.match(/^(\d+)h(\d{1,2})(?::(\d{2}))?$/i);
@@ -342,7 +310,6 @@ export function PreferencesPage() {
                 else if (ms) totalSec = parseInt(ms[1]) * 60 + parseInt(ms[2]);
               }
 
-              // Compute pace and speed
               let paceStr = '';
               let speedStr = '';
               if (distKm > 0 && totalSec > 0) {
@@ -422,15 +389,83 @@ export function PreferencesPage() {
           </SpaceBetween>
         </Container>
 
+        {/* 3. Pace Zones (collapsed) */}
+        <Container
+          header={
+            <Header variant="h2" description="Define your personal pace zones so the AI correctly classifies your workouts (EF, Tempo, Seuil, etc.)">
+              Zones d'allure
+            </Header>
+          }
+        >
+          <ExpandableSection headerText="Zones d allure (10 zones)" defaultExpanded={false}>
+            <SpaceBetween size="l">
+              <Alert type="info">
+                Entrez vos allures en <strong>mm:ss min/km</strong> (ex: 05:45 = 5min45s par km).
+                Debut = allure la plus rapide de la zone, Fin = allure la plus lente.
+                Ces zones permettent a l'IA de classer correctement vos seances (EF, Tempo, Seuil, etc.).
+              </Alert>
+              <ColumnLayout columns={2}>
+                {(Object.keys(ZONE_LABELS) as Array<keyof PaceZones>).map((zoneKey) => {
+                  const zone = paceZones[zoneKey] ?? DEFAULT_PACE_ZONES[zoneKey];
+                  const meta = ZONE_LABELS[zoneKey];
+                  return (
+                    <FormField
+                      key={zoneKey}
+                      label={meta.label}
+                      description={meta.description}
+                    >
+                      <SpaceBetween direction="horizontal" size="xs">
+                        <Box>
+                          <Box color="text-body-secondary" fontSize="body-s">Debut (mm:ss/km)</Box>
+                          <Input
+                            value={zone.min}
+                            placeholder="05:00"
+                            onChange={({ detail }) =>
+                              setPaceZones((prev) => ({
+                                ...prev,
+                                [zoneKey]: { ...prev[zoneKey], min: detail.value },
+                              }))
+                            }
+                          />
+                        </Box>
+                        <Box>
+                          <Box color="text-body-secondary" fontSize="body-s">Fin (mm:ss/km)</Box>
+                          <Input
+                            value={zone.max}
+                            placeholder="06:00"
+                            onChange={({ detail }) =>
+                              setPaceZones((prev) => ({
+                                ...prev,
+                                [zoneKey]: { ...prev[zoneKey], max: detail.value },
+                              }))
+                            }
+                          />
+                        </Box>
+                      </SpaceBetween>
+                    </FormField>
+                  );
+                })}
+              </ColumnLayout>
+              <Button
+                variant="link"
+                onClick={() => setPaceZones({ ...DEFAULT_PACE_ZONES })}
+              >
+                Reset to defaults
+              </Button>
+            </SpaceBetween>
+          </ExpandableSection>
+        </Container>
+
+        {/* 4. Content Style */}
         <Container
           header={
             <Header variant="h2" description="Control the output format, tone, and language of generated descriptions">
-              Content Style
+              Style de Contenu
             </Header>
           }
         >
           <SpaceBetween size="l">
-            <FormField label="Description Length" description="Preferred length for activity descriptions">
+            <FormField label="Longueur de description" description="Preferred length for activity descriptions">
               <Select
                 selectedOption={contentLength}
                 onChange={({ detail }) => setContentLength(detail.selectedOption)}
@@ -438,7 +473,7 @@ export function PreferencesPage() {
               />
             </FormField>
 
-            <FormField label="Content Tone" description="Communication style for descriptions">
+            <FormField label="Ton" description="Communication style for descriptions">
               <Select
                 selectedOption={contentTone}
                 onChange={({ detail }) => setContentTone(detail.selectedOption)}
@@ -446,7 +481,7 @@ export function PreferencesPage() {
               />
             </FormField>
 
-            <FormField label="Emoji Usage" description="How many emojis to include">
+            <FormField label="Utilisation des emojis" description="How many emojis to include">
               <Select
                 selectedOption={emojiUsage}
                 onChange={({ detail }) => setEmojiUsage(detail.selectedOption)}
@@ -454,7 +489,7 @@ export function PreferencesPage() {
               />
             </FormField>
 
-            <FormField label="Technical Detail Level" description="Level of technical detail in descriptions">
+            <FormField label="Détail technique" description="Level of technical detail in descriptions">
               <Select
                 selectedOption={technicalDetail}
                 onChange={({ detail }) => setTechnicalDetail(detail.selectedOption)}
@@ -462,7 +497,7 @@ export function PreferencesPage() {
               />
             </FormField>
 
-            <FormField label="Content Language" description="Language for titles and descriptions">
+            <FormField label="Langue" description="Language for titles and descriptions">
               <Select
                 selectedOption={contentLanguage}
                 onChange={({ detail }) => setContentLanguage(detail.selectedOption)}
@@ -472,74 +507,49 @@ export function PreferencesPage() {
           </SpaceBetween>
         </Container>
 
+        {/* 5. Demographics (age, interests) */}
         <Container
           header={
-            <Header variant="h2" description="Define your personal pace zones so the AI correctly classifies your workouts (EF, Tempo, Seuil, etc.)">
-              Pace Zones Configuration
+            <Header variant="h2" description="Tell the AI about yourself so it can tailor content to your profile">
+              Démographie
             </Header>
           }
         >
           <SpaceBetween size="l">
-            <Alert type="info">
-              Entrez vos allures en <strong>mm:ss min/km</strong> (ex: 05:45 = 5min45s par km).
-              Debut = allure la plus rapide de la zone, Fin = allure la plus lente.
-              Ces zones permettent a l'IA de classer correctement vos seances (EF, Tempo, Seuil, etc.).
-            </Alert>
-            <ColumnLayout columns={2}>
-              {(Object.keys(ZONE_LABELS) as Array<keyof PaceZones>).map((zoneKey) => {
-                const zone = paceZones[zoneKey] ?? DEFAULT_PACE_ZONES[zoneKey];
-                const meta = ZONE_LABELS[zoneKey];
-                return (
-                  <FormField
-                    key={zoneKey}
-                    label={meta.label}
-                    description={meta.description}
-                  >
-                    <SpaceBetween direction="horizontal" size="xs">
-                      <Box>
-                        <Box color="text-body-secondary" fontSize="body-s">Debut (mm:ss/km)</Box>
-                        <Input
-                          value={zone.min}
-                          placeholder="05:00"
-                          onChange={({ detail }) =>
-                            setPaceZones((prev) => ({
-                              ...prev,
-                              [zoneKey]: { ...prev[zoneKey], min: detail.value },
-                            }))
-                          }
-                        />
-                      </Box>
-                      <Box>
-                        <Box color="text-body-secondary" fontSize="body-s">Fin (mm:ss/km)</Box>
-                        <Input
-                          value={zone.max}
-                          placeholder="06:00"
-                          onChange={({ detail }) =>
-                            setPaceZones((prev) => ({
-                              ...prev,
-                              [zoneKey]: { ...prev[zoneKey], max: detail.value },
-                            }))
-                          }
-                        />
-                      </Box>
-                    </SpaceBetween>
-                  </FormField>
-                );
-              })}
-            </ColumnLayout>
-            <Button
-              variant="link"
-              onClick={() => setPaceZones({ ...DEFAULT_PACE_ZONES })}
-            >
-              Reset to defaults
-            </Button>
+            <FormField label="Tranche d'âge" description="Helps adapt references and tone to your generation">
+              <Select
+                selectedOption={ageRange}
+                onChange={({ detail }) => setAgeRange(detail.selectedOption)}
+                options={AGE_OPTIONS}
+              />
+            </FormField>
+
+            <FormField label="Sport Approach" description="Your main motivation for training">
+              <Select
+                selectedOption={sportApproach}
+                onChange={({ detail }) => setSportApproach(detail.selectedOption)}
+                options={SPORT_OPTIONS}
+              />
+            </FormField>
+
+            <FormField label="Centres d'intérêt" description="AI will use these to add relevant references in content">
+              <Multiselect
+                selectedOptions={interests}
+                onChange={({ detail }) => setInterests([...detail.selectedOptions])}
+                options={INTEREST_OPTIONS}
+                placeholder="Select your interests"
+              />
+            </FormField>
           </SpaceBetween>
         </Container>
 
-        <SpaceBetween direction="horizontal" size="xs">
-          <Button onClick={loadPreferences}>Reset to Current</Button>
-          <Button variant="primary" onClick={handleSave} loading={saving}>Save Preferences</Button>
-        </SpaceBetween>
+        {/* Sticky Save button */}
+        <div style={{ position: 'sticky', bottom: 0, background: 'var(--color-background-layout-main)', padding: '16px 0', zIndex: 1, borderTop: '1px solid var(--color-border-divider-default)' }}>
+          <SpaceBetween direction="horizontal" size="xs">
+            <Button onClick={loadPreferences}>Reset to Current</Button>
+            <Button variant="primary" onClick={handleSave} loading={saving}>Save Preferences</Button>
+          </SpaceBetween>
+        </div>
       </SpaceBetween>
     </ContentLayout>
   );

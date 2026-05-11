@@ -43,7 +43,6 @@ interface CoachSummary {
 
 export function CoachPage() {
   const navigate = useNavigate();
-  // Safe min/max that handle empty arrays
   const safeMin = (arr: number[], fallback = 0) => arr.length ? Math.min(...arr) : fallback;
   const safeMax = (arr: number[], fallback = 1) => arr.length ? Math.max(...arr) : fallback;
   const [data, setData] = useState<CoachSummary | null>(null);
@@ -59,52 +58,50 @@ export function CoachPage() {
 
   if (loading) {
     return (
-      <ContentLayout header={<Header variant="h1">Coach</Header>}>
+      <ContentLayout header={<Header variant="h1">Coach IA</Header>}>
         <Box textAlign="center" padding="xxl"><Spinner size="large" /></Box>
       </ContentLayout>
     );
   }
+
+  const vol = data?.trends?.weekly_volume_km ?? [];
+  const sess = data?.trends?.sessions_per_week ?? [];
+  const totalKm = vol.reduce((a, b) => a + b, 0);
+  const totalSessions = sess.reduce((a, b) => a + b, 0);
+  const lastEfPace = data?.trends?.ef_paces?.length ? data.trends.ef_paces[data.trends.ef_paces.length - 1].pace : '-';
+  const tendance = vol.length >= 4 ? (vol[3] >= vol[0] ? '↑' : '↓') : '-';
 
   return (
     <ContentLayout header={<Header variant="h1">Coach IA</Header>}>
       <SpaceBetween size="l">
         {error && <Alert type="error">{error}</Alert>}
 
-        {/* Athlete Profile */}
-        <Container header={<Header variant="h2" actions={<Button onClick={() => navigate('/preferences')}>Modifier</Button>}>Profil Athlète</Header>}>
-          {data?.athlete_profile ? (
-            <Box variant="p">{data.athlete_profile}</Box>
-          ) : (
-            <StatusIndicator type="info">
-              Aucun profil défini. <Link onFollow={() => navigate('/preferences')}>Configurer</Link>
-            </StatusIndicator>
-          )}
+        {/* KPI Summary */}
+        <Container>
+          <ColumnLayout columns={4}>
+            <div>
+              <Box variant="h1">{Math.round(totalKm)} km</Box>
+              <Box variant="small">Volume total (4 sem.)</Box>
+            </div>
+            <div>
+              <Box variant="h1">{totalSessions}</Box>
+              <Box variant="small">Séances (4 sem.)</Box>
+            </div>
+            <div>
+              <Box variant="h1">{lastEfPace}</Box>
+              <Box variant="small">Allure EF actuelle</Box>
+            </div>
+            <div>
+              <Box variant="h1">{tendance}</Box>
+              <Box variant="small">Tendance volume</Box>
+            </div>
+          </ColumnLayout>
         </Container>
 
-        {/* Recent Coach Feedback */}
-        <Container header={<Header variant="h2">Derniers retours coach</Header>}>
-          {!data?.recent_feedback?.length ? (
-            <StatusIndicator type="info">Aucun feedback coach disponible pour le moment.</StatusIndicator>
-          ) : (
-            <SpaceBetween size="s">
-              {data.recent_feedback.map((item) => (
-                <ExpandableSection key={item.activity_id} headerText={`${item.date} — ${item.title}`}>
-                  <Box variant="p" color="text-body-secondary">
-                    {item.coach_feedback?.detailed_analysis || 'Pas d\'analyse détaillée.'}
-                  </Box>
-                </ExpandableSection>
-              ))}
-            </SpaceBetween>
-          )}
-        </Container>
-
-        {/* Training Trends */}
+        {/* Tendances */}
         {data?.trends && (() => {
           const weeks = ['S-4', 'S-3', 'S-2', 'S-1'];
-          const vol = data.trends.weekly_volume_km;
-          const sess = data.trends.sessions_per_week;
           const paces = data.trends.avg_pace_per_week;
-          // Convert pace string to seconds for chart (lower = faster)
           const paceToSec = (p: string) => {
             const m = p.match(/^(\d+):(\d{2})$/);
             return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : 0;
@@ -159,13 +156,13 @@ export function CoachPage() {
                 />
               </ColumnLayout>
               <Box variant="small" textAlign="center" margin={{ top: 's' }} color="text-body-secondary">
-                Volume: {vol.map(v => `${v}km`).join(' → ')} | Séances: {sess.join(' → ')} séances/sem
+                Volume : {vol.map(v => `${v}km`).join(' → ')} | Séances : {sess.join(' → ')} séances/sem
               </Box>
             </Container>
           );
         })()}
 
-        {/* Detailed Pace Charts */}
+        {/* Progression des allures */}
         {data?.trends && (data.trends.interval_paces?.length || data.trends.ef_paces?.length) ? (
           <Container header={<Header variant="h2">Progression des allures</Header>}>
             <ColumnLayout columns={2}>
@@ -200,50 +197,73 @@ export function CoachPage() {
                   </Box>
                 </div>
               )}
-              {data.trends.ef_paces && data.trends.ef_paces.length > 0 && (
-                <div>
-                  <Box variant="h4" margin={{ bottom: 'xs' }}>🏃 Allure EF (endurance facile)</Box>
-                  <MixedLineBarChart
-                    height={200}
-                    xDomain={data.trends.ef_paces.map(p => p.date)}
-                    yDomain={[
-                      safeMin(data.trends.ef_paces.map(p => p.pace_sec), 350) - 10,
-                      safeMax(data.trends.ef_paces.map(p => p.pace_sec), 420) + 10
-                    ]}
-                    series={[
-                      {
+              {data.trends.ef_paces && data.trends.ef_paces.length > 0 && (() => {
+                const avgHr = data.trends.ef_paces!.filter(p => p.hr).map(p => p.hr!);
+                const hrAnnotation = avgHr.length ? Math.round(avgHr.reduce((a, b) => a + b, 0) / avgHr.length) : null;
+                return (
+                  <div>
+                    <Box variant="h4" margin={{ bottom: 'xs' }}>🏃 Allure EF (endurance facile)</Box>
+                    <MixedLineBarChart
+                      height={200}
+                      xDomain={data.trends.ef_paces!.map(p => p.date)}
+                      yDomain={[
+                        safeMin(data.trends.ef_paces!.map(p => p.pace_sec), 350) - 10,
+                        safeMax(data.trends.ef_paces!.map(p => p.pace_sec), 420) + 10
+                      ]}
+                      series={[{
                         title: 'Allure EF',
                         type: 'line',
-                        data: data.trends.ef_paces.map(p => ({ x: p.date, y: p.pace_sec })),
+                        data: data.trends.ef_paces!.map(p => ({ x: p.date, y: p.pace_sec })),
                         valueFormatter: (v) => { const m = Math.floor(v / 60); const s = Math.round(v % 60); return `${m}:${s.toString().padStart(2, '0')}/km`; },
-                      },
-                      ...(data.trends.ef_paces.some(p => p.hr) ? [{
-                        title: 'FC (bpm)',
-                        type: 'line' as const,
-                        data: data.trends.ef_paces.filter(p => p.hr).map(p => ({ x: p.date, y: p.hr! })),
-                        valueFormatter: (v: number) => `${v} bpm`,
-                      }] : []),
-                    ]}
-                    xScaleType="categorical"
-                    hideFilter
-                    hideLegend={false}
-                    yTickFormatter={(v) => {
-                      const n = Number(v);
-                      if (n > 200) return `${n} bpm`;
-                      const m = Math.floor(n / 60);
-                      const s = Math.round(n % 60);
-                      return `${m}:${s.toString().padStart(2, '0')}/km`;
-                    }}
-                    empty={<Box>Pas de sorties EF détectées</Box>}
-                  />
-                  <Box variant="small" color="text-body-secondary" textAlign="center">
-                    Allure qui baisse + FC stable = progression aérobie
-                  </Box>
-                </div>
-              )}
+                      }]}
+                      xScaleType="categorical"
+                      hideFilter
+                      hideLegend
+                      yTickFormatter={(v) => {
+                        const m = Math.floor(Number(v) / 60);
+                        const s = Math.round(Number(v) % 60);
+                        return `${m}:${s.toString().padStart(2, '0')}/km`;
+                      }}
+                      empty={<Box>Pas de sorties EF détectées</Box>}
+                    />
+                    <Box variant="small" color="text-body-secondary" textAlign="center">
+                      Allure qui baisse + FC stable = progression aérobie
+                      {hrAnnotation && ` · FC moyenne EF : ${hrAnnotation} bpm`}
+                    </Box>
+                  </div>
+                );
+              })()}
             </ColumnLayout>
           </Container>
         ) : null}
+
+        {/* Derniers retours coach */}
+        <Container header={<Header variant="h2">Derniers retours coach</Header>}>
+          {!data?.recent_feedback?.length ? (
+            <StatusIndicator type="info">Aucun feedback coach disponible pour le moment.</StatusIndicator>
+          ) : (
+            <SpaceBetween size="s">
+              {data.recent_feedback.map((item) => (
+                <ExpandableSection key={item.activity_id} headerText={`${item.date} — ${item.title}`}>
+                  <Box variant="p" color="text-body-secondary">
+                    {item.coach_feedback?.detailed_analysis || 'Pas d\'analyse détaillée.'}
+                  </Box>
+                </ExpandableSection>
+              ))}
+            </SpaceBetween>
+          )}
+        </Container>
+
+        {/* Profil Athlète */}
+        <Container header={<Header variant="h2" actions={<Button onClick={() => navigate('/preferences')}>Modifier</Button>}>Profil Athlète</Header>}>
+          {data?.athlete_profile ? (
+            <Box variant="p">{data.athlete_profile}</Box>
+          ) : (
+            <StatusIndicator type="info">
+              Aucun profil défini. <Link onFollow={() => navigate('/preferences')}>Configurer</Link>
+            </StatusIndicator>
+          )}
+        </Container>
       </SpaceBetween>
     </ContentLayout>
   );
