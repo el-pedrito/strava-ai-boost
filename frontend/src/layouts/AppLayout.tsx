@@ -6,6 +6,7 @@ import BreadcrumbGroup from '@cloudscape-design/components/breadcrumb-group';
 import { useFlashMessages } from '../hooks/useFlashMessages.ts';
 import { useAuth } from '../auth/AuthContext.tsx';
 import { createContext, useContext } from 'react';
+import { useTranslation } from 'react-i18next';
 
 type AddMessageFn = (type: 'success' | 'error' | 'warning' | 'info', content: string) => void;
 
@@ -15,19 +16,20 @@ export function useFlash() {
   return useContext(FlashContext);
 }
 
-const BREADCRUMB_MAP: Record<string, string> = {
-  '/': 'Dashboard',
-  '/config': 'Configuration',
-  '/preferences': 'Preferences',
-  '/quality': 'Content Quality',
-  '/coach': 'Coach',
-};
-
 export function Shell() {
   const location = useLocation();
   const navigate = useNavigate();
   const { items, addMessage } = useFlashMessages();
   const { signOut } = useAuth();
+  const { t, i18n } = useTranslation();
+
+  const BREADCRUMB_MAP: Record<string, string> = {
+    '/': t('nav.dashboard'),
+    '/config': t('nav.configuration'),
+    '/preferences': t('nav.preferences'),
+    '/quality': t('nav.quality'),
+    '/coach': t('nav.coach'),
+  };
 
   const breadcrumbs = [
     { text: 'Strava AI Boost', href: '/' },
@@ -49,12 +51,13 @@ export function Shell() {
             },
           }}
           utilities={[
-            { type: 'button', text: location.pathname === '/' ? '[ Dashboard ]' : 'Dashboard', onClick: () => navigate('/') },
-            { type: 'button', text: location.pathname === '/config' ? '[ Configuration ]' : 'Configuration', onClick: () => navigate('/config') },
-            { type: 'button', text: location.pathname === '/preferences' ? '[ Preferences ]' : 'Preferences', onClick: () => navigate('/preferences') },
-            { type: 'button', text: location.pathname === '/quality' ? '[ Quality ]' : 'Quality', onClick: () => navigate('/quality') },
-            { type: 'button', text: location.pathname === '/coach' ? '[ Coach ]' : 'Coach', onClick: () => navigate('/coach') },
-            { type: 'button', text: 'Sign out', onClick: () => signOut() },
+            { type: 'button', text: location.pathname === '/' ? `[ ${t('nav.dashboard')} ]` : t('nav.dashboard'), onClick: () => navigate('/') },
+            { type: 'button', text: location.pathname === '/config' ? `[ ${t('nav.configuration')} ]` : t('nav.configuration'), onClick: () => navigate('/config') },
+            { type: 'button', text: location.pathname === '/preferences' ? `[ ${t('nav.preferences')} ]` : t('nav.preferences'), onClick: () => navigate('/preferences') },
+            { type: 'button', text: location.pathname === '/quality' ? `[ ${t('nav.quality')} ]` : t('nav.quality'), onClick: () => navigate('/quality') },
+            { type: 'button', text: location.pathname === '/coach' ? `[ ${t('nav.coach')} ]` : t('nav.coach'), onClick: () => navigate('/coach') },
+            { type: 'button', text: i18n.language === 'fr' ? 'EN' : 'FR', onClick: () => i18n.changeLanguage(i18n.language === 'fr' ? 'en' : 'fr') },
+            { type: 'button', text: t('nav.signOut'), onClick: () => signOut() },
           ]}
           i18nStrings={{ overflowMenuTriggerText: 'More', overflowMenuTitleText: 'All' }}
         />
