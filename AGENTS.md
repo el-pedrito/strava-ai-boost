@@ -557,11 +557,13 @@ class TestMyModule:
 
 **Coach Context (injected):**
 - Athlete profile + pace zones + personal records + FCmax
-- Historical: all activities from 4 weeks (max 30) with EF, CTL, decoupling, prev_coach_note
+- Historical: all activities from 4 weeks (max 30) with EF, CTL, decoupling, prev_coach_note, training_load
 - Fitness trend (CTL progression from Intervals.icu if available)
 - Athlete HR zones (from Strava, fetched at OAuth)
 - Best efforts PRs (auto-accumulated) + segment PRs (top 20)
 - Computed metrics: EF (pace@HR), %FCmax, Zone 3 moderate time
+- Campus Coach weekly plan (current week sessions with intervals and targets)
+- Training load + intensity per activity (from Intervals.icu)
 - Past coaching observations (LTM memory)
 
 ### Authentication
