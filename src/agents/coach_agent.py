@@ -49,6 +49,18 @@ def _build_prompt_parts(
     """Build system prompt and user message. Returns (system_prompt, user_message)."""
     user_prefs = user_config.get("user_preferences", {})
     athlete_profile = user_prefs.get("athlete_profile", "Non renseigné")
+
+    # Include pace zones and personal records if available
+    pace_zones = user_prefs.get("pace_zones")
+    personal_records = user_prefs.get("personal_records")
+    profile_parts = [athlete_profile]
+    if pace_zones:
+        zones_str = ", ".join(f"{k}: {v['min']}-{v['max']}" for k, v in pace_zones.items())
+        profile_parts.append(f"\nZones d'allure: {zones_str}")
+    if personal_records:
+        records_str = ", ".join(f"{r['distance']} en {r['time']}" + (f" ({r['date']})" if r.get('date') else "") for r in personal_records)
+        profile_parts.append(f"\nRecords personnels: {records_str}")
+    athlete_profile = "\n".join(profile_parts)
     historical_context = json.dumps(historical_summary or {}, ensure_ascii=False, default=str)
     activity_json = json.dumps(activity_data, ensure_ascii=False, default=str)
 
