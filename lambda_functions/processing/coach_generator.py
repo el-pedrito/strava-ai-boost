@@ -153,7 +153,7 @@ def _invoke_coach_agent(
         "user_config": user_config,
         "historical_summary": historical_summary,
         "memory_id": MEMORY_ID,
-    }).encode("utf-8")
+    }, default=str).encode("utf-8")
 
     # Retry with exponential backoff for cold start (up to 3 attempts)
     max_retries = 3
