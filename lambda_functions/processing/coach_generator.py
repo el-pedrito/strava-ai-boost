@@ -256,22 +256,29 @@ def _compute_coach_metrics(laps: list, activity_data: Dict[str, Any]) -> Dict[st
     """Compute EF (pace/HR ratio) and grey zone time from laps."""
     metrics: Dict[str, Any] = {}
 
+    # Cast DynamoDB Decimal/string values to float
+    def _f(val) -> float:
+        try:
+            return float(val) if val else 0
+        except (ValueError, TypeError):
+            return 0
+
     # Efficiency Factor: pace @ HR (for trend comparison across activities)
-    avg_speed = activity_data.get("average_speed", 0)
-    avg_hr = activity_data.get("average_heartrate", 0)
+    avg_speed = _f(activity_data.get("average_speed", 0))
+    avg_hr = _f(activity_data.get("average_heartrate", 0))
     if avg_speed > 0 and avg_hr > 0:
         pace_sec = 1000 / avg_speed
         metrics["ef_pace_at_hr"] = f"{int(pace_sec//60)}:{int(pace_sec%60):02d}/km @ {int(avg_hr)}bpm"
 
     # %FCmax for average and max HR
-    max_hr_ref = activity_data.get("_max_hr_ref")  # from user preferences
-    if max_hr_ref and max_hr_ref > 0:
+    max_hr_ref = _f(activity_data.get("_max_hr_ref"))
+    if max_hr_ref > 0:
         if avg_hr:
             metrics["avg_hr_pct_max"] = round(avg_hr / max_hr_ref * 100, 1)
-        act_max_hr = activity_data.get("max_heartrate", 0)
+        act_max_hr = _f(activity_data.get("max_heartrate", 0))
         if act_max_hr:
             metrics["max_hr_pct_max"] = round(act_max_hr / max_hr_ref * 100, 1)
-        metrics["fcmax_reference"] = max_hr_ref
+        metrics["fcmax_reference"] = int(max_hr_ref)
 
     # Intensity distribution: detect time spent in "no benefit" zone (too fast for EF, too slow for tempo)
     # Uses athlete HR zones if available (from user_config), otherwise skips
@@ -293,14 +300,14 @@ def _compute_coach_metrics(laps: list, activity_data: Dict[str, Any]) -> Dict[st
             # Strava zones: Z1, Z2, Z3, Z4, Z5 — Z3 is the "moderate" zone
             z3 = hr_zones[2] if len(hr_zones) > 2 else None
             if z3 and isinstance(z3, dict):
-                z3_min = z3.get("min", 0)
-                z3_max = z3.get("max", 0)
+                z3_min = _f(z3.get("min", 0))
+                z3_max = _f(z3.get("max", 0))
                 if z3_min and z3_max:
                     moderate_time = 0
                     total_time = 0
                     for lap in laps:
-                        lap_hr = lap.get("average_heartrate", 0)
-                        lap_time = lap.get("moving_time", 0)
+                        lap_hr = _f(lap.get("average_heartrate", 0))
+                        lap_time = _f(lap.get("moving_time", 0))
                         total_time += lap_time
                         if z3_min <= lap_hr <= z3_max:
                             moderate_time += lap_time
