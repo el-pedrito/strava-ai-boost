@@ -46,8 +46,12 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         if context_parts:
             user_message = f"[Contexte: {' | '.join(context_parts)}]\n\n{question}"
 
-        # Use direct Bedrock for conversational chat (agent prompt is for JSON feedback)
-        answer = _fallback_bedrock(question, context_parts, body.get("history", []))
+        # Invoke AgentCore Runtime with session (maintains conversation state)
+        if COACH_AGENT_ARN:
+            answer = _invoke_coach_session(user_message, session_id)
+        else:
+            # Fallback to direct Bedrock if no agent configured
+            answer = _fallback_bedrock(question, context_parts, body.get("history", []))
 
         if not answer:
             return create_error_response(500, "No response from coach", cors_headers=CORS_HEADERS)
@@ -74,7 +78,7 @@ def _invoke_coach_session(message: str, session_id: str) -> str:
     except Exception:
         client = boto3.client("bedrock-agent-runtime", region_name=REGION)
 
-    payload = json.dumps({"question": message}).encode("utf-8")
+    payload = json.dumps({"question": message, "mode": "conversation"}).encode("utf-8")
 
     # Retry for cold start
     for attempt in range(2):
