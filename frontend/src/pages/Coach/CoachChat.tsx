@@ -36,7 +36,8 @@ export function CoachChat() {
 
     try {
       const userId = getConfig().defaultUserId;
-      const res = await api.post<{ answer: string }>('/coach/ask', { question, user_id: userId });
+      const history = messages.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }));
+      const res = await api.post<{ answer: string }>('/coach/ask', { question, user_id: userId, history });
       setMessages(prev => [...prev, { role: 'coach', text: res.answer, timestamp: new Date().toLocaleTimeString() }]);
     } catch {
       setMessages(prev => [...prev, { role: 'coach', text: t('coach.chat.error'), timestamp: new Date().toLocaleTimeString() }]);

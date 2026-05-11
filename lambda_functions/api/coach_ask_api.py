@@ -27,6 +27,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         body = json.loads(event.get("body", "{}"))
         question = body.get("question", "").strip()
         user_id = body.get("user_id", os.environ.get("DEFAULT_USER_ID", ""))
+        history = body.get("history", [])  # [{role: "user"|"assistant", content: "..."}]
         
         if not question:
             return create_error_response(400, "Missing 'question' field", cors_headers=CORS_HEADERS)
@@ -87,7 +88,10 @@ Règles:
         
         response = bedrock.converse(
             modelId=BEDROCK_MODEL_ID,
-            messages=[{"role": "user", "content": [{"text": question}]}],
+            messages=[
+                *[{"role": m["role"], "content": [{"text": m["content"]}]} for m in history[-10:]],
+                {"role": "user", "content": [{"text": question}]}
+            ],
             system=[{"text": system_prompt}],
             inferenceConfig={"maxTokens": 500, "temperature": 0.7},
         )
