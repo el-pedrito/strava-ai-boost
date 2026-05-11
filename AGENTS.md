@@ -850,28 +850,28 @@ aws stepfunctions describe-execution \
 
 ## Next Steps (Backlog)
 
-### P1 — Short Term (validate coach)
-- [ ] Fill Athlete Profile in Preferences (objectives, history, experience)
-- [ ] Set FCmax in Preferences (use Tanaka calculator or manual override)
-- [ ] Add Personal Records (5K, 10K, Semi times with dates)
+### P1 — Short Term (validate coach on real activities)
+- [x] Fill Athlete Profile in Preferences (objectives, history, experience)
+- [x] Set FCmax in Preferences (use Tanaka calculator or manual override)
+- [x] Add Personal Records (5K, 10K, Semi times with dates)
 - [ ] Run 3-5 activities and review coach feedback quality
 - [ ] Verify strava_block talks about trends/progression (not session recap)
 - [ ] Iterate on COACH_AGENT_SYSTEM_PROMPT based on real outputs
 - [ ] Verify coach memory accumulates observations over time
 
-### P2 — Medium Term
-- [ ] Multi-user readiness: extract user_id from Cognito JWT instead of DEFAULT_USER_ID
-- [ ] Coach adaptatif: add `recommendation_next` field to coach feedback output
-- [ ] With Campus Coach: suggest adjustments (rest day if fatigued, complementary renfo)
-- [ ] Without Campus Coach: propose mini weekly plan based on history + objectives
-- [ ] Compliance scoring: track plan adherence percentage
-- [ ] Weekly synthesis (EventBridge schedule, Sunday summary)
-- [ ] Frontend Coach page: display 'Prochaine séance recommandée' from coach output
-- [ ] Frontend Preferences: display auto-accumulated PRs from best_efforts
-- [ ] Add ramp rate explicit alert (flag >10%/week)
+### P2 — Medium Term ✅ DONE
+- [x] Multi-user readiness: extract user_id from Cognito JWT instead of DEFAULT_USER_ID
+- [x] Coach adaptatif: add `recommendation_next` field to coach feedback output
+- [x] With Campus Coach: suggest adjustments (rest day if fatigued, complementary renfo)
+- [x] Without Campus Coach: propose mini weekly plan based on history + objectives
+- [x] Compliance scoring: track plan adherence percentage
+- [x] Weekly synthesis (EventBridge schedule, Sunday 20:00 UTC)
+- [x] Frontend Coach page: display 'Prochaine séance recommandée' from coach output
+- [x] Frontend Preferences: display auto-accumulated PRs from best_efforts
+- [x] Add ramp rate explicit alert (flag >10%/week)
+- [x] Conversational mode: `/coach/ask` endpoint + chat widget on Coach page
 
 ### P3 — Long Term
-- [ ] Conversational mode: `/coach/ask` endpoint + chat widget on Coach page
 - [ ] Morning briefing (pre-run guidance based on Form/fatigue/plan)
 - [ ] Race readiness assessment (periodic check vs goal pace)
 - [ ] Multi-tenant AgentCore (single agent, user context per session)
