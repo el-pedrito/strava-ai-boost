@@ -366,7 +366,6 @@ export function PreferencesPage() {
                       value={record.date}
                       onChange={({ detail }) => { const r = [...personalRecords]; r[idx] = { ...r[idx], date: detail.value }; setPersonalRecords(r); }}
                       placeholder="2026-03-15"
-                      type="date"
                     />
                   </FormField>
                   <FormField label="Événement">
