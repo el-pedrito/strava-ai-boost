@@ -23,7 +23,7 @@ dynamodb = boto3.resource("dynamodb", region_name=REGION)
 
 # Environment variables
 ACTIVITIES_TABLE = os.environ.get("ACTIVITIES_TABLE", "strava-ai-boost-activities")
-MEMORY_ID = os.environ.get("MEMORY_ID")
+MEMORY_ID = os.environ.get("BEDROCK_AGENTCORE_MEMORY_ID") or os.environ.get("MEMORY_ID")
 COACH_AGENT_ARN = os.environ.get("COACH_AGENT_ARN", "")
 
 
