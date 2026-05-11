@@ -170,7 +170,7 @@ def get_strava_app_config() -> Dict[str, Any]:
                 'configured': True,
                 'client_id': client_id,
                 'has_client_secret': True,
-                'redirect_uri': config.get('redirect_uri', 'http://localhost:3000/oauth/callback')
+                'redirect_uri': config.get('redirect_uri', '')
             }, cors_headers=CORS_HEADERS)
         else:
             return create_success_response({
