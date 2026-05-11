@@ -33,6 +33,7 @@ Strava AI Boost is a **serverless AWS application** that automatically enhances 
 - **Python 3.12** runtime, **React 19 + TypeScript + Vite** frontend
 - **Cognito authentication** (JWT, no self-registration)
 - **CloudFront + S3** frontend hosting (OAC)
+- **2 DynamoDB GSIs** (ProcessingStatusIndex, UserActivitiesIndex) — all queries, no scans
 
 ### Architecture Pattern
 **Event-Driven Serverless (Parallel Execution):**
@@ -47,7 +48,7 @@ Strava Webhook → SQS → Step Functions → Activity Fetcher →
 ```
 Activity Fetcher: Strava API → activity data + laps (GET /activities/{id}/laps) → DynamoDB
 Content Generator: DynamoDB → classify workout from laps → build prompt with formatted laps → AgentCore agent → store
-Coach Generator: DynamoDB → athlete profile + activity history → AgentCore coach_agent → coaching feedback
+Coach Generator: DynamoDB → athlete profile + zones + PRs + historical context (4 weeks, GSI query) → AgentCore coach_agent → coaching feedback
 Assembly Lambda: Merge content + coach outputs → update Strava + store results
 Campus Coach: Sessions stored in DynamoDB → passed to content_gen agent prompt → LLM does the matching
 ```
@@ -552,7 +553,16 @@ class TestMyModule:
 
 **Campus Coach Agent** (`campus_coach_agent.py`): Extract training sessions via Browser Tool, Claude Sonnet 4.5. Stores sessions in DynamoDB — no analysis, matching is done by the content agent.
 
-**Coach Agent** (`coach_agent.py`): Training feedback agent using Claude Sonnet 4.5 with LTM memory (`coaching_observations` namespace). Analyzes activity in context of athlete profile (objectives, history, experience), recent training trends, and historical observations. Produces training feedback, trend analysis, and personalized recommendations. Runs in parallel with content generation.
+**Coach Agent** (`coach_agent.py`): Training feedback agent using Claude Sonnet 4.5 with LTM memory (`coaching_observations` namespace). Analyzes activity in context of athlete profile (objectives, history, experience, pace zones, personal records, FCmax), recent training trends (4 weeks via GSI query with EF pace@HR, CTL/Form, segment PRs), and historical observations. Produces training feedback focused on **progression and trends** (not session recap). Runs in parallel with content generation.
+
+**Coach Context (injected):**
+- Athlete profile + pace zones + personal records + FCmax
+- Historical: all activities from 4 weeks (max 30) with EF, CTL, decoupling, prev_coach_note
+- Fitness trend (CTL progression from Intervals.icu if available)
+- Athlete HR zones (from Strava, fetched at OAuth)
+- Best efforts PRs (auto-accumulated) + segment PRs (top 20)
+- Computed metrics: EF (pace@HR), %FCmax, Zone 3 moderate time
+- Past coaching observations (LTM memory)
 
 ### Authentication
 
@@ -840,16 +850,19 @@ aws stepfunctions describe-execution \
 
 ### P1 — Short Term (validate coach)
 - [ ] Fill Athlete Profile in Preferences (objectives, history, experience)
+- [ ] Set FCmax in Preferences (use Tanaka calculator or manual override)
+- [ ] Add Personal Records (5K, 10K, Semi times with dates)
 - [ ] Run 3-5 activities and review coach feedback quality
+- [ ] Verify strava_block talks about trends/progression (not session recap)
 - [ ] Iterate on COACH_AGENT_SYSTEM_PROMPT based on real outputs
 - [ ] Verify coach memory accumulates observations over time
 
 ### P2 — Medium Term (improve coach)
-- [ ] Add Efficiency Factor tracking (pace:HR ratio trend over weeks)
 - [ ] Add weekly synthesis (EventBridge schedule, Sunday summary)
 - [ ] Add "nothing to report" logic (skip trivial sessions)
-- [ ] Add grey zone detection (flag when EF runs are too fast)
+- [ ] Add ramp rate explicit calculation (flag >10%/week)
 - [ ] Frontend Coach page: add charts (volume trend, pace progression)
+- [ ] Frontend Preferences: display auto-accumulated PRs from best_efforts
 
 ### P3 — Long Term (expand)
 - [ ] Morning briefing (pre-run guidance based on Form/fatigue)
