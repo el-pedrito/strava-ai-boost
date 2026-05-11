@@ -155,6 +155,18 @@ class CoreInfrastructureStack(Stack):
             )
         )
 
+        self.coaching_sessions_table.add_global_secondary_index(
+            index_name="IsoWeekIndex",
+            partition_key=dynamodb.Attribute(
+                name="iso_week",
+                type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(
+                name="session_date",
+                type=dynamodb.AttributeType.STRING
+            )
+        )
+
     def _create_lambda_layer(self) -> None:
         """Create Lambda Layer for shared dependencies"""
 
