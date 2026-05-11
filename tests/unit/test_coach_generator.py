@@ -116,7 +116,7 @@ class TestBuildHistoricalSummary:
             })
 
         mock_table = MagicMock()
-        mock_table.scan.return_value = {"Items": items}
+        mock_table.query.return_value = {"Items": items}
         mock_dynamodb.Table.return_value = mock_table
 
         summary = build_historical_summary("user1", "current_act")

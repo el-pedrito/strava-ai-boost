@@ -11,7 +11,6 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 import boto3
-from boto3.dynamodb.conditions import Attr
 
 from shared.logger import get_logger, inject_correlation_id
 from shared.env_validation import validate_env_vars
@@ -464,8 +463,13 @@ def build_historical_summary(user_id: str, current_activity_id: str) -> Dict[str
         table = dynamodb.Table(ACTIVITIES_TABLE)
         four_weeks_ago = (datetime.now(timezone.utc) - timedelta(weeks=4)).isoformat()
 
-        response = table.scan(
-            FilterExpression=Attr("user_id").eq(user_id) & Attr("created_at").gte(four_weeks_ago),
+        response = table.query(
+            IndexName="UserActivitiesIndex",
+            KeyConditionExpression="user_id = :uid AND created_at >= :since",
+            ExpressionAttributeValues={
+                ":uid": user_id,
+                ":since": four_weeks_ago,
+            },
             ProjectionExpression="activity_id, activity_data_json, created_at, intervals_icu_json, coach_feedback, modules_used",
         )
         items = response.get("Items", [])

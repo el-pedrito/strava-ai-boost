@@ -93,6 +93,19 @@ class CoreInfrastructureStack(Stack):
             )
         )
 
+        # Add GSI for querying user activities by date (coach historical context)
+        self.activities_table.add_global_secondary_index(
+            index_name="UserActivitiesIndex",
+            partition_key=dynamodb.Attribute(
+                name="user_id",
+                type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(
+                name="created_at",
+                type=dynamodb.AttributeType.STRING
+            )
+        )
+
         # User Configuration table - stores user settings and module configurations
         self.user_config_table = dynamodb.Table(
             self, "UserConfigurationTable",
