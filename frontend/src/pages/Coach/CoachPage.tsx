@@ -6,12 +6,13 @@ import SpaceBetween from '@cloudscape-design/components/space-between';
 import Container from '@cloudscape-design/components/container';
 import ExpandableSection from '@cloudscape-design/components/expandable-section';
 import StatusIndicator from '@cloudscape-design/components/status-indicator';
-import KeyValuePairs from '@cloudscape-design/components/key-value-pairs';
 import Alert from '@cloudscape-design/components/alert';
 import Button from '@cloudscape-design/components/button';
 import Spinner from '@cloudscape-design/components/spinner';
 import Box from '@cloudscape-design/components/box';
 import Link from '@cloudscape-design/components/link';
+import MixedLineBarChart from '@cloudscape-design/components/mixed-line-bar-chart';
+import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { api } from '../../api/client.ts';
 
 interface CoachFeedbackItem {
@@ -86,18 +87,74 @@ export function CoachPage() {
         </Container>
 
         {/* Training Trends */}
-        {data?.trends && (
-          <Container header={<Header variant="h2">Tendances (4 dernières semaines)</Header>}>
-            <KeyValuePairs
-              columns={3}
-              items={[
-                { label: 'Volume hebdo (km)', value: data.trends.weekly_volume_km.join(' → ') },
-                { label: 'Séances / semaine', value: data.trends.sessions_per_week.join(' → ') },
-                { label: 'Allure moyenne', value: data.trends.avg_pace_per_week.join(' → ') },
-              ]}
-            />
-          </Container>
-        )}
+        {data?.trends && (() => {
+          const weeks = ['S-4', 'S-3', 'S-2', 'S-1'];
+          const vol = data.trends.weekly_volume_km;
+          const sess = data.trends.sessions_per_week;
+          const paces = data.trends.avg_pace_per_week;
+          // Convert pace string to seconds for chart (lower = faster)
+          const paceToSec = (p: string) => {
+            const m = p.match(/^(\d+):(\d{2})$/);
+            return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : 0;
+          };
+          const paceSecs = paces.map(paceToSec);
+
+          return (
+            <Container header={<Header variant="h2">Tendances (4 dernières semaines)</Header>}>
+              <ColumnLayout columns={2}>
+                <MixedLineBarChart
+                  height={200}
+                  xDomain={weeks}
+                  yDomain={[0, Math.max(...vol, 10) * 1.2]}
+                  xTitle="Semaine"
+                  yTitle="km"
+                  series={[
+                    {
+                      title: 'Volume (km)',
+                      type: 'bar',
+                      data: weeks.map((w, i) => ({ x: w, y: vol[i] })),
+                    },
+                    {
+                      title: 'Séances',
+                      type: 'line',
+                      data: weeks.map((w, i) => ({ x: w, y: sess[i] * (Math.max(...vol) / Math.max(...sess, 1)) })),
+                    },
+                  ]}
+                  xScaleType="categorical"
+                  hideFilter
+                  hideLegend={false}
+                  empty={<Box>Pas de données</Box>}
+                />
+                <MixedLineBarChart
+                  height={200}
+                  xDomain={weeks}
+                  yDomain={[Math.min(...paceSecs.filter(s => s > 0)) - 15, Math.max(...paceSecs.filter(s => s > 0)) + 15]}
+                  xTitle="Semaine"
+                  yTitle="Allure (sec/km)"
+                  series={[
+                    {
+                      title: 'Allure moyenne',
+                      type: 'line',
+                      data: weeks.map((w, i) => ({ x: w, y: paceSecs[i] })).filter(d => d.y > 0),
+                    },
+                  ]}
+                  xScaleType="categorical"
+                  hideFilter
+                  hideLegend
+                  yTickFormatter={(v) => {
+                    const m = Math.floor(Number(v) / 60);
+                    const s = Math.round(Number(v) % 60);
+                    return `${m}:${s.toString().padStart(2, '0')}`;
+                  }}
+                  empty={<Box>Pas de données</Box>}
+                />
+              </ColumnLayout>
+              <Box variant="small" textAlign="center" margin={{ top: 's' }} color="text-body-secondary">
+                Volume: {vol.map(v => `${v}km`).join(' → ')} | Séances: {sess.join(' → ')} | Allure: {paces.join(' → ')}
+              </Box>
+            </Container>
+          );
+        })()}
       </SpaceBetween>
     </ContentLayout>
   );
