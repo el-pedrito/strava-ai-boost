@@ -328,10 +328,11 @@ export function PreferencesPage() {
               const distRaw = record.distance.replace(/\s*(km|K)\s*$/i, '').trim();
               const distKm = KNOWN_DISTANCES[record.distance] || KNOWN_DISTANCES[distRaw] || parseFloat(distRaw) || 0;
 
-              // Parse time (mm:ss or h:mm:ss)
+              // Parse time (mm:ss or h:mm:ss or hh:mm:ss)
               let totalSec = 0;
-              const hms = record.time.match(/^(\d+):(\d{2}):(\d{2})$/);
-              const ms = record.time.match(/^(\d+):(\d{2})$/);
+              const cleaned = record.time.replace(/['"h]/g, ':').replace(/:+/g, ':').replace(/:$/, '');
+              const hms = cleaned.match(/^(\d+):(\d{1,2}):(\d{2})$/);
+              const ms = cleaned.match(/^(\d+):(\d{2})$/);
               if (hms) totalSec = parseInt(hms[1]) * 3600 + parseInt(hms[2]) * 60 + parseInt(hms[3]);
               else if (ms) totalSec = parseInt(ms[1]) * 60 + parseInt(ms[2]);
 
@@ -380,13 +381,11 @@ export function PreferencesPage() {
                       placeholder="22:15 ou 1:42:00"
                     />
                   </FormField>
-                  {paceStr && (
-                    <FormField label="Allure / Vitesse">
-                      <Box variant="small" color="text-status-info">
-                        {paceStr} — {speedStr}
-                      </Box>
-                    </FormField>
-                  )}
+                  <FormField label="Allure / Vitesse">
+                    <Box variant="small" color={paceStr ? "text-status-info" : "text-body-secondary"}>
+                      {paceStr ? `${paceStr} — ${speedStr}` : '—'}
+                    </Box>
+                  </FormField>
                   <FormField label="Date">
                     <Input
                       value={record.date}
