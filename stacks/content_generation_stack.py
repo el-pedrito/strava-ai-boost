@@ -69,6 +69,7 @@ class ContentGenerationStack(Stack):
         env_vars = {
             "CONTENT_GENERATION_AGENT_ARN": "",
             "CAMPUS_COACH_AGENT_ARN": "",
+            "COACH_AGENT_ARN": "",
             "BEDROCK_AGENTCORE_MEMORY_ID": "",
             "AGENTCORE_AGENTS_AVAILABLE": "false",
             "AGENTCORE_REGION": Aws.REGION,
@@ -317,7 +318,6 @@ class ContentGenerationStack(Stack):
                 "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
                 "COACHING_SESSIONS_TABLE": self.core_stack.table_names["coaching_sessions"],
-                "COACH_AGENT_ARN": os.environ.get("COACH_AGENT_ARN", "arn:aws:bedrock-agentcore:us-east-1:123456789012:runtime/strava_ai_boost_coach-LSz0qXBpd6"),
                 "BEDROCK_MODEL_ID": get_bedrock_model_id(),
                 **self._get_base_environment_variables()
             }
