@@ -36,8 +36,9 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             return create_error_response(400, "Question too long (max 500 chars)", cors_headers=CORS_HEADERS)
 
         # Use a persistent session per user (survives across messages)
-        if not session_id:
-            session_id = f"chat-{user_id}"
+        if not session_id or len(session_id) < 33:
+            import uuid
+            session_id = f"coach-chat-session-{user_id}-{uuid.uuid4().hex}"
 
         # Build context for the agent
         context_parts = _build_user_context(user_id)

@@ -26,7 +26,7 @@ export function CoachChat() {
   });
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [sessionId] = useState(() => localStorage.getItem('coach_chat_session') || (() => { const id = `chat-${Date.now()}`; localStorage.setItem('coach_chat_session', id); return id; })());
+  const [sessionId] = useState(() => localStorage.getItem('coach_chat_session') || (() => { const id = `coach-chat-session-${crypto.randomUUID()}`; localStorage.setItem('coach_chat_session', id); return id; })());
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
