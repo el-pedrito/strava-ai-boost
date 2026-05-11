@@ -854,6 +854,61 @@ def get_coach_summary() -> Dict[str, Any]:
         sessions_per_week.reverse()
         avg_pace_per_week.reverse()
 
+        # Compute detailed pace metrics from laps
+        interval_paces = []  # [{date, pace_sec, hr}] - work intervals only
+        ef_paces = []  # [{date, pace_sec, hr}] - easy runs only
+
+        for a in recent:
+            created = a.get('created_at', '')[:10]
+            laps_raw = a.get('laps_json')
+            if not laps_raw:
+                continue
+            try:
+                laps = json.loads(laps_raw) if isinstance(laps_raw, str) else laps_raw
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+            if not laps or len(laps) < 2:
+                continue
+
+            # Classify laps: compute median pace, fast laps = work intervals
+            speeds = [float(l.get('average_speed', 0)) for l in laps if float(l.get('average_speed', 0)) > 0]
+            if not speeds:
+                continue
+            median_speed = sorted(speeds)[len(speeds) // 2]
+
+            fast_laps = [l for l in laps if float(l.get('average_speed', 0)) > median_speed * 1.15 and float(l.get('distance', 0)) > 200]
+            slow_laps = [l for l in laps if float(l.get('average_speed', 0)) <= median_speed * 1.05 and float(l.get('distance', 0)) > 500]
+
+            # If has fast laps (>15% faster than median) = interval session
+            if len(fast_laps) >= 2:
+                for fl in fast_laps:
+                    sp = float(fl.get('average_speed', 0))
+                    if sp > 0:
+                        interval_paces.append({
+                            'date': created,
+                            'pace_sec': round(1000 / sp),
+                            'hr': fl.get('average_heartrate'),
+                        })
+            # If mostly slow laps and low pace variance = EF session
+            elif len(slow_laps) >= len(laps) * 0.7:
+                total_dist = sum(float(l.get('distance', 0)) for l in laps)
+                total_time = sum(float(l.get('moving_time', 0)) for l in laps)
+                avg_hr = float(a.get('average_heartrate', 0) or 0)
+                if total_dist > 0 and total_time > 0:
+                    ef_paces.append({
+                        'date': created,
+                        'pace_sec': round(total_time / (total_dist / 1000)),
+                        'hr': round(avg_hr) if avg_hr else None,
+                    })
+
+        # Format for frontend
+        def _fmt_pace(sec):
+            return f"{int(sec // 60)}:{int(sec % 60):02d}"
+
+        interval_trend = [{'date': p['date'], 'pace': _fmt_pace(p['pace_sec']), 'pace_sec': p['pace_sec'], 'hr': p.get('hr')} for p in sorted(interval_paces, key=lambda x: x['date'])]
+        ef_trend = [{'date': p['date'], 'pace': _fmt_pace(p['pace_sec']), 'pace_sec': p['pace_sec'], 'hr': p.get('hr')} for p in sorted(ef_paces, key=lambda x: x['date'])]
+
         return {
             'athlete_profile': athlete_profile,
             'recent_feedback': recent_feedback,
@@ -861,6 +916,8 @@ def get_coach_summary() -> Dict[str, Any]:
                 'weekly_volume_km': [round(v, 1) for v in weekly_volume],
                 'sessions_per_week': sessions_per_week,
                 'avg_pace_per_week': avg_pace_per_week,
+                'interval_paces': interval_trend[-20:],
+                'ef_paces': ef_trend[-20:],
             }
         }
 
