@@ -22,6 +22,10 @@ export async function loadConfig(): Promise<AppConfig> {
     const res = await fetch('/config.json');
     if (res.ok) {
       _config = await res.json();
+      // In dev, route API calls through the Vite proxy (same origin) to bypass CORS.
+      if (import.meta.env.DEV && _config) {
+        _config = { ..._config, apiGatewayUrl: '' };
+      }
       return _config!;
     }
   } catch {
