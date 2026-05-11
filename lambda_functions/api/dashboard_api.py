@@ -905,7 +905,6 @@ def get_coach_summary() -> Dict[str, Any]:
             median_speed = sorted(speeds)[len(speeds) // 2]
 
             fast_laps = [l for l in laps if float(l.get('average_speed', 0)) > median_speed * 1.15 and float(l.get('distance', 0)) > 200]
-            slow_laps = [l for l in laps if float(l.get('average_speed', 0)) <= median_speed * 1.05 and float(l.get('distance', 0)) > 500]
 
             # If has fast laps (>15% faster than median) = interval session
             if len(fast_laps) >= 2:
@@ -947,13 +946,18 @@ def get_coach_summary() -> Dict[str, Any]:
                 current_week = sessions[0].get('week_number', '')
                 week_sessions = [s for s in sessions if s.get('week_number') == current_week]
                 total_planned = len(week_sessions)
-                # Count running sessions in current week from activities
-                completed_this_week = sessions_per_week[-1] if sessions_per_week else 0
+                # Count activities from last 7 days using start_date
+                seven_days_ago = (now - timedelta(days=7)).isoformat()
+                this_week_activities = [
+                    a for a in recent
+                    if (a.get('start_date') or a.get('created_at', '')) >= seven_days_ago
+                ]
+                completed_count = len(this_week_activities)
                 if total_planned > 0:
                     compliance = {
                         'planned': total_planned,
-                        'completed': min(completed_this_week, total_planned),
-                        'percentage': min(round(completed_this_week / total_planned * 100), 100)
+                        'completed': min(completed_count, total_planned),
+                        'percentage': min(round(completed_count / total_planned * 100), 100)
                     }
         except Exception as e:
             logger.warning(f'Failed to compute compliance: {e}')
