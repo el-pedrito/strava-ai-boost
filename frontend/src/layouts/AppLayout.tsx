@@ -56,7 +56,7 @@ export function Shell() {
             { type: 'button', text: location.pathname === '/preferences' ? `[ ${t('nav.preferences')} ]` : t('nav.preferences'), onClick: () => navigate('/preferences') },
             { type: 'button', text: location.pathname === '/quality' ? `[ ${t('nav.quality')} ]` : t('nav.quality'), onClick: () => navigate('/quality') },
             { type: 'button', text: location.pathname === '/coach' ? `[ ${t('nav.coach')} ]` : t('nav.coach'), onClick: () => navigate('/coach') },
-            { type: 'button', text: i18n.language === 'fr' ? 'EN' : 'FR', onClick: () => i18n.changeLanguage(i18n.language === 'fr' ? 'en' : 'fr') },
+            { type: 'button', text: i18n.language === 'fr' ? '🇬🇧' : '🇫🇷', onClick: () => i18n.changeLanguage(i18n.language === 'fr' ? 'en' : 'fr') },
             { type: 'button', text: t('nav.signOut'), onClick: () => signOut() },
           ]}
           i18nStrings={{ overflowMenuTriggerText: 'More', overflowMenuTitleText: 'All' }}
