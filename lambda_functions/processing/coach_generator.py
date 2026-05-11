@@ -96,6 +96,31 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         if suffer_score:
             historical_summary["current_suffer_score"] = suffer_score
 
+        # Add Campus Coach sessions for current week (if available)
+        try:
+            sessions_table = dynamodb.Table(os.environ.get("COACHING_SESSIONS_TABLE", "strava-ai-boost-campus-coaching-sessions"))
+            sessions_resp = sessions_table.scan(Limit=10)
+            sessions = sessions_resp.get("Items", [])
+            if sessions:
+                # Get most recent week's sessions
+                sessions.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+                current_week = sessions[0].get("week_number", "")
+                week_sessions = [s for s in sessions if s.get("week_number") == current_week]
+                if week_sessions:
+                    historical_summary["campus_coach_plan"] = [
+                        {
+                            "title": s.get("title", ""),
+                            "session_number": s.get("session_number", ""),
+                            "intervals": s.get("intervals", []),
+                            "target_distance_km": (s.get("targetedMetrics") or {}).get("target_distance_km"),
+                            "target_duration_min": (s.get("targetedMetrics") or {}).get("target_duration_min"),
+                            "status": s.get("status", ""),
+                        }
+                        for s in week_sessions
+                    ]
+        except Exception as e:
+            logger.warning(f"Failed to fetch Campus Coach sessions: {e}")
+
         feedback = _invoke_coach_agent(
             activity_data, user_config, historical_summary
         )
