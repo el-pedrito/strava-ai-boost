@@ -68,6 +68,13 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             uc_item = uc_response.get("Item", {})
             if uc_item.get("athlete_zones"):
                 historical_summary["athlete_zones"] = uc_item["athlete_zones"]
+                # Also inject into activity_data for metrics computation
+                activity_data["_athlete_zones"] = uc_item["athlete_zones"]
+                # Recompute metrics now that zones are available
+                if activity_data.get("_laps"):
+                    activity_data["_computed_metrics"] = _compute_coach_metrics(
+                        activity_data["_laps"], activity_data
+                    )
             if uc_item.get("best_efforts_prs"):
                 historical_summary["best_efforts_prs"] = uc_item["best_efforts_prs"]
             if uc_item.get("segment_prs"):
@@ -231,7 +238,7 @@ def retrieve_activity_data(activity_id: str) -> Optional[Dict[str, Any]]:
         if laps_raw:
             laps = json.loads(laps_raw) if isinstance(laps_raw, str) else laps_raw
             data["_laps"] = laps
-            # Compute Efficiency Factor and grey zone time
+            # Compute Efficiency Factor and zone distribution
             data["_computed_metrics"] = _compute_coach_metrics(laps, data)
         return data
     except Exception as e:
@@ -250,22 +257,41 @@ def _compute_coach_metrics(laps: list, activity_data: Dict[str, Any]) -> Dict[st
         pace_sec = 1000 / avg_speed
         metrics["ef_pace_at_hr"] = f"{int(pace_sec//60)}:{int(pace_sec%60):02d}/km @ {int(avg_hr)}bpm"
 
-    # "Ni facile ni dur" detection: time spent 80-88% FCmax (too fast for EF, too slow for tempo)
-    max_hr = activity_data.get("max_heartrate", 0)
-    if max_hr > 0 and laps:
-        threshold_low = max_hr * 0.80
-        threshold_high = max_hr * 0.88
-        wasted_time = 0
-        total_time = 0
-        for lap in laps:
-            lap_hr = lap.get("average_heartrate", 0)
-            lap_time = lap.get("moving_time", 0)
-            total_time += lap_time
-            if threshold_low <= lap_hr <= threshold_high:
-                wasted_time += lap_time
-        if total_time > 0:
-            metrics["ni_facile_ni_dur_pct"] = round(wasted_time / total_time * 100, 1)
-            metrics["ni_facile_ni_dur_minutes"] = round(wasted_time / 60, 1)
+    # Intensity distribution: detect time spent in "no benefit" zone (too fast for EF, too slow for tempo)
+    # Uses athlete HR zones if available (from user_config), otherwise skips
+    # Zone 3 upper / Zone 4 lower boundary = the problematic intensity
+    athlete_zones = activity_data.get("_athlete_zones")
+    if athlete_zones and laps:
+        # Extract HR zone boundaries from Strava athlete zones
+        hr_zones = None
+        if isinstance(athlete_zones, dict):
+            hr_zones = athlete_zones.get("heart_rate", {}).get("zones")
+        elif isinstance(athlete_zones, list):
+            for z in athlete_zones:
+                if z.get("type") == "heartrate":
+                    hr_zones = z.get("distribution_buckets") or z.get("zones")
+                    break
+
+        # If we have zones, use Z3 boundaries (typically 80-88% FCmax)
+        if hr_zones and isinstance(hr_zones, list) and len(hr_zones) >= 4:
+            # Strava zones: Z1, Z2, Z3, Z4, Z5 — Z3 is the "moderate" zone
+            z3 = hr_zones[2] if len(hr_zones) > 2 else None
+            if z3 and isinstance(z3, dict):
+                z3_min = z3.get("min", 0)
+                z3_max = z3.get("max", 0)
+                if z3_min and z3_max:
+                    moderate_time = 0
+                    total_time = 0
+                    for lap in laps:
+                        lap_hr = lap.get("average_heartrate", 0)
+                        lap_time = lap.get("moving_time", 0)
+                        total_time += lap_time
+                        if z3_min <= lap_hr <= z3_max:
+                            moderate_time += lap_time
+                    if total_time > 0 and moderate_time > 0:
+                        metrics["zone3_moderate_pct"] = round(moderate_time / total_time * 100, 1)
+                        metrics["zone3_moderate_minutes"] = round(moderate_time / 60, 1)
+                        metrics["zone3_range_bpm"] = f"{z3_min}-{z3_max}bpm"
 
     return metrics
 
