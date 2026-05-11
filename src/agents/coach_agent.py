@@ -151,6 +151,26 @@ try:
     def invoke(payload, context=None):
         """AgentCore entrypoint for coach agent."""
         try:
+            mode = payload.get("mode", "feedback")
+
+            # Conversation mode: respond in prose (not JSON)
+            if mode == "conversation":
+                question = payload.get("question", "")
+                conv_prompt = """Tu es un coach running expert, bienveillant et direct. Tu réponds aux questions de l'athlète.
+
+Règles:
+- Tutoiement
+- Réponses concises (3-5 phrases max sauf si question complexe)
+- Factuel, cite des chiffres quand pertinent
+- Si tu ne sais pas, dis-le
+- Réponds en prose, PAS en JSON"""
+
+                agent = Agent(model=MODEL_ID, system_prompt=conv_prompt)
+                result = agent(question)
+                response_text = result.message.get("content", [{}])[0].get("text", str(result))
+                return {"response": response_text}
+
+            # Feedback mode: standard JSON output
             activity_data = payload.get("activity_data", {})
             user_config = payload.get("user_config", {})
             historical_summary = payload.get("historical_summary")
