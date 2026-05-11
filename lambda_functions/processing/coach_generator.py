@@ -510,12 +510,12 @@ def build_historical_summary(user_id: str, current_activity_id: str) -> Dict[str
         weeks_active = len(weekly_distances)
         avg_weekly_km = total_distance / max(weeks_active, 1)
 
-        # Per-activity breakdown for trend analysis (last 10 activities)
+        # Per-activity breakdown for trend analysis (all activities in 4-week window, max 30)
         recent_activities = sorted(
             activities,
             key=lambda a: a.get("start_date", ""),
             reverse=True,
-        )[:10]
+        )[:30]
         recent_breakdown = []
         for a in recent_activities:
             dist_km = round(a.get("distance", 0) / 1000, 1)
