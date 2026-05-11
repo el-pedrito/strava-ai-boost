@@ -939,11 +939,16 @@ def get_coach_summary() -> Dict[str, Any]:
         compliance = None
         try:
             sessions_table = dynamodb.Table(COACHING_SESSIONS_TABLE)
-            sessions_resp = sessions_table.scan(Limit=10)
+            sessions_resp = sessions_table.scan(Limit=50)
             sessions = sessions_resp.get('Items', [])
             if sessions:
+                # Find the most recent week with real training sessions (not just 2 récup)
                 sessions.sort(key=lambda x: x.get('updated_at', ''), reverse=True)
-                current_week = sessions[0].get('week_number', '')
+                # Group by week_number, pick the one with most sessions updated recently
+                from collections import Counter
+                week_counts = Counter(s.get('week_number', '') for s in sessions[:20])
+                # Pick the week with the most sessions among the 20 most recent
+                current_week = week_counts.most_common(1)[0][0] if week_counts else ''
                 week_sessions = [s for s in sessions if s.get('week_number') == current_week]
                 total_planned = len(week_sessions)
                 # Count activities from last 7 days using start_date
