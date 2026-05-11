@@ -46,16 +46,13 @@ def _get_user_id(event: Dict[str, Any]) -> str:
     """Extract user_id from Cognito JWT claims or fall back to DEFAULT_USER_ID."""
     try:
         claims = event.get('requestContext', {}).get('authorizer', {}).get('claims', {})
-        # custom:strava_id is set during OAuth callback
+        # custom:strava_id is set during OAuth callback (maps to Strava athlete ID)
         strava_id = claims.get('custom:strava_id', '')
         if strava_id:
             return strava_id
-        # Fall back to Cognito sub if no strava_id
-        sub = claims.get('sub', '')
-        if sub:
-            return sub
     except (AttributeError, TypeError):
         pass
+    # Cognito sub is NOT usable as user_id (DynamoDB uses Strava athlete ID)
     return DEFAULT_USER_ID
 
 
