@@ -942,30 +942,34 @@ def get_coach_summary() -> Dict[str, Any]:
             sessions_resp = sessions_table.scan(Limit=50)
             sessions = sessions_resp.get('Items', [])
             if sessions:
-                # Group by week_number
-                from collections import defaultdict
-                by_week: dict = defaultdict(list)
-                for s in sessions:
-                    by_week[s.get('week_number', '')].append(s)
-                # Find the most recent real training week (>=3 sessions, most recent updated_at)
-                real_weeks = [(wn, ss) for wn, ss in by_week.items() if len(ss) >= 3]
-                if real_weeks:
-                    # Sort by max updated_at in the week
-                    real_weeks.sort(key=lambda x: max(s.get('updated_at', '') for s in x[1]), reverse=True)
-                    current_week, week_sessions = real_weeks[0]
-                    total_planned = len(week_sessions)
+                # Find current week sessions using iso_week (format: 2026-W19)
+                current_iso_week = now.strftime('%Y-W%W')
+                current_week_sessions = [s for s in sessions if s.get('iso_week') == current_iso_week]
+
+                # Fallback: most recent week with >=3 sessions (real training plan)
+                if not current_week_sessions:
+                    from collections import defaultdict
+                    by_week: dict = defaultdict(list)
+                    for s in sessions:
+                        by_week[s.get('week_number', '')].append(s)
+                    real_weeks = [(wn, ss) for wn, ss in by_week.items() if len(ss) >= 3]
+                    if real_weeks:
+                        real_weeks.sort(key=lambda x: max(s.get('updated_at', '') for s in x[1]), reverse=True)
+                        current_week_sessions = real_weeks[0][1]
+
+                total_planned = len(current_week_sessions)
+                if total_planned > 0:
                     seven_days_ago = (now - timedelta(days=7)).isoformat()
                     this_week_activities = [
                         a for a in recent
                         if (a.get('start_date') or a.get('created_at', '')) >= seven_days_ago
                     ]
                     completed_count = len(this_week_activities)
-                    if total_planned > 0:
-                        compliance = {
-                            'planned': total_planned,
-                            'completed': min(completed_count, total_planned),
-                            'percentage': min(round(completed_count / total_planned * 100), 100)
-                        }
+                    compliance = {
+                        'planned': total_planned,
+                        'completed': min(completed_count, total_planned),
+                        'percentage': min(round(completed_count / total_planned * 100), 100)
+                    }
         except Exception as e:
             logger.warning(f'Failed to compute compliance: {e}')
 

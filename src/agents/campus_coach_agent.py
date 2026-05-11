@@ -203,7 +203,8 @@ def save_sessions_to_dynamodb(sessions_data: dict, region: str = "eu-west-1"):
                     'coach_advice': session.get('coach_advice'),
                     'description': session.get('description', ''),
                     'objectives': session.get('objectives', []),
-                    'updated_at': datetime.now().isoformat()
+                    'updated_at': datetime.now().isoformat(),
+                    'iso_week': datetime.now().strftime('%Y-W%W'),
                 }
             )
             
