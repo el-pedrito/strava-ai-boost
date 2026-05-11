@@ -54,6 +54,10 @@ class ApiGatewayStack(Stack):
         env = load_env_agentcore(keys={"COACH_AGENT_ARN"})
         return env.get("COACH_AGENT_ARN", "")
 
+    def _load_memory_id(self) -> str:
+        from .env_loader import load_agentcore_memory_id
+        return load_agentcore_memory_id()
+
     def _create_lambda_functions(self) -> None:
         """Create Lambda functions for API endpoints"""
         
@@ -169,7 +173,8 @@ class ApiGatewayStack(Stack):
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
                 "DEFAULT_USER_ID": self.node.try_get_context("default_user_id") or "",
                 "BEDROCK_MODEL_ID": os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
-                "COACH_AGENT_ARN": self._load_coach_arn()
+                "COACH_AGENT_ARN": self._load_coach_arn(),
+                "BEDROCK_AGENTCORE_MEMORY_ID": self._load_memory_id()
             }
         )
 
