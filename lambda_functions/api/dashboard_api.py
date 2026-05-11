@@ -844,9 +844,14 @@ def get_coach_summary() -> Dict[str, Any]:
                 dt = datetime.fromisoformat(activity_date.replace('Z', '+00:00'))
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=timezone.utc)
-                days_ago = (now - dt).days
-                week_idx = days_ago // 7
-                if week_idx >= 4:
+                # Use ISO week number for bucketing (Monday = start of week)
+                current_week_num = now.isocalendar()[1]
+                activity_week_num = dt.isocalendar()[1]
+                activity_year = dt.isocalendar()[0]
+                current_year = now.isocalendar()[0]
+                # Calculate week offset (0 = this week, 1 = last week, etc.)
+                week_idx = (current_year - activity_year) * 52 + (current_week_num - activity_week_num)
+                if week_idx < 0 or week_idx >= 4:
                     continue
                 distance_m = float(a.get('distance', 0) or 0)
                 moving_time_s = float(a.get('moving_time', 0) or 0)
