@@ -29,7 +29,7 @@ export function StravaAppSetup({ configured, onConfigured }: Props) {
       await api.post('/config/strava', {
         client_id: clientId,
         client_secret: clientSecret,
-        redirect_uri: 'http://localhost:3000/oauth/callback',
+        redirect_uri: `${window.location.origin}/oauth/callback`,
       });
       flash('success', 'Strava app configured successfully!');
       onConfigured();
