@@ -148,6 +148,7 @@ export function CoachPage() {
                       title: 'Allure moyenne',
                       type: 'line',
                       data: weeks.map((w, i) => ({ x: w, y: paceSecs[i] })).filter(d => d.y > 0),
+                      valueFormatter: (v) => { const m = Math.floor(v / 60); const s = Math.round(v % 60); return `${m}:${s.toString().padStart(2, '0')}/km`; },
                     },
                   ]}
                   xScaleType="categorical"
