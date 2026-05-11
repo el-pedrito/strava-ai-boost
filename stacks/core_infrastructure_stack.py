@@ -251,6 +251,15 @@ class CoreInfrastructureStack(Stack):
             )
         )
 
+        # Add AgentCore permissions for coach ask (invoke agent runtime)
+        self.webhook_lambda_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["bedrock-agentcore:InvokeAgentRuntime"],
+                resources=[f"arn:aws:bedrock-agentcore:{Aws.REGION}:{Aws.ACCOUNT_ID}:runtime/*"]
+            )
+        )
+
         # Lambda execution role for content generation
         self.content_lambda_role = iam.Role(
             self, "ContentLambdaRole",
