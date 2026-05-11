@@ -499,17 +499,37 @@ def handle_oauth_callback(event: Dict[str, Any]) -> Dict[str, Any]:
             try:
                 athlete_id = str(tokens.get('athlete', {}).get('id', ''))
                 if athlete_id:
+                    # Fetch athlete zones (HR + power) using the new access token
+                    athlete_zones = None
+                    try:
+                        zones_response = requests.get(
+                            'https://www.strava.com/api/v3/athlete/zones',
+                            headers={'Authorization': f"Bearer {tokens['access_token']}"},
+                            timeout=10
+                        )
+                        if zones_response.status_code == 200:
+                            athlete_zones = zones_response.json()
+                            logger.info(f"Fetched athlete zones for {athlete_id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch athlete zones: {e}")
+
+                    update_expr = "SET strava_connected = :conn, connected_at = :cat, athlete_name = :name, scopes = :sc, updated_at = :upd"
+                    expr_values = {
+                        ':conn': True,
+                        ':cat': datetime.now(UTC).isoformat(),
+                        ':name': f"{tokens.get('athlete', {}).get('firstname', '')} {tokens.get('athlete', {}).get('lastname', '')}".strip(),
+                        ':sc': tokens.get('scope', '').split(','),
+                        ':upd': datetime.now(UTC).isoformat()
+                    }
+                    if athlete_zones:
+                        update_expr += ", athlete_zones = :zones"
+                        expr_values[':zones'] = athlete_zones
+
                     table = dynamodb.Table(USER_CONFIG_TABLE)
                     table.update_item(
                         Key={'user_id': athlete_id},
-                        UpdateExpression="SET strava_connected = :conn, connected_at = :cat, athlete_name = :name, scopes = :sc, updated_at = :upd",
-                        ExpressionAttributeValues={
-                            ':conn': True,
-                            ':cat': datetime.now(UTC).isoformat(),
-                            ':name': f"{tokens.get('athlete', {}).get('firstname', '')} {tokens.get('athlete', {}).get('lastname', '')}".strip(),
-                            ':sc': tokens.get('scope', '').split(','),
-                            ':upd': datetime.now(UTC).isoformat()
-                        }
+                        UpdateExpression=update_expr,
+                        ExpressionAttributeValues=expr_values
                     )
                     logger.info(f"OAuth status updated for athlete {athlete_id}")
             except ClientError as e:

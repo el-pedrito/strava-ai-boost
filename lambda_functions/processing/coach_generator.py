@@ -51,9 +51,37 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Build historical summary from last 4 weeks
         historical_summary = build_historical_summary(user_id, activity_id)
 
+        # Extract and accumulate best efforts (PRs) from this activity
+        extract_and_store_prs(user_id, activity_data)
+
         # Generate coaching feedback via AgentCore
         if not COACH_AGENT_ARN:
             raise ValueError("COACH_AGENT_ARN not configured - coach agent must be deployed to AgentCore")
+
+        # Enrich historical summary with athlete context from user_config
+        table = dynamodb.Table(USER_CONFIG_TABLE)
+        try:
+            uc_response = table.get_item(
+                Key={"user_id": user_id},
+                ProjectionExpression="athlete_zones, best_efforts_prs, segment_prs, user_preferences"
+            )
+            uc_item = uc_response.get("Item", {})
+            if uc_item.get("athlete_zones"):
+                historical_summary["athlete_zones"] = uc_item["athlete_zones"]
+            if uc_item.get("best_efforts_prs"):
+                historical_summary["best_efforts_prs"] = uc_item["best_efforts_prs"]
+            if uc_item.get("segment_prs"):
+                historical_summary["segment_prs"] = uc_item["segment_prs"]
+            prefs = uc_item.get("user_preferences", {})
+            if prefs.get("personal_records"):
+                historical_summary["personal_records"] = prefs["personal_records"]
+        except Exception as e:
+            logger.warning(f"Failed to enrich historical summary: {e}")
+
+        # Add suffer_score and athlete_stats from current activity
+        suffer_score = activity_data.get("suffer_score")
+        if suffer_score:
+            historical_summary["current_suffer_score"] = suffer_score
 
         feedback = _invoke_coach_agent(
             activity_data, user_config, historical_summary
@@ -192,10 +220,143 @@ def retrieve_activity_data(activity_id: str) -> Optional[Dict[str, Any]]:
         if not item:
             return None
         raw = item.get("activity_data_json", "{}")
-        return json.loads(raw) if isinstance(raw, str) else raw
+        data = json.loads(raw) if isinstance(raw, str) else raw
+        # Attach athlete_stats if available (for coach context)
+        stats_raw = item.get("athlete_stats_json")
+        if stats_raw:
+            stats = json.loads(stats_raw) if isinstance(stats_raw, str) else stats_raw
+            data["_athlete_stats"] = stats
+        return data
     except Exception as e:
         logger.error(f"Failed to retrieve activity {activity_id}: {e}")
         return None
+
+
+USER_CONFIG_TABLE = os.environ.get("USER_CONFIG_TABLE", "strava-ai-boost-user-configuration")
+
+
+def extract_and_store_prs(user_id: str, activity_data: Dict[str, Any]) -> None:
+    """Extract best_efforts with pr_rank==1 from activity and accumulate in user_config."""
+    best_efforts = activity_data.get("best_efforts", [])
+    if not best_efforts:
+        return
+
+    new_prs = {}
+    for effort in best_efforts:
+        if effort.get("pr_rank") == 1:
+            name = effort.get("name", "")
+            elapsed = effort.get("elapsed_time")
+            start_date = effort.get("start_date", "")
+            distance = effort.get("distance")
+            if name and elapsed:
+                new_prs[name] = {
+                    "elapsed_time": elapsed,
+                    "date": start_date[:10] if start_date else "",
+                    "distance_m": distance,
+                }
+
+    if not new_prs:
+        return
+
+    try:
+        table = dynamodb.Table(USER_CONFIG_TABLE)
+        response = table.get_item(Key={"user_id": user_id}, ProjectionExpression="best_efforts_prs")
+        existing_prs = response.get("Item", {}).get("best_efforts_prs", {})
+
+        # Merge: keep the faster time for each distance
+        updated = False
+        for name, pr in new_prs.items():
+            existing = existing_prs.get(name)
+            if not existing or pr["elapsed_time"] < existing.get("elapsed_time", 999999):
+                existing_prs[name] = pr
+                updated = True
+                logger.info(f"New PR for {user_id}: {name} = {pr['elapsed_time']}s on {pr['date']}")
+
+        if updated:
+            table.update_item(
+                Key={"user_id": user_id},
+                UpdateExpression="SET best_efforts_prs = :prs",
+                ExpressionAttributeValues={":prs": existing_prs},
+            )
+    except Exception as e:
+        logger.warning(f"Failed to store PRs for {user_id}: {e}")
+
+    # Also extract segment PRs (pr_rank 1 or 2)
+    _extract_segment_prs(user_id, activity_data)
+
+
+def _extract_segment_prs(user_id: str, activity_data: Dict[str, Any]) -> None:
+    """Extract segment efforts with pr_rank <= 2 and store top 20 most recent."""
+    segment_efforts = activity_data.get("segment_efforts", [])
+    if not segment_efforts:
+        return
+
+    new_segment_prs = []
+    for effort in segment_efforts:
+        pr_rank = effort.get("pr_rank")
+        if pr_rank and pr_rank <= 2:
+            segment = effort.get("segment", {})
+            new_segment_prs.append({
+                "segment_name": segment.get("name", ""),
+                "segment_id": str(segment.get("id", "")),
+                "elapsed_time": effort.get("elapsed_time"),
+                "date": (effort.get("start_date") or "")[:10],
+                "pr_rank": pr_rank,
+                "distance_m": segment.get("distance"),
+            })
+
+    if not new_segment_prs:
+        return
+
+    try:
+        table = dynamodb.Table(USER_CONFIG_TABLE)
+        response = table.get_item(Key={"user_id": user_id}, ProjectionExpression="segment_prs")
+        existing = response.get("Item", {}).get("segment_prs", [])
+
+        # Merge: update if faster for same segment_id, add if new
+        by_id = {s["segment_id"]: s for s in existing}
+        for seg in new_segment_prs:
+            sid = seg["segment_id"]
+            if sid not in by_id or seg["elapsed_time"] < by_id[sid].get("elapsed_time", 999999):
+                by_id[sid] = seg
+
+        # Keep only 20 most recent PRs
+        all_prs = sorted(by_id.values(), key=lambda s: s.get("date", ""), reverse=True)[:20]
+
+        table.update_item(
+            Key={"user_id": user_id},
+            UpdateExpression="SET segment_prs = :sp",
+            ExpressionAttributeValues={":sp": all_prs},
+        )
+        logger.info(f"Stored {len(new_segment_prs)} segment PRs for {user_id} (total: {len(all_prs)})")
+    except Exception as e:
+        logger.warning(f"Failed to store segment PRs for {user_id}: {e}")
+
+
+def _build_fitness_trend(activities: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Extract fitness trend from Intervals.icu data if available across activities."""
+    ctl_values = []
+    for a in sorted(activities, key=lambda x: x.get("start_date", "")):
+        icu = a.get("_intervals_icu")
+        if icu and isinstance(icu, dict):
+            fitness = icu.get("fitness", {})
+            ctl = fitness.get("ctl")
+            if ctl is not None:
+                try:
+                    ctl_values.append({"date": a.get("start_date", "")[:10], "ctl": float(ctl)})
+                except (ValueError, TypeError):
+                    pass
+    if not ctl_values:
+        return {}
+    return {
+        "fitness_trend": {
+            "source": "intervals_icu",
+            "ctl_progression": ctl_values,
+            "ctl_start": round(ctl_values[0]["ctl"], 1),
+            "ctl_current": round(ctl_values[-1]["ctl"], 1),
+            "ctl_delta": round(ctl_values[-1]["ctl"] - ctl_values[0]["ctl"], 1),
+        }
+    }
 
 
 def build_historical_summary(user_id: str, current_activity_id: str) -> Dict[str, Any]:
@@ -206,7 +367,7 @@ def build_historical_summary(user_id: str, current_activity_id: str) -> Dict[str
 
         response = table.scan(
             FilterExpression=Attr("user_id").eq(user_id) & Attr("created_at").gte(four_weeks_ago),
-            ProjectionExpression="activity_id, activity_data_json, created_at",
+            ProjectionExpression="activity_id, activity_data_json, created_at, intervals_icu_json, coach_feedback, modules_used",
         )
         items = response.get("Items", [])
 
@@ -216,6 +377,14 @@ def build_historical_summary(user_id: str, current_activity_id: str) -> Dict[str
                 continue
             try:
                 data = json.loads(item.get("activity_data_json", "{}"))
+                # Attach integration data if available
+                if item.get("intervals_icu_json"):
+                    icu = json.loads(item["intervals_icu_json"]) if isinstance(item["intervals_icu_json"], str) else item["intervals_icu_json"]
+                    data["_intervals_icu"] = icu
+                if item.get("coach_feedback"):
+                    data["_prev_coach_feedback"] = item["coach_feedback"]
+                if item.get("modules_used"):
+                    data["_modules_used"] = [m.get("S", m) if isinstance(m, dict) else m for m in item["modules_used"]]
                 activities.append(data)
             except (json.JSONDecodeError, TypeError):
                 continue
@@ -242,6 +411,52 @@ def build_historical_summary(user_id: str, current_activity_id: str) -> Dict[str
         weeks_active = len(weekly_distances)
         avg_weekly_km = total_distance / max(weeks_active, 1)
 
+        # Per-activity breakdown for trend analysis (last 10 activities)
+        recent_activities = sorted(
+            activities,
+            key=lambda a: a.get("start_date", ""),
+            reverse=True,
+        )[:10]
+        recent_breakdown = []
+        for a in recent_activities:
+            dist_km = round(a.get("distance", 0) / 1000, 1)
+            duration_min = round(a.get("moving_time", 0) / 60)
+            avg_speed = a.get("average_speed", 0)
+            pace_str = ""
+            if avg_speed > 0:
+                pace_total_sec = 1000 / avg_speed
+                pace_str = f"{int(pace_total_sec // 60)}:{int(pace_total_sec % 60):02d}/km"
+            entry: Dict[str, Any] = {
+                "date": a.get("start_date", "")[:10],
+                "type": a.get("type", "Run"),
+                "name": a.get("name", ""),
+                "distance_km": dist_km,
+                "duration_min": duration_min,
+                "pace": pace_str,
+                "avg_hr": a.get("average_heartrate"),
+            }
+            # Intervals.icu fitness data (if available)
+            icu = a.get("_intervals_icu")
+            if icu and isinstance(icu, dict):
+                fitness = icu.get("fitness", {})
+                if fitness:
+                    entry["ctl"] = fitness.get("ctl")
+                    entry["atl"] = fitness.get("atl")
+                    entry["form"] = fitness.get("form")
+                trends = icu.get("trends", {})
+                decoupling = trends.get("decoupling", {}).get("current")
+                if decoupling:
+                    entry["decoupling"] = decoupling
+            # Previous coach recommendation (if available)
+            prev_fb = a.get("_prev_coach_feedback")
+            if prev_fb and isinstance(prev_fb, dict):
+                sb = prev_fb.get("strava_block", prev_fb.get("S", ""))
+                if isinstance(sb, dict):
+                    sb = sb.get("S", "")
+                if sb:
+                    entry["prev_coach_note"] = sb[:150]
+            recent_breakdown.append(entry)
+
         return {
             "weeks": 4,
             "total_activities": len(activities),
@@ -251,6 +466,9 @@ def build_historical_summary(user_id: str, current_activity_id: str) -> Dict[str
             "avg_weekly_km": round(avg_weekly_km, 1),
             "weeks_active": weeks_active,
             "consistency": f"{weeks_active}/4 weeks",
+            "weekly_km": {str(k): round(v, 1) for k, v in weekly_distances.items()},
+            "recent_activities": recent_breakdown,
+            **_build_fitness_trend(activities),
         }
 
     except Exception as e:
@@ -282,25 +500,16 @@ def write_coaching_observation(user_id: str, feedback: Dict[str, Any]) -> None:
     try:
         from bedrock_agentcore.memory import MemoryClient
 
-        analysis = feedback.get("detailed_analysis", {})
-        observation_parts = []
-        if analysis.get("key_metrics"):
-            observation_parts.append(f"Metrics: {analysis['key_metrics']}")
-        if analysis.get("progress_note"):
-            observation_parts.append(f"Progress: {analysis['progress_note']}")
-        if analysis.get("recommendation"):
-            observation_parts.append(f"Recommendation: {analysis['recommendation']}")
+        # Both strava_block and detailed_analysis are strings
+        strava_block = feedback.get("strava_block", "")
+        detailed_analysis = feedback.get("detailed_analysis", "")
 
-        if not observation_parts:
-            strava = feedback.get("strava_block", {})
-            summary = strava.get("summary") or strava.get("text", "")
-            if summary:
-                observation_parts.append(summary[:500])
-
-        if not observation_parts:
+        observation_text = detailed_analysis or strava_block
+        if not observation_text:
             return
 
-        observation_text = " | ".join(observation_parts)
+        # Truncate to reasonable size for memory storage
+        observation_text = observation_text[:1000]
 
         client = MemoryClient(region_name=REGION)
         client.create_event(

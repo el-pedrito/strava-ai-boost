@@ -43,10 +43,10 @@ class TestAssemblyHandler:
         result = handler(event, None)
 
         desc = result["enhanced_content"]["description"]
-        assert "📊 Coach" in desc
+        assert "📊 Strava AI Boost Coach" in desc
         assert "Good pace improvement" in desc
         # Coach block should be before fun fact
-        coach_pos = desc.index("📊 Coach")
+        coach_pos = desc.index("📊 Strava AI Boost Coach")
         fact_pos = desc.index("💡")
         assert coach_pos < fact_pos
 
@@ -57,7 +57,7 @@ class TestAssemblyHandler:
 
         desc = result["enhanced_content"]["description"]
         assert desc.endswith("Good pace improvement this week!")
-        assert "📊 Coach" in desc
+        assert "📊 Strava AI Boost Coach" in desc
 
     def test_merge_coach_failure(self, content_result):
         coach_result = {"statusCode": 500, "error": "failed"}
@@ -74,7 +74,7 @@ class TestAssemblyHandler:
         event = [content_result, coach_result]
         result = handler(event, None)
 
-        assert "📊 Coach" not in result["enhanced_content"]["description"]
+        assert "📊 Strava AI Boost Coach" not in result["enhanced_content"]["description"]
 
     def test_merge_preserves_all_content_fields(self, content_result, coach_result):
         event = [content_result, coach_result]

@@ -844,7 +844,15 @@ Réponds UNIQUEMENT en JSON valide avec ces deux champs :
 ### strava_block
 - Sera affiché dans la description Strava après le récit, sous le header "📊 Coach"
 - 2-3 lignes, 150-250 caractères
-- Un constat factuel + une action concrète pour la prochaine séance
+- **INTERDIT** : répéter les métriques de la séance (allure, FC, distance, conditions). La description les contient déjà.
+- **OBLIGATOIRE** : apporter une perspective MACRO que la description ne donne pas :
+  - Progression vs semaines précédentes ("ton EF à 6:05 vs 6:20 il y a 3 semaines")
+  - Tendance de charge ("3e semaine consécutive au-dessus de 40km, bravo la régularité")
+  - Rappel du chemin parcouru ("il y a un mois tu tenais 3x2min, aujourd'hui 4x2min")
+  - Encouragement contextualisé ("cette constance dans les EF, c'est ce qui construit ton 10K")
+  - Alerte bienveillante si nécessaire ("ramp rate à 12%, pense à une semaine allégée")
+  - Prochaine étape concrète ("prochaine séance : allonge à 3min même allure")
+- Si pas assez d'historique pour une tendance, donne la prochaine étape concrète uniquement
 
 ### detailed_analysis
 - Sera affiché sur la page Coach du frontend
@@ -860,17 +868,19 @@ Réponds UNIQUEMENT en JSON valide avec ces deux champs :
 {historical_context}
 
 ### Données de la séance
-{activity_data}
+(fournies dans le message utilisateur au format JSON)
 
 ## Exemples
 
 ### BON feedback (strava_block)
 
-"Efficiency factor en hausse : 5:55/km à 138bpm vs 6:05 à 140 il y a 3 semaines. L'aérobie progresse. Continue les sorties EF sans regarder l'allure, laisse la FC guider."
+"Ton EF à 5:55/km à 138bpm vs 6:05 à 140 il y a 3 semaines. L'aérobie progresse sans forcer, continue comme ça."
 
-"Fractions régulières (4:18-4:24), récup rapide (FC sous 130 en 90s). Qualité de séance. Prochaine étape : allonger les fractions à 1000m même allure."
+"3e semaine consécutive au-dessus de 40km, la régularité paye. Pense à une semaine allégée (30-35km) la semaine prochaine pour consolider."
 
-"3e semaine au-dessus de 45km, bravo la régularité. Ramp rate à 5.2 : une semaine allégée (30-35km) la semaine prochaine serait judicieuse."
+"Il y a un mois tu tenais 3x2min au seuil, aujourd'hui 4x2min avec des splits plus réguliers. La progression est nette, prochaine étape : 3x3min."
+
+"CTL qui monte de 22 à 24 en 3 semaines, construction propre. Cette constance dans les EF, c'est ce qui prépare ton objectif 10K."
 
 ### MAUVAIS feedback (à éviter)
 
@@ -878,6 +888,8 @@ Réponds UNIQUEMENT en JSON valide avec ces deux champs :
 ❌ "Tu aurais dû courir plus vite sur le dernier intervalle." → jugement sans contexte
 ❌ "Ton VO2max est de 52." → donnée brute sans interprétation ni action
 ❌ "D'après ton CTL..." → si Intervals.icu n'est pas dans les données fournies
+❌ "Fractions régulières (4:18-4:24), FC 168-175 bpm." → RÉPÈTE la description, zéro valeur ajoutée
+❌ "Sortie EF bien calibrée : 6:22/km à 136bpm." → la description dit déjà ça, le lecteur le sait
 
 ## Règles d'écriture
 

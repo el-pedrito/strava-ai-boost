@@ -96,11 +96,14 @@ class TestBuildHistoricalSummary:
 
     @patch('processing.coach_generator.dynamodb')
     def test_build_historical_summary(self, mock_dynamodb):
-        now = datetime.now(timezone.utc)
+        # Use fixed dates in 3 distinct ISO weeks to avoid flakiness
+        from datetime import datetime, timezone, timedelta
+        # Monday of current week, then -1w, -2w → guaranteed 3 ISO weeks
+        monday = datetime(2026, 5, 11, 10, 0, 0, tzinfo=timezone.utc)
+        week_dates = [monday, monday - timedelta(weeks=1), monday - timedelta(weeks=2)]
         items = []
         for i in range(10):
-            week_offset = i % 3
-            dt = now - timedelta(weeks=week_offset, days=i % 7)
+            dt = week_dates[i % 3] + timedelta(hours=i)
             items.append({
                 "activity_id": f"act_{i}",
                 "activity_data_json": json.dumps({

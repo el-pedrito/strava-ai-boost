@@ -60,12 +60,14 @@ def _build_prompt_parts(
             past_observations = "\n\n## OBSERVATIONS PASSÉES\n" + "\n---\n".join(obs[:5])
 
     system_prompt = COACH_AGENT_SYSTEM_PROMPT.replace(
-        "{ATHLETE_PROFILE}", athlete_profile
+        "{athlete_profile}", athlete_profile
     ).replace(
-        "{HISTORICAL_CONTEXT}", historical_context
-    ).replace(
-        "{PAST_OBSERVATIONS}", past_observations
+        "{historical_context}", historical_context
     )
+
+    # Inject past observations if available
+    if past_observations:
+        system_prompt += past_observations
 
     user_message = f"Analyse cette activité et donne ton feedback coach :\n\n{activity_json}"
     return system_prompt, user_message
