@@ -301,6 +301,24 @@ USER_CONFIG_TABLE = os.environ.get("USER_CONFIG_TABLE", "strava-ai-boost-user-co
 
 def extract_and_store_prs(user_id: str, activity_data: Dict[str, Any]) -> None:
     """Extract best_efforts with pr_rank==1 from activity and accumulate in user_config."""
+    # Auto-update max_hr if observed HR is higher
+    observed_max_hr = activity_data.get("max_heartrate")
+    if observed_max_hr and isinstance(observed_max_hr, (int, float)):
+        observed_max_hr = int(observed_max_hr)
+        try:
+            table = dynamodb.Table(USER_CONFIG_TABLE)
+            response = table.get_item(Key={"user_id": user_id}, ProjectionExpression="user_preferences")
+            stored_max_hr = response.get("Item", {}).get("user_preferences", {}).get("max_hr", 0)
+            if observed_max_hr > stored_max_hr:
+                table.update_item(
+                    Key={"user_id": user_id},
+                    UpdateExpression="SET user_preferences.max_hr = :hr",
+                    ExpressionAttributeValues={":hr": observed_max_hr},
+                )
+                logger.info(f"Updated max_hr for {user_id}: {stored_max_hr} → {observed_max_hr}")
+        except Exception as e:
+            logger.warning(f"Failed to update max_hr: {e}")
+
     best_efforts = activity_data.get("best_efforts", [])
     if not best_efforts:
         return
