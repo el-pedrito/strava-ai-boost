@@ -82,6 +82,13 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             prefs = uc_item.get("user_preferences", {})
             if prefs.get("personal_records"):
                 historical_summary["personal_records"] = prefs["personal_records"]
+            if prefs.get("max_hr"):
+                activity_data["_max_hr_ref"] = prefs["max_hr"]
+                # Recompute metrics with max_hr available
+                if activity_data.get("_laps"):
+                    activity_data["_computed_metrics"] = _compute_coach_metrics(
+                        activity_data["_laps"], activity_data
+                    )
         except Exception as e:
             logger.warning(f"Failed to enrich historical summary: {e}")
 
@@ -256,6 +263,16 @@ def _compute_coach_metrics(laps: list, activity_data: Dict[str, Any]) -> Dict[st
     if avg_speed > 0 and avg_hr > 0:
         pace_sec = 1000 / avg_speed
         metrics["ef_pace_at_hr"] = f"{int(pace_sec//60)}:{int(pace_sec%60):02d}/km @ {int(avg_hr)}bpm"
+
+    # %FCmax for average and max HR
+    max_hr_ref = activity_data.get("_max_hr_ref")  # from user preferences
+    if max_hr_ref and max_hr_ref > 0:
+        if avg_hr:
+            metrics["avg_hr_pct_max"] = round(avg_hr / max_hr_ref * 100, 1)
+        act_max_hr = activity_data.get("max_heartrate", 0)
+        if act_max_hr:
+            metrics["max_hr_pct_max"] = round(act_max_hr / max_hr_ref * 100, 1)
+        metrics["fcmax_reference"] = max_hr_ref
 
     # Intensity distribution: detect time spent in "no benefit" zone (too fast for EF, too slow for tempo)
     # Uses athlete HR zones if available (from user_config), otherwise skips
