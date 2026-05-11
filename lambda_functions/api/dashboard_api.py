@@ -59,15 +59,18 @@ def _get_user_id(event: Dict[str, Any]) -> str:
     return DEFAULT_USER_ID
 
 
+_current_user_id = DEFAULT_USER_ID
+
+
 def _query_user_activities(since: datetime = None, projection: str = None) -> List[Dict[str, Any]]:
     """Query activities for the default user using GSI. Falls back to scan if no user_id."""
     table = dynamodb.Table(ACTIVITIES_TABLE)
 
-    if DEFAULT_USER_ID:
+    if _current_user_id:
         kwargs: Dict[str, Any] = {
             "IndexName": "UserActivitiesIndex",
             "KeyConditionExpression": "user_id = :uid",
-            "ExpressionAttributeValues": {":uid": DEFAULT_USER_ID},
+            "ExpressionAttributeValues": {":uid": _current_user_id},
             "ScanIndexForward": False,  # newest first
         }
         if since:
@@ -137,6 +140,8 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     
     Handles various dashboard data requests
     """
+    global _current_user_id
+    _current_user_id = _get_user_id(event)
     inject_correlation_id(logger, event)
     try:
         http_method = event.get('httpMethod', 'GET')

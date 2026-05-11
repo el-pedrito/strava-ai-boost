@@ -125,3 +125,109 @@ class TestBuildHistoricalSummary:
         assert summary["weeks"] == 4
         assert summary["total_distance_km"] == 80.0
         assert summary["weeks_active"] == 3
+
+from processing.coach_generator import _compute_coach_metrics, extract_and_store_prs, _build_fitness_trend
+
+
+class TestComputeCoachMetrics:
+
+    def test_ef_calculation(self):
+        laps = [{"average_heartrate": 143, "moving_time": 600}]
+        activity_data = {"average_speed": 2.7, "average_heartrate": 143}
+        metrics = _compute_coach_metrics(laps, activity_data)
+        assert metrics["ef_pace_at_hr"] == "6:10/km @ 143bpm"
+
+    def test_pct_fcmax(self):
+        laps = [{"average_heartrate": 143, "moving_time": 600}]
+        activity_data = {"average_speed": 3.0, "average_heartrate": 143, "_max_hr_ref": 192}
+        metrics = _compute_coach_metrics(laps, activity_data)
+        assert metrics["avg_hr_pct_max"] == pytest.approx(74.5, abs=0.1)
+
+    def test_zone3_detection(self):
+        laps = [{"average_heartrate": 155, "moving_time": 600}]
+        activity_data = {
+            "average_speed": 3.0,
+            "average_heartrate": 155,
+            "_athlete_zones": {
+                "heart_rate": {
+                    "zones": [
+                        {"min": 0, "max": 120},
+                        {"min": 120, "max": 150},
+                        {"min": 150, "max": 165},
+                        {"min": 165, "max": 180},
+                        {"min": 180, "max": 220},
+                    ]
+                }
+            },
+        }
+        metrics = _compute_coach_metrics(laps, activity_data)
+        assert metrics["zone3_moderate_pct"] > 0
+
+    def test_no_data(self):
+        metrics = _compute_coach_metrics([], {})
+        assert metrics == {}
+
+
+class TestExtractAndStorePrs:
+
+    @patch('processing.coach_generator.dynamodb')
+    def test_extracts_pr_rank_1(self, mock_dynamodb):
+        mock_table = MagicMock()
+        mock_table.get_item.return_value = {"Item": {"best_efforts_prs": {}}}
+        mock_dynamodb.Table.return_value = mock_table
+
+        activity_data = {
+            "best_efforts": [
+                {"name": "1 mile", "pr_rank": 1, "elapsed_time": 360, "start_date": "2026-05-11T10:00:00Z", "distance": 1609}
+            ]
+        }
+        extract_and_store_prs("user1", activity_data)
+        mock_table.update_item.assert_called()
+
+    @patch('processing.coach_generator.dynamodb')
+    def test_skips_no_prs(self, mock_dynamodb):
+        mock_table = MagicMock()
+        mock_dynamodb.Table.return_value = mock_table
+
+        extract_and_store_prs("user1", {"best_efforts": []})
+        mock_table.update_item.assert_not_called()
+
+    @patch('processing.coach_generator.dynamodb')
+    def test_updates_only_if_faster(self, mock_dynamodb):
+        mock_table = MagicMock()
+        mock_table.get_item.return_value = {
+            "Item": {"best_efforts_prs": {"1 mile": {"elapsed_time": 300, "date": "2026-01-01"}}}
+        }
+        mock_dynamodb.Table.return_value = mock_table
+
+        # New effort is slower (400s > 300s) → should NOT update
+        activity_data = {
+            "best_efforts": [
+                {"name": "1 mile", "pr_rank": 1, "elapsed_time": 400, "start_date": "2026-05-11T10:00:00Z", "distance": 1609}
+            ]
+        }
+        extract_and_store_prs("user1", activity_data)
+        # update_item is not called for best_efforts_prs since existing is faster
+        calls = mock_table.update_item.call_args_list
+        pr_updates = [c for c in calls if "best_efforts_prs" in str(c)]
+        assert len(pr_updates) == 0
+
+
+class TestBuildFitnessTrend:
+
+    def test_with_icu_data(self):
+        activities = [
+            {"start_date": "2026-05-01T10:00:00Z", "_intervals_icu": {"fitness": {"ctl": 40.0}}},
+            {"start_date": "2026-05-08T10:00:00Z", "_intervals_icu": {"fitness": {"ctl": 45.0}}},
+        ]
+        result = _build_fitness_trend(activities)
+        assert "fitness_trend" in result
+        assert result["fitness_trend"]["ctl_delta"] == 5.0
+
+    def test_without_icu(self):
+        activities = [
+            {"start_date": "2026-05-01T10:00:00Z"},
+            {"start_date": "2026-05-08T10:00:00Z"},
+        ]
+        result = _build_fitness_trend(activities)
+        assert result == {}

@@ -15,6 +15,7 @@ import Link from '@cloudscape-design/components/link';
 import MixedLineBarChart from '@cloudscape-design/components/mixed-line-bar-chart';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { api } from '../../api/client.ts';
+import { CoachChat } from './CoachChat.tsx';
 
 interface CoachFeedbackItem {
   activity_id: string;
@@ -280,6 +281,9 @@ export function CoachPage() {
             </StatusIndicator>
           )}
         </Container>
+
+        {/* Chat Coach */}
+        <CoachChat />
       </SpaceBetween>
     </ContentLayout>
   );

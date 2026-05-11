@@ -56,6 +56,12 @@
   "coach.athleteProfile.title": "Profil Athlète",
   "coach.athleteProfile.empty": "Aucun profil défini.",
   "coach.athleteProfile.configure": "Configurer",
+  "coach.chat.title": "Demande au Coach",
+  "coach.chat.placeholder": "Pose une question à ton coach : progression, objectifs, prochaine séance...",
+  "coach.chat.inputPlaceholder": "Ex: Est-ce que je suis prêt pour un 10K sub-45 ?",
+  "coach.chat.send": "Envoyer",
+  "coach.chat.thinking": "Le coach réfléchit...",
+  "coach.chat.error": "Désolé, je n'ai pas pu répondre. Réessaie.",
   "coach.error": "Impossible de charger les données coach",
 
   "preferences.title": "Préférences",
