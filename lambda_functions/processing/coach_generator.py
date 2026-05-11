@@ -641,8 +641,6 @@ def write_coaching_observation(user_id: str, feedback: Dict[str, Any]) -> None:
     if not MEMORY_ID:
         return
     try:
-        from bedrock_agentcore.memory import MemoryClient
-
         # Both strava_block and detailed_analysis are strings
         strava_block = feedback.get("strava_block", "")
         detailed_analysis = feedback.get("detailed_analysis", "")
@@ -654,12 +652,14 @@ def write_coaching_observation(user_id: str, feedback: Dict[str, Any]) -> None:
         # Truncate to reasonable size for memory storage
         observation_text = observation_text[:1000]
 
-        client = MemoryClient(region_name=REGION)
+        import time
+        client = boto3.client("bedrock-agentcore", region_name=REGION)
         client.create_event(
-            memory_id=MEMORY_ID,
-            actor_id=str(user_id),
-            session_id=f"coaching_observations/{user_id}",
-            messages=[(observation_text, "assistant")],
+            memoryId=MEMORY_ID,
+            actorId=str(user_id),
+            sessionId=f"coaching_observations/{user_id}",
+            payload=[{"conversationMessage": {"role": "ASSISTANT", "content": observation_text}}],
+            eventTimestamp=time.time(),
         )
         logger.info(f"Wrote coaching observation to memory for user {user_id}")
     except Exception as e:
