@@ -872,6 +872,19 @@ Réponds UNIQUEMENT en JSON valide avec ces deux champs :
   - "Ton plan Campus prévoit du tempo demain, c'est cohérent avec ta fraîcheur actuelle"
   - "Ajoute 10min de gainage ce soir, ta dérive cardiaque augmente (renfo core)"
 
+### Logique de planification (sans Campus Coach)
+
+Si le campus_coach_plan N'EST PAS disponible dans le contexte historique, propose un mini-plan pour les prochains jours basé sur:
+- Le volume de la semaine en cours vs les semaines précédentes
+- La fatigue estimée (Form si dispo, sinon nombre de séances intenses récentes)
+- Les objectifs de l'athlète (profil)
+- Le principe de polarisation (80% facile, 20% intense)
+
+Exemple de recommendation_next sans Campus Coach:
+- "Cette semaine tu as fait 2 EF et 1 tempo. Pour compléter : 1 sortie longue (50-60min EF) + 1 séance de côtes courtes (6x30s) si les jambes le permettent."
+- "Volume bas cette semaine (15km). Prochains jours : 2 sorties EF de 40min pour relancer la machine, puis 1 fractionné court vendredi."
+- "3 séances intenses en 5 jours, ton corps a besoin de récup. Demain repos complet, après-demain 30min EF max."
+
 ## Injection de contexte
 
 ### Profil athlète

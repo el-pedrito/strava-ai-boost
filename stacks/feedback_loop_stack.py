@@ -122,6 +122,44 @@ class FeedbackLoopStack(Stack):
         # ============================================
         
         self.feedback_analyzer = feedback_analyzer
+
+        # Weekly Synthesis Lambda - runs every Sunday at 20:00 UTC
+        self.weekly_synthesis = lambda_.Function(
+            self, "WeeklySynthesis",
+            function_name="StravaAIBoost-WeeklySynthesis",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="support.weekly_synthesis.handler",
+            code=lambda_.Code.from_asset("lambda_functions"),
+            layers=[dependencies_layer],
+            timeout=Duration.seconds(60),
+            memory_size=256,
+            environment={
+                "ACTIVITIES_TABLE": activities_table.table_name,
+                "USER_CONFIG_TABLE": "strava-ai-boost-user-configuration",
+                "DEFAULT_USER_ID": self.node.try_get_context("default_user_id") or "",
+                "BEDROCK_MODEL_ID": "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+            }
+        )
+        activities_table.grant_read_data(self.weekly_synthesis)
+
+        # Grant write to user_config for storing synthesis + Bedrock for AI
+        from aws_cdk import aws_iam as iam, Aws
+        self.weekly_synthesis.add_to_role_policy(iam.PolicyStatement(
+            actions=["dynamodb:GetItem", "dynamodb:UpdateItem"],
+            resources=[f"arn:aws:dynamodb:{Aws.REGION}:{Aws.ACCOUNT_ID}:table/strava-ai-boost-user-configuration"]
+        ))
+        self.weekly_synthesis.add_to_role_policy(iam.PolicyStatement(
+            actions=["bedrock:InvokeModel"],
+            resources=["arn:aws:bedrock:*::foundation-model/*"]
+        ))
+
+        # EventBridge rule: every Sunday at 20:00 UTC
+        weekly_rule = events.Rule(
+            self, "WeeklySynthesisSchedule",
+            schedule=events.Schedule.cron(minute="0", hour="20", week_day="SUN"),
+            description="Trigger weekly training synthesis every Sunday evening"
+        )
+        weekly_rule.add_target(targets.LambdaFunction(self.weekly_synthesis))
     
     def _load_memory_id_from_env(self) -> str:
         """Load MEMORY_ID from .env.agentcore file"""
