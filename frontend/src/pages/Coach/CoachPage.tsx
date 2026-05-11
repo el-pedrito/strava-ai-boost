@@ -76,7 +76,6 @@ export function CoachPage() {
   const totalKm = vol.reduce((a, b) => a + b, 0);
   const runSessions = (data?.trends?.run_sessions_per_week ?? []).reduce((a: number, b: number) => a + b, 0);
   const otherSessions = (data?.trends?.other_sessions_per_week ?? []).reduce((a: number, b: number) => a + b, 0);
-  const lastEfPace = data?.trends?.ef_paces?.length ? data.trends.ef_paces[data.trends.ef_paces.length - 1].pace : '-';
 
   return (
     <ContentLayout header={<Header variant="h1" description={t('coach.description')}>{t('coach.title')}</Header>}>
@@ -95,8 +94,8 @@ export function CoachPage() {
               <Box variant="small">{t('coach.kpi.sessions')} (runs + renfo)</Box>
             </div>
             <div>
-              <Box variant="h1">{lastEfPace}</Box>
-              <Box variant="small">{t('coach.kpi.efPace')}</Box>
+              <Box variant="h1">{vol.length ? vol[vol.length - 1] : 0} km</Box>
+              <Box variant="small">Cette semaine</Box>
             </div>
             <div>
               <Box variant="h1" color={data?.trends?.ramp_rate != null ? (data.trends.ramp_rate > 10 ? 'text-status-error' : data.trends.ramp_rate > 0 ? 'text-status-success' : undefined) : undefined}>
