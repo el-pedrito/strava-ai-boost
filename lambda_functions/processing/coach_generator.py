@@ -226,10 +226,50 @@ def retrieve_activity_data(activity_id: str) -> Optional[Dict[str, Any]]:
         if stats_raw:
             stats = json.loads(stats_raw) if isinstance(stats_raw, str) else stats_raw
             data["_athlete_stats"] = stats
+        # Attach detailed laps if available
+        laps_raw = item.get("laps_json")
+        if laps_raw:
+            laps = json.loads(laps_raw) if isinstance(laps_raw, str) else laps_raw
+            data["_laps"] = laps
+            # Compute Efficiency Factor and grey zone time
+            data["_computed_metrics"] = _compute_coach_metrics(laps, data)
         return data
     except Exception as e:
         logger.error(f"Failed to retrieve activity {activity_id}: {e}")
         return None
+
+
+def _compute_coach_metrics(laps: list, activity_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Compute EF (pace/HR ratio) and grey zone time from laps."""
+    metrics: Dict[str, Any] = {}
+
+    # Efficiency Factor: average_speed / average_hr (higher = more efficient)
+    avg_speed = activity_data.get("average_speed", 0)
+    avg_hr = activity_data.get("average_heartrate", 0)
+    if avg_speed > 0 and avg_hr > 0:
+        # EF in m/s per bpm — multiply by 1000 for readability
+        metrics["efficiency_factor"] = round((avg_speed / avg_hr) * 1000, 2)
+        pace_sec = 1000 / avg_speed
+        metrics["ef_summary"] = f"{int(pace_sec//60)}:{int(pace_sec%60):02d}/km @ {int(avg_hr)}bpm"
+
+    # Grey zone detection: time spent between 80-88% of max HR without being a planned tempo
+    max_hr = activity_data.get("max_heartrate", 0)
+    if max_hr > 0 and laps:
+        grey_low = max_hr * 0.80
+        grey_high = max_hr * 0.88
+        grey_time = 0
+        total_time = 0
+        for lap in laps:
+            lap_hr = lap.get("average_heartrate", 0)
+            lap_time = lap.get("moving_time", 0)
+            total_time += lap_time
+            if grey_low <= lap_hr <= grey_high:
+                grey_time += lap_time
+        if total_time > 0:
+            metrics["grey_zone_seconds"] = grey_time
+            metrics["grey_zone_pct"] = round(grey_time / total_time * 100, 1)
+
+    return metrics
 
 
 USER_CONFIG_TABLE = os.environ.get("USER_CONFIG_TABLE", "strava-ai-boost-user-configuration")
