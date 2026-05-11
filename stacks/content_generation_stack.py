@@ -153,6 +153,24 @@ class ContentGenerationStack(Stack):
             )
         )
 
+        # AgentCore Memory permissions (create events, retrieve records)
+        content_lambda_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "bedrock-agentcore:CreateEvent",
+                    "bedrock-agentcore:RetrieveMemoryRecords",
+                    "bedrock-agentcore:ListMemoryRecords",
+                    "bedrock-agentcore:ListActors",
+                    "bedrock-agentcore:ListSessions",
+                    "bedrock-agentcore:ListEvents"
+                ],
+                resources=[
+                    f"arn:aws:bedrock-agentcore:{Aws.REGION}:{Aws.ACCOUNT_ID}:memory/*"
+                ]
+            )
+        )
+
         # Add permissions for Secrets Manager access
         content_lambda_role.add_to_policy(
             iam.PolicyStatement(
