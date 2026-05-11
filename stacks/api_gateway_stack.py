@@ -109,7 +109,8 @@ class ApiGatewayStack(Stack):
                 "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
                 "COACHING_SESSIONS_TABLE": self.core_stack.table_names["coaching_sessions"],
-                "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name
+                "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
+                "DEFAULT_USER_ID": "YOUR_USER_ID"
             }
         )
         
