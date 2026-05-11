@@ -657,7 +657,7 @@ def write_coaching_observation(user_id: str, feedback: Dict[str, Any]) -> None:
         client.create_event(
             memoryId=MEMORY_ID,
             actorId=str(user_id),
-            sessionId=f"coaching_observations/{user_id}",
+            sessionId=f"coaching-observations-{user_id}",
             payload=[{"conversational": {"role": "ASSISTANT", "content": {"text": observation_text}}}],
             eventTimestamp=time.time(),
         )
