@@ -42,6 +42,12 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
         # Build context for the agent
         context_parts = _build_user_context(user_id)
+
+        # Read past coaching observations from memory
+        memory_context = _retrieve_memory_observations(user_id)
+        if memory_context:
+            context_parts.append(f"Observations passées: {memory_context}")
+
         user_message = question
         if context_parts:
             user_message = f"[Contexte: {' | '.join(context_parts)}]\n\n{question}"
@@ -55,6 +61,9 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
         if not answer:
             return create_error_response(500, "No response from coach", cors_headers=CORS_HEADERS)
+
+        # Write important exchanges to memory for long-term learning
+        _write_chat_to_memory(user_id, question, answer)
 
         logger.info(f"Coach ask: '{question[:50]}' → {len(answer)} chars")
 
@@ -187,3 +196,51 @@ def _build_user_context(user_id: str) -> list:
         logger.warning(f"Failed to get activities: {e}")
 
     return context_parts
+
+
+MEMORY_ID = os.environ.get("BEDROCK_AGENTCORE_MEMORY_ID", "")
+
+
+def _retrieve_memory_observations(user_id: str) -> str:
+    """Retrieve past coaching observations from AgentCore Memory."""
+    if not MEMORY_ID:
+        return ""
+    try:
+        client = boto3.client("bedrock-agentcore", region_name=REGION)
+        response = client.retrieve_memory_records(
+            memoryId=MEMORY_ID,
+            namespace=user_id,
+            searchCriteria={"semanticSearch": {"query": "coaching observations athlete patterns progression"}},
+            maxResults=3,
+        )
+        records = response.get("memoryRecords", [])
+        if records:
+            texts = [r.get("content", {}).get("text", "") for r in records if r.get("content")]
+            return " | ".join(t[:150] for t in texts if t)
+    except Exception as e:
+        logger.warning(f"Failed to retrieve memory: {e}")
+    return ""
+
+
+def _write_chat_to_memory(user_id: str, question: str, answer: str) -> None:
+    """Write chat exchange to memory for long-term learning."""
+    if not MEMORY_ID:
+        return
+    # Only write substantial exchanges (not greetings or short questions)
+    if len(question) < 20 or len(answer) < 100:
+        return
+    try:
+        client = boto3.client("bedrock-agentcore", region_name=REGION)
+        client.create_event(
+            memoryId=MEMORY_ID,
+            actorId=str(user_id),
+            sessionId=f"coach-chat-{user_id}",
+            payload=[
+                {"conversational": {"role": "USER", "content": {"text": question}}},
+                {"conversational": {"role": "ASSISTANT", "content": {"text": answer[:500]}}},
+            ],
+            eventTimestamp=time.time(),
+        )
+        logger.info(f"Wrote chat exchange to memory for user {user_id}")
+    except Exception as e:
+        logger.warning(f"Failed to write chat to memory: {e}")
