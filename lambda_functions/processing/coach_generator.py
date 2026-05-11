@@ -100,13 +100,22 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Add Campus Coach sessions for current week (if available)
         try:
             sessions_table = dynamodb.Table(os.environ.get("COACHING_SESSIONS_TABLE", "strava-ai-boost-campus-coaching-sessions"))
-            sessions_resp = sessions_table.scan(Limit=10)
+            sessions_resp = sessions_table.scan(Limit=50)
             sessions = sessions_resp.get("Items", [])
             if sessions:
-                # Get most recent week's sessions
-                sessions.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
-                current_week = sessions[0].get("week_number", "")
-                week_sessions = [s for s in sessions if s.get("week_number") == current_week]
+                # Find current week sessions: iso_week match first, then fallback
+                current_iso_week = datetime.now(timezone.utc).strftime('%Y-W%W')
+                week_sessions = [s for s in sessions if s.get("iso_week") == current_iso_week]
+                if not week_sessions:
+                    # Fallback: most recent week with >=3 sessions
+                    from collections import defaultdict
+                    by_week: Dict[str, list] = defaultdict(list)
+                    for s in sessions:
+                        by_week[s.get("week_number", "")].append(s)
+                    real_weeks = [(wn, ss) for wn, ss in by_week.items() if len(ss) >= 3]
+                    if real_weeks:
+                        real_weeks.sort(key=lambda x: max(s.get("updated_at", "") for s in x[1]), reverse=True)
+                        week_sessions = real_weeks[0][1]
                 if week_sessions:
                     historical_summary["campus_coach_plan"] = [
                         {
