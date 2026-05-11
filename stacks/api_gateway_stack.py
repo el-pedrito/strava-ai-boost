@@ -152,7 +152,7 @@ class ApiGatewayStack(Stack):
                 "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
                 "DEFAULT_USER_ID": self.node.try_get_context("default_user_id") or "",
-                "BEDROCK_MODEL_ID": "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+                "BEDROCK_MODEL_ID": os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0")
             }
         )
 

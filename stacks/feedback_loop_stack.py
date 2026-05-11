@@ -16,6 +16,7 @@ from aws_cdk import (
     aws_logs as logs,
 )
 from constructs import Construct
+import os
 
 
 class FeedbackLoopStack(Stack):
@@ -137,7 +138,7 @@ class FeedbackLoopStack(Stack):
                 "ACTIVITIES_TABLE": activities_table.table_name,
                 "USER_CONFIG_TABLE": "strava-ai-boost-user-configuration",
                 "DEFAULT_USER_ID": self.node.try_get_context("default_user_id") or "",
-                "BEDROCK_MODEL_ID": "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+                "BEDROCK_MODEL_ID": os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0")
             }
         )
         activities_table.grant_read_data(self.weekly_synthesis)
