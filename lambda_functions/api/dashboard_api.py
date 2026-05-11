@@ -939,20 +939,21 @@ def get_coach_summary() -> Dict[str, Any]:
         compliance = None
         try:
             sessions_table = dynamodb.Table(COACHING_SESSIONS_TABLE)
-            sessions_resp = sessions_table.scan(Limit=50)
+            sessions_resp = sessions_table.scan(Limit=200)
             sessions = sessions_resp.get('Items', [])
             if sessions:
-                # Find current week sessions using iso_week (format: 2026-W19)
+                # Find current week using iso_week
                 current_iso_week = now.strftime('%Y-W%W')
                 current_week_sessions = [s for s in sessions if s.get('iso_week') == current_iso_week]
 
-                # Fallback: most recent week with >=3 sessions (real training plan)
+                # Fallback: most recently updated week with 3-6 sessions (real single week plan)
                 if not current_week_sessions:
                     from collections import defaultdict
                     by_week: dict = defaultdict(list)
                     for s in sessions:
                         by_week[s.get('week_number', '')].append(s)
-                    real_weeks = [(wn, ss) for wn, ss in by_week.items() if len(ss) >= 3]
+                    # Filter: 3-6 sessions (a real week plan, not duplicates)
+                    real_weeks = [(wn, ss) for wn, ss in by_week.items() if 3 <= len(ss) <= 6]
                     if real_weeks:
                         real_weeks.sort(key=lambda x: max(s.get('updated_at', '') for s in x[1]), reverse=True)
                         current_week_sessions = real_weeks[0][1]
