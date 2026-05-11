@@ -1,7 +1,7 @@
 # AGENTS.md - AI Assistant Context for Strava AI Boost
 
 **Version:** 4.0.0
-**Last Updated:** 2026-05-10
+**Last Updated:** 2026-05-11
 **Purpose:** Comprehensive context for AI coding assistants
 
 ---
@@ -33,7 +33,7 @@ Strava AI Boost is a **serverless AWS application** that automatically enhances 
 - **Python 3.12** runtime, **React 19 + TypeScript + Vite** frontend
 - **Cognito authentication** (JWT, custom:strava_id attribute, no self-registration)
 - **CloudFront + S3** frontend hosting (OAC)
-- **2 DynamoDB GSIs** (ProcessingStatusIndex, UserActivitiesIndex) — all queries, no scans
+- **3 DynamoDB GSIs** (ProcessingStatusIndex, UserActivitiesIndex, IsoWeekIndex) — all queries, no scans
 - **i18n** FR/EN with react-i18next
 
 ### Architecture Pattern
@@ -52,6 +52,12 @@ Content Generator: DynamoDB → classify workout from laps → build prompt with
 Coach Generator: DynamoDB → athlete profile + zones + PRs + historical context (4 weeks, GSI query) → AgentCore coach_agent → coaching feedback
 Assembly Lambda: Merge content + coach outputs → update Strava + store results
 Campus Coach: Sessions stored in DynamoDB → passed to content_gen agent prompt → LLM does the matching
+```
+
+**Conversational Coach:**
+```
+POST /coach/ask → CoachAskAPI Lambda → AgentCore Runtime session (strava_ai_boost_coach) → streaming response
+Sessions persist via AgentCore Runtime session IDs (per-user, stateful conversations)
 ```
 
 ---
@@ -89,7 +95,8 @@ strava-ai-boost/
 │   │   ├── configuration_api.py        # Config API
 │   │   ├── dashboard_api.py            # Dashboard API
 │   │   ├── user_preferences_api.py     # Preferences API
-│   │   └── agentcore_health_check.py   # Health check
+│   │   ├── agentcore_health_check.py   # Health check
+│   │   └── coach_ask_api.py            # Conversational coach endpoint
 │   ├── processing/                     # Content pipeline
 │   │   ├── activity_fetcher.py         # Data fetcher
 │   │   ├── content_generator.py        # AI content generation
@@ -104,6 +111,7 @@ strava-ai-boost/
 │   │   └── campus_coach_invoker.py     # Session retrieval
 │   ├── support/                        # Operational utilities
 │   │   ├── feedback_analyzer.py        # Feedback loop
+│   │   ├── weekly_synthesis.py         # Weekly training synthesis (EventBridge Sunday 20:00 UTC)
 │   │   └── stepfunctions_error_handler.py  # Error handler
 │   └── shared/                         # Shared utilities module
 │       ├── __init__.py
@@ -145,7 +153,7 @@ strava-ai-boost/
 │   └── vite.config.ts                  # Vite + Vitest configuration
 │
 ├── tests/                      # Test suite
-│   ├── unit/                           # Lambda unit tests (127 tests)
+│   ├── unit/                           # Lambda unit tests (136 tests)
 │   │   ├── conftest.py                 # Env vars for Lambda imports
 │   │   ├── test_webhook_handler.py     # 30 tests: validation, routing, signature
 │   │   ├── test_content_generator.py   # 36 tests: DynamoDB, parsing, storage
@@ -363,7 +371,7 @@ class MyModule(BaseModule):
 
 ### Running Tests
 
-**Lambda Unit Tests (127 tests, ~0.7s):**
+**Lambda Unit Tests (136 tests, ~0.7s):**
 ```bash
 pytest tests/unit/ -v
 ```
