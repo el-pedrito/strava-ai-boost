@@ -49,6 +49,11 @@ class ApiGatewayStack(Stack):
         # Create API Gateway
         self._create_api_gateway()
 
+    def _load_coach_arn(self) -> str:
+        from .env_loader import load_env_agentcore
+        env = load_env_agentcore(keys={"COACH_AGENT_ARN"})
+        return env.get("COACH_AGENT_ARN", "")
+
     def _create_lambda_functions(self) -> None:
         """Create Lambda functions for API endpoints"""
         
@@ -163,7 +168,8 @@ class ApiGatewayStack(Stack):
                 "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
                 "DEFAULT_USER_ID": self.node.try_get_context("default_user_id") or "",
-                "BEDROCK_MODEL_ID": os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0")
+                "BEDROCK_MODEL_ID": os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
+                "COACH_AGENT_ARN": self._load_coach_arn()
             }
         )
 

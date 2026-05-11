@@ -21,6 +21,7 @@ export function CoachChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [sessionId] = useState(() => `chat-${Date.now()}`);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -36,8 +37,7 @@ export function CoachChat() {
 
     try {
       const userId = getConfig().defaultUserId;
-      const history = messages.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }));
-      const res = await api.post<{ answer: string }>('/coach/ask', { question, user_id: userId, history });
+      const res = await api.post<{ answer: string; session_id?: string }>('/coach/ask', { question, user_id: userId, session_id: sessionId });
       setMessages(prev => [...prev, { role: 'coach', text: res.answer, timestamp: new Date().toLocaleTimeString() }]);
     } catch {
       setMessages(prev => [...prev, { role: 'coach', text: t('coach.chat.error'), timestamp: new Date().toLocaleTimeString() }]);
