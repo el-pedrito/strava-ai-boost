@@ -91,7 +91,8 @@ def get_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
                 'technical_detail': preferences.get('technical_detail', 'intermediate'),
                 'content_language': preferences.get('content_language', 'french'),
                 'pace_zones': preferences.get('pace_zones', None),
-                'athlete_profile': preferences.get('athlete_profile', '')
+                'athlete_profile': preferences.get('athlete_profile', ''),
+                'personal_records': preferences.get('personal_records', [])
             }
         }
 
@@ -171,6 +172,23 @@ def update_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
             if valid_zones:
                 preferences['pace_zones'] = valid_zones
                 logger.info(f"Pace zones configured: {list(valid_zones.keys())}")
+
+        # Add personal_records if provided (manual PRs: [{distance, time, date, event}])
+        personal_records = body.get('personal_records')
+        if personal_records is not None:
+            if not isinstance(personal_records, list) or len(personal_records) > 30:
+                return create_error_response(400, 'personal_records must be a list with at most 30 items', cors_headers=CORS_HEADERS)
+            valid_records = []
+            for rec in personal_records:
+                if isinstance(rec, dict) and rec.get('distance') and rec.get('time'):
+                    valid_records.append({
+                        'distance': str(rec['distance']),
+                        'time': str(rec['time']),
+                        'date': str(rec.get('date', '')),
+                        'event': str(rec.get('event', ''))
+                    })
+            preferences['personal_records'] = valid_records
+            logger.info(f"Personal records configured: {len(valid_records)} entries")
         
         # Save to DynamoDB
         table = dynamodb.Table(USER_CONFIG_TABLE)

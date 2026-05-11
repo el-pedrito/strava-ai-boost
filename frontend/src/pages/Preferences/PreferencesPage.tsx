@@ -136,6 +136,7 @@ export function PreferencesPage() {
   const [interests, setInterests] = useState<MultiselectProps.Option[]>([]);
   const [paceZones, setPaceZones] = useState<PaceZones>({ ...DEFAULT_PACE_ZONES });
   const [athleteProfile, setAthleteProfile] = useState('');
+  const [personalRecords, setPersonalRecords] = useState<Array<{distance: string; time: string; date: string; event: string}>>([]);
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
@@ -158,6 +159,9 @@ export function PreferencesPage() {
           setPaceZones({ ...DEFAULT_PACE_ZONES, ...(p.pace_zones as PaceZones) });
         }
         setAthleteProfile((p.athlete_profile as string) || '');
+        if (Array.isArray(p.personal_records)) {
+          setPersonalRecords(p.personal_records as Array<{distance: string; time: string; date: string; event: string}>);
+        }
       }
     } catch {
       // Use defaults
@@ -186,6 +190,7 @@ export function PreferencesPage() {
         interests: interests.map((i) => i.value),
         pace_zones: paceZones,
         athlete_profile: athleteProfile,
+        personal_records: personalRecords.filter(r => r.distance && r.time),
       });
       flash('success', 'Preferences saved successfully! Future activities will use these settings.');
     } catch (err) {
@@ -261,6 +266,100 @@ export function PreferencesPage() {
               rows={8}
             />
           </FormField>
+        </Container>
+
+        <Container
+          header={
+            <Header
+              variant="h2"
+              description="Tes records personnels (courses officielles, entraînements). Le coach les utilise pour contextualiser ta progression."
+              actions={
+                <Button
+                  onClick={() => setPersonalRecords([...personalRecords, { distance: '', time: '', date: '', event: '' }])}
+                  iconName="add-plus"
+                >
+                  Ajouter un record
+                </Button>
+              }
+            >
+              Personal Records
+            </Header>
+          }
+        >
+          <SpaceBetween size="m">
+            {personalRecords.map((record, idx) => {
+              // Auto-calculate pace and speed
+              let paceStr = '';
+              let speedStr = '';
+              const distMatch = record.distance.match(/^([\d.]+)\s*(km|m|K)?$/i);
+              const timeMatch = record.time.match(/^(\d+):(\d{2}):?(\d{2})?$/);
+              if (distMatch && timeMatch) {
+                let distKm = parseFloat(distMatch[1]);
+                const unit = (distMatch[2] || 'km').toLowerCase();
+                if (unit === 'm') distKm /= 1000;
+                else if (unit === 'k') distKm = distKm; // already km
+                const hours = parseInt(timeMatch[1]);
+                const mins = parseInt(timeMatch[2]);
+                const secs = timeMatch[3] ? parseInt(timeMatch[3]) : 0;
+                const totalMin = hours * 60 + mins + secs / 60;
+                if (distKm > 0 && totalMin > 0) {
+                  const paceMin = totalMin / distKm;
+                  const pM = Math.floor(paceMin);
+                  const pS = Math.round((paceMin - pM) * 60);
+                  paceStr = `${pM}:${pS.toString().padStart(2, '0')}/km`;
+                  speedStr = `${(distKm / (totalMin / 60)).toFixed(1)} km/h`;
+                }
+              }
+              return (
+                <div key={idx} style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                  <FormField label="Distance">
+                    <Input
+                      value={record.distance}
+                      onChange={({ detail }) => { const r = [...personalRecords]; r[idx] = { ...r[idx], distance: detail.value }; setPersonalRecords(r); }}
+                      placeholder="5K, 10K, 21.1km..."
+                    />
+                  </FormField>
+                  <FormField label="Temps">
+                    <Input
+                      value={record.time}
+                      onChange={({ detail }) => { const r = [...personalRecords]; r[idx] = { ...r[idx], time: detail.value }; setPersonalRecords(r); }}
+                      placeholder="22:15, 1:42:00..."
+                    />
+                  </FormField>
+                  <FormField label="Date">
+                    <Input
+                      value={record.date}
+                      onChange={({ detail }) => { const r = [...personalRecords]; r[idx] = { ...r[idx], date: detail.value }; setPersonalRecords(r); }}
+                      placeholder="2026-03-15"
+                      type="date"
+                    />
+                  </FormField>
+                  <FormField label="Événement">
+                    <Input
+                      value={record.event}
+                      onChange={({ detail }) => { const r = [...personalRecords]; r[idx] = { ...r[idx], event: detail.value }; setPersonalRecords(r); }}
+                      placeholder="Parkrun, Semi Paris..."
+                    />
+                  </FormField>
+                  {paceStr && (
+                    <Box variant="small" color="text-status-info">
+                      ⚡ {paceStr} | {speedStr}
+                    </Box>
+                  )}
+                  <Button
+                    variant="icon"
+                    iconName="remove"
+                    onClick={() => setPersonalRecords(personalRecords.filter((_, i) => i !== idx))}
+                  />
+                </div>
+              );
+            })}
+            {personalRecords.length === 0 && (
+              <Box variant="p" color="text-body-secondary">
+                Aucun record enregistré. Ajoute tes temps sur 5K, 10K, semi, marathon, etc.
+              </Box>
+            )}
+          </SpaceBetween>
         </Container>
 
         <Container
