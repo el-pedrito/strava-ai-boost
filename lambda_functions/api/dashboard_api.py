@@ -822,7 +822,9 @@ def get_coach_summary() -> Dict[str, Any]:
                 continue
             try:
                 dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                days_ago = (now - dt.replace(tzinfo=None)).days
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                days_ago = (now - dt).days
                 week_idx = days_ago // 7
                 if week_idx >= 4:
                     continue
