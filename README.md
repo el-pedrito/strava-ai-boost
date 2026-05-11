@@ -83,7 +83,7 @@ The frontend is hosted on CloudFront with Cognito authentication:
 6. Enable modules (Campus Coach, Enduraw, Intervals.icu)
 7. Upload or edit a Strava activity and watch it get enhanced!
 8. Check the **Content Quality** page to track confidence, edit rates, and similarity scores
-9. Check the **Coach** page for training feedback, trends, and athlete profile
+9. Check the **Coach** page for training feedback, trends, athlete profile, and conversational coach (`/coach/ask`)
 
 **Deployment Modes**: Phase 1 only gives a fully functional system with Bedrock fallback. Phase 1 + 2 adds advanced personalization with AgentCore Memory.
 
@@ -223,7 +223,7 @@ graph TB
 
         subgraph "Content Stack"
             SF[Step Functions<br/>Parallel Workflow]
-            Lambda12[14 Lambda Functions<br/>4 Role-Based Packages]
+            Lambda12[15 Lambda Functions<br/>4 Role-Based Packages]
         end
 
         subgraph "API Stack"
@@ -271,8 +271,8 @@ graph TB
 | Component | Details |
 |-----------|---------|
 | **7 CDK Stacks** | Core, Security, Webhook, Content, API, Feedback, Frontend |
-| **15 Lambda Functions** | 4 API + 3 processing + 3 webhooks + 2 support + 2 coach (in role-based packages) |
-| **3 DynamoDB Tables** | `activities` (2 GSIs, TTL), `user_config`, `coaching_sessions` (GSI) |
+| **15 Lambda Functions** | 5 API + 3 processing + 3 webhooks + 2 support + 2 coach (in role-based packages) |
+| **3 DynamoDB Tables** | `activities` (3 GSIs, TTL), `user_config`, `coaching_sessions` |
 | **3 AgentCore Agents** | `content_gen` (LTM memory), `campus_coach` (Browser Tool), `coach_agent` (LTM memory) |
 | **CloudFront + S3** | Frontend hosting with OAC, private bucket, versioning, encryption |
 | **Cognito User Pool** | JWT authentication, no self-registration, 12+ char password policy |
@@ -313,7 +313,7 @@ sequenceDiagram
 
 **Infrastructure**: AWS CDK (Python), Python 3.12, us-east-1 (configurable via `--context region=<region>`)
 
-**AWS Services**: Lambda (14 functions, Powertools), DynamoDB (3 tables, GSI, TTL), Step Functions, SQS + DLQ, Bedrock (Claude Sonnet 4.5), Secrets Manager, API Gateway (Cognito authorizer), CloudFront + S3 (OAC), Cognito User Pool
+**AWS Services**: Lambda (15 functions, Powertools), DynamoDB (3 tables, 3 GSIs, TTL), Step Functions, SQS + DLQ, Bedrock (Claude Sonnet 4.5), Secrets Manager, API Gateway (Cognito authorizer), CloudFront + S3 (OAC), Cognito User Pool
 
 **AI/ML**: Strands Agents, AgentCore Memory (2 LTM memories), AgentCore Browser Tool, Claude Sonnet 4.5
 
@@ -432,7 +432,7 @@ The Lambda Layer cannot be replaced via CDK due to CloudFormation cross-stack ex
 ## Testing
 
 ```bash
-# Lambda unit tests (127 tests, ~0.7s — no AWS credentials needed)
+# Lambda unit tests (136 tests, ~0.7s — no AWS credentials needed)
 pytest tests/unit/ -v
 
 # Infrastructure/integration tests (73 tests — requires AWS credentials)
