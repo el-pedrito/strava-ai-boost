@@ -137,6 +137,25 @@ class ApiGatewayStack(Stack):
             }
         )
         
+        # Coach Ask API Lambda
+        self.coach_ask_lambda = lambda_.Function(
+            self, "CoachAskAPI",
+            function_name="StravaAIBoost-CoachAskAPI",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="api.coach_ask_api.handler",
+            code=lambda_.Code.from_asset("lambda_functions"),
+            layers=[self.core_stack.dependencies_layer],
+            timeout=Duration.seconds(30),
+            memory_size=256,
+            role=self.core_stack.webhook_lambda_role,
+            environment={
+                "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
+                "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
+                "DEFAULT_USER_ID": self.node.try_get_context("default_user_id") or "",
+                "BEDROCK_MODEL_ID": "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+            }
+        )
+
         # AgentCore Health Check Lambda
         agentcore_env = {
         }
@@ -377,6 +396,16 @@ class ApiGatewayStack(Stack):
         coach_summary_resource.add_method(
             "GET",
             apigateway.LambdaIntegration(self.dashboard_lambda),
+            api_key_required=False,
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
+        )
+
+        # /coach/ask endpoint
+        coach_ask_resource = coach_resource.add_resource("ask")
+        coach_ask_resource.add_method(
+            "POST",
+            apigateway.LambdaIntegration(self.coach_ask_lambda),
             api_key_required=False,
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,

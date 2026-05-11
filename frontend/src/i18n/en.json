@@ -56,6 +56,12 @@
   "coach.athleteProfile.title": "Athlete Profile",
   "coach.athleteProfile.empty": "No profile defined.",
   "coach.athleteProfile.configure": "Configure",
+  "coach.chat.title": "Ask the Coach",
+  "coach.chat.placeholder": "Ask your coach about progression, goals, next session...",
+  "coach.chat.inputPlaceholder": "E.g.: Am I ready for a sub-45 10K?",
+  "coach.chat.send": "Send",
+  "coach.chat.thinking": "Coach is thinking...",
+  "coach.chat.error": "Sorry, couldn't get a response. Try again.",
   "coach.error": "Unable to load coach data",
 
   "preferences.title": "Preferences",
