@@ -20,7 +20,7 @@ interface CoachFeedbackItem {
   activity_id: string;
   date: string;
   title: string;
-  coach_feedback: { detailed_analysis?: string; strava_block?: string } | null;
+  coach_feedback: { detailed_analysis?: string; strava_block?: string; recommendation_next?: string } | null;
 }
 
 interface PacePoint {
@@ -103,7 +103,9 @@ export function CoachPage() {
         {/* Prochaine séance */}
         <Box padding="s">
           <StatusIndicator type="info">
-            {t('coach.nextSession')} — <Link onFollow={() => navigate('/preferences')}>Configurer</Link>
+            {data?.recent_feedback?.[0]?.coach_feedback?.recommendation_next
+              ? data.recent_feedback[0].coach_feedback.recommendation_next
+              : t('coach.nextSession')}
           </StatusIndicator>
         </Box>
 

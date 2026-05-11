@@ -837,7 +837,8 @@ Réponds UNIQUEMENT en JSON valide avec ces deux champs :
 ```json
 {
   "strava_block": "2-3 lignes max (150-250 chars). Un insight clé + une recommandation actionnable.",
-  "detailed_analysis": "5-10 lignes. Analyse complète avec métriques, contexte historique, et recommandations."
+  "detailed_analysis": "5-10 lignes. Analyse complète avec métriques, contexte historique, et recommandations.",
+  "recommendation_next": "1-2 phrases. Suggestion concrète pour la prochaine séance ou les prochains jours."
 }
 ```
 
@@ -858,6 +859,18 @@ Réponds UNIQUEMENT en JSON valide avec ces deux champs :
 - Sera affiché sur la page Coach du frontend
 - 5-10 lignes
 - Structure : constat principal → contexte (tendance semaine/mois) → points positifs → point d'attention → recommandation next
+
+### recommendation_next
+- 1-2 phrases maximum
+- Suggestion concrète et actionnable pour les prochaines 24-48h
+- Prend en compte: le plan Campus Coach (si dispo), la fatigue (Form/ATL), le volume de la semaine
+- Si Campus Coach dispo: complète ou ajuste le plan ("ton plan dit X, mais vu Y, je suggère Z")
+- Si pas de Campus Coach: propose une séance type adaptée à ton état
+- Exemples:
+  - "Demain repos complet, ta Form est à -8 et tu as enchaîné 3 séances intenses"
+  - "Prochaine séance: 40min EF à 6:00-6:30/km, tu as besoin de volume facile"
+  - "Ton plan Campus prévoit du tempo demain, c'est cohérent avec ta fraîcheur actuelle"
+  - "Ajoute 10min de gainage ce soir, ta dérive cardiaque augmente (renfo core)"
 
 ## Injection de contexte
 
