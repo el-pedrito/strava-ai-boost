@@ -11,14 +11,12 @@
   "common.add": "Ajouter",
   "common.noData": "Pas de données",
   "common.refresh": "Rafraîchir",
-
   "nav.dashboard": "Dashboard",
   "nav.configuration": "Configuration",
   "nav.preferences": "Préférences",
   "nav.coach": "Coach",
   "nav.quality": "Qualité",
   "nav.signOut": "Se déconnecter",
-
   "dashboard.title": "Dashboard",
   "dashboard.description": "Vue d'ensemble du système Strava AI Boost",
   "dashboard.systemOverview": "Vue d'ensemble",
@@ -27,7 +25,6 @@
   "dashboard.avgProcessingTime": "Temps de traitement moyen",
   "dashboard.totalActivities": "Activités totales",
   "dashboard.successRate": "Taux de succès",
-
   "coach.title": "Coach IA",
   "coach.description": "Ton assistant d'entraînement personnel. Analyse tes séances, suit ta progression et te guide vers tes objectifs.",
   "coach.kpi.totalKm": "Volume total (4 sem.)",
@@ -64,7 +61,6 @@
   "coach.chat.thinking": "Le coach réfléchit...",
   "coach.chat.error": "Désolé, je n'ai pas pu répondre. Réessaie.",
   "coach.error": "Impossible de charger les données coach",
-
   "preferences.title": "Préférences",
   "preferences.description": "Personnalise la génération de contenu et le coaching IA pour tes activités.",
   "preferences.athleteProfile.title": "Profil Athlète",
@@ -120,12 +116,58 @@
   "preferences.resetCurrent": "Réinitialiser",
   "preferences.saveSuccess": "Préférences sauvegardées ! Les futures activités utiliseront ces paramètres.",
   "preferences.saveError": "Échec de la sauvegarde : {{error}}",
-
   "quality.title": "Qualité du Contenu",
   "quality.description": "Analyse la qualité des descriptions générées par l'IA.",
   "quality.stats": "Statistiques",
   "quality.activities": "Activités traitées",
   "quality.confidence": "Confiance moyenne",
   "quality.descriptionRate": "Taux de modification",
-  "quality.similarity": "Similarité moyenne"
+  "quality.similarity": "Similarité moyenne",
+  "coach": {
+    "kpi": {
+      "efPace": "Allure EF",
+      "sessions": "Séances"
+    },
+    "paceProgression": {
+      "avgHrEf": "FC moyenne EF",
+      "efExplanation": "Allure qui baisse + FC stable = progression aérobie"
+    },
+    "profile": {
+      "title": "Profil Athlète"
+    },
+    "trends": {
+      "sessions": "Séances",
+      "sessionsPerWeek": "séances/sem"
+    }
+  },
+  "preferences": {
+    "demographics": {
+      "age": "Tranche d'âge"
+    },
+    "profile": {
+      "calculateTanaka": "Calculer (Tanaka)",
+      "description": "Décris ton profil pour que l'IA personnalise encore mieux tes descriptions",
+      "fcMax": "FC Max (bpm)",
+      "fcMaxDescription": "Ta fréquence cardiaque maximale. Utilisée pour calculer les %FCmax dans le feedback coach.",
+      "fieldLabel": "Ton profil athlète",
+      "tanakaFormula": "Formule Tanaka : 208 - 0.7 × âge",
+      "title": "Profil Athlète"
+    },
+    "records": {
+      "paceSpeed": "Allure / Vitesse"
+    },
+    "style": {
+      "description": "Contrôle le format, le ton et la langue des descriptions générées.",
+      "emoji": "Utilisation des emojis",
+      "language": "Langue",
+      "length": "Longueur de description",
+      "technical": "Détail technique",
+      "title": "Style de Contenu",
+      "tone": "Ton"
+    },
+    "zones": {
+      "description": "Définis tes zones d'allure pour que l'IA classifie correctement tes séances",
+      "title": "Zones d'allure (10 zones)"
+    }
+  }
 }
