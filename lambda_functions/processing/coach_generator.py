@@ -250,22 +250,22 @@ def _compute_coach_metrics(laps: list, activity_data: Dict[str, Any]) -> Dict[st
         pace_sec = 1000 / avg_speed
         metrics["ef_pace_at_hr"] = f"{int(pace_sec//60)}:{int(pace_sec%60):02d}/km @ {int(avg_hr)}bpm"
 
-    # Grey zone detection: time spent between 80-88% of max HR without being a planned tempo
+    # "Ni facile ni dur" detection: time spent 80-88% FCmax (too fast for EF, too slow for tempo)
     max_hr = activity_data.get("max_heartrate", 0)
     if max_hr > 0 and laps:
-        grey_low = max_hr * 0.80
-        grey_high = max_hr * 0.88
-        grey_time = 0
+        threshold_low = max_hr * 0.80
+        threshold_high = max_hr * 0.88
+        wasted_time = 0
         total_time = 0
         for lap in laps:
             lap_hr = lap.get("average_heartrate", 0)
             lap_time = lap.get("moving_time", 0)
             total_time += lap_time
-            if grey_low <= lap_hr <= grey_high:
-                grey_time += lap_time
+            if threshold_low <= lap_hr <= threshold_high:
+                wasted_time += lap_time
         if total_time > 0:
-            metrics["grey_zone_seconds"] = grey_time
-            metrics["grey_zone_pct"] = round(grey_time / total_time * 100, 1)
+            metrics["ni_facile_ni_dur_pct"] = round(wasted_time / total_time * 100, 1)
+            metrics["ni_facile_ni_dur_minutes"] = round(wasted_time / 60, 1)
 
     return metrics
 

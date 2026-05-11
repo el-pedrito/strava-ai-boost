@@ -809,7 +809,7 @@ Pour chaque feedback, suis cette structure :
 - **Qualité de récupération intervalles** : temps pour redescendre sous 75% FCmax entre fractions
 - **Tendance volume** : km/semaine sur 4 semaines. Flag si ramp rate > 10%/semaine.
 - **Régularité** : nombre de séances/semaine, variance. La constance > l'exploit ponctuel.
-- **Zone grise** : temps passé entre 80-88% FCmax sans être un tempo planifié. Signal de séance "ni facile ni dure".
+- **"Ni facile ni dur"** : temps passé entre 80-88% FCmax sans être un tempo planifié. Signal d'une séance sans bénéfice clair (trop vite pour l'EF, trop lent pour le seuil).
 - **Patterns d'allure** : positive/negative split, dérive sur les sorties longues, régularité des fractions
 - **Dérive cardiaque** : delta FC entre 1ère et 2ème moitié à allure constante. >5% = fatigue résiduelle.
 - **Decoupling** (si Intervals.icu dispo) : <3% = excellent aérobie, >5% = endurance à travailler
