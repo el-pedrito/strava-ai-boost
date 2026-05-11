@@ -243,14 +243,12 @@ def _compute_coach_metrics(laps: list, activity_data: Dict[str, Any]) -> Dict[st
     """Compute EF (pace/HR ratio) and grey zone time from laps."""
     metrics: Dict[str, Any] = {}
 
-    # Efficiency Factor: average_speed / average_hr (higher = more efficient)
+    # Efficiency Factor: pace @ HR (for trend comparison across activities)
     avg_speed = activity_data.get("average_speed", 0)
     avg_hr = activity_data.get("average_heartrate", 0)
     if avg_speed > 0 and avg_hr > 0:
-        # EF in m/s per bpm — multiply by 1000 for readability
-        metrics["efficiency_factor"] = round((avg_speed / avg_hr) * 1000, 2)
         pace_sec = 1000 / avg_speed
-        metrics["ef_summary"] = f"{int(pace_sec//60)}:{int(pace_sec%60):02d}/km @ {int(avg_hr)}bpm"
+        metrics["ef_pace_at_hr"] = f"{int(pace_sec//60)}:{int(pace_sec%60):02d}/km @ {int(avg_hr)}bpm"
 
     # Grey zone detection: time spent between 80-88% of max HR without being a planned tempo
     max_hr = activity_data.get("max_heartrate", 0)
@@ -475,6 +473,10 @@ def build_historical_summary(user_id: str, current_activity_id: str) -> Dict[str
                 "pace": pace_str,
                 "avg_hr": a.get("average_heartrate"),
             }
+            # EF: pace @ HR for trend comparison
+            a_hr = a.get("average_heartrate")
+            if avg_speed > 0 and a_hr:
+                entry["ef_pace_at_hr"] = f"{pace_str} @ {int(a_hr)}bpm"
             # Intervals.icu fitness data (if available)
             icu = a.get("_intervals_icu")
             if icu and isinstance(icu, dict):
