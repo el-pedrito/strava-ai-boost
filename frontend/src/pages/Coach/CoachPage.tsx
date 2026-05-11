@@ -142,7 +142,7 @@ export function CoachPage() {
                   xDomain={weeks}
                   yDomain={[safeMin(paceSecs.filter(s => s > 0), 300) - 15, safeMax(paceSecs.filter(s => s > 0), 400) + 15]}
                   xTitle="Semaine"
-                  yTitle="Allure (sec/km)"
+                  yTitle="Allure (min/km)"
                   series={[
                     {
                       title: 'Allure moyenne',
