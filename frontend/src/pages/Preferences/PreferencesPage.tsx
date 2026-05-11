@@ -137,6 +137,7 @@ export function PreferencesPage() {
   const [paceZones, setPaceZones] = useState<PaceZones>({ ...DEFAULT_PACE_ZONES });
   const [athleteProfile, setAthleteProfile] = useState('');
   const [personalRecords, setPersonalRecords] = useState<Array<{distance: string; time: string; date: string; event: string}>>([]);
+  const [maxHr, setMaxHr] = useState<string>('');
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
@@ -162,6 +163,7 @@ export function PreferencesPage() {
         if (Array.isArray(p.personal_records)) {
           setPersonalRecords(p.personal_records as Array<{distance: string; time: string; date: string; event: string}>);
         }
+        if (p.max_hr) setMaxHr(String(p.max_hr));
       }
     } catch {
       // Use defaults
@@ -191,6 +193,7 @@ export function PreferencesPage() {
         pace_zones: paceZones,
         athlete_profile: athleteProfile,
         personal_records: personalRecords.filter(r => r.distance && r.time),
+        ...(maxHr ? { max_hr: parseInt(maxHr) } : {}),
       });
       flash('success', 'Preferences saved successfully! Future activities will use these settings.');
     } catch (err) {
@@ -265,6 +268,38 @@ export function PreferencesPage() {
               placeholder="Décris-toi : tes objectifs, ton historique sportif, ton expérience, tes blessures, ce que tu veux améliorer..."
               rows={8}
             />
+          </FormField>
+          <FormField
+            label="FC Max (bpm)"
+            description="Ta fréquence cardiaque maximale. Utilisée pour calculer les %FCmax dans le feedback coach."
+          >
+            <SpaceBetween direction="horizontal" size="xs">
+              <Input
+                value={maxHr}
+                onChange={({ detail }) => setMaxHr(detail.value.replace(/\D/g, ''))}
+                placeholder="192"
+                type="number"
+                inputMode="numeric"
+              />
+              <Button
+                variant="normal"
+                onClick={() => {
+                  const ageOption = ageRange?.value;
+                  if (ageOption) {
+                    const midAge = parseInt(ageOption.split('-')[0]) + (ageOption.includes('+') ? 5 : Math.floor((parseInt(ageOption.split('-')[1]) - parseInt(ageOption.split('-')[0])) / 2));
+                    const theoretical = Math.round(208 - 0.7 * midAge);
+                    setMaxHr(String(theoretical));
+                  }
+                }}
+              >
+                Calculer (Tanaka)
+              </Button>
+              {maxHr && ageRange?.value && (
+                <Box variant="small" color="text-status-info">
+                  Formule Tanaka : 208 - 0.7 × âge
+                </Box>
+              )}
+            </SpaceBetween>
           </FormField>
         </Container>
 
