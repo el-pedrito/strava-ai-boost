@@ -72,7 +72,7 @@ export function CoachPage() {
   const tendance = vol.length >= 4 ? (vol[3] >= vol[0] ? '↑' : '↓') : '-';
 
   return (
-    <ContentLayout header={<Header variant="h1">Coach IA</Header>}>
+    <ContentLayout header={<Header variant="h1" description="Ton assistant d'entraînement personnel. Analyse tes séances, suit ta progression et te guide vers tes objectifs.">Coach IA</Header>}>
       <SpaceBetween size="l">
         {error && <Alert type="error">{error}</Alert>}
 
@@ -97,6 +97,13 @@ export function CoachPage() {
             </div>
           </ColumnLayout>
         </Container>
+
+        {/* Prochaine séance */}
+        <Box padding="s">
+          <StatusIndicator type="info">
+            Prochaine séance : consulte ton plan Campus Coach — <Link onFollow={() => navigate('/preferences')}>Configurer</Link>
+          </StatusIndicator>
+        </Box>
 
         {/* Tendances */}
         {data?.trends && (() => {
@@ -244,11 +251,16 @@ export function CoachPage() {
           ) : (
             <SpaceBetween size="s">
               {data.recent_feedback.map((item) => (
-                <ExpandableSection key={item.activity_id} headerText={`${item.date} — ${item.title}`}>
-                  <Box variant="p" color="text-body-secondary">
-                    {item.coach_feedback?.detailed_analysis || 'Pas d\'analyse détaillée.'}
-                  </Box>
-                </ExpandableSection>
+                <Container key={item.activity_id} header={<Header variant="h3">{item.date} — {item.title}</Header>}>
+                  <SpaceBetween size="s">
+                    <Box variant="p">{item.coach_feedback?.strava_block || 'Pas de résumé disponible.'}</Box>
+                    {item.coach_feedback?.detailed_analysis && (
+                      <ExpandableSection headerText="Analyse détaillée">
+                        <Box variant="p" color="text-body-secondary">{item.coach_feedback.detailed_analysis}</Box>
+                      </ExpandableSection>
+                    )}
+                  </SpaceBetween>
+                </Container>
               ))}
             </SpaceBetween>
           )}

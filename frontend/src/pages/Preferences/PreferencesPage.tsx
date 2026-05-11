@@ -209,8 +209,8 @@ export function PreferencesPage() {
   return (
     <ContentLayout
       header={
-        <Header variant="h1" description="Personalize how AI generates your activity titles and descriptions. These preferences shape the tone, detail level, and style of every enhanced activity.">
-          Content Personalization Preferences
+        <Header variant="h1" description="Personnalise la génération de contenu et le coaching IA pour tes activités.">
+          Préférences
         </Header>
       }
     >
@@ -325,22 +325,24 @@ export function PreferencesPage() {
                 { value: '10K', label: '10K' },
                 { value: 'Semi', label: 'Semi-marathon' },
                 { value: 'Marathon', label: 'Marathon' },
+                { value: 'custom', label: 'Autre...' },
               ];
               const selectedDist = distOptions.find(o => o.value === record.distance);
+              const isCustom = record.distance === 'custom' || (!selectedDist && record.distance !== '');
 
               return (
                 <div key={record.id} style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                   <FormField label="Distance">
                     <SpaceBetween direction="horizontal" size="xs">
                       <Select
-                        selectedOption={selectedDist || null}
+                        selectedOption={selectedDist || (isCustom ? { value: 'custom', label: 'Autre...' } : null)}
                         onChange={({ detail }) => { const r = [...personalRecords]; r[idx] = { ...r[idx], distance: detail.selectedOption.value || '' }; setPersonalRecords(r); }}
                         options={distOptions}
                         placeholder="Choisir..."
                       />
-                      {!selectedDist && (
+                      {isCustom && (
                         <Input
-                          value={record.distance}
+                          value={record.distance === 'custom' ? '' : record.distance}
                           onChange={({ detail }) => { const r = [...personalRecords]; r[idx] = { ...r[idx], distance: detail.value }; setPersonalRecords(r); }}
                           placeholder="Autre (km)"
                         />
@@ -392,7 +394,7 @@ export function PreferencesPage() {
         {/* 3. Pace Zones (collapsed) */}
         <Container
           header={
-            <Header variant="h2" description="Define your personal pace zones so the AI correctly classifies your workouts (EF, Tempo, Seuil, etc.)">
+            <Header variant="h2" description="Définis tes zones d allure pour que l IA classifie correctement tes séances (EF, Tempo, Seuil, etc.)">
               Zones d'allure
             </Header>
           }
@@ -459,7 +461,7 @@ export function PreferencesPage() {
         {/* 4. Content Style */}
         <Container
           header={
-            <Header variant="h2" description="Control the output format, tone, and language of generated descriptions">
+            <Header variant="h2" description="Contrôle le format, le ton et la langue des descriptions générées.">
               Style de Contenu
             </Header>
           }
@@ -510,7 +512,7 @@ export function PreferencesPage() {
         {/* 5. Demographics (age, interests) */}
         <Container
           header={
-            <Header variant="h2" description="Tell the AI about yourself so it can tailor content to your profile">
+            <Header variant="h2" description="Informations démographiques pour adapter le contenu à ton profil.">
               Démographie
             </Header>
           }
