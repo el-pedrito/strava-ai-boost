@@ -239,6 +239,18 @@ class CoreInfrastructureStack(Stack):
             )
         )
 
+        # Add Bedrock permissions for coach ask conversational endpoint
+        self.webhook_lambda_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+                resources=[
+                    f"arn:aws:bedrock:{Aws.REGION}:{Aws.ACCOUNT_ID}:inference-profile/*",
+                    "arn:aws:bedrock:*::foundation-model/*"
+                ]
+            )
+        )
+
         # Lambda execution role for content generation
         self.content_lambda_role = iam.Role(
             self, "ContentLambdaRole",
