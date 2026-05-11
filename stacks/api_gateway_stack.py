@@ -72,7 +72,8 @@ class ApiGatewayStack(Stack):
                 "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
                 "CAMPUS_COACH_SECRET": self.core_stack.campus_coach_secret.secret_name,
                 "INTERVALS_ICU_SECRET": self.core_stack.intervals_icu_secret.secret_name,
-                "DEFAULT_USER_ID": os.environ.get("DEFAULT_USER_ID", "")
+                "DEFAULT_USER_ID": os.environ.get("DEFAULT_USER_ID", ""),
+                "COGNITO_USER_POOL_ID": self.user_pool.user_pool_id if self.user_pool else ""
             }
         )
 
@@ -96,6 +97,16 @@ class ApiGatewayStack(Stack):
                 ]
             )
         )
+
+        # Allow config Lambda to set custom:strava_id on Cognito users
+        if self.user_pool:
+            self.config_lambda.add_to_role_policy(
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=["cognito-idp:AdminUpdateUserAttributes"],
+                    resources=[self.user_pool.user_pool_arn]
+                )
+            )
 
         # Dashboard API Lambda
         self.dashboard_lambda = lambda_.Function(

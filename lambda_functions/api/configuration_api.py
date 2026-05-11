@@ -532,6 +532,23 @@ def handle_oauth_callback(event: Dict[str, Any]) -> Dict[str, Any]:
                         ExpressionAttributeValues=expr_values
                     )
                     logger.info(f"OAuth status updated for athlete {athlete_id}")
+
+                    # Set strava_id on Cognito user for JWT-based user identification
+                    try:
+                        cognito_client = boto3.client('cognito-idp', region_name=os.environ.get('AWS_REGION', 'us-east-1'))
+                        user_pool_id = os.environ.get('COGNITO_USER_POOL_ID', '')
+                        # Find user by email from the request context
+                        claims = event.get('requestContext', {}).get('authorizer', {}).get('claims', {})
+                        username = claims.get('cognito:username', claims.get('sub', ''))
+                        if user_pool_id and username:
+                            cognito_client.admin_update_user_attributes(
+                                UserPoolId=user_pool_id,
+                                Username=username,
+                                UserAttributes=[{'Name': 'custom:strava_id', 'Value': athlete_id}]
+                            )
+                            logger.info(f"Set custom:strava_id={athlete_id} on Cognito user {username}")
+                    except Exception as e:
+                        logger.warning(f"Failed to set strava_id on Cognito user: {e}")
             except ClientError as e:
                 logger.warning(f"Failed to update OAuth status in DynamoDB: {e}")
 

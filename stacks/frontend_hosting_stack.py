@@ -87,6 +87,9 @@ class FrontendHostingStack(Stack):
             ),
             account_recovery=cognito.AccountRecovery.EMAIL_ONLY,
             removal_policy=RemovalPolicy.DESTROY,
+            custom_attributes={
+                "strava_id": cognito.StringAttribute(mutable=True),
+            },
         )
 
         # Cognito User Pool Client (SPA - no secret)
