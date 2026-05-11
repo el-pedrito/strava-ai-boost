@@ -92,7 +92,8 @@ def get_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
                 'content_language': preferences.get('content_language', 'french'),
                 'pace_zones': preferences.get('pace_zones', None),
                 'athlete_profile': preferences.get('athlete_profile', ''),
-                'personal_records': preferences.get('personal_records', [])
+                'personal_records': preferences.get('personal_records', []),
+                'max_hr': preferences.get('max_hr', None)
             }
         }
 
@@ -189,6 +190,18 @@ def update_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
                     })
             preferences['personal_records'] = valid_records
             logger.info(f"Personal records configured: {len(valid_records)} entries")
+
+        # Add max_hr if provided (integer, 120-230 bpm)
+        max_hr = body.get('max_hr')
+        if max_hr is not None:
+            try:
+                max_hr = int(max_hr)
+                if 120 <= max_hr <= 230:
+                    preferences['max_hr'] = max_hr
+                else:
+                    return create_error_response(400, 'max_hr must be between 120 and 230', cors_headers=CORS_HEADERS)
+            except (ValueError, TypeError):
+                return create_error_response(400, 'max_hr must be an integer', cors_headers=CORS_HEADERS)
         
         # Save to DynamoDB
         table = dynamodb.Table(USER_CONFIG_TABLE)
