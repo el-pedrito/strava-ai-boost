@@ -125,11 +125,7 @@ export function CoachPage() {
                       title: 'Volume (km)',
                       type: 'bar',
                       data: weeks.map((w, i) => ({ x: w, y: vol[i] })),
-                    },
-                    {
-                      title: 'Séances',
-                      type: 'line',
-                      data: weeks.map((w, i) => ({ x: w, y: sess[i] * (safeMax(vol) / safeMax(sess, 1)) })),
+                      valueFormatter: (v) => `${v} km`,
                     },
                   ]}
                   xScaleType="categorical"
@@ -163,7 +159,7 @@ export function CoachPage() {
                 />
               </ColumnLayout>
               <Box variant="small" textAlign="center" margin={{ top: 's' }} color="text-body-secondary">
-                Volume: {vol.map(v => `${v}km`).join(' → ')} | Séances: {sess.join(' → ')}
+                Volume: {vol.map(v => `${v}km`).join(' → ')} | Séances: {sess.join(' → ')} séances/sem
               </Box>
             </Container>
           );
