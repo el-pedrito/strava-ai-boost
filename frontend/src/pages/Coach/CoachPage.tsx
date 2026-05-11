@@ -91,7 +91,7 @@ export function CoachPage() {
             </div>
             <div>
               <Box variant="h1">{runSessions} + {otherSessions}</Box>
-              <Box variant="small">{t('coach.kpi.sessions')} (runs + renfo)</Box>
+              <Box variant="small">{t('coach.kpi.sessions')} (runs + renfo, 4 sem.)</Box>
             </div>
             <div>
               <Box variant="h1">{vol.length ? vol[vol.length - 1] : 0} km</Box>
