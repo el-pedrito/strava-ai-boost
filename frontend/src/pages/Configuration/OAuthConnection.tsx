@@ -42,7 +42,7 @@ export function OAuthConnection({ oauthStatus, stravaConfigured, onDisconnected 
       sessionStorage.setItem('oauth_code_verifier', codeVerifier);
       sessionStorage.setItem('oauth_client_id', config.client_id);
 
-      const redirectUri = config.redirect_uri || 'http://localhost:3000/oauth/callback';
+      const redirectUri = config.redirect_uri || `${window.location.origin}/oauth/callback`;
       const params = new URLSearchParams({
         client_id: config.client_id,
         redirect_uri: redirectUri,
