@@ -1,5 +1,6 @@
 import { useState, useEffect, type ReactNode } from 'react';
 import { ExternalLink } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Badge, Button, Input, Label, Toggle } from '@/ui';
 import { CampusCoachLogo } from '../../components/icons/CampusCoachLogo.tsx';
 import { EndurawLogo } from '../../components/icons/EndurawLogo.tsx';
@@ -15,10 +16,12 @@ interface Props {
 
 type ModuleStatus = 'connected' | 'not_configured' | 'disabled';
 
-function statusBadge(status: ModuleStatus): ReactNode {
-  if (status === 'connected') return <Badge variant="success">Connected</Badge>;
-  if (status === 'not_configured') return <Badge variant="warning">Not configured</Badge>;
-  return <Badge variant="default">Disabled</Badge>;
+type TFn = (key: string, options?: Record<string, unknown>) => string;
+
+function statusBadge(status: ModuleStatus, t: TFn): ReactNode {
+  if (status === 'connected') return <Badge variant="success">{t('modules.status.connected')}</Badge>;
+  if (status === 'not_configured') return <Badge variant="warning">{t('modules.status.notConfigured')}</Badge>;
+  return <Badge variant="default">{t('modules.status.disabled')}</Badge>;
 }
 
 function moduleStatus(enabled: boolean, configured: boolean, requiresCreds: boolean): ModuleStatus {
@@ -28,6 +31,7 @@ function moduleStatus(enabled: boolean, configured: boolean, requiresCreds: bool
 }
 
 export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
+  const { t } = useTranslation();
   const flash = useFlash();
   const [campusEnabled, setCampusEnabled] = useState(modules?.campus_coach?.enabled ?? false);
   const [endurawEnabled, setEndurawEnabled] = useState(modules?.enduraw?.enabled ?? false);
@@ -55,10 +59,16 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
   const toggleModule = async (moduleId: string, enabled: boolean) => {
     try {
       await api.post('/config/modules', { module_id: moduleId, enabled });
-      flash(enabled ? 'success' : 'info', `${MODULE_DISPLAY_NAMES[moduleId] ?? moduleId} ${enabled ? 'enabled' : 'disabled'}`);
+      const moduleName = MODULE_DISPLAY_NAMES[moduleId] ?? moduleId;
+      flash(
+        enabled ? 'success' : 'info',
+        enabled
+          ? t('modules.enabledFlash', { name: moduleName })
+          : t('modules.disabledFlash', { name: moduleName }),
+      );
       onModuleChanged();
     } catch {
-      flash('error', 'Failed to update module');
+      flash('error', t('modules.updateError'));
       if (moduleId === 'campus_coach') setCampusEnabled(!enabled);
       else if (moduleId === 'enduraw') setEndurawEnabled(!enabled);
       else if (moduleId === 'intervals_icu') setIntervalsEnabled(!enabled);
@@ -69,7 +79,7 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
     setCampusEnabled(checked);
     if (checked && !campusConfigured) {
       setShowCredentials(true);
-      flash('info', 'Campus Coach enabled. Please configure your credentials below.');
+      flash('info', t('modules.campus.enabledPrompt'));
     } else {
       void toggleModule('campus_coach', checked);
     }
@@ -84,7 +94,7 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
     setIntervalsEnabled(checked);
     if (checked && !intervalsConfigured) {
       setShowIntervalsKey(true);
-      flash('info', 'Intervals.icu enabled. Please enter your API key below.');
+      flash('info', t('modules.intervals.enabledPrompt'));
     } else {
       void toggleModule('intervals_icu', checked);
     }
@@ -92,7 +102,7 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
 
   const handleIntervalsConfig = async () => {
     if (!apiKey.trim()) {
-      flash('error', 'API key is required.');
+      flash('error', t('modules.intervals.requiredError'));
       return;
     }
     setSaving(true);
@@ -102,13 +112,13 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
         enabled: true,
         config: { api_key: apiKey },
       });
-      flash('success', 'Intervals.icu configured. API key stored securely.');
+      flash('success', t('modules.intervals.saveSuccess'));
       setIntervalsConfigured(true);
       setShowIntervalsKey(false);
       setApiKey('');
       onModuleChanged();
     } catch {
-      flash('error', 'Failed to configure Intervals.icu');
+      flash('error', t('modules.intervals.saveError'));
     } finally {
       setSaving(false);
     }
@@ -116,7 +126,7 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
 
   const handleCampusConfig = async () => {
     if (!username.trim() || !password.trim()) {
-      flash('error', 'Username and password are required.');
+      flash('error', t('modules.campus.requiredError'));
       return;
     }
     setSaving(true);
@@ -126,14 +136,14 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
         enabled: true,
         config: { credentials: { username, password } },
       });
-      flash('success', 'Campus Coach configured. Credentials stored securely.');
+      flash('success', t('modules.campus.saveSuccess'));
       setCampusConfigured(true);
       setShowCredentials(false);
       setUsername('');
       setPassword('');
       onModuleChanged();
     } catch {
-      flash('error', 'Failed to configure Campus Coach');
+      flash('error', t('modules.campus.saveError'));
     } finally {
       setSaving(false);
     }
@@ -144,12 +154,13 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
       {/* Campus Coach */}
       <ModuleCard
         logo={<CampusCoachLogo size={28} />}
-        title="Campus Coach"
-        description="Training session matching and performance analysis."
+        title={t('modules.campus.title')}
+        description={t('modules.campus.description')}
         toggleId="campus-toggle"
         enabled={campusEnabled}
         onToggle={handleCampusToggle}
         status={moduleStatus(campusEnabled, campusConfigured, true)}
+        t={t}
       >
         {campusEnabled && (
           <div className="mt-4 flex flex-col gap-3 animate-fade-in-up">
@@ -159,17 +170,17 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
               rel="noreferrer"
               className="inline-flex items-center gap-1.5 self-start text-xs font-medium text-primary hover:underline"
             >
-              Visit Campus Coach
+              {t('modules.campus.visit')}
               <ExternalLink className="h-3 w-3" aria-hidden="true" />
             </a>
 
             {campusConfigured && !showCredentials ? (
               <div className="flex flex-col gap-2">
                 <p className="text-xs text-muted-foreground">
-                  Credentials stored securely. Sessions are extracted automatically.
+                  {t('modules.campus.storedNotice')}
                 </p>
                 <Button variant="outline" size="sm" onClick={() => setShowCredentials(true)}>
-                  Update credentials
+                  {t('modules.campus.updateCredentials')}
                 </Button>
               </div>
             ) : (
@@ -181,28 +192,28 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
                 }}
               >
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="campus-username">Username</Label>
+                  <Label htmlFor="campus-username">{t('modules.campus.usernameLabel')}</Label>
                   <Input
                     id="campus-username"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    placeholder="Your Campus Coach username"
+                    placeholder={t('modules.campus.usernamePlaceholder')}
                     autoComplete="off"
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="campus-password">Password</Label>
+                  <Label htmlFor="campus-password">{t('modules.campus.passwordLabel')}</Label>
                   <Input
                     id="campus-password"
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Your Campus Coach password"
+                    placeholder={t('modules.campus.passwordPlaceholder')}
                     autoComplete="off"
                   />
                 </div>
                 <Button type="submit" size="sm" loading={saving}>
-                  Save
+                  {t('modules.save')}
                 </Button>
               </form>
             )}
@@ -213,17 +224,18 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
       {/* Enduraw */}
       <ModuleCard
         logo={<EndurawLogo size={28} />}
-        title="Enduraw"
-        description="Weather and wind impact on your performance."
+        title={t('modules.enduraw.title')}
+        description={t('modules.enduraw.description')}
         toggleId="enduraw-toggle"
         enabled={endurawEnabled}
         onToggle={handleEndurawToggle}
         status={moduleStatus(endurawEnabled, true, false)}
+        t={t}
       >
         {endurawEnabled && (
           <div className="mt-4 flex flex-col gap-2 rounded-lg bg-info/5 border border-info/20 p-3 animate-fade-in-up">
             <p className="text-xs text-muted-foreground">
-              Configure Enduraw separately. Activities wait 2 minutes for Enduraw data; generation continues without it if missing.
+              {t('modules.enduraw.notice')}
             </p>
             <a
               href="https://enduraw-report-strava.onrender.com"
@@ -231,7 +243,7 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
               rel="noreferrer"
               className="inline-flex items-center gap-1.5 self-start text-xs font-medium text-primary hover:underline"
             >
-              Open Enduraw Report
+              {t('modules.enduraw.openReport')}
               <ExternalLink className="h-3 w-3" aria-hidden="true" />
             </a>
           </div>
@@ -245,25 +257,26 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
             intervals.icu
           </span>
         }
-        title="Intervals.icu"
-        description="Fitness, fatigue, form (CTL/ATL/TSB), HRV and more."
+        title={t('modules.intervals.title')}
+        description={t('modules.intervals.description')}
         toggleId="intervals-toggle"
         enabled={intervalsEnabled}
         onToggle={handleIntervalsToggle}
         status={moduleStatus(intervalsEnabled, intervalsConfigured, true)}
+        t={t}
       >
         {intervalsEnabled && (
           <div className="mt-4 flex flex-col gap-3 animate-fade-in-up">
             <p className="text-xs text-muted-foreground">
-              Get your API key from <span className="font-medium">Settings → Developer Settings</span> on intervals.icu.
+              {t('modules.intervals.apiKeyHint')}
             </p>
             {intervalsConfigured && !showIntervalsKey ? (
               <div className="flex flex-col gap-2">
                 <p className="text-xs text-muted-foreground">
-                  API key stored securely. Fitness data is fetched automatically.
+                  {t('modules.intervals.storedNotice')}
                 </p>
                 <Button variant="outline" size="sm" onClick={() => setShowIntervalsKey(true)}>
-                  Update API key
+                  {t('modules.intervals.updateApiKey')}
                 </Button>
               </div>
             ) : (
@@ -275,18 +288,18 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
                 }}
               >
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="intervals-api-key">API key</Label>
+                  <Label htmlFor="intervals-api-key">{t('modules.intervals.apiKeyLabel')}</Label>
                   <Input
                     id="intervals-api-key"
                     type="password"
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="Your intervals.icu API key"
+                    placeholder={t('modules.intervals.apiKeyPlaceholder')}
                     autoComplete="off"
                   />
                 </div>
                 <Button type="submit" size="sm" loading={saving}>
-                  Save
+                  {t('modules.save')}
                 </Button>
               </form>
             )}
@@ -305,19 +318,20 @@ interface ModuleCardProps {
   enabled: boolean;
   onToggle: (checked: boolean) => void;
   status: ModuleStatus;
+  t: TFn;
   children?: ReactNode;
 }
 
-function ModuleCard({ logo, title, description, toggleId, enabled, onToggle, status, children }: ModuleCardProps) {
+function ModuleCard({ logo, title, description, toggleId, enabled, onToggle, status, t, children }: ModuleCardProps) {
   return (
     <div className="flex flex-col rounded-xl border border-border bg-surface p-5">
       <div className="flex items-start justify-between gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center">{logo}</div>
-        <Toggle id={toggleId} checked={enabled} onCheckedChange={onToggle} aria-label={`Toggle ${title}`} />
+        <Toggle id={toggleId} checked={enabled} onCheckedChange={onToggle} aria-label={t('modules.toggleAria', { name: title })} />
       </div>
       <div className="mt-3 flex items-center justify-between gap-2">
         <h4 className="text-base font-semibold text-foreground">{title}</h4>
-        {statusBadge(status)}
+        {statusBadge(status, t)}
       </div>
       <p className="mt-1 text-sm text-muted-foreground">{description}</p>
       {children}

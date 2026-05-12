@@ -1,7 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles/tokens.css';
-import '@cloudscape-design/global-styles/index.css';
 import './styles/global.css';
 import './i18n';
 import { loadConfig } from './config.ts';

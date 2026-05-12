@@ -1,6 +1,9 @@
-import { useState, useEffect, useCallback, type ComponentType } from 'react';
+import { useState, useEffect, useCallback, useMemo, type ComponentType } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Activity as ActivityIcon,
+  ArrowDown,
+  ArrowUp,
   Bike,
   Cpu,
   Dumbbell,
@@ -38,6 +41,14 @@ interface RawActivity {
   generated_at?: string;
 }
 
+function processingSeconds(createdAt?: string, updatedAt?: string): number | undefined {
+  if (!createdAt || !updatedAt) return undefined;
+  const start = new Date(createdAt).getTime();
+  const end = new Date(updatedAt).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end)) return undefined;
+  return Math.max(0, Math.round((end - start) / 1000));
+}
+
 function transformActivities(raw: RawActivity[]): Activity[] {
   return raw.slice(0, 10).map((act) => ({
     name: act.enhanced_title || act.original_name || 'Unknown',
@@ -51,6 +62,8 @@ function transformActivities(raw: RawActivity[]): Activity[] {
     similarity_score: act.similarity_score,
     feedback_analyzed: act.feedback_analyzed,
     generated_at: act.generated_at,
+    created_at_raw: act.created_at,
+    processing_time_seconds: processingSeconds(act.created_at, act.updated_at),
   }));
 }
 
@@ -133,12 +146,14 @@ function moduleBadge(name: string): { label: string; variant: BadgeVariant } {
   return { label: name, variant: 'default' };
 }
 
-function statusBadge(status: string): { label: string; variant: BadgeVariant } {
+type TFn = (key: string, options?: Record<string, unknown>) => string;
+
+function statusBadge(status: string, t: TFn): { label: string; variant: BadgeVariant } {
   const lower = status.toLowerCase();
-  if (lower === 'completed') return { label: 'Completed', variant: 'success' };
-  if (lower === 'failed' || lower === 'error') return { label: 'Failed', variant: 'danger' };
-  if (lower === 'processing' || lower === 'pending') return { label: 'Processing', variant: 'info' };
-  if (lower === 'paused') return { label: 'Paused', variant: 'warning' };
+  if (lower === 'completed') return { label: t('dashboard.status.completed'), variant: 'success' };
+  if (lower === 'failed' || lower === 'error') return { label: t('dashboard.status.failed'), variant: 'danger' };
+  if (lower === 'processing' || lower === 'pending') return { label: t('dashboard.status.processing'), variant: 'info' };
+  if (lower === 'paused') return { label: t('dashboard.status.paused'), variant: 'warning' };
   return { label: status.charAt(0).toUpperCase() + status.slice(1), variant: 'default' };
 }
 
@@ -232,9 +247,11 @@ function ConnectionCard({
 function EnhancementToggle({
   enabled,
   onClick,
+  t,
 }: {
   enabled: boolean;
   onClick: () => void;
+  t: TFn;
 }) {
   return (
     <button
@@ -242,7 +259,7 @@ function EnhancementToggle({
       onClick={onClick}
       role="switch"
       aria-checked={enabled}
-      aria-label={enabled ? 'Pause enhancement' : 'Resume enhancement'}
+      aria-label={enabled ? t('dashboard.enhancement.pauseAria') : t('dashboard.enhancement.resumeAria')}
       className={cn(
         'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-all',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
@@ -252,12 +269,16 @@ function EnhancementToggle({
       )}
     >
       <Power className="h-3.5 w-3.5" />
-      <span>Enhancement: {enabled ? 'On' : 'Off'}</span>
+      <span>{enabled ? t('dashboard.enhancement.on') : t('dashboard.enhancement.off')}</span>
     </button>
   );
 }
 
+type SortKey = 'name' | 'date' | 'time';
+type SortDir = 'asc' | 'desc';
+
 export function DashboardPage() {
+  const { t } = useTranslation();
   const flash = useFlash();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [status, setStatus] = useState<SystemStatus | null>(null);
@@ -265,6 +286,49 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey | null>('date');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+
+  const sortedActivities = useMemo(() => {
+    if (!sortKey) return activities;
+    const arr = [...activities];
+    arr.sort((a, b) => {
+      let av: number | string = 0;
+      let bv: number | string = 0;
+      if (sortKey === 'name') {
+        av = a.name.toLowerCase();
+        bv = b.name.toLowerCase();
+      } else if (sortKey === 'date') {
+        av = a.created_at_raw ? new Date(a.created_at_raw).getTime() : 0;
+        bv = b.created_at_raw ? new Date(b.created_at_raw).getTime() : 0;
+      } else if (sortKey === 'time') {
+        av = a.processing_time_seconds ?? -1;
+        bv = b.processing_time_seconds ?? -1;
+      }
+      if (av < bv) return sortDir === 'asc' ? -1 : 1;
+      if (av > bv) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return arr;
+  }, [activities, sortKey, sortDir]);
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir('desc');
+    }
+  };
+
+  const SortIcon = ({ k }: { k: SortKey }) => {
+    if (sortKey !== k) return null;
+    return sortDir === 'asc' ? (
+      <ArrowUp className="h-3 w-3" aria-hidden="true" />
+    ) : (
+      <ArrowDown className="h-3 w-3" aria-hidden="true" />
+    );
+  };
 
   const fetchAll = useCallback(async () => {
     try {
@@ -281,7 +345,7 @@ export function DashboardPage() {
         setStats(computeStatsFromActivities(actRes.activities));
         setActivities(transformActivities(actRes.activities));
       } else if (!stats) {
-        setError('Failed to load dashboard data');
+        setError(t('dashboard.error.load'));
       }
 
       setStatus((prev) => ({
@@ -291,7 +355,7 @@ export function DashboardPage() {
         enhancement_status: (enhRes?.status as 'active' | 'paused') ?? 'active',
       }));
     } catch {
-      setError('Failed to load dashboard data');
+      setError(t('dashboard.error.load'));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -335,12 +399,12 @@ export function DashboardPage() {
       flash(
         action === 'pause' ? 'info' : 'success',
         action === 'pause'
-          ? 'Enhancement has been paused. New activities will not be processed.'
-          : 'Enhancement has been resumed. New activities will be processed automatically.',
+          ? t('dashboard.enhancement.pausedFlash')
+          : t('dashboard.enhancement.resumedFlash'),
       );
       fetchAll();
     } catch {
-      flash('error', 'Failed to toggle enhancement. Please try again.');
+      flash('error', t('dashboard.enhancement.toggleError'));
     }
   };
 
@@ -369,9 +433,9 @@ export function DashboardPage() {
       {/* Header */}
       <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div className="min-w-0">
-          <h1 className="text-3xl font-semibold tracking-tight text-foreground">Dashboard</h1>
+          <h1 className="text-3xl font-semibold tracking-tight text-foreground">{t('dashboard.title')}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Your activity processing at a glance.
+            {t('dashboard.description')}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -379,6 +443,7 @@ export function DashboardPage() {
             <EnhancementToggle
               enabled={status.enhancement_enabled}
               onClick={handleToggleEnhancement}
+              t={t}
             />
           ) : null}
           <Button
@@ -386,10 +451,10 @@ export function DashboardPage() {
             size="sm"
             onClick={fetchAll}
             disabled={refreshing}
-            aria-label="Refresh dashboard"
+            aria-label={t('dashboard.refreshAria')}
           >
             <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
-            <span>Refresh</span>
+            <span>{t('common.refresh')}</span>
           </Button>
         </div>
       </header>
@@ -400,7 +465,7 @@ export function DashboardPage() {
           <div className="flex items-center justify-between gap-3">
             <span>{error}</span>
             <Button variant="outline" size="sm" onClick={fetchAll}>
-              Retry
+              {t('common.retry')}
             </Button>
           </div>
         </Alert>
@@ -408,30 +473,30 @@ export function DashboardPage() {
 
       {/* Hero KPIs */}
       <section
-        aria-label="Last 30 days summary"
+        aria-label={t('dashboard.kpi.summaryAria')}
         className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 animate-fade-in-up"
       >
         <KPI
-          label="Activities (30d)"
+          label={t('dashboard.kpi.activities')}
           value={loading ? '' : (stats?.total_activities ?? 0)}
           loading={loading}
           icon={<ActivityIcon className="h-4 w-4" />}
         />
         <KPI
-          label="Success rate (30d)"
+          label={t('dashboard.kpi.successRate')}
           value={loading ? '' : successRateValue}
           unit={loading ? undefined : successRateUnit}
           loading={loading}
           icon={<TrendingUp className="h-4 w-4" />}
         />
         <KPI
-          label="Completed (30d)"
+          label={t('dashboard.kpi.completed')}
           value={loading ? '' : (stats?.completed_activities ?? 0)}
           loading={loading}
           icon={<ListChecks className="h-4 w-4" />}
         />
         <KPI
-          label="Avg processing"
+          label={t('dashboard.kpi.avgProcessing')}
           value={loading ? '' : avgProcessingTime}
           loading={loading}
           icon={<Zap className="h-4 w-4" />}
@@ -439,39 +504,43 @@ export function DashboardPage() {
       </section>
 
       {/* Connection status */}
-      <section aria-label="Connections" className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <section aria-label={t('dashboard.connections.aria')} className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <ConnectionCard
           icon={Link2}
-          title="Strava API"
-          description="OAuth connection to Strava"
+          title={t('dashboard.connections.strava.title')}
+          description={t('dashboard.connections.strava.description')}
           statusLabel={
-            !status ? 'Loading...' : status.strava_connected ? 'Connected' : 'Disconnected'
+            !status
+              ? t('dashboard.connections.loading')
+              : status.strava_connected
+                ? t('dashboard.connections.strava.connected')
+                : t('dashboard.connections.strava.disconnected')
           }
           statusTone={stravaTone}
         />
         <ConnectionCard
           icon={Cpu}
-          title="AgentCore"
-          description="AI agents and memory"
-          statusLabel={!status ? 'Loading...' : agentcoreLabel(status.agentcore_status)}
+          title={t('dashboard.connections.agentcore.title')}
+          description={t('dashboard.connections.agentcore.description')}
+          statusLabel={!status ? t('dashboard.connections.loading') : agentcoreLabel(status.agentcore_status)}
           statusTone={agentTone}
         />
         <ConnectionCard
           icon={Power}
-          title="Enhancement"
-          description="Activity processing pipeline"
+          title={t('dashboard.connections.enhancement.title')}
+          description={t('dashboard.connections.enhancement.description')}
           statusLabel={
             !status
-              ? 'Loading...'
+              ? t('dashboard.connections.loading')
               : status.enhancement_status === 'active'
-                ? 'Active'
-                : 'Paused'
+                ? t('dashboard.connections.enhancement.active')
+                : t('dashboard.connections.enhancement.paused')
           }
           statusTone={enhancementTone}
           action={
             status ? (
               <Button variant="outline" size="sm" onClick={handleToggleEnhancement}>
-                {status.enhancement_enabled ? 'Pause' : 'Resume'}
+                {status.enhancement_enabled ? t('dashboard.enhancement.pause') : t('dashboard.enhancement.resume')}
               </Button>
             ) : null
           }
@@ -479,20 +548,20 @@ export function DashboardPage() {
       </section>
 
       {/* Recent activities */}
-      <section aria-label="Recent activities" className="flex flex-col gap-4">
+      <section aria-label={t('dashboard.activities.aria')} className="flex flex-col gap-4">
         <div className="flex items-center justify-between gap-2">
           <div>
             <h2 className="text-lg font-semibold tracking-tight text-foreground">
-              Recent activities
+              {t('dashboard.activities.title')}
             </h2>
-            <p className="text-xs text-muted-foreground">Latest enhancements processed.</p>
+            <p className="text-xs text-muted-foreground">{t('dashboard.activities.subtitle')}</p>
           </div>
           <Button
             variant="ghost"
             size="icon"
             onClick={fetchAll}
             disabled={refreshing}
-            aria-label="Refresh activities"
+            aria-label={t('dashboard.refreshActivitiesAria')}
           >
             <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
           </Button>
@@ -522,9 +591,9 @@ export function DashboardPage() {
                 <ListChecks className="h-6 w-6" />
               </div>
               <div className="space-y-1">
-                <p className="text-sm font-medium text-foreground">No recent activities</p>
+                <p className="text-sm font-medium text-foreground">{t('dashboard.activities.empty.title')}</p>
                 <p className="text-xs text-muted-foreground">
-                  Activities will appear here after they are processed.
+                  {t('dashboard.activities.empty.description')}
                 </p>
               </div>
             </div>
@@ -535,17 +604,41 @@ export function DashboardPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border bg-surface-muted/40 text-xs uppercase tracking-wider text-muted-foreground">
-                      <th className="px-4 py-3 text-left font-medium">Activity</th>
-                      <th className="px-4 py-3 text-left font-medium">Date</th>
-                      <th className="px-4 py-3 text-left font-medium">Modules</th>
-                      <th className="px-4 py-3 text-left font-medium">Status</th>
-                      <th className="px-4 py-3 text-right font-medium">Time</th>
+                      <th
+                        className="px-4 py-3 text-left font-medium cursor-pointer select-none hover:text-foreground transition-colors"
+                        onClick={() => handleSort('name')}
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          {t('dashboard.activities.col.activity')}
+                          <SortIcon k="name" />
+                        </span>
+                      </th>
+                      <th
+                        className="px-4 py-3 text-left font-medium cursor-pointer select-none hover:text-foreground transition-colors"
+                        onClick={() => handleSort('date')}
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          {t('dashboard.activities.col.date')}
+                          <SortIcon k="date" />
+                        </span>
+                      </th>
+                      <th className="px-4 py-3 text-left font-medium">{t('dashboard.activities.col.modules')}</th>
+                      <th className="px-4 py-3 text-left font-medium">{t('dashboard.activities.col.status')}</th>
+                      <th
+                        className="px-4 py-3 text-right font-medium cursor-pointer select-none hover:text-foreground transition-colors"
+                        onClick={() => handleSort('time')}
+                      >
+                        <span className="inline-flex items-center justify-end gap-1">
+                          {t('dashboard.activities.col.time')}
+                          <SortIcon k="time" />
+                        </span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
-                    {activities.map((act, idx) => {
+                    {sortedActivities.map((act, idx) => {
                       const Icon = activityIcon(act.activity_type);
-                      const sBadge = statusBadge(act.status);
+                      const sBadge = statusBadge(act.status, t);
                       return (
                         <tr
                           key={`${act.name}-${idx}`}
@@ -597,9 +690,9 @@ export function DashboardPage() {
 
               {/* Mobile: cards */}
               <ul className="flex flex-col md:hidden">
-                {activities.map((act, idx) => {
+                {sortedActivities.map((act, idx) => {
                   const Icon = activityIcon(act.activity_type);
-                  const sBadge = statusBadge(act.status);
+                  const sBadge = statusBadge(act.status, t);
                   return (
                     <li
                       key={`${act.name}-${idx}`}

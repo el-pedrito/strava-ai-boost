@@ -1,5 +1,6 @@
 import { CircleCheck, CircleAlert, TriangleAlert, Info, X } from 'lucide-react';
 import type { ComponentType } from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/cn';
 import type { FlashItem, FlashType } from './flash';
 
@@ -22,6 +23,7 @@ const TONE_MAP: Record<FlashType, string> = {
 };
 
 export function FlashToasts({ items }: FlashToastsProps) {
+  const { t } = useTranslation();
   if (items.length === 0) return null;
 
   return (
@@ -49,7 +51,7 @@ export function FlashToasts({ items }: FlashToastsProps) {
             <button
               type="button"
               onClick={item.onDismiss}
-              aria-label="Dismiss notification"
+              aria-label={t('common.dismiss')}
               className="-m-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <X className="h-3.5 w-3.5" />

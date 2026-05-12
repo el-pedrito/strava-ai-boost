@@ -153,6 +153,7 @@ export function CoachPage() {
   const [data, setData] = useState<CoachSummary | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [feedbackLimit, setFeedbackLimit] = useState<number>(5);
 
   useEffect(() => {
     let cancelled = false;
@@ -418,9 +419,19 @@ export function CoachPage() {
                 </Card>
               ) : (
                 <div className="flex flex-col gap-3">
-                  {data.recent_feedback.slice(0, 2).map((item) => (
+                  {data.recent_feedback.slice(0, feedbackLimit).map((item) => (
                     <FeedbackCard key={item.activity_id} item={item} />
                   ))}
+                  {data.recent_feedback.length > feedbackLimit ? (
+                    <Button
+                      variant="outline"
+                      size="md"
+                      onClick={() => setFeedbackLimit((prev) => prev + 5)}
+                      className="self-center"
+                    >
+                      View {data.recent_feedback.length - feedbackLimit} more
+                    </Button>
+                  ) : null}
                 </div>
               )}
             </section>

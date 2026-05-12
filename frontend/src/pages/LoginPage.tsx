@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Activity, Sparkles, LineChart, Sun, Moon } from 'lucide-react';
 import {
   Alert,
@@ -14,25 +15,8 @@ import {
 import { useAuth } from '../auth/AuthContext';
 import { useTheme } from '../theme/ThemeProvider';
 
-const valueProps = [
-  {
-    icon: Sparkles,
-    title: 'Auto-enhanced descriptions',
-    description: 'Each activity gets a personalized title and report in your style.',
-  },
-  {
-    icon: Activity,
-    title: 'Personal AI coach',
-    description: 'Trends, ramp rate, pace zones. Like a real coaching session.',
-  },
-  {
-    icon: LineChart,
-    title: 'Built on Strava you trust',
-    description: 'Read-only by default. Your data stays yours.',
-  },
-];
-
 export function LoginPage() {
+  const { t } = useTranslation();
   const { signIn, completeNewPassword, error, isLoading } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [email, setEmail] = useState('');
@@ -56,6 +40,24 @@ export function LoginPage() {
 
   const showError = error && error !== 'NEW_PASSWORD_REQUIRED';
 
+  const valueProps = [
+    {
+      icon: Sparkles,
+      title: t('login.valueProp1Title'),
+      description: t('login.valueProp1Desc'),
+    },
+    {
+      icon: Activity,
+      title: t('login.valueProp2Title'),
+      description: t('login.valueProp2Desc'),
+    },
+    {
+      icon: LineChart,
+      title: t('login.valueProp3Title'),
+      description: t('login.valueProp3Desc'),
+    },
+  ];
+
   return (
     <div className="min-h-screen w-full bg-background text-foreground flex">
       {/* Left hero panel — hidden on mobile */}
@@ -69,7 +71,7 @@ export function LoginPage() {
                 Strava AI Boost
               </h1>
               <p className="mt-3 text-base lg:text-lg text-muted-foreground max-w-md leading-relaxed">
-                Your AI coach on Strava. Smarter analysis. Honest descriptions. Real progress.
+                {t('login.tagline')}
               </p>
             </div>
 
@@ -90,9 +92,7 @@ export function LoginPage() {
             </ul>
           </div>
 
-          <p className="text-xs text-muted-foreground">
-            Built with care. Powered by Bedrock + Strava.
-          </p>
+          <p className="text-xs text-muted-foreground">{t('login.footer')}</p>
         </div>
       </aside>
 
@@ -103,7 +103,7 @@ export function LoginPage() {
           variant="ghost"
           size="icon"
           onClick={toggleTheme}
-          aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+          aria-label={theme === 'dark' ? t('login.themeLight') : t('login.themeDark')}
           className="absolute top-4 right-4"
         >
           {theme === 'dark' ? (
@@ -116,12 +116,10 @@ export function LoginPage() {
         <Card variant="elevated" padding="lg" className="w-full max-w-md animate-fade-in-up">
           <CardHeader>
             <CardTitle className="text-2xl">
-              {needsNewPassword ? 'Set new password' : 'Sign in'}
+              {needsNewPassword ? t('login.newPasswordTitle') : t('login.title')}
             </CardTitle>
             <CardDescription>
-              {needsNewPassword
-                ? 'First sign-in. Choose a strong password.'
-                : "Welcome back. Let's check your progress."}
+              {needsNewPassword ? t('login.newPasswordSubtitle') : t('login.subtitle')}
             </CardDescription>
           </CardHeader>
 
@@ -132,7 +130,7 @@ export function LoginPage() {
               {!needsNewPassword ? (
                 <>
                   <div className="flex flex-col gap-2">
-                    <Label htmlFor="email">Email</Label>
+                    <Label htmlFor="email">{t('login.email')}</Label>
                     <Input
                       id="email"
                       type="email"
@@ -144,7 +142,7 @@ export function LoginPage() {
                     />
                   </div>
                   <div className="flex flex-col gap-2">
-                    <Label htmlFor="password">Password</Label>
+                    <Label htmlFor="password">{t('login.password')}</Label>
                     <Input
                       id="password"
                       type="password"
@@ -157,9 +155,9 @@ export function LoginPage() {
                 </>
               ) : (
                 <>
-                  <Alert variant="info">First sign-in. Choose a strong password.</Alert>
+                  <Alert variant="info">{t('login.newPasswordInfo')}</Alert>
                   <div className="flex flex-col gap-2">
-                    <Label htmlFor="new-password">New password</Label>
+                    <Label htmlFor="new-password">{t('login.newPassword')}</Label>
                     <Input
                       id="new-password"
                       type="password"
@@ -169,14 +167,14 @@ export function LoginPage() {
                       required
                     />
                     <p className="text-xs text-muted-foreground">
-                      Min 12 chars, upper + lower + digits + symbols.
+                      {t('login.newPasswordConstraint')}
                     </p>
                   </div>
                 </>
               )}
 
               <Button type="submit" variant="primary" size="lg" loading={isLoading} className="w-full">
-                {needsNewPassword ? 'Set new password' : 'Sign in'}
+                {needsNewPassword ? t('login.submitNewPassword') : t('login.submit')}
               </Button>
 
               <div className="relative my-2">
@@ -184,16 +182,18 @@ export function LoginPage() {
                   <span className="w-full border-t border-border" />
                 </div>
                 <div className="relative flex justify-center text-xs uppercase tracking-wider">
-                  <span className="bg-surface-elevated px-3 text-muted-foreground">Or</span>
+                  <span className="bg-surface-elevated px-3 text-muted-foreground">
+                    {t('login.or')}
+                  </span>
                 </div>
               </div>
 
               <div className="flex flex-col gap-2">
                 <Button type="button" variant="outline" size="lg" disabled className="w-full">
-                  Connect with Strava
+                  {t('login.connectStrava')}
                 </Button>
                 <p className="text-xs text-muted-foreground text-center">
-                  Connect after signing in.
+                  {t('login.connectStravaHint')}
                 </p>
               </div>
             </form>
@@ -201,7 +201,7 @@ export function LoginPage() {
         </Card>
 
         <p className="absolute bottom-6 left-0 right-0 text-center text-xs text-muted-foreground px-6">
-          Need access? Contact your administrator.
+          {t('login.adminContact')}
         </p>
       </main>
     </div>
