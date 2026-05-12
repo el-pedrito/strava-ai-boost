@@ -18,3 +18,4 @@ export { Select, type SelectProps, type SelectOption } from './Select';
 export { Textarea, type TextareaProps } from './Textarea';
 export { Toggle, type ToggleProps } from './Toggle';
 export { Pagination, type PaginationProps } from './Pagination';
+export { Stepper, type StepperProps, type StepperStep, type StepStatus } from './Stepper';

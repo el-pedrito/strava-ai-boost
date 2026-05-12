@@ -7,6 +7,7 @@ import { BottomNav } from './BottomNav';
 import { MobileDrawer } from './MobileDrawer';
 import { FlashToasts } from './FlashToasts';
 import { FlashProvider, type AddFlashFn, type FlashItem, type FlashType } from './flash';
+import { PageTransition } from '../PageTransition';
 
 let nextFlashId = 0;
 
@@ -145,7 +146,9 @@ export function Shell() {
         <div className="flex min-w-0 flex-1 flex-col">
           <Topbar onMenuClick={() => setDrawerOpen(true)} />
           <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 pb-24 md:px-8 md:py-10 md:pb-10">
-            <Outlet />
+            <PageTransition>
+              <Outlet />
+            </PageTransition>
           </main>
         </div>
 

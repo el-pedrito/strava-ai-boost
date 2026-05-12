@@ -5,8 +5,11 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   Line,
   LineChart,
+  ReferenceDot,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -23,6 +26,7 @@ import {
   TrendingDown,
   TrendingUp,
 } from 'lucide-react';
+import { motion, useReducedMotion } from 'framer-motion';
 import {
   Alert,
   Badge,
@@ -37,6 +41,7 @@ import {
 } from '@/ui';
 import { ChartTooltip, useChartTheme } from '@/ui/Chart';
 import { cn } from '@/lib/cn';
+import { staggerContainer, staggerItem } from '@/lib/motion';
 import { api } from '../../api/client.ts';
 import { CoachChat } from './CoachChat.tsx';
 
@@ -146,10 +151,19 @@ function FeedbackCard({ item }: FeedbackCardProps) {
   );
 }
 
+function useStaggerVariants() {
+  const reduceMotion = useReducedMotion();
+  return {
+    container: reduceMotion ? undefined : staggerContainer,
+    item: reduceMotion ? undefined : staggerItem,
+  };
+}
+
 export function CoachPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const chartTheme = useChartTheme();
+  const stagger = useStaggerVariants();
 
   const [data, setData] = useState<CoachSummary | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -229,32 +243,136 @@ export function CoachPage() {
     return Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length);
   })();
 
-  const insights = useMemo<string[]>(() => {
-    const out: string[] = [];
-    if (vol.length >= 2) {
-      const first = vol[0];
-      const last = vol[vol.length - 1];
-      const delta = last - first;
-      const sign = delta > 0 ? '+' : '';
-      out.push(
-        `Volume: ${first}km → ${last}km (${sign}${delta.toFixed(1)}km)`
-      );
+  // Volume insight (computed on client from received trends)
+  const volumeInsight = useMemo<string | null>(() => {
+    if (vol.length < 2) return null;
+    const first = vol[0] || 0;
+    const last = vol[vol.length - 1] || 0;
+    const avg = vol.reduce((a, b) => a + b, 0) / vol.length;
+    const max = Math.max(...vol);
+    const maxIdx = vol.findIndex((v) => v === max);
+    if (first > 0 && last > first * 1.15) {
+      const pct = Math.round(((last - first) / first) * 100);
+      return t('coach.insights.volumeUp', { pct });
     }
+    if (first > 0 && last < first * 0.85) {
+      const pct = Math.round(((first - last) / first) * 100);
+      return t('coach.insights.volumeDown', { pct });
+    }
+    const variance =
+      avg > 0
+        ? Math.sqrt(
+            vol.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / vol.length,
+          ) / avg
+        : 0;
+    if (variance < 0.1) {
+      return t('coach.insights.volumeSteady', { avg: Math.round(avg) });
+    }
+    if (maxIdx >= 0 && max > 0) {
+      return t('coach.insights.volumePeak', {
+        week: WEEK_LABELS[maxIdx],
+        km: Math.round(max),
+      });
+    }
+    return null;
+  }, [vol, t]);
+
+  // Pace insight
+  const paceInsight = useMemo<string | null>(() => {
     const paces = trends?.avg_pace_per_week ?? [];
-    if (paces.length >= 2) {
-      const firstSec = paceToSec(paces[0]);
-      const lastSec = paceToSec(paces[paces.length - 1]);
-      if (firstSec > 0 && lastSec > 0 && lastSec < firstSec) {
-        out.push(
-          `Pace improvement: ${paces[0]} → ${paces[paces.length - 1]}`
-        );
-      }
+    if (paces.length < 2) return null;
+    const validSecs = paces.map(paceToSec).filter((s) => s > 0);
+    if (validSecs.length < 2) return null;
+    const firstSec = validSecs[0];
+    const lastSec = validSecs[validSecs.length - 1];
+    const diff = firstSec - lastSec;
+    if (diff > 5) {
+      return t('coach.insights.paceImproved', { diff: Math.round(diff) });
     }
-    if (rampRate !== null && rampRate > 10) {
-      out.push('Load is climbing fast. Consider an easier week.');
+    if (diff < -5) {
+      return t('coach.insights.paceSlowed', { diff: Math.round(-diff) });
     }
-    return out;
-  }, [vol, trends, rampRate]);
+    const avgSec = Math.round(
+      validSecs.reduce((a, b) => a + b, 0) / validSecs.length,
+    );
+    return t('coach.insights.paceStable', { pace: formatPace(avgSec) });
+  }, [trends, t]);
+
+  // Ramp rate insight (with tone)
+  const rampInsight = useMemo<{
+    text: string;
+    tone: 'warning' | 'info' | 'muted';
+  } | null>(() => {
+    if (rampRate === null) return null;
+    if (rampRate > 10) {
+      return {
+        text: t('coach.insights.rampHigh', { rate: rampRate }),
+        tone: 'warning',
+      };
+    }
+    if (rampRate >= 5) {
+      return {
+        text: t('coach.insights.rampSteady', { rate: rampRate }),
+        tone: 'info',
+      };
+    }
+    if (rampRate < 0) {
+      return {
+        text: t('coach.insights.rampRecovery', { rate: Math.abs(rampRate) }),
+        tone: 'muted',
+      };
+    }
+    return {
+      text: t('coach.insights.rampSteady', { rate: rampRate }),
+      tone: 'info',
+    };
+  }, [rampRate, t]);
+
+  // EF insight (pace + HR)
+  const efInsight = useMemo<string | null>(() => {
+    if (efPaces.length < 2) return null;
+    const paceFirst = efPaces[0].pace_sec;
+    const paceLast = efPaces[efPaces.length - 1].pace_sec;
+    const hrs = efPaces.filter((p) => p.hr).map((p) => p.hr as number);
+    if (hrs.length < 2) return null;
+    const hrFirst = hrs[0];
+    const hrLast = hrs[hrs.length - 1];
+    const paceDelta = paceFirst - paceLast; // positive = faster
+    const hrDelta = hrLast - hrFirst; // positive = HR up
+    const hrStable = Math.abs(hrDelta) < 3;
+    const paceStable = Math.abs(paceDelta) < 3;
+    if (paceDelta > 3 && hrStable) return t('coach.insights.efAerobicGain');
+    if (paceStable && hrDelta < -3) return t('coach.insights.efCardiacGain');
+    if (paceDelta > 3 && hrDelta > 3) return t('coach.insights.efFatigue');
+    if (paceStable && hrStable) return t('coach.insights.efStable');
+    return null;
+  }, [efPaces, t]);
+
+  // Interval insight
+  const intervalInsight = useMemo<string | null>(() => {
+    if (intervalPaces.length < 2) return null;
+    const first = intervalPaces[0].pace_sec;
+    const last = intervalPaces[intervalPaces.length - 1].pace_sec;
+    if (first - last > 3) return t('coach.insights.intervalImproved');
+    if (last - first > 3) return t('coach.insights.intervalSlowed');
+    return null;
+  }, [intervalPaces, t]);
+
+  // Pace average for ReferenceLine
+  const paceAvgSec = useMemo<number | null>(() => {
+    if (validPaceSecs.length === 0) return null;
+    return Math.round(
+      validPaceSecs.reduce((a, b) => a + b, 0) / validPaceSecs.length,
+    );
+  }, [validPaceSecs]);
+
+  // Volume max info for highlight
+  const volumeMax = useMemo(() => {
+    if (vol.length === 0) return { max: 0, idx: -1 };
+    const max = Math.max(...vol);
+    const idx = vol.findIndex((v) => v === max);
+    return { max, idx };
+  }, [vol]);
 
   const nextSession =
     data?.recent_feedback?.[0]?.coach_feedback?.recommendation_next ??
@@ -319,56 +437,69 @@ export function CoachPage() {
             {loading ? (
               <KPISkeleton />
             ) : (
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <KPI
-                  label="Volume (4 weeks)"
-                  value={Math.round(totalKm)}
-                  unit="km"
-                />
-                <KPI
-                  label="Sessions (4 weeks)"
-                  value={
-                    <span className="text-2xl">
-                      {runSessions}
-                      <span className="text-muted-foreground"> runs</span>
-                      <span className="text-muted-foreground"> · </span>
-                      {otherSessions}
-                      <span className="text-muted-foreground"> other</span>
-                    </span>
-                  }
-                />
-                <KPI label="This week" value={thisWeekKm} unit="km" />
-                <KPI
-                  label="Ramp rate"
-                  value={
-                    rampRate !== null ? (
-                      <span
-                        className={cn(
-                          rampTone === 'danger' && 'text-danger',
-                          rampTone === 'success' && 'text-success'
-                        )}
-                      >
-                        {rampRate > 0 ? '+' : ''}
-                        {rampRate}%
+              <motion.div
+                className="grid grid-cols-2 lg:grid-cols-4 gap-3"
+                variants={stagger.container}
+                initial="hidden"
+                animate="show"
+              >
+                <motion.div variants={stagger.item}>
+                  <KPI
+                    label="Volume (4 weeks)"
+                    value={Math.round(totalKm)}
+                    unit="km"
+                  />
+                </motion.div>
+                <motion.div variants={stagger.item}>
+                  <KPI
+                    label="Sessions (4 weeks)"
+                    value={
+                      <span className="text-2xl">
+                        {runSessions}
+                        <span className="text-muted-foreground"> runs</span>
+                        <span className="text-muted-foreground"> · </span>
+                        {otherSessions}
+                        <span className="text-muted-foreground"> other</span>
                       </span>
-                    ) : (
-                      '-'
-                    )
-                  }
-                  icon={
-                    rampRate !== null ? (
-                      <RampIcon
-                        className={cn(
-                          'h-4 w-4',
-                          rampTone === 'danger' && 'text-danger',
-                          rampTone === 'success' && 'text-success'
-                        )}
-                        aria-hidden="true"
-                      />
-                    ) : undefined
-                  }
-                />
-              </div>
+                    }
+                  />
+                </motion.div>
+                <motion.div variants={stagger.item}>
+                  <KPI label="This week" value={thisWeekKm} unit="km" />
+                </motion.div>
+                <motion.div variants={stagger.item}>
+                  <KPI
+                    label="Ramp rate"
+                    value={
+                      rampRate !== null ? (
+                        <span
+                          className={cn(
+                            rampTone === 'danger' && 'text-danger',
+                            rampTone === 'success' && 'text-success'
+                          )}
+                        >
+                          {rampRate > 0 ? '+' : ''}
+                          {rampRate}%
+                        </span>
+                      ) : (
+                        '-'
+                      )
+                    }
+                    icon={
+                      rampRate !== null ? (
+                        <RampIcon
+                          className={cn(
+                            'h-4 w-4',
+                            rampTone === 'danger' && 'text-danger',
+                            rampTone === 'success' && 'text-success'
+                          )}
+                          aria-hidden="true"
+                        />
+                      ) : undefined
+                    }
+                  />
+                </motion.div>
+              </motion.div>
             )}
 
             {rampRate !== null && rampRate > 10 ? (
@@ -546,19 +677,74 @@ export function CoachPage() {
                         cursor={{ fill: chartTheme.gridColor, opacity: 0.3 }}
                         content={
                           <ChartTooltip
-                            valueFormatter={(v) => `${v} km`}
+                            valueFormatter={(v) =>
+                              `${v} ${t('coach.chart.kmUnit')}`
+                            }
+                            subtextFormatter={(payload) => {
+                              const entry = payload[0];
+                              if (!entry) return null;
+                              const value = Number(entry.value);
+                              if (!Number.isFinite(value) || value === 0) {
+                                return t('coach.chart.zeroLabel');
+                              }
+                              if (
+                                volumeMax.max > 0 &&
+                                value === volumeMax.max
+                              ) {
+                                return `${t('coach.chart.peakLabel')} - ${Math.round(value)} ${t('coach.chart.kmUnit')}`;
+                              }
+                              return null;
+                            }}
                           />
                         }
                       />
                       <Bar
                         dataKey="km"
-                        name="Volume"
-                        fill={chartTheme.primaryColor}
+                        name={t('coach.chart.legendVolume')}
                         radius={[8, 8, 0, 0]}
-                      />
+                        animationDuration={500}
+                        animationEasing="ease-out"
+                        isAnimationActive
+                      >
+                        {volumeChartData.map((entry, idx) => (
+                          <Cell
+                            key={`vol-${idx}`}
+                            fill={
+                              entry.km > 0 &&
+                              volumeMax.max > 0 &&
+                              entry.km === volumeMax.max
+                                ? chartTheme.primaryColor
+                                : `${chartTheme.primaryColor}99`
+                            }
+                          />
+                        ))}
+                      </Bar>
+                      {volumeMax.idx >= 0 && volumeMax.max > 0 ? (
+                        <ReferenceDot
+                          x={WEEK_LABELS[volumeMax.idx]}
+                          y={volumeMax.max}
+                          r={4}
+                          fill={chartTheme.primaryColor}
+                          stroke={chartTheme.tooltipBg}
+                          strokeWidth={2}
+                          ifOverflow="extendDomain"
+                        />
+                      ) : null}
                     </BarChart>
                   </ResponsiveContainer>
                 </Card>
+
+                {volumeInsight ? (
+                  <Card variant="flat" padding="sm">
+                    <div className="flex items-start gap-2.5">
+                      <Sparkles
+                        className="h-4 w-4 text-primary mt-0.5 flex-shrink-0"
+                        aria-hidden="true"
+                      />
+                      <p className="text-sm leading-relaxed">{volumeInsight}</p>
+                    </div>
+                  </Card>
+                ) : null}
 
                 <Card variant="default" padding="lg">
                   <div className="mb-4 flex flex-col gap-0.5">
@@ -608,16 +794,52 @@ export function CoachPage() {
                           <ChartTooltip
                             valueFormatter={(v) =>
                               typeof v === 'number'
-                                ? `${formatPace(v)}/km`
+                                ? `${formatPace(v)}${t('coach.chart.paceUnit')}`
                                 : String(v)
                             }
+                            subtextFormatter={(payload, label) => {
+                              const entry = payload[0];
+                              if (!entry) return null;
+                              const value = Number(entry.value);
+                              if (!Number.isFinite(value) || value <= 0) return null;
+                              const idx = paceChartData.findIndex(
+                                (p) => p.week === label,
+                              );
+                              if (idx <= 0) return null;
+                              const prev = paceChartData[idx - 1].paceSec;
+                              if (!prev || prev <= 0) return null;
+                              const diff = Math.round(prev - value);
+                              if (diff > 0) {
+                                return t('coach.chart.fasterByPrevWeek', { diff });
+                              }
+                              if (diff < 0) {
+                                return t('coach.chart.slowerByPrevWeek', {
+                                  diff: -diff,
+                                });
+                              }
+                              return t('coach.chart.samePace');
+                            }}
                           />
                         }
                       />
+                      {paceAvgSec !== null ? (
+                        <ReferenceLine
+                          y={paceAvgSec}
+                          stroke={chartTheme.mutedColor}
+                          strokeDasharray="3 3"
+                          label={{
+                            value: `${t('coach.chart.averageLabel')} ${formatPace(paceAvgSec)}`,
+                            position: 'insideTopRight',
+                            fill: chartTheme.mutedColor,
+                            fontSize: 10,
+                            fontFamily: 'var(--font-mono)',
+                          }}
+                        />
+                      ) : null}
                       <Line
                         type="monotone"
                         dataKey="paceSec"
-                        name="Pace"
+                        name={t('coach.chart.legendPace')}
                         stroke={chartTheme.successColor}
                         strokeWidth={2.5}
                         dot={{
@@ -627,10 +849,25 @@ export function CoachPage() {
                         }}
                         activeDot={{ r: 6, fill: chartTheme.primaryColor }}
                         connectNulls
+                        animationDuration={700}
+                        animationEasing="ease-out"
+                        isAnimationActive
                       />
                     </LineChart>
                   </ResponsiveContainer>
                 </Card>
+
+                {paceInsight ? (
+                  <Card variant="flat" padding="sm">
+                    <div className="flex items-start gap-2.5">
+                      <Sparkles
+                        className="h-4 w-4 text-primary mt-0.5 flex-shrink-0"
+                        aria-hidden="true"
+                      />
+                      <p className="text-sm leading-relaxed">{paceInsight}</p>
+                    </div>
+                  </Card>
+                ) : null}
 
                 {(intervalPaces.length > 0 || efPaces.length > 0) ? (
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -697,16 +934,30 @@ export function CoachPage() {
                             <Line
                               type="monotone"
                               dataKey="paceSec"
-                              name="Interval"
+                              name={t('coach.chart.legendPace')}
                               stroke={chartTheme.primaryColor}
                               strokeWidth={2}
                               dot={{ r: 3, fill: chartTheme.primaryColor }}
+                              animationDuration={600}
+                              animationEasing="ease-out"
+                              isAnimationActive
                             />
                           </LineChart>
                         </ResponsiveContainer>
                         <p className="mt-2 text-xs text-muted-foreground">
                           Lower = faster
                         </p>
+                        {intervalInsight ? (
+                          <div className="mt-3 flex items-start gap-2 rounded-md bg-surface px-2.5 py-1.5">
+                            <Sparkles
+                              className="h-3.5 w-3.5 text-primary mt-0.5 flex-shrink-0"
+                              aria-hidden="true"
+                            />
+                            <p className="text-xs leading-relaxed">
+                              {intervalInsight}
+                            </p>
+                          </div>
+                        ) : null}
                       </Card>
                     ) : null}
 
@@ -776,35 +1027,47 @@ export function CoachPage() {
                             <Line
                               type="monotone"
                               dataKey="paceSec"
-                              name="EF"
+                              name={t('coach.chart.legendPace')}
                               stroke={chartTheme.successColor}
                               strokeWidth={2}
                               dot={{ r: 3, fill: chartTheme.successColor }}
+                              animationDuration={600}
+                              animationEasing="ease-out"
+                              isAnimationActive
                             />
                           </LineChart>
                         </ResponsiveContainer>
                         <p className="mt-2 text-xs text-muted-foreground">
                           Pace down + HR stable = aerobic progress
                         </p>
+                        {efInsight ? (
+                          <div className="mt-3 flex items-start gap-2 rounded-md bg-surface px-2.5 py-1.5">
+                            <Sparkles
+                              className="h-3.5 w-3.5 text-primary mt-0.5 flex-shrink-0"
+                              aria-hidden="true"
+                            />
+                            <p className="text-xs leading-relaxed">{efInsight}</p>
+                          </div>
+                        ) : null}
                       </Card>
                     ) : null}
                   </div>
                 ) : null}
 
-                {insights.length > 0 ? (
-                  <Card variant="flat" padding="md">
-                    <div className="flex items-start gap-3">
+                {rampInsight && rampInsight.tone === 'warning' ? (
+                  <Alert variant="warning">{rampInsight.text}</Alert>
+                ) : rampInsight ? (
+                  <Card variant="flat" padding="sm">
+                    <div className="flex items-start gap-2.5">
                       <Sparkles
-                        className="h-4 w-4 text-primary mt-0.5 flex-shrink-0"
+                        className={cn(
+                          'h-4 w-4 mt-0.5 flex-shrink-0',
+                          rampInsight.tone === 'info' && 'text-primary',
+                          rampInsight.tone === 'muted' && 'text-muted-foreground',
+                        )}
                         aria-hidden="true"
                       />
-                      <ul className="flex flex-col gap-1.5 text-sm">
-                        {insights.map((line, i) => (
-                          <li key={i} className="leading-relaxed">
-                            {line}
-                          </li>
-                        ))}
-                      </ul>
+                      <p className="text-sm leading-relaxed">{rampInsight.text}</p>
                     </div>
                   </Card>
                 ) : null}

@@ -51,6 +51,10 @@ export interface ChartTooltipProps {
   label?: string | number;
   valueFormatter?: (value: number | string, name?: string) => string;
   labelFormatter?: (label: string | number) => string;
+  subtextFormatter?: (
+    payload: TooltipPayloadEntry[],
+    label: string | number | undefined,
+  ) => string | null;
 }
 
 export function ChartTooltip({
@@ -59,12 +63,14 @@ export function ChartTooltip({
   label,
   valueFormatter,
   labelFormatter,
+  subtextFormatter,
 }: ChartTooltipProps) {
   const theme = useChartTheme();
   if (!active || !payload || payload.length === 0) return null;
 
   const formattedLabel =
     labelFormatter && label !== undefined ? labelFormatter(label) : label;
+  const subtext = subtextFormatter ? subtextFormatter(payload, label) : null;
 
   return (
     <div
@@ -107,6 +113,14 @@ export function ChartTooltip({
           );
         })}
       </div>
+      {subtext ? (
+        <div
+          className="mt-1 pt-1 border-t text-[11px] leading-tight"
+          style={{ borderColor: theme.tooltipBorder, color: theme.mutedColor }}
+        >
+          {subtext}
+        </div>
+      ) : null}
     </div>
   );
 }

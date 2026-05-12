@@ -14,10 +14,12 @@ import {
   FileSearch,
   type LucideIcon,
 } from 'lucide-react';
+import { motion, useReducedMotion } from 'framer-motion';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { api } from '@/api/client';
 import { formatDateTime, computeProcessingTime } from '@/utils/formatDate';
 import { Alert, Badge, Button, Card, KPI } from '@/ui';
+import { staggerContainer, staggerItem } from '@/lib/motion';
 import type { Activity, QualityStats } from '@/types/index';
 
 interface RawActivity {
@@ -255,6 +257,9 @@ function SkeletonRows() {
 
 export function ContentQualityPage() {
   const { t } = useTranslation();
+  const reduceMotion = useReducedMotion();
+  const containerVariants = reduceMotion ? undefined : staggerContainer;
+  const itemVariants = reduceMotion ? undefined : staggerItem;
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -382,16 +387,29 @@ export function ContentQualityPage() {
       )}
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-        <KPI label={t('quality.kpi.avgConfidence')} value={avgConfidenceValue} loading={loading} />
-        <KPI
-          label={t('quality.kpi.editRate')}
-          value={editRateValue}
-          loading={loading}
-        />
-        <KPI label={t('quality.kpi.avgSimilarity')} value={avgSimilarityValue} loading={loading} />
-        <KPI label={t('quality.kpi.feedbackAnalyzed')} value={feedbackValue} loading={loading} />
-      </div>
+      <motion.div
+        className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4"
+        variants={containerVariants}
+        initial="hidden"
+        animate="show"
+      >
+        <motion.div variants={itemVariants}>
+          <KPI label={t('quality.kpi.avgConfidence')} value={avgConfidenceValue} loading={loading} />
+        </motion.div>
+        <motion.div variants={itemVariants}>
+          <KPI
+            label={t('quality.kpi.editRate')}
+            value={editRateValue}
+            loading={loading}
+          />
+        </motion.div>
+        <motion.div variants={itemVariants}>
+          <KPI label={t('quality.kpi.avgSimilarity')} value={avgSimilarityValue} loading={loading} />
+        </motion.div>
+        <motion.div variants={itemVariants}>
+          <KPI label={t('quality.kpi.feedbackAnalyzed')} value={feedbackValue} loading={loading} />
+        </motion.div>
+      </motion.div>
 
       {/* Activities section */}
       <div className="flex flex-col gap-3">
