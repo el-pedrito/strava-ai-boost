@@ -5,6 +5,16 @@
 
 ## Done
 
+- **Voice debrief audio V1 (Polly)** : stack `StravaAIBoost-VoiceDebrief` déployé. Bedrock Haiku 4.5 → script 60-90s → Polly neural Léa (FR) / Joanna (EN) → MP3 S3 privé → presigned URL 1h → AudioPlayer dans Activity detail. Coût ~$0.018-0.020/debrief. Trigger DynamoDB Stream idempotent.
+- **Help tooltips Configuration + Preferences** : aide contextuelle sur Strava, modules, athlete profile, Max HR, records, pace zones, content style, demographics. 19 sections.
+- **Empty states illustrés** : composant `EmptyState` + 6 SVG inline (activity, feedback, records, search, connect, celebrate). Migré 5 empty states.
+- **Compliance Coach Now** : fix bug "5/5 = 100%" qui comptait toutes les activités au lieu des séances Campus complétées.
+- **Plan Campus injection coach** : fix indentation `coach_generator.py` qui faisait que le plan n'était jamais injecté dans le contexte coach (sauf fallback WeekNumberIndex).
+- **Coach chat sees Campus weekly plan** : `coach_ask_api.py` fetch maintenant les séances de la semaine + IAM index access via Core stack.
+- **Quality > Memory column** : pastille icône color-coded + tooltip Radix au hover (mobile texte préservé).
+- **Trends chart fixes** : axe Y allure intervalles snap multiples 10s + span min 30s + helper `computePaceAxis`. Fix bug critique : `interval_paces` agrège maintenant les fast laps en **1 point par séance** au lieu d'1 point par lap (causait points superposés et axe absurde). `slow_laps` défini explicitement (le `ef_paces` était cassé par NameError).
+- **Trends "Semaine de récupération"** : wording reformulé pour être auto-explicatif.
+- **Tooltips Coach Now** : `(?)` sur "Suivi du plan" et "Prochaine séance".
 - Migration Cloudscape → Tailwind v4 + composants custom
 - Dark / light avec toggle utilisateur
 - Mobile-first (sidebar resizable + bottom nav)
