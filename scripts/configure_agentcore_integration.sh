@@ -21,6 +21,7 @@ PROJECT_NAME="strava-ai-boost"
 # Short agent names to avoid ARN truncation issues
 CONTENT_AGENT_NAME="content_gen"
 CAMPUS_AGENT_NAME="campus_coach"
+COACH_AGENT_NAME="strava_ai_boost_coach"
 
 print_status() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -42,35 +43,42 @@ print_error() {
 detect_deployed_agents() {
     local content_arn=""
     local campus_arn=""
-    
+    local coach_arn=""
+
     # Get Content Generation Agent ARN from .bedrock_agentcore.yaml
     if [ -f ".bedrock_agentcore.yaml" ]; then
         content_arn=$(grep -A 1 "agent_arn:" .bedrock_agentcore.yaml | grep "content_gen" -A 1 | grep "arn:aws" | sed 's/.*arn:/arn:/' | sed 's/[[:space:]]*$//' | head -1)
         campus_arn=$(grep -A 1 "agent_arn:" .bedrock_agentcore.yaml | grep "campus_coach" -A 1 | grep "arn:aws" | sed 's/.*arn:/arn:/' | sed 's/[[:space:]]*$//' | head -1)
+        coach_arn=$(grep -A 1 "agent_arn:" .bedrock_agentcore.yaml | grep "strava_ai_boost_coach" -A 1 | grep "arn:aws" | sed 's/.*arn:/arn:/' | sed 's/[[:space:]]*$//' | head -1)
     fi
-    
+
     # Fallback: Get ARNs using agentcore status if YAML parsing fails
     if [ -z "$content_arn" ] && command -v agentcore &> /dev/null; then
         content_arn=$(agentcore status --agent "$CONTENT_AGENT_NAME" 2>/dev/null | grep -A 2 "Agent ARN:" | grep "arn:aws" | sed 's/│//g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//' | head -1)
     fi
-    
+
     if [ -z "$campus_arn" ] && command -v agentcore &> /dev/null; then
         campus_arn=$(agentcore status --agent "$CAMPUS_AGENT_NAME" 2>/dev/null | grep -A 2 "Agent ARN:" | grep "arn:aws" | sed 's/│//g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//' | head -1)
     fi
-    
+
+    if [ -z "$coach_arn" ] && command -v agentcore &> /dev/null; then
+        coach_arn=$(agentcore status --agent "$COACH_AGENT_NAME" 2>/dev/null | grep -A 2 "Agent ARN:" | grep "arn:aws" | sed 's/│//g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//' | head -1)
+    fi
+
     # Validate detection results
-    if [ -z "$content_arn" ] && [ -z "$campus_arn" ]; then
+    if [ -z "$content_arn" ] && [ -z "$campus_arn" ] && [ -z "$coach_arn" ]; then
         return 1
     fi
-    
-    echo "$content_arn|$campus_arn"
+
+    echo "$content_arn|$campus_arn|$coach_arn"
 }
 
 # Function to update IAM permissions for Lambda roles to invoke AgentCore
 update_lambda_iam_permissions() {
     local content_arn="$1"
     local campus_arn="$2"
-    
+    local coach_arn="$3"
+
     print_status "🔐 Updating Lambda IAM permissions for AgentCore invocation..."
     
     # Get account ID
@@ -86,6 +94,7 @@ update_lambda_iam_permissions() {
     local lambda_functions=(
         "StravaAIBoost-ContentGenerator"
         "StravaAIBoost-CampusCoachInvoker"
+        "StravaAIBoost-CoachAskAPI"
     )
     
     local updated_roles=0
@@ -123,7 +132,9 @@ update_lambda_iam_permissions() {
                 "$content_arn",
                 "$content_arn/*",
                 "$campus_arn",
-                "$campus_arn/*"
+                "$campus_arn/*",
+                "$coach_arn",
+                "$coach_arn/*"
             ]
         }
     ]
@@ -638,8 +649,9 @@ verify_agentcore_iam_permissions() {
 update_lambda_environment_variables() {
     local content_arn="$1"
     local campus_arn="$2"
-    local memory_id="$3"
-    
+    local coach_arn="$3"
+    local memory_id="$4"
+
     print_status "🔄 Updating Lambda environment variables with agent ARNs (direct AWS API)..."
     
     # Detect actual Lambda functions that need AgentCore environment variables
@@ -672,6 +684,7 @@ update_lambda_environment_variables() {
         lambda_functions=(
             "StravaAIBoost-ContentGenerator"
             "StravaAIBoost-CampusCoachInvoker"
+            "StravaAIBoost-CoachAskAPI"
         )
     fi
     
@@ -696,13 +709,16 @@ update_lambda_environment_variables() {
             updated_env=$(echo "$current_env" | jq \
                 --arg content_arn "$content_arn" \
                 --arg campus_arn "$campus_arn" \
+                --arg coach_arn "$coach_arn" \
                 '. + {
                     "CONTENT_GENERATION_AGENT_ARN": $content_arn,
                     "CAMPUS_COACH_AGENT_ARN": $campus_arn,
-                    "AGENTCORE_AGENTS_AVAILABLE": (if ($content_arn != "" or $campus_arn != "") then "true" else "false" end),
+                    "COACH_AGENT_ARN": $coach_arn,
+                    "AGENTCORE_AGENTS_AVAILABLE": (if ($content_arn != "" or $campus_arn != "" or $coach_arn != "") then "true" else "false" end),
                     "AGENTCORE_DEPLOYMENT_TYPE": "direct_code_deploy",
                     "CONTENT_GENERATION_AGENT_NAME": "'"$CONTENT_AGENT_NAME"'",
                     "CAMPUS_COACH_AGENT_NAME": "'"$CAMPUS_AGENT_NAME"'",
+                    "COACH_AGENT_NAME": "'"$COACH_AGENT_NAME"'",
                     "AGENTCORE_REGION": "'"$AWS_REGION"'",
                     "AGENTCORE_LAST_UPDATE": "'"$(date -u +"%Y-%m-%dT%H:%M:%SZ")"'"
                 }')
@@ -789,8 +805,9 @@ update_cdk_context() {
 create_env_file() {
     local content_arn="$1"
     local campus_arn="$2"
-    local memory_id="$3"
-    
+    local coach_arn="$3"
+    local memory_id="$4"
+
     print_status "📄 Updating .env.agentcore file..."
     
     # Backup existing file if it exists
@@ -861,6 +878,13 @@ CONTENT_GENERATION_AGENT_NAME=$CONTENT_AGENT_NAME
 # Browser Tool agent for Campus Coach session extraction
 CAMPUS_COACH_AGENT_ARN=$campus_arn
 CAMPUS_COACH_AGENT_NAME=$CAMPUS_AGENT_NAME
+
+# ============================================================================
+# STRAVA AI BOOST COACH AGENT
+# ============================================================================
+# Conversational AI coach agent
+COACH_AGENT_ARN=$coach_arn
+COACH_AGENT_NAME=$COACH_AGENT_NAME
 
 # ============================================================================
 # AGENTCORE CONFIGURATION
@@ -973,7 +997,7 @@ main() {
     fi
     
     # Parse agent information
-    IFS='|' read -r content_arn campus_arn <<< "$agent_info"
+    IFS='|' read -r content_arn campus_arn coach_arn <<< "$agent_info"
     
     # Get memory IDs from YAML
     print_status "🔍 Detecting AgentCore Memory configuration..."
@@ -993,37 +1017,39 @@ main() {
     print_success "Detected AgentCore resources:"
     [ -n "$content_arn" ] && print_status "  Content Generation Agent: $content_arn"
     [ -n "$campus_arn" ] && print_status "  Campus Coach Agent: $campus_arn"
+    [ -n "$coach_arn" ] && print_status "  Strava AI Boost Coach Agent: $coach_arn"
     [ -n "$content_memory_id" ] && print_status "  Content Agent Memory: $content_memory_id"
     [ -n "$campus_memory_id" ] && print_status "  Campus Coach Memory: $campus_memory_id"
-    
+
     print_status ""
     print_status "🔧 Configuring AgentCore integration..."
-    
+
     # Configure AgentCore agent IAM permissions (including memory access)
-    if [ -n "$campus_arn" ] || [ -n "$content_arn" ]; then
+    if [ -n "$campus_arn" ] || [ -n "$content_arn" ] || [ -n "$coach_arn" ]; then
         configure_agentcore_agent_permissions "$campus_arn" "$content_memory_id" "$campus_memory_id"
     fi
-    
+
     # Update Lambda IAM permissions for AgentCore invocation
-    update_lambda_iam_permissions "$content_arn" "$campus_arn"
-    
+    update_lambda_iam_permissions "$content_arn" "$campus_arn" "$coach_arn"
+
     # Verify AgentCore agent permissions (read-only check)
     verify_agentcore_iam_permissions "$content_arn" "$campus_arn"
-    
+
     # Update Lambda environment variables with agent ARNs and memory ID
-    update_lambda_environment_variables "$content_arn" "$campus_arn" "$content_memory_id"
-    
+    update_lambda_environment_variables "$content_arn" "$campus_arn" "$coach_arn" "$content_memory_id"
+
     # Update CDK context
     update_cdk_context "$content_arn" "$campus_arn"
-    
+
     # Create environment file with memory ID
-    create_env_file "$content_arn" "$campus_arn" "$content_memory_id"
+    create_env_file "$content_arn" "$campus_arn" "$coach_arn" "$content_memory_id"
     
     print_success "🎉 AgentCore integration configuration completed successfully!"
     print_status ""
     print_status "📋 Configuration Summary:"
     print_status "  Content Generation Agent: $content_arn"
     print_status "  Campus Coach Agent: $campus_arn"
+    print_status "  Strava AI Boost Coach Agent: $coach_arn"
     if [ -n "$content_memory_id" ] || [ -n "$campus_memory_id" ]; then
         print_status "  AgentCore Memory (LTM):"
         [ -n "$content_memory_id" ] && print_status "    - Content Agent: $content_memory_id"
