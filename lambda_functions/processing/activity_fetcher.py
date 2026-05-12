@@ -660,6 +660,20 @@ def store_activity_data(
                 return [convert_floats(item) for item in obj]
             return obj
 
+        # Resolve user_id (Strava athlete id) — required by GSI UserActivitiesIndex.
+        # Source of truth order: user_config['user_id'], then athlete payload, then athlete_profile.
+        athlete_block = activity_data.get('athlete') or {}
+        athlete_id_raw = (
+            user_config.get('user_id')
+            or athlete_block.get('id')
+            or (athlete_profile or {}).get('id')
+        )
+        user_id_str = str(athlete_id_raw) if athlete_id_raw is not None else None
+        if not user_id_str:
+            logger.warning(
+                f"Could not resolve user_id for activity {activity_id} — item will not be indexed by UserActivitiesIndex"
+            )
+
         # Build DynamoDB item with ALL data
         item = {
             'activity_id': activity_id,
@@ -680,6 +694,8 @@ def store_activity_data(
             'intervals_icu_json': json.dumps(convert_floats(intervals_icu_data), default=str) if intervals_icu_data else None,
             'laps_json': json.dumps(convert_floats(laps_data), default=str) if laps_data else None
         }
+        if user_id_str:
+            item['user_id'] = user_id_str
         
         # Set TTL: expire after 365 days
         item['expires_at'] = int((datetime.utcnow() + timedelta(days=365)).timestamp())
