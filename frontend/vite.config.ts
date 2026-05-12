@@ -40,19 +40,16 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
+        // Split only the heavy isolated libs that don't depend on React internals.
+        // Keep React, React DOM, React Router, lucide, framer-motion in the main
+        // bundle to avoid execution-order bugs across cross-chunk imports.
         manualChunks(id) {
           if (id.includes('node_modules')) {
             if (id.includes('recharts') || id.includes('d3-')) return 'recharts';
-            if (id.includes('react-i18next') || id.includes('i18next')) return 'i18n';
             if (id.includes('amazon-cognito')) return 'cognito';
-            if (id.includes('@radix-ui')) return 'radix';
-            if (id.includes('framer-motion') || id.includes('motion-dom') || id.includes('motion-utils')) return 'motion';
-            if (id.includes('lucide-react')) return 'icons';
-            if (id.includes('react-router')) return 'router';
-            if (id.includes('/react-dom/') || id.includes('/react/') || id.includes('scheduler')) return 'react';
-            return 'vendor';
           }
         },
       },
