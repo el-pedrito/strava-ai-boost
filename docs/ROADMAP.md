@@ -26,6 +26,7 @@
 
 ### Court terme (1-2 semaines)
 
+- [ ] **Recovery state widget Coach Now** — exploiter pleinement les données Intervals.icu déjà fetchées : KPIs HRV (delta vs baseline 7j), VO2max (trend), Resting HR (delta), Sleep (durée + qualité), Form/TSB explicite. Détection d'anomalies (HRV chute -20%, decoupling > 10%). Aujourd'hui ces données sont en DB mais peu visibles côté UI.
 - [ ] **Voice debrief audio post-séance** — quick win Bedrock + Polly. Personne ne le fait sur le marché aujourd'hui (cf [analyse](./COMPETITIVE-ANALYSIS.md)). 100% AWS-native, différenciation immédiate.
 - [ ] **Map polyline sur Activity detail** — afficher le tracé Strava (Mapbox static ou Leaflet, polyline dispo via Strava API). Aujourd'hui placeholder.
 - [ ] **Empty states illustrés** : remplacer les icônes lucide par des illustrations SVG sur les pages "vides"
