@@ -14,6 +14,7 @@ logger = get_logger("coach-ask-api")
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 ACTIVITIES_TABLE = os.environ.get("ACTIVITIES_TABLE", "strava-ai-boost-activities")
 USER_CONFIG_TABLE = os.environ.get("USER_CONFIG_TABLE", "strava-ai-boost-user-configuration")
+COACHING_SESSIONS_TABLE = os.environ.get("COACHING_SESSIONS_TABLE", "strava-ai-boost-campus-coaching-sessions")
 COACH_AGENT_ARN = os.environ.get("COACH_AGENT_ARN", "")
 DEFAULT_USER_ID = os.environ.get("DEFAULT_USER_ID", "")
 
@@ -207,7 +208,119 @@ def _build_user_context(user_id: str) -> list:
     except Exception as e:
         logger.warning(f"Failed to get activities: {e}")
 
+    weekly_plan = _fetch_campus_weekly_plan(user_id)
+    if weekly_plan:
+        context_parts.append("Plan Campus Coach de la semaine en cours:\n" + weekly_plan)
+
     return context_parts
+
+
+def _fetch_campus_weekly_plan(user_id: str) -> str:
+    """Fetch Campus Coach planned sessions for the current ISO week.
+
+    Queries the IsoWeekIndex GSI on the Campus coaching sessions table.
+    Falls back to the most recent week_number via WeekNumberIndex if the
+    current ISO week has no entries yet.
+
+    Returns a compact text block (one line per session). Empty string if
+    nothing was found or the table is unavailable.
+    """
+    try:
+        from datetime import datetime, timezone
+        sessions_table = dynamodb.Table(COACHING_SESSIONS_TABLE)
+
+        # Primary: query current ISO week
+        current_iso_week = datetime.now(timezone.utc).strftime('%Y-W%W')
+        resp = sessions_table.query(
+            IndexName="IsoWeekIndex",
+            KeyConditionExpression="iso_week = :iw",
+            ExpressionAttributeValues={":iw": current_iso_week},
+        )
+        week_sessions = resp.get("Items", [])
+
+        # Fallback: most recent week_number via WeekNumberIndex
+        if not week_sessions:
+            scan_resp = sessions_table.scan(Limit=5, ProjectionExpression="week_number, updated_at")
+            scan_items = scan_resp.get("Items", []) or []
+            if scan_items:
+                latest = sorted(scan_items, key=lambda x: x.get("updated_at", ""), reverse=True)[0]
+                wn = latest.get("week_number", "")
+                if wn:
+                    resp = sessions_table.query(
+                        IndexName="WeekNumberIndex",
+                        KeyConditionExpression="week_number = :wn",
+                        ExpressionAttributeValues={":wn": wn},
+                    )
+                    week_sessions = resp.get("Items", [])
+
+        if not week_sessions:
+            return ""
+
+        return _format_campus_sessions(week_sessions)
+    except Exception as e:
+        logger.warning(f"Failed to fetch Campus weekly plan: {e}")
+        return ""
+
+
+def _format_campus_sessions(sessions: list) -> str:
+    """Format Campus Coach sessions into a compact text block for the prompt."""
+    lines = []
+    for s in sessions:
+        try:
+            title = (s.get("title") or "Séance").strip()[:80]
+            session_number = s.get("session_number", "?")
+            targeted = s.get("targetedMetrics") or {}
+            target_dist = targeted.get("target_distance_km")
+            target_dur = targeted.get("target_duration_min")
+            status = (s.get("status") or "").strip() or "à venir"
+
+            target_parts = []
+            if target_dist not in (None, ""):
+                try:
+                    target_parts.append(f"{float(target_dist):.1f}km")
+                except (ValueError, TypeError):
+                    pass
+            if target_dur not in (None, ""):
+                try:
+                    target_parts.append(f"{float(target_dur):.0f}min")
+                except (ValueError, TypeError):
+                    pass
+            target_str = " / ".join(target_parts) if target_parts else "objectif libre"
+
+            header = f"- {title} (séance #{session_number}, {target_str}, statut: {status})"
+
+            intervals = s.get("intervals") or []
+            interval_summary = ""
+            if isinstance(intervals, list) and intervals:
+                pieces = []
+                for iv in intervals[:6]:
+                    if not isinstance(iv, dict):
+                        continue
+                    label = iv.get("label") or iv.get("type") or iv.get("name") or "bloc"
+                    repeats = iv.get("repeats") or iv.get("count")
+                    distance = iv.get("distance_m") or iv.get("distance")
+                    duration = iv.get("duration_s") or iv.get("duration")
+                    intensity = iv.get("intensity") or iv.get("zone") or iv.get("pace")
+                    parts = [str(label)[:30]]
+                    if repeats:
+                        parts.append(f"x{repeats}")
+                    if distance:
+                        parts.append(f"{distance}m" if isinstance(distance, (int, float)) else str(distance)[:20])
+                    if duration:
+                        parts.append(f"{duration}s" if isinstance(duration, (int, float)) else str(duration)[:20])
+                    if intensity:
+                        parts.append(str(intensity)[:30])
+                    pieces.append(" ".join(parts))
+                if pieces:
+                    interval_summary = "  Intervalles: " + " ; ".join(pieces)
+
+            lines.append(header)
+            if interval_summary:
+                lines.append(interval_summary)
+        except (ValueError, TypeError, AttributeError) as e:
+            logger.debug(f"Skipping Campus session in context: {e}")
+            continue
+    return "\n".join(lines)
 
 
 def _format_recent_activities(activities: list) -> str:
