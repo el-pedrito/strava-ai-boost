@@ -11,18 +11,19 @@ import {
   Dumbbell,
   Flower2,
   Activity as ActivityIcon,
-  FileSearch,
   Brain,
   CheckCircle2,
   Clock,
   type LucideIcon,
 } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
+import * as Tooltip from '@radix-ui/react-tooltip';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { api } from '@/api/client';
 import { formatDateTime, computeProcessingTime } from '@/utils/formatDate';
-import { Alert, Badge, Button, Card, KPI } from '@/ui';
+import { Alert, Badge, Button, Card, EmptyState, KPI } from '@/ui';
 import { InfoTooltip } from '@/ui/InfoTooltip';
+import { cn } from '@/lib/cn';
 import { staggerContainer, staggerItem } from '@/lib/motion';
 import type { Activity, QualityStats } from '@/types/index';
 
@@ -219,10 +220,34 @@ function DesktopRow({ item, t }: ActivityRowProps & { t: TFn }) {
         )}
       </td>
       <td className="py-3 px-4">
-        <Badge variant={memory.variant} size="sm">
-          <MemoryIcon className="h-3 w-3" aria-hidden="true" />
-          {memory.text}
-        </Badge>
+        <Tooltip.Provider delayDuration={150}>
+          <Tooltip.Root>
+            <Tooltip.Trigger asChild>
+              <span
+                className={cn(
+                  'inline-flex h-7 w-7 items-center justify-center rounded-full border',
+                  memory.variant === 'success' && 'border-success/30 bg-success/10 text-success',
+                  memory.variant === 'info' && 'border-info/30 bg-info/10 text-info',
+                  memory.variant === 'default' && 'border-border bg-muted text-muted-foreground',
+                )}
+                aria-label={memory.text}
+              >
+                <MemoryIcon className="h-3.5 w-3.5" aria-hidden="true" />
+              </span>
+            </Tooltip.Trigger>
+            <Tooltip.Portal>
+              <Tooltip.Content
+                side="top"
+                align="center"
+                sideOffset={6}
+                className="z-50 rounded-md border border-border bg-surface-elevated px-2.5 py-1.5 text-xs text-foreground shadow-lg"
+              >
+                {memory.text}
+                <Tooltip.Arrow className="fill-surface-elevated" />
+              </Tooltip.Content>
+            </Tooltip.Portal>
+          </Tooltip.Root>
+        </Tooltip.Provider>
       </td>
       <td className="py-3 px-4 font-numeric text-xs tabular-nums text-muted-foreground">
         {item.processing_time}
@@ -494,18 +519,11 @@ export function ContentQualityPage() {
             <SkeletonRows />
           </Card>
         ) : activities.length === 0 ? (
-          <Card padding="lg" className="flex flex-col items-center text-center gap-2">
-            <FileSearch
-              className="h-10 w-10 text-muted-foreground"
-              aria-hidden="true"
-            />
-            <h3 className="text-base font-semibold text-foreground">
-              {t('quality.empty.title')}
-            </h3>
-            <p className="text-sm text-muted-foreground max-w-md">
-              {t('quality.empty.description')}
-            </p>
-          </Card>
+          <EmptyState
+            illustration="activity"
+            title={t('quality.empty.title')}
+            description={t('quality.empty.description')}
+          />
         ) : (
           <>
             {/* Desktop table */}

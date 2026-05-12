@@ -123,18 +123,23 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                             ExpressionAttributeValues={":wn": wn},
                         )
                         week_sessions = resp.get("Items", [])
-                if week_sessions:
-                    historical_summary["campus_coach_plan"] = [
-                        {
-                            "title": s.get("title", ""),
-                            "session_number": s.get("session_number", ""),
-                            "intervals": s.get("intervals", []),
-                            "target_distance_km": (s.get("targetedMetrics") or {}).get("target_distance_km"),
-                            "target_duration_min": (s.get("targetedMetrics") or {}).get("target_duration_min"),
-                            "status": s.get("status", ""),
-                        }
-                        for s in week_sessions
-                    ]
+
+            # Always inject the Campus Coach plan when sessions were found,
+            # whether they came from the primary iso_week query or the fallback.
+            # Note: DynamoDB Decimal values are handled by the JSON `default=` hook
+            # in _invoke_coach_agent (converts via __float__), so no manual cast needed here.
+            if week_sessions:
+                historical_summary["campus_coach_plan"] = [
+                    {
+                        "title": s.get("title", ""),
+                        "session_number": s.get("session_number", ""),
+                        "intervals": s.get("intervals", []),
+                        "target_distance_km": (s.get("targetedMetrics") or {}).get("target_distance_km"),
+                        "target_duration_min": (s.get("targetedMetrics") or {}).get("target_duration_min"),
+                        "status": s.get("status", ""),
+                    }
+                    for s in week_sessions
+                ]
         except Exception as e:
             logger.warning(f"Failed to fetch Campus Coach sessions: {e}")
 

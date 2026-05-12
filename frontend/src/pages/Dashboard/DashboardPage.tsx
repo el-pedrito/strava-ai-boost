@@ -20,7 +20,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
-import { Alert, Badge, Button, Card, KPI } from '../../ui';
+import { Alert, Badge, Button, Card, EmptyState, KPI } from '../../ui';
 import { OnboardingHint } from '../../components/OnboardingHint.tsx';
 import { staggerContainer, staggerItem } from '../../lib/motion.ts';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh.ts';
@@ -635,16 +635,13 @@ export function DashboardPage() {
               ))}
             </div>
           ) : activities.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                <ListChecks className="h-6 w-6" />
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-foreground">{t('dashboard.activities.empty.title')}</p>
-                <p className="text-xs text-muted-foreground">
-                  {t('dashboard.activities.empty.description')}
-                </p>
-              </div>
+            <div className="px-4 py-6">
+              <EmptyState
+                illustration="activity"
+                title={t('dashboard.activities.empty.title')}
+                description={t('dashboard.activities.empty.description')}
+                className="border-0 bg-transparent"
+              />
             </div>
           ) : (
             <>

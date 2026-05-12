@@ -25,27 +25,29 @@ class ApiGatewayStack(Stack):
     """API Gateway stack for local web interface"""
 
     def __init__(
-        self, 
-        scope: Construct, 
-        construct_id: str, 
+        self,
+        scope: Construct,
+        construct_id: str,
         core_stack: CoreInfrastructureStack,
         webhook_stack=None,
         step_functions_arn: str = None,
         user_pool=None,
         cloudfront_domain: str = None,
+        audio_debrief_lambda: lambda_.IFunction = None,
         **kwargs
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
-        
+
         self.core_stack = core_stack
         self.webhook_stack = webhook_stack
         self.step_functions_arn = step_functions_arn
         self.user_pool = user_pool
         self.cloudfront_domain = cloudfront_domain
-        
+        self.audio_debrief_lambda = audio_debrief_lambda
+
         # Create Lambda functions for API endpoints
         self._create_lambda_functions()
-        
+
         # Create API Gateway
         self._create_api_gateway()
 
@@ -461,6 +463,26 @@ class ApiGatewayStack(Stack):
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
         )
         
+        # /activities/{activityId}/audio-url — presigned URL for voice debrief MP3
+        if self.audio_debrief_lambda is not None:
+            activities_root = self.api.root.add_resource("activities")
+            activity_item = activities_root.add_resource("{activityId}")
+            audio_url_resource = activity_item.add_resource("audio-url")
+            audio_url_resource.add_method(
+                "GET",
+                apigateway.LambdaIntegration(self.audio_debrief_lambda),
+                api_key_required=False,
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
+                method_responses=[
+                    apigateway.MethodResponse(status_code="200"),
+                    apigateway.MethodResponse(status_code="400"),
+                    apigateway.MethodResponse(status_code="403"),
+                    apigateway.MethodResponse(status_code="404"),
+                    apigateway.MethodResponse(status_code="500"),
+                ],
+            )
+
         # /test resource for connection testing
         test_resource = self.api.root.add_resource("test")
         strava_connection_resource = test_resource.add_resource("strava-connection")

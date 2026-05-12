@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Card, CardDescription, CardHeader, CardTitle } from '@/ui';
+import { Card, CardDescription, CardHeader, CardTitle, InfoTooltip } from '@/ui';
 import { StravaAppSetup } from './StravaAppSetup.tsx';
 import { OAuthConnection } from './OAuthConnection.tsx';
 import { ModuleConfiguration } from './ModuleConfiguration.tsx';
@@ -58,7 +58,10 @@ export function ConfigurationPage() {
 
       <Card padding="lg">
         <CardHeader>
-          <CardTitle>{t('configuration.strava.title')}</CardTitle>
+          <div className="flex items-center gap-1.5">
+            <CardTitle>{t('configuration.strava.title')}</CardTitle>
+            <InfoTooltip i18nKey="config.strava.section.help" align="start" />
+          </div>
           <CardDescription>{t('configuration.strava.description')}</CardDescription>
         </CardHeader>
         {!stravaConfigured ? (
@@ -70,7 +73,10 @@ export function ConfigurationPage() {
 
       <Card padding="lg">
         <CardHeader>
-          <CardTitle>{t('configuration.modules.title')}</CardTitle>
+          <div className="flex items-center gap-1.5">
+            <CardTitle>{t('configuration.modules.title')}</CardTitle>
+            <InfoTooltip i18nKey="config.modules.section.help" align="start" />
+          </div>
           <CardDescription>{t('configuration.modules.description')}</CardDescription>
         </CardHeader>
         <ModuleConfiguration modules={modules} onModuleChanged={fetchStatus} />

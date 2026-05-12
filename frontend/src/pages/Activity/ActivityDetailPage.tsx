@@ -9,10 +9,11 @@ import {
   ChevronUp,
   Clock,
   Dumbbell,
-  FileQuestion,
   Flower2,
   Footprints,
+  Headphones,
   Heart,
+  Loader2,
   Map as MapIcon,
   Mountain,
   Ruler,
@@ -21,11 +22,11 @@ import {
   Waves,
   Zap,
 } from 'lucide-react';
-import { Badge, Button, Card } from '../../ui';
-import { api } from '../../api/client.ts';
+import { AudioPlayer, Badge, Button, Card, EmptyState } from '../../ui';
+import { api, ApiError } from '../../api/client.ts';
 import { cn } from '../../lib/cn.ts';
 import { formatDateTime } from '../../utils/formatDate.ts';
-import type { Activity } from '../../types/index.ts';
+import type { Activity, AudioDebriefPayload } from '../../types/index.ts';
 
 type LucideIcon = ComponentType<{ className?: string }>;
 type BadgeVariant = 'default' | 'primary' | 'success' | 'warning' | 'danger' | 'info' | 'outline';
@@ -167,18 +168,18 @@ function NotFoundState() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   return (
-    <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-6 text-center">
-      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        <FileQuestion className="h-7 w-7" />
-      </div>
-      <div className="space-y-1">
-        <h1 className="text-lg font-semibold text-foreground">{t('activity.notFound')}</h1>
-        <p className="text-sm text-muted-foreground">{t('activity.notFoundHint')}</p>
-      </div>
-      <Button variant="outline" size="sm" onClick={() => navigate('/')}>
-        <ChevronLeft className="h-4 w-4" />
-        <span>{t('activity.backToDashboard')}</span>
-      </Button>
+    <div className="flex min-h-[60vh] items-center justify-center px-6">
+      <EmptyState
+        illustration="search"
+        title={t('activity.notFound')}
+        description={t('activity.notFoundHint')}
+        action={
+          <Button variant="outline" size="sm" onClick={() => navigate('/')}>
+            <ChevronLeft className="h-4 w-4" />
+            <span>{t('activity.backToDashboard')}</span>
+          </Button>
+        }
+      />
     </div>
   );
 }
@@ -193,6 +194,9 @@ export function ActivityDetailPage() {
   const [activity] = useState<Activity | null>(stateActivity);
   const [coachFeedback, setCoachFeedback] = useState<CoachFeedbackItem | null>(null);
   const [feedbackExpanded, setFeedbackExpanded] = useState(false);
+  const [audioDebrief, setAudioDebrief] = useState<AudioDebriefPayload | null>(null);
+  const [audioLoading, setAudioLoading] = useState(false);
+  const [audioStatus, setAudioStatus] = useState<'unknown' | 'pending' | 'unavailable'>('unknown');
 
   const activityId = activity?.activity_id ?? routeId ?? null;
 
@@ -215,6 +219,47 @@ export function ActivityDetailPage() {
     return () => {
       cancelled = true;
     };
+  }, [activityId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAudio() {
+      if (!activityId) return;
+      setAudioLoading(true);
+      try {
+        const payload = await api.get<AudioDebriefPayload>(
+          `/activities/${encodeURIComponent(activityId)}/audio-url`,
+        );
+        if (cancelled) return;
+        if (payload?.audio_url) {
+          setAudioDebrief(payload);
+          setAudioStatus('unknown');
+        } else {
+          setAudioStatus('unavailable');
+        }
+      } catch (err) {
+        if (cancelled) return;
+        // 404 means the debrief is not (yet) available — treat as pending if recent
+        if (err instanceof ApiError && err.status === 404) {
+          const generatedAt = activity?.generated_at || activity?.created_at_raw;
+          const ageMs = generatedAt ? Date.now() - new Date(generatedAt).getTime() : Number.NaN;
+          setAudioStatus(
+            Number.isFinite(ageMs) && ageMs >= 0 && ageMs < 5 * 60 * 1000
+              ? 'pending'
+              : 'unavailable',
+          );
+        } else {
+          setAudioStatus('unavailable');
+        }
+      } finally {
+        if (!cancelled) setAudioLoading(false);
+      }
+    }
+    loadAudio();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activityId]);
 
   const stats = useMemo(() => {
@@ -344,6 +389,35 @@ export function ActivityDetailPage() {
           </Card>
         </section>
       ) : null}
+
+      <section aria-label={t('activity.audio.title')} className="flex flex-col gap-3">
+        <div className="flex items-center gap-2">
+          <Headphones className="h-4 w-4 text-primary" />
+          <h2 className="text-lg font-semibold tracking-tight text-foreground">
+            {t('activity.audio.title')}
+          </h2>
+        </div>
+        {audioDebrief?.audio_url ? (
+          <AudioPlayer
+            src={audioDebrief.audio_url}
+            duration={audioDebrief.duration_sec ?? activity.audio_debrief_duration_sec}
+          />
+        ) : audioLoading ? (
+          <Card padding="md" className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>{t('activity.audio.generating')}</span>
+          </Card>
+        ) : audioStatus === 'pending' ? (
+          <Card padding="md" className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>{t('activity.audio.generating')}</span>
+          </Card>
+        ) : (
+          <Card padding="md" className="text-sm text-muted-foreground">
+            {t('activity.audio.unavailable')}
+          </Card>
+        )}
+      </section>
 
       {activity.modules_used && activity.modules_used.length > 0 ? (
         <section aria-label={t('activity.modulesUsed')} className="flex flex-col gap-3">

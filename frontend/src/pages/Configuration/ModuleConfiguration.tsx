@@ -1,7 +1,7 @@
 import { useState, useEffect, type ReactNode } from 'react';
 import { ExternalLink, BarChart3 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Badge, Button, Input, Label, Toggle } from '@/ui';
+import { Badge, Button, InfoTooltip, Input, Label, Toggle } from '@/ui';
 import { CampusCoachLogo } from '../../components/icons/CampusCoachLogo.tsx';
 import { EndurawLogo } from '../../components/icons/EndurawLogo.tsx';
 import { api } from '../../api/client.ts';
@@ -160,6 +160,7 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
         enabled={campusEnabled}
         onToggle={handleCampusToggle}
         status={moduleStatus(campusEnabled, campusConfigured, true)}
+        helpKey="config.module.campus.help"
         t={t}
       >
         {campusEnabled && (
@@ -192,7 +193,10 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
                 }}
               >
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="campus-username">{t('modules.campus.usernameLabel')}</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Label htmlFor="campus-username">{t('modules.campus.usernameLabel')}</Label>
+                    <InfoTooltip i18nKey="config.module.campus.credentials.help" align="start" />
+                  </div>
                   <Input
                     id="campus-username"
                     value={username}
@@ -230,6 +234,7 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
         enabled={endurawEnabled}
         onToggle={handleEndurawToggle}
         status={moduleStatus(endurawEnabled, true, false)}
+        helpKey="config.module.enduraw.help"
         t={t}
       >
         {endurawEnabled && (
@@ -261,6 +266,7 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
         enabled={intervalsEnabled}
         onToggle={handleIntervalsToggle}
         status={moduleStatus(intervalsEnabled, intervalsConfigured, true)}
+        helpKey="config.module.intervals.help"
         t={t}
       >
         {intervalsEnabled && (
@@ -286,7 +292,10 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
                 }}
               >
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="intervals-api-key">{t('modules.intervals.apiKeyLabel')}</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Label htmlFor="intervals-api-key">{t('modules.intervals.apiKeyLabel')}</Label>
+                    <InfoTooltip i18nKey="config.module.intervals.apiKey.help" align="start" />
+                  </div>
                   <Input
                     id="intervals-api-key"
                     type="password"
@@ -316,11 +325,12 @@ interface ModuleCardProps {
   enabled: boolean;
   onToggle: (checked: boolean) => void;
   status: ModuleStatus;
+  helpKey?: string;
   t: TFn;
   children?: ReactNode;
 }
 
-function ModuleCard({ logo, title, description, toggleId, enabled, onToggle, status, t, children }: ModuleCardProps) {
+function ModuleCard({ logo, title, description, toggleId, enabled, onToggle, status, helpKey, t, children }: ModuleCardProps) {
   return (
     <div className="flex flex-col rounded-xl border border-border bg-surface p-5">
       <div className="flex items-start justify-between gap-3">
@@ -328,7 +338,10 @@ function ModuleCard({ logo, title, description, toggleId, enabled, onToggle, sta
         <Toggle id={toggleId} checked={enabled} onCheckedChange={onToggle} aria-label={t('modules.toggleAria', { name: title })} />
       </div>
       <div className="mt-3 flex items-center justify-between gap-2">
-        <h4 className="text-base font-semibold text-foreground">{title}</h4>
+        <div className="flex items-center gap-1.5">
+          <h4 className="text-base font-semibold text-foreground">{title}</h4>
+          {helpKey ? <InfoTooltip i18nKey={helpKey} align="start" /> : null}
+        </div>
         {statusBadge(status, t)}
       </div>
       <p className="mt-1 text-sm text-muted-foreground">{description}</p>

@@ -26,9 +26,10 @@
 
 ### Court terme (1-2 semaines)
 
+- [ ] **Catégorisation fine des activités "other"** — aujourd'hui le KPI Sessions affiche "10 courses · 6 autre". Détecter les types Strava et afficher en français les catégories dominantes : musculation (`WeightTraining` / `Workout` / `Crossfit`), vélo (`Ride` / `VirtualRide` / `EBikeRide`), natation (`Swim`), randonnée (`Hike`), marche (`Walk`), yoga (`Yoga`). Affichage : "10 courses · 6 musculation" ou "10 courses · 4 musculation · 2 vélo" selon la répartition. Backend `dashboard_api.py` doit retourner la répartition par type plutôt qu'un compteur agrégé. Strings affichées toujours en FR/EN via i18n.
 - [ ] **Recovery state widget Coach Now** — exploiter pleinement les données Intervals.icu déjà fetchées : KPIs HRV (delta vs baseline 7j), VO2max (trend), Resting HR (delta), Sleep (durée + qualité), Form/TSB explicite. Détection d'anomalies (HRV chute -20%, decoupling > 10%). Aujourd'hui ces données sont en DB mais peu visibles côté UI.
 - [ ] **Help tooltip systématique sur chaque KPI** — petit `(?)` en haut à droite de chaque card KPI (Dashboard, Coach Now, Quality, Recovery, partout). Au hover/tap : popover Radix avec définition courte (HRV, VO2max, Resting HR, Sleep, Form/TSB, Ramp rate, EF pace, Edit rate, Confidence, Similarity, etc.). i18n FR/EN. Pattern réutilisable via une nouvelle prop `info?: string` sur le composant `KPI`.
-- [ ] **Voice debrief audio post-séance** — quick win Bedrock + Polly. Personne ne le fait sur le marché aujourd'hui (cf [analyse](./COMPETITIVE-ANALYSIS.md)). 100% AWS-native, différenciation immédiate.
+- [ ] **Voice debrief audio post-séance V1 (Polly)** — Bedrock génère un script court (200 mots) à partir du `coach_feedback`, Polly TTS neural voice Léa (FR) / Joanna (EN), MP3 stocké S3 avec URL signée, bouton "Listen to debrief" dans Activity detail. Personne ne le fait en mainstream (cf [analyse](./COMPETITIVE-ANALYSIS.md)). V2 future = Nova Sonic conversationnel temps réel.
 - [ ] **Map polyline sur Activity detail** — afficher le tracé Strava (Mapbox static ou Leaflet, polyline dispo via Strava API). Aujourd'hui placeholder.
 - [ ] **Empty states illustrés** : remplacer les icônes lucide par des illustrations SVG sur les pages "vides"
 - [ ] **Map / split par km sur Activity detail** : breakdown allure / FC par kilomètre via streams Strava
@@ -46,6 +47,7 @@
 
 ### Long terme (3-6 mois)
 
+- [ ] **Coach conversationnel vocal en live (Nova Sonic)** — speech-to-speech bidirectionnel temps réel via Amazon Nova Sonic. L'user parle au coach pendant/après sa séance, le coach répond en voix naturelle avec interruptions possibles. Différenciation forte (aucun concurrent ne le propose en mainstream). Latence ~600ms first-token, plus cher que Polly mais imbattable pour l'expérience conversation. Évolution de la V1 audio Polly : V1 = MP3 statique post-séance / dimanche, V2 = dialogue live.
 - [ ] **Multi-language au-delà de FR/EN** : ES, DE, IT
 - [ ] **Mode "Coach pro"** : un coach humain peut gérer plusieurs athlètes via la même UI
 - [ ] **Intégrations supplémentaires** : Garmin Connect, Polar Flow, Suunto
