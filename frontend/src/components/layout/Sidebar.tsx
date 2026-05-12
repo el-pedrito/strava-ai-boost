@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { LogOut, ChevronDown } from 'lucide-react';
+import { LogOut, ChevronDown, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,10 +13,12 @@ import { NAV_ITEMS } from './navItems';
 
 interface SidebarProps {
   collapsed?: boolean;
+  width?: number;
   onItemClick?: () => void;
+  onToggleCollapse?: () => void;
 }
 
-export function Sidebar({ collapsed = false, onItemClick }: SidebarProps) {
+export function Sidebar({ collapsed = false, width, onItemClick, onToggleCollapse }: SidebarProps) {
   const { t } = useTranslation();
   const { user, signOut } = useAuth();
 
@@ -27,13 +29,15 @@ export function Sidebar({ collapsed = false, onItemClick }: SidebarProps) {
     <aside
       className={cn(
         'flex h-full flex-col border-r border-border bg-surface',
-        collapsed ? 'w-16' : 'w-64'
+        // when width prop is provided, w-* classes are ignored (inline style wins)
+        !width && (collapsed ? 'w-16' : 'w-64')
       )}
+      style={width ? { width: `${width}px` } : undefined}
     >
       <div
         className={cn(
-          'flex items-center gap-3 border-b border-border px-4',
-          collapsed ? 'h-14 justify-center px-0' : 'h-14'
+          'flex items-center gap-3 border-b border-border',
+          collapsed ? 'h-14 justify-center px-0' : 'h-14 px-4'
         )}
       >
         <div
@@ -43,7 +47,7 @@ export function Sidebar({ collapsed = false, onItemClick }: SidebarProps) {
           <span className="block h-4 w-1 rounded-full bg-primary" />
         </div>
         {!collapsed && (
-          <div className="flex min-w-0 flex-col leading-tight">
+          <div className="flex min-w-0 flex-1 flex-col leading-tight">
             <span className="truncate text-sm font-semibold text-foreground">
               Strava AI Boost
             </span>
@@ -51,6 +55,23 @@ export function Sidebar({ collapsed = false, onItemClick }: SidebarProps) {
               Performance toolkit
             </span>
           </div>
+        )}
+        {onToggleCollapse && (
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            aria-label={collapsed ? t('sidebar.expand') : t('sidebar.collapse')}
+            className={cn(
+              'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              collapsed && 'absolute right-1 top-3'
+            )}
+          >
+            {collapsed ? (
+              <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
+            )}
+          </button>
         )}
       </div>
 

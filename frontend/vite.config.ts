@@ -20,7 +20,19 @@ export default defineConfig({
       '^/dashboard/': { target: 'https://uprxy587ri.execute-api.us-east-1.amazonaws.com/prod', changeOrigin: true, secure: true },
       '^/coach/': { target: 'https://uprxy587ri.execute-api.us-east-1.amazonaws.com/prod', changeOrigin: true, secure: true },
       '^/config/': { target: 'https://uprxy587ri.execute-api.us-east-1.amazonaws.com/prod', changeOrigin: true, secure: true },
-      '^/preferences$': { target: 'https://uprxy587ri.execute-api.us-east-1.amazonaws.com/prod', changeOrigin: true, secure: true },
+      '^/preferences': {
+        target: 'https://uprxy587ri.execute-api.us-east-1.amazonaws.com/prod',
+        changeOrigin: true,
+        secure: true,
+        // Skip SPA navigation reloads: only proxy fetch/XHR requests (which include Authorization or accept JSON).
+        bypass: (req) => {
+          const accept = req.headers['accept'] ?? '';
+          if (typeof accept === 'string' && accept.includes('text/html')) {
+            return req.url ?? null;
+          }
+          return null;
+        },
+      },
       '^/health/': { target: 'https://uprxy587ri.execute-api.us-east-1.amazonaws.com/prod', changeOrigin: true, secure: true },
       '^/oauth/': { target: 'https://uprxy587ri.execute-api.us-east-1.amazonaws.com/prod', changeOrigin: true, secure: true },
     },
