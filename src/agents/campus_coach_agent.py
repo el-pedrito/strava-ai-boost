@@ -38,7 +38,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 # Environment variables
 REGION = os.getenv("AWS_REGION", "eu-west-1")
 # Campus Coach uses Haiku 4.5 (scraping task, no need for Sonnet's capabilities)
-# Cost: ~4x cheaper than Sonnet 4.5. See docs/OPTIMIZATION-PLAN.md P0.6
+# Cost: ~4x cheaper than Sonnet 4.5 (P0.6 of April 2026 cost optimization pass).
 MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "global.anthropic.claude-haiku-4-5-20251001-v1:0")
 # Max turns to prevent infinite loops. Successful run = ~130 turns. See P0.3
 MAX_TURNS = int(os.getenv("CAMPUS_COACH_MAX_TURNS", "150"))

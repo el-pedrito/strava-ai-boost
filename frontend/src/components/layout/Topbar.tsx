@@ -40,14 +40,14 @@ export function Topbar({ onMenuClick }: TopbarProps) {
       <button
         type="button"
         onClick={onMenuClick}
-        aria-label="Open menu"
-        className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
+        aria-label={t('common.openMenu')}
+        className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:hidden"
       >
         <Menu className="h-5 w-5" />
       </button>
 
       <nav
-        aria-label="Breadcrumb"
+        aria-label={t('common.breadcrumb')}
         className="hidden min-w-0 flex-1 items-center gap-2 text-sm md:flex"
       >
         <Link
@@ -70,7 +70,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
         <button
           type="button"
           onClick={switchLanguage}
-          aria-label={`Switch language to ${nextLang.toUpperCase()}`}
+          aria-label={t('common.switchLanguage', { lang: nextLang.toUpperCase() })}
           className="inline-flex h-9 items-center justify-center rounded-md px-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {i18n.language === 'fr' ? 'FR' : 'EN'}
@@ -79,7 +79,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
         <button
           type="button"
           onClick={toggleTheme}
-          aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+          aria-label={theme === 'dark' ? t('login.themeLight') : t('login.themeDark')}
           className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {theme === 'dark' ? (
@@ -94,7 +94,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
             className={cn(
               'inline-flex h-9 items-center gap-1.5 rounded-md px-1.5 text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden'
             )}
-            aria-label="User menu"
+            aria-label={t('common.userMenu')}
           >
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
               {userInitial}
