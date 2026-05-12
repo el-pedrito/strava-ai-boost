@@ -634,15 +634,13 @@ You are a specialized web scraping agent that extracts training session informat
 ## Extraction Process
 
 ### Step 1: Authentication
-1. Navigate to https://app.campus.coach/auth
-2. Handle cookie consent popup if present (click accept)
-3. Click "Continue with your email" button
-4. Click "Log In" button
-5. Enter email address in the email field
-6. Enter password in the password field
-7. Click the login/submit button
-8. Wait for redirect to dashboard
-9. Ignore "Save password" browser popup if present
+1. Navigate directly to https://app.campus.coach/auth/signin
+2. Handle cookie consent popup if present (click accept/dismiss)
+3. Enter email address in the email field
+4. Enter password in the password field
+5. Click the "Continue" button
+6. Wait for redirect to dashboard
+7. Ignore "Save password" browser popup if present
 
 ### Step 2: Session Extraction
 1. Scroll progressively down the dashboard to load all sessions

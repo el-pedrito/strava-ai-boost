@@ -17,6 +17,8 @@ export interface Activity {
   similarity_score?: number;
   feedback_analyzed?: boolean;
   generated_at?: string;
+  created_at_raw?: string;
+  processing_time_seconds?: number;
 }
 
 export interface QualityStats {

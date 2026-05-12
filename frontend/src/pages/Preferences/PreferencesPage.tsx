@@ -1,27 +1,27 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import ContentLayout from '@cloudscape-design/components/content-layout';
-import Container from '@cloudscape-design/components/container';
-import Header from '@cloudscape-design/components/header';
-import FormField from '@cloudscape-design/components/form-field';
-import Select from '@cloudscape-design/components/select';
-import Multiselect from '@cloudscape-design/components/multiselect';
-import Input from '@cloudscape-design/components/input';
-import Button from '@cloudscape-design/components/button';
-import SpaceBetween from '@cloudscape-design/components/space-between';
-import ColumnLayout from '@cloudscape-design/components/column-layout';
-import Box from '@cloudscape-design/components/box';
-import Alert from '@cloudscape-design/components/alert';
-import Textarea from '@cloudscape-design/components/textarea';
-import ExpandableSection from '@cloudscape-design/components/expandable-section';
-import type { SelectProps } from '@cloudscape-design/components/select';
-import type { MultiselectProps } from '@cloudscape-design/components/multiselect';
+import * as Dialog from '@radix-ui/react-dialog';
+import { Calculator, Check, Plus, RotateCcw, Trash2, X } from 'lucide-react';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Input,
+  Label,
+  Select,
+  Textarea,
+  type SelectOption,
+} from '@/ui';
 import { api } from '../../api/client.ts';
 import { getConfig } from '../../config.ts';
 import { useFlash } from '../../layouts/AppLayout.tsx';
 import type { PaceZones } from '../../types/index.ts';
 
-const AGE_OPTIONS: SelectProps.Option[] = [
+const AGE_OPTIONS: SelectOption[] = [
   { value: '18-25', label: '18-25' },
   { value: '26-35', label: '26-35' },
   { value: '36-45', label: '36-45' },
@@ -29,7 +29,7 @@ const AGE_OPTIONS: SelectProps.Option[] = [
   { value: '55+', label: '55+' },
 ];
 
-const SPORT_OPTIONS: SelectProps.Option[] = [
+const SPORT_OPTIONS: SelectOption[] = [
   { value: 'health & wellness', label: 'Health & Wellness' },
   { value: 'performance & competition', label: 'Performance & Competition' },
   { value: 'social & fun', label: 'Social & Fun' },
@@ -38,14 +38,14 @@ const SPORT_OPTIONS: SelectProps.Option[] = [
   { value: 'weight management', label: 'Weight Management' },
 ];
 
-const LENGTH_OPTIONS: SelectProps.Option[] = [
-  { value: 'short', label: 'Short', description: '~300 characters - concise, key metrics only' },
-  { value: 'medium', label: 'Medium', description: '~800 characters - balanced insights' },
-  { value: 'detailed', label: 'Detailed', description: '~1500 characters - comprehensive analysis' },
-  { value: 'adaptive', label: 'Adaptive', description: 'Varies by activity complexity' },
+const LENGTH_OPTIONS: SelectOption[] = [
+  { value: 'short', label: 'Short', description: '~300 chars, key metrics only' },
+  { value: 'medium', label: 'Medium', description: '~800 chars, balanced insights' },
+  { value: 'detailed', label: 'Detailed', description: '~1500 chars, full analysis' },
+  { value: 'adaptive', label: 'Adaptive', description: 'Varies by complexity' },
 ];
 
-const TONE_OPTIONS: SelectProps.Option[] = [
+const TONE_OPTIONS: SelectOption[] = [
   { value: 'technical & analytical', label: 'Technical & Analytical' },
   { value: 'motivational & energetic', label: 'Motivational & Energetic' },
   { value: 'casual & friendly', label: 'Casual & Friendly' },
@@ -53,28 +53,28 @@ const TONE_OPTIONS: SelectProps.Option[] = [
   { value: 'authentic & personal', label: 'Authentic & Personal' },
 ];
 
-const EMOJI_OPTIONS: SelectProps.Option[] = [
+const EMOJI_OPTIONS: SelectOption[] = [
   { value: 'none', label: 'None' },
-  { value: 'minimal', label: 'Minimal (1-2 emojis)' },
-  { value: 'moderate', label: 'Moderate (3-5 emojis)' },
-  { value: 'enthusiastic', label: 'Enthusiastic (5+ emojis)' },
+  { value: 'minimal', label: 'Minimal (1-2)' },
+  { value: 'moderate', label: 'Moderate (3-5)' },
+  { value: 'enthusiastic', label: 'Enthusiastic (5+)' },
 ];
 
-const DETAIL_OPTIONS: SelectProps.Option[] = [
-  { value: 'basic', label: 'Basic (simple metrics)' },
-  { value: 'intermediate', label: 'Intermediate (zones, pace analysis)' },
-  { value: 'advanced', label: 'Advanced (streams, detailed analysis)' },
+const DETAIL_OPTIONS: SelectOption[] = [
+  { value: 'basic', label: 'Basic', description: 'simple metrics' },
+  { value: 'intermediate', label: 'Intermediate', description: 'zones, pace analysis' },
+  { value: 'advanced', label: 'Advanced', description: 'streams, detailed analysis' },
 ];
 
-const LANGUAGE_OPTIONS: SelectProps.Option[] = [
-  { value: 'french', label: 'Fran\u00e7ais' },
+const LANGUAGE_OPTIONS: SelectOption[] = [
+  { value: 'french', label: 'Français' },
   { value: 'english', label: 'English' },
-  { value: 'spanish', label: 'Espa\u00f1ol' },
+  { value: 'spanish', label: 'Español' },
   { value: 'german', label: 'Deutsch' },
   { value: 'italian', label: 'Italiano' },
 ];
 
-const INTEREST_OPTIONS: MultiselectProps.Option[] = [
+const INTEREST_OPTIONS: SelectOption[] = [
   { value: 'technology', label: 'Technology' },
   { value: 'music', label: 'Music' },
   { value: 'travel', label: 'Travel' },
@@ -85,34 +85,30 @@ const INTEREST_OPTIONS: MultiselectProps.Option[] = [
   { value: 'competition', label: 'Competition' },
 ];
 
-function findOption(options: SelectProps.Option[], value: string) {
-  return options.find((o) => o.value === value) ?? null;
-}
-
 const DEFAULT_PACE_ZONES: PaceZones = {
-  recovery:        { min: '6:30', max: '8:00' },
-  ef:              { min: '5:45', max: '7:30' },
-  aerobic:         { min: '5:15', max: '5:50' },
-  tempo:           { min: '5:00', max: '5:45' },
-  sweet_spot:      { min: '4:45', max: '5:15' },
-  seuil_60:        { min: '4:30', max: '5:00' },
-  seuil_30:        { min: '4:15', max: '4:45' },
-  allure_marathon:  { min: '4:40', max: '5:10' },
-  allure_semi:     { min: '4:20', max: '4:50' },
-  interval:        { min: '3:30', max: '4:20' },
+  recovery: { min: '6:30', max: '8:00' },
+  ef: { min: '5:45', max: '7:30' },
+  aerobic: { min: '5:15', max: '5:50' },
+  tempo: { min: '5:00', max: '5:45' },
+  sweet_spot: { min: '4:45', max: '5:15' },
+  seuil_60: { min: '4:30', max: '5:00' },
+  seuil_30: { min: '4:15', max: '4:45' },
+  allure_marathon: { min: '4:40', max: '5:10' },
+  allure_semi: { min: '4:20', max: '4:50' },
+  interval: { min: '3:30', max: '4:20' },
 };
 
-const ZONE_LABELS: Record<string, { label: string; description: string }> = {
-  recovery:        { label: 'Recup (Recovery)', description: 'Allure de recuperation, tres facile' },
-  ef:              { label: 'EF (Endurance Fondamentale)', description: 'Allure facile, conversation possible' },
-  aerobic:         { label: 'Allure Aerobie', description: 'Entre EF et tempo, endurance active' },
-  tempo:           { label: 'Tempo', description: 'Allure confortablement dure' },
-  sweet_spot:      { label: 'Sweet Spot', description: 'Entre tempo et seuil' },
-  seuil_60:        { label: 'Seuil 60 (Threshold)', description: 'Seuil lactique, effort 60min' },
-  seuil_30:        { label: 'Seuil 30 (Critical)', description: 'Seuil critique, effort 30min' },
-  allure_marathon:  { label: 'Allure Marathon', description: 'Pace cible marathon' },
-  allure_semi:     { label: 'Allure Semi', description: 'Pace cible semi-marathon' },
-  interval:        { label: 'Intervalles / VMA', description: 'Fractions rapides, recup entre' },
+const ZONE_LABELS: Record<keyof PaceZones, { number: string; label: string; description: string }> = {
+  recovery: { number: 'Z1', label: 'Recovery', description: 'Very easy pace' },
+  ef: { number: 'Z2', label: 'EF (Endurance Fond.)', description: 'Easy, conversational' },
+  aerobic: { number: 'Z3', label: 'Aerobic', description: 'Active endurance' },
+  tempo: { number: 'Z4', label: 'Tempo', description: 'Comfortably hard' },
+  sweet_spot: { number: 'Z5', label: 'Sweet Spot', description: 'Tempo to threshold' },
+  seuil_60: { number: 'Z6', label: 'Threshold 60', description: 'Lactate threshold, 60min effort' },
+  seuil_30: { number: 'Z7', label: 'Threshold 30', description: 'Critical, 30min effort' },
+  allure_marathon: { number: 'Z8', label: 'Marathon Pace', description: 'Target marathon pace' },
+  allure_semi: { number: 'Z9', label: 'Half-Marathon Pace', description: 'Target half pace' },
+  interval: { number: 'Z10', label: 'Intervals / VO2max', description: 'Fast intervals' },
 };
 
 const DEFAULTS = {
@@ -126,60 +122,131 @@ const DEFAULTS = {
   interests: [] as string[],
 };
 
-const formatTime = (secs: number) => {
+const formatTime = (secs: number): string => {
   if (secs >= 3600) {
     const h = Math.floor(secs / 3600);
     const m = Math.floor((secs % 3600) / 60);
     const s = secs % 60;
-    return `${h}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+    return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   }
-  return `${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2,'0')}`;
+  return `${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, '0')}`;
 };
+
+interface PersonalRecord {
+  id: string;
+  distance: string;
+  time: string;
+  date: string;
+  event: string;
+}
+
+interface AutoPr {
+  elapsed_time: number;
+  date: string;
+}
+
+interface PreferencesState {
+  ageRange: string;
+  sportApproach: string;
+  contentLength: string;
+  contentTone: string;
+  emojiUsage: string;
+  technicalDetail: string;
+  contentLanguage: string;
+  interests: string[];
+  paceZones: PaceZones;
+  athleteProfile: string;
+  personalRecords: PersonalRecord[];
+  maxHr: string;
+}
+
+const initialState: PreferencesState = {
+  ageRange: DEFAULTS.age_range,
+  sportApproach: DEFAULTS.sport_approach,
+  contentLength: DEFAULTS.content_length,
+  contentTone: DEFAULTS.content_tone,
+  emojiUsage: DEFAULTS.emoji_usage,
+  technicalDetail: DEFAULTS.technical_detail,
+  contentLanguage: DEFAULTS.content_language,
+  interests: [],
+  paceZones: { ...DEFAULT_PACE_ZONES },
+  athleteProfile: '',
+  personalRecords: [],
+  maxHr: '',
+};
+
+function statesEqual(a: PreferencesState, b: PreferencesState): boolean {
+  if (
+    a.ageRange !== b.ageRange ||
+    a.sportApproach !== b.sportApproach ||
+    a.contentLength !== b.contentLength ||
+    a.contentTone !== b.contentTone ||
+    a.emojiUsage !== b.emojiUsage ||
+    a.technicalDetail !== b.technicalDetail ||
+    a.contentLanguage !== b.contentLanguage ||
+    a.athleteProfile !== b.athleteProfile ||
+    a.maxHr !== b.maxHr
+  )
+    return false;
+  if (a.interests.length !== b.interests.length) return false;
+  if (![...a.interests].sort().every((v, i) => v === [...b.interests].sort()[i])) return false;
+  const zoneKeys = Object.keys(DEFAULT_PACE_ZONES) as Array<keyof PaceZones>;
+  for (const k of zoneKeys) {
+    if (a.paceZones[k].min !== b.paceZones[k].min) return false;
+    if (a.paceZones[k].max !== b.paceZones[k].max) return false;
+  }
+  if (a.personalRecords.length !== b.personalRecords.length) return false;
+  for (let i = 0; i < a.personalRecords.length; i++) {
+    const ra = a.personalRecords[i];
+    const rb = b.personalRecords[i];
+    if (ra.distance !== rb.distance || ra.time !== rb.time || ra.date !== rb.date || ra.event !== rb.event) return false;
+  }
+  return true;
+}
 
 export function PreferencesPage() {
   const { t } = useTranslation();
   const flash = useFlash();
-  const [ageRange, setAgeRange] = useState<SelectProps.Option | null>(findOption(AGE_OPTIONS, DEFAULTS.age_range));
-  const [sportApproach, setSportApproach] = useState<SelectProps.Option | null>(findOption(SPORT_OPTIONS, DEFAULTS.sport_approach));
-  const [contentLength, setContentLength] = useState<SelectProps.Option | null>(findOption(LENGTH_OPTIONS, DEFAULTS.content_length));
-  const [contentTone, setContentTone] = useState<SelectProps.Option | null>(findOption(TONE_OPTIONS, DEFAULTS.content_tone));
-  const [emojiUsage, setEmojiUsage] = useState<SelectProps.Option | null>(findOption(EMOJI_OPTIONS, DEFAULTS.emoji_usage));
-  const [technicalDetail, setTechnicalDetail] = useState<SelectProps.Option | null>(findOption(DETAIL_OPTIONS, DEFAULTS.technical_detail));
-  const [contentLanguage, setContentLanguage] = useState<SelectProps.Option | null>(findOption(LANGUAGE_OPTIONS, DEFAULTS.content_language));
-  const [interests, setInterests] = useState<MultiselectProps.Option[]>([]);
-  const [paceZones, setPaceZones] = useState<PaceZones>({ ...DEFAULT_PACE_ZONES });
-  const [athleteProfile, setAthleteProfile] = useState('');
-  const [personalRecords, setPersonalRecords] = useState<Array<{id: string; distance: string; time: string; date: string; event: string}>>([]);
-  const [maxHr, setMaxHr] = useState<string>('');
-  const [autoPrs, setAutoPrs] = useState<Record<string, {elapsed_time: number; date: string}>>({});
+  const [state, setState] = useState<PreferencesState>(initialState);
+  const lastLoadedRef = useRef<PreferencesState>(initialState);
+  const [autoPrs, setAutoPrs] = useState<Record<string, AutoPr>>({});
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [showAddRecord, setShowAddRecord] = useState(false);
 
   const loadPreferences = async () => {
     try {
       const userId = getConfig().defaultUserId;
-      const data = await api.get<{ success: boolean; preferences: Record<string, unknown> }>(`/preferences?user_id=${userId}`);
+      const data = await api.get<{ success: boolean; preferences: Record<string, unknown> }>(
+        `/preferences?user_id=${userId}`
+      );
       if (data.success && data.preferences) {
         const p = data.preferences;
-        setAgeRange(findOption(AGE_OPTIONS, (p.age_range as string) || DEFAULTS.age_range));
-        setSportApproach(findOption(SPORT_OPTIONS, (p.sport_approach as string) || DEFAULTS.sport_approach));
-        setContentLength(findOption(LENGTH_OPTIONS, (p.content_length as string) || DEFAULTS.content_length));
-        setContentTone(findOption(TONE_OPTIONS, (p.content_tone as string) || DEFAULTS.content_tone));
-        setEmojiUsage(findOption(EMOJI_OPTIONS, (p.emoji_usage as string) || DEFAULTS.emoji_usage));
-        setTechnicalDetail(findOption(DETAIL_OPTIONS, (p.technical_detail as string) || DEFAULTS.technical_detail));
-        setContentLanguage(findOption(LANGUAGE_OPTIONS, (p.content_language as string) || DEFAULTS.content_language));
-        const userInterests = (p.interests as string[]) || [];
-        setInterests(INTEREST_OPTIONS.filter((o) => userInterests.includes(o.value!)));
-        if (p.pace_zones && typeof p.pace_zones === 'object') {
-          setPaceZones({ ...DEFAULT_PACE_ZONES, ...(p.pace_zones as PaceZones) });
-        }
-        setAthleteProfile((p.athlete_profile as string) || '');
-        if (Array.isArray(p.personal_records)) {
-          setPersonalRecords((p.personal_records as Array<{distance: string; time: string; date: string; event: string}>).map(r => ({ ...r, id: crypto.randomUUID() })));
-        }
-        if (p.max_hr) setMaxHr(String(p.max_hr));
+        const next: PreferencesState = {
+          ageRange: (p.age_range as string) || DEFAULTS.age_range,
+          sportApproach: (p.sport_approach as string) || DEFAULTS.sport_approach,
+          contentLength: (p.content_length as string) || DEFAULTS.content_length,
+          contentTone: (p.content_tone as string) || DEFAULTS.content_tone,
+          emojiUsage: (p.emoji_usage as string) || DEFAULTS.emoji_usage,
+          technicalDetail: (p.technical_detail as string) || DEFAULTS.technical_detail,
+          contentLanguage: (p.content_language as string) || DEFAULTS.content_language,
+          interests: Array.isArray(p.interests) ? (p.interests as string[]) : [],
+          paceZones:
+            p.pace_zones && typeof p.pace_zones === 'object'
+              ? { ...DEFAULT_PACE_ZONES, ...(p.pace_zones as PaceZones) }
+              : { ...DEFAULT_PACE_ZONES },
+          athleteProfile: (p.athlete_profile as string) || '',
+          personalRecords: Array.isArray(p.personal_records)
+            ? (p.personal_records as Array<{ distance: string; time: string; date: string; event: string }>).map(
+                (r) => ({ ...r, id: crypto.randomUUID() })
+              )
+            : [],
+          maxHr: p.max_hr ? String(p.max_hr) : '',
+        };
+        setState(next);
+        lastLoadedRef.current = next;
         if (p.best_efforts_prs && typeof p.best_efforts_prs === 'object') {
-          setAutoPrs(p.best_efforts_prs as Record<string, {elapsed_time: number; date: string}>);
+          setAutoPrs(p.best_efforts_prs as Record<string, AutoPr>);
         }
       }
     } catch {
@@ -190,8 +257,11 @@ export function PreferencesPage() {
   };
 
   useEffect(() => {
-    loadPreferences();
+    void loadPreferences();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const dirty = useMemo(() => loaded && !statesEqual(state, lastLoadedRef.current), [state, loaded]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -199,20 +269,25 @@ export function PreferencesPage() {
       const userId = getConfig().defaultUserId;
       await api.post('/preferences', {
         user_id: userId,
-        age_range: ageRange?.value,
-        sport_approach: sportApproach?.value,
-        content_length: contentLength?.value,
-        content_tone: contentTone?.value,
-        emoji_usage: emojiUsage?.value,
-        technical_detail: technicalDetail?.value,
-        content_language: contentLanguage?.value,
-        interests: interests.map((i) => i.value),
-        pace_zones: paceZones,
-        athlete_profile: athleteProfile,
-        personal_records: personalRecords.filter(r => r.distance && r.time),
-        ...(maxHr ? { max_hr: parseInt(maxHr) } : {}),
+        age_range: state.ageRange,
+        sport_approach: state.sportApproach,
+        content_length: state.contentLength,
+        content_tone: state.contentTone,
+        emoji_usage: state.emojiUsage,
+        technical_detail: state.technicalDetail,
+        content_language: state.contentLanguage,
+        interests: state.interests,
+        pace_zones: state.paceZones,
+        athlete_profile: state.athleteProfile,
+        personal_records: state.personalRecords
+          .filter((r) => r.distance && r.time)
+          .map((r) => ({ distance: r.distance, time: r.time, date: r.date, event: r.event })),
+        ...(state.maxHr ? { max_hr: parseInt(state.maxHr, 10) } : {}),
       });
-      flash('success', 'Preferences saved successfully! Future activities will use these settings.');
+      flash('success', 'Preferences saved. Future activities will use these settings.');
+      lastLoadedRef.current = state;
+      // trigger memo recompute
+      setState((prev) => ({ ...prev }));
     } catch (err) {
       flash('error', `Failed to save preferences: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
@@ -220,376 +295,579 @@ export function PreferencesPage() {
     }
   };
 
+  const handleReset = () => {
+    setState(lastLoadedRef.current);
+  };
+
+  const computeMaxHrFromAge = () => {
+    const ageOption = state.ageRange;
+    if (!ageOption) return;
+    const parts = ageOption.split('-');
+    const start = parseInt(parts[0], 10);
+    const isPlus = ageOption.includes('+');
+    const end = isPlus ? start : parseInt(parts[1], 10);
+    const midAge = isPlus ? start + 5 : start + Math.floor((end - start) / 2);
+    const theoretical = Math.round(208 - 0.7 * midAge);
+    setState((prev) => ({ ...prev, maxHr: String(theoretical) }));
+  };
+
   if (!loaded) return null;
 
   return (
-    <ContentLayout
-      header={
-        <Header variant="h1" description={t('preferences.description')}>
-          {t('preferences.title')}
-        </Header>
-      }
-    >
-      <SpaceBetween size="l">
-        {/* 1. Athlete Profile + FCmax */}
-        <Container
-          header={
-            <Header variant="h2" description={t('preferences.profile.description')}>
-              {t('preferences.profile.title')}
-            </Header>
-          }
-        >
-          <SpaceBetween size="l">
-            <FormField
-              label={t('preferences.profile.fieldLabel')}
-              description={`${athleteProfile.length}/2000 caractères`}
-            >
-              <Textarea
-                value={athleteProfile}
-                onChange={({ detail }) => {
-                  if (detail.value.length <= 2000) setAthleteProfile(detail.value);
-                }}
-                placeholder="Décris-toi : tes objectifs, ton historique sportif, ton expérience, tes blessures, ce que tu veux améliorer..."
-                rows={8}
-              />
-            </FormField>
-            <FormField
-              label={t('preferences.profile.fcMax')}
-              description={t('preferences.profile.fcMaxDescription')}
-            >
-              <SpaceBetween direction="horizontal" size="xs">
+    <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-6 pb-32 md:py-8">
+      <header className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">{t('preferences.title')}</h1>
+        <p className="text-sm text-muted-foreground">{t('preferences.description')}</p>
+      </header>
+
+      {/* Athlete profile */}
+      <Card padding="lg">
+        <CardHeader>
+          <CardTitle>{t('preferences.profile.title')}</CardTitle>
+          <CardDescription>{t('preferences.profile.description')}</CardDescription>
+        </CardHeader>
+        <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="athlete-profile">{t('preferences.profile.fieldLabel')}</Label>
+              <span
+                className={
+                  state.athleteProfile.length > 2000
+                    ? 'text-xs text-danger'
+                    : 'text-xs text-muted-foreground'
+                }
+              >
+                {state.athleteProfile.length}/2000
+              </span>
+            </div>
+            <Textarea
+              id="athlete-profile"
+              value={state.athleteProfile}
+              rows={6}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value.length <= 2000) setState((prev) => ({ ...prev, athleteProfile: value }));
+              }}
+              placeholder="Describe yourself: goals, training history, experience, injuries, what you want to improve..."
+            />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="max-hr">{t('preferences.profile.fcMax')}</Label>
+            <p className="text-xs text-muted-foreground">{t('preferences.profile.fcMaxDescription')}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="w-32">
                 <Input
-                  value={maxHr}
-                  onChange={({ detail }) => setMaxHr(detail.value.replace(/\D/g, ''))}
+                  id="max-hr"
+                  value={state.maxHr}
+                  onChange={(e) => setState((prev) => ({ ...prev, maxHr: e.target.value.replace(/\D/g, '') }))}
                   placeholder="192"
                   type="number"
                   inputMode="numeric"
                 />
-                <Button
-                  variant="normal"
-                  onClick={() => {
-                    const ageOption = ageRange?.value;
-                    if (ageOption) {
-                      const midAge = parseInt(ageOption.split('-')[0]) + (ageOption.includes('+') ? 5 : Math.floor((parseInt(ageOption.split('-')[1]) - parseInt(ageOption.split('-')[0])) / 2));
-                      const theoretical = Math.round(208 - 0.7 * midAge);
-                      setMaxHr(String(theoretical));
-                    }
-                  }}
-                >
-                  {t('preferences.profile.calculateTanaka')}
-                </Button>
-                {maxHr && ageRange?.value && (
-                  <Box variant="small" color="text-status-info">
-                    {t('preferences.profile.tanakaFormula')}
-                  </Box>
-                )}
-              </SpaceBetween>
-            </FormField>
-          </SpaceBetween>
-        </Container>
-
-        {/* 2. Personal Records */}
-        <Container
-          header={
-            <Header
-              variant="h2"
-              description={t('preferences.records.description')}
-              actions={
-                <Button
-                  onClick={() => setPersonalRecords([...personalRecords, { id: crypto.randomUUID(), distance: '', time: '', date: '', event: '' }])}
-                  iconName="add-plus"
-                >
-                  {t('preferences.records.add')}
-                </Button>
-              }
-            >
-              {t('preferences.records.title')}
-            </Header>
-          }
-        >
-          <SpaceBetween size="m">
-            {personalRecords.map((record, idx) => {
-              const KNOWN_DISTANCES: Record<string, number> = { '5K': 5, '10K': 10, 'Semi': 21.097, 'Marathon': 42.195, '5k': 5, '10k': 10, 'semi': 21.097, 'marathon': 42.195, 'Semi-marathon': 21.097, 'semi-marathon': 21.097, '21K': 21.097, '21k': 21.097, '42K': 42.195, '42k': 42.195 };
-              const distRaw = record.distance.replace(/\s*(km|K)\s*$/i, '').trim();
-              const distKm = KNOWN_DISTANCES[record.distance] || KNOWN_DISTANCES[distRaw] || parseFloat(distRaw) || 0;
-
-              let totalSec = 0;
-              const timeStr = record.time.trim();
-              const hOnly = timeStr.match(/^(\d+)h(\d{1,2})(?::(\d{2}))?$/i);
-              if (hOnly) {
-                totalSec = parseInt(hOnly[1]) * 3600 + parseInt(hOnly[2]) * 60 + (hOnly[3] ? parseInt(hOnly[3]) : 0);
-              } else {
-                const cleaned = timeStr.replace(/['"]/g, ':').replace(/:+/g, ':').replace(/:$/, '');
-                const hms = cleaned.match(/^(\d+):(\d{1,2}):(\d{2})$/);
-                const ms = cleaned.match(/^(\d+):(\d{2})$/);
-                if (hms) totalSec = parseInt(hms[1]) * 3600 + parseInt(hms[2]) * 60 + parseInt(hms[3]);
-                else if (ms) totalSec = parseInt(ms[1]) * 60 + parseInt(ms[2]);
-              }
-
-              let paceStr = '';
-              let speedStr = '';
-              if (distKm > 0 && totalSec > 0) {
-                const paceSec = totalSec / distKm;
-                const pM = Math.floor(paceSec / 60);
-                const pS = Math.round(paceSec % 60);
-                paceStr = `${pM}:${pS.toString().padStart(2, '0')}/km`;
-                speedStr = `${(distKm / (totalSec / 3600)).toFixed(1)} km/h`;
-              }
-
-              const distOptions = [
-                { value: '5K', label: '5K' },
-                { value: '10K', label: '10K' },
-                { value: 'Semi', label: 'Semi-marathon' },
-                { value: 'Marathon', label: 'Marathon' },
-                { value: 'custom', label: 'Autre...' },
-              ];
-              const selectedDist = distOptions.find(o => o.value === record.distance);
-              const isCustom = record.distance === 'custom' || (!selectedDist && record.distance !== '');
-
-              return (
-                <div key={record.id} style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                  <FormField label={t('preferences.records.distance')}>
-                    <SpaceBetween direction="horizontal" size="xs">
-                      <Select
-                        selectedOption={selectedDist || (isCustom ? { value: 'custom', label: 'Autre...' } : null)}
-                        onChange={({ detail }) => { const r = [...personalRecords]; r[idx] = { ...r[idx], distance: detail.selectedOption.value || '' }; setPersonalRecords(r); }}
-                        options={distOptions}
-                        placeholder="Choisir..."
-                      />
-                      {isCustom && (
-                        <Input
-                          value={record.distance === 'custom' ? '' : record.distance}
-                          onChange={({ detail }) => { const r = [...personalRecords]; r[idx] = { ...r[idx], distance: detail.value }; setPersonalRecords(r); }}
-                          placeholder="Autre (km)"
-                        />
-                      )}
-                    </SpaceBetween>
-                  </FormField>
-                  <FormField label={t('preferences.records.time')}>
-                    <Input
-                      value={record.time}
-                      onChange={({ detail }) => { const r = [...personalRecords]; r[idx] = { ...r[idx], time: detail.value }; setPersonalRecords(r); }}
-                      placeholder="22:15 ou 1:42:00"
-                    />
-                  </FormField>
-                  <FormField label={t('preferences.records.paceSpeed')}>
-                    <Box variant="small" color={paceStr ? "text-status-info" : "text-body-secondary"}>
-                      {paceStr ? `${paceStr} — ${speedStr}` : '—'}
-                    </Box>
-                  </FormField>
-                  <FormField label={t('preferences.records.date')}>
-                    <Input
-                      value={record.date}
-                      onChange={({ detail }) => { const r = [...personalRecords]; r[idx] = { ...r[idx], date: detail.value }; setPersonalRecords(r); }}
-                      placeholder="2026-03-15"
-                    />
-                  </FormField>
-                  <FormField label={t('preferences.records.event')}>
-                    <Input
-                      value={record.event}
-                      onChange={({ detail }) => { const r = [...personalRecords]; r[idx] = { ...r[idx], event: detail.value }; setPersonalRecords(r); }}
-                      placeholder="Parkrun, Semi Paris..."
-                    />
-                  </FormField>
-                  <Button
-                    variant="icon"
-                    iconName="remove"
-                    onClick={() => setPersonalRecords(personalRecords.filter((_, i) => i !== idx))}
-                  />
-                </div>
-              );
-            })}
-            {personalRecords.length === 0 && (
-              <Box variant="p" color="text-body-secondary">
-                {t('preferences.records.empty')}
-              </Box>
-            )}
-          </SpaceBetween>
-        </Container>
-
-        {/* 2b. Auto-detected PRs */}
-        {Object.keys(autoPrs).length > 0 && (
-          <Container
-            header={
-              <Header variant="h2" description="Détectés automatiquement depuis tes activités Strava">
-                PRs Auto-détectés (Strava)
-              </Header>
-            }
-          >
-            <SpaceBetween size="xs">
-              {Object.entries(autoPrs).map(([name, pr]) => (
-                <div key={name} style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
-                  <Box variant="small"><strong>{name}</strong></Box>
-                  <Box variant="small">{formatTime(pr.elapsed_time)}</Box>
-                  <Box variant="small" color="text-body-secondary">{pr.date}</Box>
-                </div>
-              ))}
-            </SpaceBetween>
-          </Container>
-        )}
-
-        {/* 3. Pace Zones (collapsed) */}
-        <Container
-          header={
-            <Header variant="h2" description={t('preferences.zones.description')}>
-              {t('preferences.zones.title')}
-            </Header>
-          }
-        >
-          <ExpandableSection headerText="Zones d allure (10 zones)" defaultExpanded={false}>
-            <SpaceBetween size="l">
-              <Alert type="info">
-                Entrez vos allures en <strong>mm:ss min/km</strong> (ex: 05:45 = 5min45s par km).
-                Debut = allure la plus rapide de la zone, Fin = allure la plus lente.
-                Ces zones permettent a l'IA de classer correctement vos seances (EF, Tempo, Seuil, etc.).
-              </Alert>
-              <ColumnLayout columns={2}>
-                {(Object.keys(ZONE_LABELS) as Array<keyof PaceZones>).map((zoneKey) => {
-                  const zone = paceZones[zoneKey] ?? DEFAULT_PACE_ZONES[zoneKey];
-                  const meta = ZONE_LABELS[zoneKey];
-                  return (
-                    <FormField
-                      key={zoneKey}
-                      label={meta.label}
-                      description={meta.description}
-                    >
-                      <SpaceBetween direction="horizontal" size="xs">
-                        <Box>
-                          <Box color="text-body-secondary" fontSize="body-s">Debut (mm:ss/km)</Box>
-                          <Input
-                            value={zone.min}
-                            placeholder="05:00"
-                            onChange={({ detail }) =>
-                              setPaceZones((prev) => ({
-                                ...prev,
-                                [zoneKey]: { ...prev[zoneKey], min: detail.value },
-                              }))
-                            }
-                          />
-                        </Box>
-                        <Box>
-                          <Box color="text-body-secondary" fontSize="body-s">Fin (mm:ss/km)</Box>
-                          <Input
-                            value={zone.max}
-                            placeholder="06:00"
-                            onChange={({ detail }) =>
-                              setPaceZones((prev) => ({
-                                ...prev,
-                                [zoneKey]: { ...prev[zoneKey], max: detail.value },
-                              }))
-                            }
-                          />
-                        </Box>
-                      </SpaceBetween>
-                    </FormField>
-                  );
-                })}
-              </ColumnLayout>
-              <Button
-                variant="link"
-                onClick={() => setPaceZones({ ...DEFAULT_PACE_ZONES })}
-              >
-                Reset to defaults
+              </div>
+              <Button variant="outline" size="md" onClick={computeMaxHrFromAge}>
+                <Calculator className="h-4 w-4" aria-hidden="true" />
+                {t('preferences.profile.calculateTanaka')}
               </Button>
-            </SpaceBetween>
-          </ExpandableSection>
-        </Container>
-
-        {/* 4. Content Style */}
-        <Container
-          header={
-            <Header variant="h2" description={t('preferences.style.description')}>
-              {t('preferences.style.title')}
-            </Header>
-          }
-        >
-          <SpaceBetween size="l">
-            <FormField label={t('preferences.style.length')} description="Preferred length for activity descriptions">
-              <Select
-                selectedOption={contentLength}
-                onChange={({ detail }) => setContentLength(detail.selectedOption)}
-                options={LENGTH_OPTIONS}
-              />
-            </FormField>
-
-            <FormField label={t('preferences.style.tone')} description="Communication style for descriptions">
-              <Select
-                selectedOption={contentTone}
-                onChange={({ detail }) => setContentTone(detail.selectedOption)}
-                options={TONE_OPTIONS}
-              />
-            </FormField>
-
-            <FormField label={t('preferences.style.emoji')} description="How many emojis to include">
-              <Select
-                selectedOption={emojiUsage}
-                onChange={({ detail }) => setEmojiUsage(detail.selectedOption)}
-                options={EMOJI_OPTIONS}
-              />
-            </FormField>
-
-            <FormField label={t('preferences.style.technical')} description="Level of technical detail in descriptions">
-              <Select
-                selectedOption={technicalDetail}
-                onChange={({ detail }) => setTechnicalDetail(detail.selectedOption)}
-                options={DETAIL_OPTIONS}
-              />
-            </FormField>
-
-            <FormField label={t('preferences.style.language')} description="Language for titles and descriptions">
-              <Select
-                selectedOption={contentLanguage}
-                onChange={({ detail }) => setContentLanguage(detail.selectedOption)}
-                options={LANGUAGE_OPTIONS}
-              />
-            </FormField>
-          </SpaceBetween>
-        </Container>
-
-        {/* 5. Demographics (age, interests) */}
-        <Container
-          header={
-            <Header variant="h2" description="Informations démographiques pour adapter le contenu à ton profil.">
-              Démographie
-            </Header>
-          }
-        >
-          <SpaceBetween size="l">
-            <FormField label={t('preferences.demographics.age')} description="Helps adapt references and tone to your generation">
-              <Select
-                selectedOption={ageRange}
-                onChange={({ detail }) => setAgeRange(detail.selectedOption)}
-                options={AGE_OPTIONS}
-              />
-            </FormField>
-
-            <FormField label="Sport Approach" description="Your main motivation for training">
-              <Select
-                selectedOption={sportApproach}
-                onChange={({ detail }) => setSportApproach(detail.selectedOption)}
-                options={SPORT_OPTIONS}
-              />
-            </FormField>
-
-            <FormField label={t('preferences.demographics.interests')} description="AI will use these to add relevant references in content">
-              <Multiselect
-                selectedOptions={interests}
-                onChange={({ detail }) => setInterests([...detail.selectedOptions])}
-                options={INTEREST_OPTIONS}
-                placeholder="Select your interests"
-              />
-            </FormField>
-          </SpaceBetween>
-        </Container>
-
-        {/* Sticky Save button */}
-        <div style={{ position: 'sticky', bottom: 0, background: 'var(--color-background-layout-main)', padding: '16px 0', zIndex: 1, borderTop: '1px solid var(--color-border-divider-default)' }}>
-          <SpaceBetween direction="horizontal" size="xs">
-            <Button onClick={loadPreferences}>Reset to Current</Button>
-            <Button variant="primary" onClick={handleSave} loading={saving}>{t('common.save')}</Button>
-          </SpaceBetween>
+              {state.maxHr && state.ageRange && (
+                <span className="text-xs text-info">{t('preferences.profile.tanakaFormula')}</span>
+              )}
+            </div>
+          </div>
         </div>
-      </SpaceBetween>
-    </ContentLayout>
+      </Card>
+
+      {/* Personal Records */}
+      <Card padding="lg">
+        <CardHeader>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-col gap-1.5">
+              <CardTitle>Personal records</CardTitle>
+              <CardDescription>
+                Your benchmark times. The coach uses them to contextualize your progress.
+              </CardDescription>
+            </div>
+            <Button size="sm" onClick={() => setShowAddRecord(true)}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add record
+            </Button>
+          </div>
+        </CardHeader>
+        <RecordsList
+          records={state.personalRecords}
+          onRemove={(id) =>
+            setState((prev) => ({ ...prev, personalRecords: prev.personalRecords.filter((r) => r.id !== id) }))
+          }
+        />
+        <AddRecordDialog
+          open={showAddRecord}
+          onOpenChange={setShowAddRecord}
+          onAdd={(record) =>
+            setState((prev) => ({ ...prev, personalRecords: [...prev.personalRecords, record] }))
+          }
+        />
+      </Card>
+
+      {/* Auto-detected PRs */}
+      {Object.keys(autoPrs).length > 0 && (
+        <Card padding="lg">
+          <CardHeader>
+            <CardTitle>Auto-detected PRs (Strava)</CardTitle>
+            <CardDescription>Detected automatically from your Strava activities.</CardDescription>
+          </CardHeader>
+          <ul className="flex flex-col divide-y divide-border">
+            {Object.entries(autoPrs).map(([name, pr]) => (
+              <li key={name} className="flex items-center justify-between gap-3 py-2 text-sm">
+                <span className="font-medium text-foreground">{name}</span>
+                <span className="font-numeric tabular-nums text-foreground">{formatTime(pr.elapsed_time)}</span>
+                <span className="text-xs text-muted-foreground">{pr.date}</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      {/* Pace zones */}
+      <Card padding="lg">
+        <CardHeader>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-col gap-1.5">
+              <CardTitle>{t('preferences.zones.title')}</CardTitle>
+              <CardDescription>{t('preferences.zones.description')}</CardDescription>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setState((prev) => ({ ...prev, paceZones: { ...DEFAULT_PACE_ZONES } }))}
+            >
+              <RotateCcw className="h-4 w-4" aria-hidden="true" />
+              Reset to defaults
+            </Button>
+          </div>
+        </CardHeader>
+        <Alert variant="info" className="mb-4">
+          Enter your paces in <strong>mm:ss /km</strong>. Start = fastest pace in zone, End = slowest.
+        </Alert>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {(Object.keys(ZONE_LABELS) as Array<keyof PaceZones>).map((zoneKey) => {
+            const zone = state.paceZones[zoneKey] ?? DEFAULT_PACE_ZONES[zoneKey];
+            const meta = ZONE_LABELS[zoneKey];
+            return (
+              <div
+                key={zoneKey}
+                className="flex flex-col gap-2 rounded-lg border border-border bg-surface-muted p-3"
+              >
+                <div className="flex items-baseline gap-2">
+                  <Badge variant="primary" size="sm">
+                    {meta.number}
+                  </Badge>
+                  <span className="font-medium text-sm text-foreground">{meta.label}</span>
+                </div>
+                <p className="text-xs text-muted-foreground">{meta.description}</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex flex-col gap-1">
+                    <Label htmlFor={`${zoneKey}-min`} className="text-xs text-muted-foreground">
+                      Start
+                    </Label>
+                    <Input
+                      id={`${zoneKey}-min`}
+                      value={zone.min}
+                      placeholder="5:00"
+                      onChange={(e) =>
+                        setState((prev) => ({
+                          ...prev,
+                          paceZones: { ...prev.paceZones, [zoneKey]: { ...prev.paceZones[zoneKey], min: e.target.value } },
+                        }))
+                      }
+                      className="font-numeric"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <Label htmlFor={`${zoneKey}-max`} className="text-xs text-muted-foreground">
+                      End
+                    </Label>
+                    <Input
+                      id={`${zoneKey}-max`}
+                      value={zone.max}
+                      placeholder="6:00"
+                      onChange={(e) =>
+                        setState((prev) => ({
+                          ...prev,
+                          paceZones: { ...prev.paceZones, [zoneKey]: { ...prev.paceZones[zoneKey], max: e.target.value } },
+                        }))
+                      }
+                      className="font-numeric"
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
+      {/* Content style */}
+      <Card padding="lg">
+        <CardHeader>
+          <CardTitle>{t('preferences.style.title')}</CardTitle>
+          <CardDescription>{t('preferences.style.description')}</CardDescription>
+        </CardHeader>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Field label={t('preferences.style.length')} hint="Preferred length for activity descriptions">
+            <Select
+              options={LENGTH_OPTIONS}
+              value={state.contentLength}
+              onChange={(v) => setState((prev) => ({ ...prev, contentLength: v }))}
+            />
+          </Field>
+          <Field label={t('preferences.style.tone')} hint="Communication style for descriptions">
+            <Select
+              options={TONE_OPTIONS}
+              value={state.contentTone}
+              onChange={(v) => setState((prev) => ({ ...prev, contentTone: v }))}
+            />
+          </Field>
+          <Field label={t('preferences.style.emoji')} hint="How many emojis to include in generated text">
+            <Select
+              options={EMOJI_OPTIONS}
+              value={state.emojiUsage}
+              onChange={(v) => setState((prev) => ({ ...prev, emojiUsage: v }))}
+            />
+          </Field>
+          <Field label={t('preferences.style.technical')} hint="Level of technical detail">
+            <Select
+              options={DETAIL_OPTIONS}
+              value={state.technicalDetail}
+              onChange={(v) => setState((prev) => ({ ...prev, technicalDetail: v }))}
+            />
+          </Field>
+          <Field label={t('preferences.style.language')} hint="Language for titles and descriptions">
+            <Select
+              options={LANGUAGE_OPTIONS}
+              value={state.contentLanguage}
+              onChange={(v) => setState((prev) => ({ ...prev, contentLanguage: v }))}
+            />
+          </Field>
+        </div>
+      </Card>
+
+      {/* Demographics */}
+      <Card padding="lg">
+        <CardHeader>
+          <CardTitle>Demographics</CardTitle>
+          <CardDescription>Demographic info to adapt content to your profile.</CardDescription>
+        </CardHeader>
+        <div className="flex flex-col gap-5">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Field label={t('preferences.demographics.age')} hint="Helps adapt references and tone">
+              <Select
+                options={AGE_OPTIONS}
+                value={state.ageRange}
+                onChange={(v) => setState((prev) => ({ ...prev, ageRange: v }))}
+              />
+            </Field>
+            <Field label="Sport approach" hint="Your main motivation for training">
+              <Select
+                options={SPORT_OPTIONS}
+                value={state.sportApproach}
+                onChange={(v) => setState((prev) => ({ ...prev, sportApproach: v }))}
+              />
+            </Field>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label>Interests</Label>
+            <p className="text-xs text-muted-foreground">
+              The AI uses these to add relevant references in generated content.
+            </p>
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+              {INTEREST_OPTIONS.map((opt) => {
+                const checked = state.interests.includes(opt.value);
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() =>
+                      setState((prev) => ({
+                        ...prev,
+                        interests: checked
+                          ? prev.interests.filter((i) => i !== opt.value)
+                          : [...prev.interests, opt.value],
+                      }))
+                    }
+                    aria-pressed={checked}
+                    className={
+                      'flex items-center justify-center rounded-lg border px-3 py-2 text-sm font-medium transition-colors ' +
+                      (checked
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border bg-surface text-foreground hover:bg-muted')
+                    }
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Sticky save bar */}
+      {dirty && (
+        <div className="fixed bottom-20 left-4 right-4 z-30 md:bottom-4 md:left-auto md:right-8 md:w-auto animate-fade-in-up">
+          <Card
+            padding="sm"
+            variant="elevated"
+            className="flex items-center justify-between gap-3 border-primary/30 shadow-lg md:gap-6"
+          >
+            <span className="text-sm font-medium text-foreground">Unsaved changes</span>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={handleReset} disabled={saving}>
+                Reset
+              </Button>
+              <Button size="sm" onClick={handleSave} loading={saving}>
+                <Check className="h-4 w-4" aria-hidden="true" />
+                Save preferences
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface FieldProps {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}
+
+function Field({ label, hint, children }: FieldProps) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label>{label}</Label>
+      {children}
+      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+    </div>
+  );
+}
+
+interface RecordsListProps {
+  records: PersonalRecord[];
+  onRemove: (id: string) => void;
+}
+
+const KNOWN_DISTANCES: Record<string, number> = {
+  '5K': 5,
+  '10K': 10,
+  Semi: 21.097,
+  Marathon: 42.195,
+  '5k': 5,
+  '10k': 10,
+  semi: 21.097,
+  marathon: 42.195,
+  'Semi-marathon': 21.097,
+  'semi-marathon': 21.097,
+  '21K': 21.097,
+  '21k': 21.097,
+  '42K': 42.195,
+  '42k': 42.195,
+};
+
+function computePace(distance: string, time: string): { pace: string; speed: string } {
+  const distRaw = distance.replace(/\s*(km|K)\s*$/i, '').trim();
+  const distKm = KNOWN_DISTANCES[distance] || KNOWN_DISTANCES[distRaw] || parseFloat(distRaw) || 0;
+
+  let totalSec = 0;
+  const timeStr = time.trim();
+  const hOnly = timeStr.match(/^(\d+)h(\d{1,2})(?::(\d{2}))?$/i);
+  if (hOnly) {
+    totalSec = parseInt(hOnly[1], 10) * 3600 + parseInt(hOnly[2], 10) * 60 + (hOnly[3] ? parseInt(hOnly[3], 10) : 0);
+  } else {
+    const cleaned = timeStr.replace(/['"]/g, ':').replace(/:+/g, ':').replace(/:$/, '');
+    const hms = cleaned.match(/^(\d+):(\d{1,2}):(\d{2})$/);
+    const ms = cleaned.match(/^(\d+):(\d{2})$/);
+    if (hms) totalSec = parseInt(hms[1], 10) * 3600 + parseInt(hms[2], 10) * 60 + parseInt(hms[3], 10);
+    else if (ms) totalSec = parseInt(ms[1], 10) * 60 + parseInt(ms[2], 10);
+  }
+
+  if (distKm > 0 && totalSec > 0) {
+    const paceSec = totalSec / distKm;
+    const pM = Math.floor(paceSec / 60);
+    const pS = Math.round(paceSec % 60);
+    return {
+      pace: `${pM}:${pS.toString().padStart(2, '0')}/km`,
+      speed: `${(distKm / (totalSec / 3600)).toFixed(1)} km/h`,
+    };
+  }
+  return { pace: '', speed: '' };
+}
+
+function RecordsList({ records, onRemove }: RecordsListProps) {
+  if (records.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No records saved. Add your times for 5K, 10K, half-marathon, marathon, etc.
+      </p>
+    );
+  }
+
+  return (
+    <ul className="flex flex-col divide-y divide-border">
+      {records.map((record) => {
+        const { pace, speed } = computePace(record.distance, record.time);
+        return (
+          <li key={record.id} className="flex items-center justify-between gap-3 py-3">
+            <div className="flex flex-1 flex-col gap-0.5 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-semibold text-foreground">{record.distance || '—'}</span>
+                <span className="font-numeric tabular-nums text-sm text-foreground">{record.time || '—'}</span>
+                {pace && (
+                  <span className="text-xs text-info">
+                    {pace} · {speed}
+                  </span>
+                )}
+              </div>
+              <div className="text-xs text-muted-foreground truncate">
+                {[record.event, record.date].filter(Boolean).join(' · ') || '—'}
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onRemove(record.id)}
+              aria-label="Remove record"
+              className="text-muted-foreground hover:text-danger"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+const DISTANCE_OPTIONS: SelectOption[] = [
+  { value: '5K', label: '5K' },
+  { value: '10K', label: '10K' },
+  { value: 'Semi', label: 'Half-marathon' },
+  { value: 'Marathon', label: 'Marathon' },
+  { value: 'custom', label: 'Other...' },
+];
+
+interface AddRecordDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onAdd: (record: PersonalRecord) => void;
+}
+
+function AddRecordDialog({ open, onOpenChange, onAdd }: AddRecordDialogProps) {
+  const [distanceChoice, setDistanceChoice] = useState('5K');
+  const [customDistance, setCustomDistance] = useState('');
+  const [time, setTime] = useState('');
+  const [date, setDate] = useState('');
+  const [event, setEvent] = useState('');
+
+  const reset = () => {
+    setDistanceChoice('5K');
+    setCustomDistance('');
+    setTime('');
+    setDate('');
+    setEvent('');
+  };
+
+  const handleSubmit = () => {
+    const distance = distanceChoice === 'custom' ? customDistance.trim() : distanceChoice;
+    if (!distance || !time.trim()) return;
+    onAdd({
+      id: crypto.randomUUID(),
+      distance,
+      time: time.trim(),
+      date: date.trim(),
+      event: event.trim(),
+    });
+    reset();
+    onOpenChange(false);
+  };
+
+  return (
+    <Dialog.Root open={open} onOpenChange={(o) => { if (!o) reset(); onOpenChange(o); }}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 animate-fade-in" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[92vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-surface p-6 shadow-lg animate-fade-in-up">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <Dialog.Title className="text-lg font-semibold text-foreground">Add personal record</Dialog.Title>
+              <Dialog.Description className="mt-1 text-sm text-muted-foreground">
+                Enter your benchmark time. Pace is computed automatically.
+              </Dialog.Description>
+            </div>
+            <Dialog.Close asChild>
+              <button
+                type="button"
+                aria-label="Close"
+                className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </Dialog.Close>
+          </div>
+
+          <form
+            className="mt-4 flex flex-col gap-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSubmit();
+            }}
+          >
+            <Field label="Distance">
+              <Select
+                options={DISTANCE_OPTIONS}
+                value={distanceChoice}
+                onChange={setDistanceChoice}
+                placeholder="Choose..."
+              />
+            </Field>
+            {distanceChoice === 'custom' && (
+              <Field label="Custom distance">
+                <Input
+                  value={customDistance}
+                  onChange={(e) => setCustomDistance(e.target.value)}
+                  placeholder="e.g. 15K, 8.5"
+                />
+              </Field>
+            )}
+            <Field label="Time" hint="Format: 22:15 or 1:42:00">
+              <Input value={time} onChange={(e) => setTime(e.target.value)} placeholder="22:15" />
+            </Field>
+            <Field label="Date" hint="Optional, ISO format">
+              <Input
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                placeholder="2026-03-15"
+                type="date"
+              />
+            </Field>
+            <Field label="Event" hint="Optional">
+              <Input value={event} onChange={(e) => setEvent(e.target.value)} placeholder="Parkrun, Paris half..." />
+            </Field>
+
+            <div className="mt-2 flex justify-end gap-2">
+              <Dialog.Close asChild>
+                <Button type="button" variant="outline">
+                  Cancel
+                </Button>
+              </Dialog.Close>
+              <Button type="submit" disabled={!time.trim() || (distanceChoice === 'custom' && !customDistance.trim())}>
+                Add record
+              </Button>
+            </div>
+          </form>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

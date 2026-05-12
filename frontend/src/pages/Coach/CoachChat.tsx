@@ -1,12 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import Container from '@cloudscape-design/components/container';
-import Header from '@cloudscape-design/components/header';
-import SpaceBetween from '@cloudscape-design/components/space-between';
-import Input from '@cloudscape-design/components/input';
-import Button from '@cloudscape-design/components/button';
-import Box from '@cloudscape-design/components/box';
-import Spinner from '@cloudscape-design/components/spinner';
+import { SendHorizonal, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Button, Card, Input } from '@/ui';
+import { cn } from '@/lib/cn';
 import { api } from '../../api/client.ts';
 import { getConfig } from '../../config.ts';
 
@@ -16,18 +12,48 @@ interface Message {
   timestamp: string;
 }
 
+const SUGGESTIONS: string[] = [
+  'Am I ready for a sub-45 10K?',
+  'How should I recover this week?',
+  'Why did my EF pace drop?',
+  'Should I add intervals?',
+];
+
+interface ChatHistoryEntry {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+interface AskResponse {
+  answer: string;
+  session_id?: string;
+}
+
+function getInitialMessages(): Message[] {
+  try {
+    const saved = localStorage.getItem('coach_chat_messages');
+    return saved ? (JSON.parse(saved) as Message[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function getOrCreateSessionId(): string {
+  const existing = localStorage.getItem('coach_chat_session');
+  if (existing) return existing;
+  const id = `coach-chat-session-${crypto.randomUUID()}`;
+  localStorage.setItem('coach_chat_session', id);
+  return id;
+}
+
 export function CoachChat() {
   const { t } = useTranslation();
-  const [messages, setMessages] = useState<Message[]>(() => {
-    try {
-      const saved = localStorage.getItem('coach_chat_messages');
-      return saved ? JSON.parse(saved) : [];
-    } catch { return []; }
-  });
+  const [messages, setMessages] = useState<Message[]>(getInitialMessages);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [sessionId] = useState(() => localStorage.getItem('coach_chat_session') || (() => { const id = `coach-chat-session-${crypto.randomUUID()}`; localStorage.setItem('coach_chat_session', id); return id; })());
+  const [sessionId] = useState<string>(getOrCreateSessionId);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     localStorage.setItem('coach_chat_messages', JSON.stringify(messages.slice(-20)));
@@ -35,72 +61,174 @@ export function CoachChat() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, loading]);
 
-  const sendMessage = async () => {
-    if (!input.trim() || loading) return;
-    const question = input.trim();
+  const sendQuestion = async (question: string) => {
+    const trimmed = question.trim();
+    if (!trimmed || loading) return;
     setInput('');
-    setMessages(prev => [...prev, { role: 'user', text: question, timestamp: new Date().toLocaleTimeString() }]);
+    setMessages((prev) => [
+      ...prev,
+      { role: 'user', text: trimmed, timestamp: new Date().toLocaleTimeString() },
+    ]);
     setLoading(true);
 
     try {
       const userId = getConfig().defaultUserId;
-      const history = messages.slice(-10).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }));
-      const res = await api.post<{ answer: string; session_id?: string }>('/coach/ask', { question, user_id: userId, session_id: sessionId, history });
-      setMessages(prev => [...prev, { role: 'coach', text: res.answer, timestamp: new Date().toLocaleTimeString() }]);
+      const history: ChatHistoryEntry[] = messages.slice(-10).map((m) => ({
+        role: m.role === 'user' ? 'user' : 'assistant',
+        content: m.text,
+      }));
+      const res = await api.post<AskResponse>('/coach/ask', {
+        question: trimmed,
+        user_id: userId,
+        session_id: sessionId,
+        history,
+      });
+      setMessages((prev) => [
+        ...prev,
+        { role: 'coach', text: res.answer, timestamp: new Date().toLocaleTimeString() },
+      ]);
     } catch {
-      setMessages(prev => [...prev, { role: 'coach', text: t('coach.chat.error'), timestamp: new Date().toLocaleTimeString() }]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'coach',
+          text: t('coach.chat.error'),
+          timestamp: new Date().toLocaleTimeString(),
+        },
+      ]);
     } finally {
       setLoading(false);
     }
   };
 
+  const handleSuggestion = (suggestion: string) => {
+    setInput(suggestion);
+    void sendQuestion(suggestion);
+  };
+
   return (
-    <Container header={<Header variant="h2">{t('coach.chat.title')}</Header>}>
-      <div style={{ maxHeight: '400px', overflowY: 'auto', marginBottom: '12px' }}>
-        <SpaceBetween size="s">
-          {messages.length === 0 && (
-            <Box variant="p" color="text-body-secondary" textAlign="center">
-              {t('coach.chat.placeholder')}
-            </Box>
-          )}
-          {messages.map((msg, i) => (
-            <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
-              <Box
-                padding="s"
-                variant="div"
-              >
-                <div style={{
-                  background: msg.role === 'user' ? 'var(--color-background-status-info)' : 'var(--color-background-layout-toggle-default)',
-                  padding: '8px 12px',
-                  borderRadius: '8px',
-                  maxWidth: '80%',
-                }}>
-                  <Box variant="small" color="text-body-secondary">{msg.role === 'user' ? 'Toi' : '🏃 Coach'} • {msg.timestamp}</Box>
-                  <Box variant="p">{msg.text}</Box>
-                </div>
-              </Box>
-            </div>
-          ))}
-          {loading && <Box textAlign="center"><Spinner /> {t('coach.chat.thinking')}</Box>}
-          <div ref={bottomRef} />
-        </SpaceBetween>
+    <div className="flex flex-col h-[70vh]">
+      <div className="mb-4 flex flex-col gap-1">
+        <h2 className="text-xl font-semibold tracking-tight">Ask the coach</h2>
+        <p className="text-sm text-muted-foreground">
+          Ask anything about your training.
+        </p>
       </div>
-      <div style={{ display: 'flex', gap: '8px' }}>
-        <div style={{ flex: 1 }}>
-          <Input
-            value={input}
-            onChange={({ detail }) => setInput(detail.value)}
-            placeholder={t('coach.chat.inputPlaceholder')}
-            onKeyDown={({ detail }) => { if (detail.key === 'Enter') sendMessage(); }}
-            disabled={loading}
-          />
-        </div>
-        <Button variant="primary" onClick={sendMessage} loading={loading} disabled={!input.trim()}>
-          {t('coach.chat.send')}
+
+      <div className="flex-1 overflow-y-auto px-1">
+        {messages.length === 0 && !loading ? (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Sparkles className="h-4 w-4 text-primary" aria-hidden="true" />
+              <span>Try one of these:</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {SUGGESTIONS.map((s) => (
+                <Card
+                  key={s}
+                  variant="flat"
+                  padding="sm"
+                  onClick={() => handleSuggestion(s)}
+                  className="cursor-pointer hover:bg-muted transition-colors text-sm"
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      handleSuggestion(s);
+                    }
+                  }}
+                >
+                  {s}
+                </Card>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3 pb-2">
+            {messages.map((msg, i) => (
+              <div
+                key={i}
+                className={cn(
+                  'flex',
+                  msg.role === 'user' ? 'justify-end' : 'justify-start'
+                )}
+              >
+                <div
+                  className={cn(
+                    'max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed border',
+                    msg.role === 'user'
+                      ? 'bg-primary/10 border-primary/20 text-foreground'
+                      : 'bg-surface border-border'
+                  )}
+                >
+                  {msg.role === 'coach' ? (
+                    <div className="text-xs text-muted-foreground mb-1 font-medium">
+                      Coach
+                    </div>
+                  ) : null}
+                  <div className="whitespace-pre-wrap">{msg.text}</div>
+                </div>
+              </div>
+            ))}
+            {loading ? (
+              <div className="flex justify-start">
+                <div className="rounded-2xl px-4 py-3 bg-surface border border-border">
+                  <div className="text-xs text-muted-foreground mb-1 font-medium">
+                    Coach
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span>Coach is thinking</span>
+                    <span className="inline-flex gap-1">
+                      <span
+                        className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse"
+                        style={{ animationDelay: '0ms' }}
+                      />
+                      <span
+                        className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse"
+                        style={{ animationDelay: '150ms' }}
+                      />
+                      <span
+                        className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse"
+                        style={{ animationDelay: '300ms' }}
+                      />
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+            <div ref={bottomRef} />
+          </div>
+        )}
+      </div>
+
+      <div className="sticky bottom-0 mt-4 flex items-center gap-2 border-t border-border pt-3 bg-background">
+        <Input
+          ref={inputRef}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              void sendQuestion(input);
+            }
+          }}
+          placeholder={t('coach.chat.inputPlaceholder')}
+          disabled={loading}
+          className="flex-1"
+        />
+        <Button
+          variant="primary"
+          size="icon"
+          onClick={() => void sendQuestion(input)}
+          disabled={!input.trim() || loading}
+          aria-label={t('coach.chat.send')}
+        >
+          <SendHorizonal className="h-5 w-5" aria-hidden="true" />
         </Button>
       </div>
-    </Container>
+    </div>
   );
 }
