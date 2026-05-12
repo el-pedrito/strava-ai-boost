@@ -14,6 +14,7 @@ from stacks.webhook_processing_stack import WebhookProcessingStack
 from stacks.content_generation_stack import ContentGenerationStack
 from stacks.feedback_loop_stack import FeedbackLoopStack
 from stacks.frontend_hosting_stack import FrontendHostingStack
+from stacks.voice_debrief_stack import VoiceDebriefStack
 
 app = cdk.App()
 
@@ -73,6 +74,17 @@ frontend_stack = FrontendHostingStack(
     description="Frontend hosting with S3, CloudFront, and Cognito authentication"
 )
 
+# Voice debrief stack - Polly TTS + S3 + DynamoDB stream trigger
+# (declared before api_stack so its API Lambda can be wired into API Gateway)
+voice_debrief_stack = VoiceDebriefStack(
+    app,
+    "StravaAIBoost-VoiceDebrief",
+    core_stack=core_stack,
+    env=env,
+    description="V1 voice debrief generator (Bedrock Haiku + Polly + private S3)"
+)
+voice_debrief_stack.add_dependency(core_stack)
+
 # API Gateway stack - Local interface endpoints
 api_stack = ApiGatewayStack(
     app,
@@ -80,12 +92,14 @@ api_stack = ApiGatewayStack(
     core_stack=core_stack,
     user_pool=frontend_stack.user_pool,
     cloudfront_domain=frontend_stack.distribution.distribution_domain_name,
+    audio_debrief_lambda=voice_debrief_stack.api_lambda,
     env=env,
     description="API Gateway for local web interface"
 )
 # Explicit dependency on core stack and frontend (for Cognito)
 api_stack.add_dependency(core_stack)
 api_stack.add_dependency(frontend_stack)
+api_stack.add_dependency(voice_debrief_stack)
 
 # Feedback loop stack - Automatic learning from user modifications
 feedback_stack = FeedbackLoopStack(

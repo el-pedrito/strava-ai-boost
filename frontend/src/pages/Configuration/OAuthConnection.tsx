@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Activity, CheckCircle2, ExternalLink, Link2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Alert, Button } from '@/ui';
+import { Alert, Button, InfoTooltip } from '@/ui';
 import { api } from '../../api/client.ts';
 import { useFlash } from '../../layouts/AppLayout.tsx';
 import type { OAuthStatus } from '../../types/index.ts';
@@ -127,11 +127,12 @@ export function OAuthConnection({ oauthStatus, onDisconnected }: Props) {
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" onClick={handleTest} loading={testing}>
             <Activity className="h-4 w-4" aria-hidden="true" />
             {t('oauth.connection.testConnection')}
           </Button>
+          <InfoTooltip i18nKey="config.testConnection.help" align="start" />
           <Button
             variant="outline"
             className="border-danger text-danger hover:bg-danger hover:text-danger-foreground"

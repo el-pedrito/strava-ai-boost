@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ExternalLink, Link2 } from 'lucide-react';
 import { useTranslation, Trans } from 'react-i18next';
-import { Button, Input, Label } from '@/ui';
+import { Button, InfoTooltip, Input, Label } from '@/ui';
 import { api } from '../../api/client.ts';
 import { useFlash } from '../../layouts/AppLayout.tsx';
 
@@ -45,7 +45,10 @@ export function StravaAppSetup({ onConfigured }: Props) {
           <Link2 className="h-5 w-5" aria-hidden="true" />
         </div>
         <div className="flex-1">
-          <h3 className="text-base font-semibold text-foreground">{t('oauth.setup.step1Title')}</h3>
+          <div className="flex items-center gap-1.5">
+            <h3 className="text-base font-semibold text-foreground">{t('oauth.setup.step1Title')}</h3>
+            <InfoTooltip i18nKey="config.strava.help" align="start" />
+          </div>
           <p className="mt-1 text-sm text-muted-foreground">
             <Trans
               i18nKey="oauth.setup.step1Description"
@@ -74,7 +77,10 @@ export function StravaAppSetup({ onConfigured }: Props) {
       >
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="strava-client-id">{t('oauth.setup.clientIdLabel')}</Label>
+            <div className="flex items-center gap-1.5">
+              <Label htmlFor="strava-client-id">{t('oauth.setup.clientIdLabel')}</Label>
+              <InfoTooltip i18nKey="config.strava.clientId.help" align="start" />
+            </div>
             <Input
               id="strava-client-id"
               value={clientId}
@@ -84,7 +90,10 @@ export function StravaAppSetup({ onConfigured }: Props) {
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="strava-client-secret">{t('oauth.setup.clientSecretLabel')}</Label>
+            <div className="flex items-center gap-1.5">
+              <Label htmlFor="strava-client-secret">{t('oauth.setup.clientSecretLabel')}</Label>
+              <InfoTooltip i18nKey="config.strava.clientSecret.help" align="start" />
+            </div>
             <Input
               id="strava-client-secret"
               type="password"

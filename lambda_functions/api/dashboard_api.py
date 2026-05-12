@@ -981,15 +981,20 @@ def get_coach_summary() -> Dict[str, Any]:
 
             total_planned = len(current_week_sessions)
             if total_planned > 0:
-                seven_days_ago = (now - timedelta(days=7)).isoformat()
-                this_week_activities = [
-                    a for a in recent
-                    if (a.get('start_date') or a.get('created_at', '')) >= seven_days_ago
-                ]
-                completed_count = len(this_week_activities)
+                # Count sessions whose Campus Coach status indicates completion.
+                # The scraper stores French status values: "Complétée"/"Completée"/"Fait"/"Validée".
+                # We also accept English equivalents for forward-compat.
+                done_statuses = {
+                    'completed', 'complétée', 'completée', 'complete',
+                    'fait', 'faite', 'validée', 'validee', 'done', 'finished'
+                }
+                completed_count = sum(
+                    1 for s in current_week_sessions
+                    if (s.get('status') or '').strip().lower() in done_statuses
+                )
                 compliance = {
                     'planned': total_planned,
-                    'completed': min(completed_count, total_planned),
+                    'completed': completed_count,
                     'percentage': min(round(completed_count / total_planned * 100), 100)
                 }
         except Exception as e:

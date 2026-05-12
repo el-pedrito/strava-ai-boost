@@ -21,7 +21,6 @@ import {
   ChevronUp,
   Flame,
   Footprints,
-  MessageSquare,
   Sparkles,
   TrendingDown,
   TrendingUp,
@@ -31,6 +30,7 @@ import {
   Alert,
   Badge,
   Card,
+  EmptyState,
   InfoTooltip,
   KPI,
   Pagination,
@@ -419,6 +419,47 @@ export function CoachPage() {
     return null;
   }, [intervalPaces, t]);
 
+  // Robust pace-axis domain: snap to multiples of 10s, clamp tick count,
+  // ensure a minimum span so flat lines don't get a zero-height domain.
+  const computePaceAxis = (
+    points: PacePoint[],
+  ): { domain: [number, number]; ticks: number[] } => {
+    const values = points.map((p) => p.pace_sec).filter((s) => Number.isFinite(s) && s > 0);
+    if (values.length === 0) {
+      return { domain: [0, 0], ticks: [] };
+    }
+    const rawMin = Math.min(...values);
+    const rawMax = Math.max(...values);
+    // Snap to multiples of 10 seconds.
+    let lo = Math.floor((rawMin - 5) / 10) * 10;
+    let hi = Math.ceil((rawMax + 5) / 10) * 10;
+    // Guarantee at least 30s of span so flat data isn't compressed.
+    if (hi - lo < 30) {
+      const mid = (hi + lo) / 2;
+      lo = Math.floor((mid - 15) / 10) * 10;
+      hi = Math.ceil((mid + 15) / 10) * 10;
+    }
+    if (lo < 0) lo = 0;
+    // Choose a step that yields ~4-5 ticks, rounded to a multiple of 10.
+    const span = hi - lo;
+    const rawStep = span / 4;
+    const step = Math.max(10, Math.round(rawStep / 10) * 10);
+    const ticks: number[] = [];
+    for (let v = lo; v <= hi; v += step) ticks.push(v);
+    if (ticks[ticks.length - 1] !== hi) ticks.push(hi);
+    return { domain: [lo, hi], ticks };
+  };
+
+  const { domain: intervalPaceDomain, ticks: intervalPaceTicks } = useMemo(
+    () => computePaceAxis(intervalPaces),
+    [intervalPaces],
+  );
+
+  const { domain: efPaceDomain, ticks: efPaceTicks } = useMemo(
+    () => computePaceAxis(efPaces),
+    [efPaces],
+  );
+
   // Pace average for ReferenceLine
   const paceAvgSec = useMemo<number | null>(() => {
     if (validPaceSecs.length === 0) return null;
@@ -489,8 +530,11 @@ export function CoachPage() {
                   <Calendar className="h-5 w-5" aria-hidden="true" />
                 </div>
                 <div className="flex-1">
-                  <div className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-1">
-                    {t('coach.now.nextSession.title')}
+                  <div className="flex items-center gap-1 mb-1">
+                    <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">
+                      {t('coach.now.nextSession.title')}
+                    </span>
+                    <InfoTooltip i18nKey="metrics.nextSession" align="start" />
                   </div>
                   <p className="text-sm leading-relaxed">{nextSession}</p>
                 </div>
@@ -585,8 +629,9 @@ export function CoachPage() {
             {compliance ? (
               <Card variant="default" padding="md">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium">
+                  <span className="inline-flex items-center gap-1 text-sm font-medium">
                     {t('coach.now.compliance.title')}
+                    <InfoTooltip i18nKey="metrics.compliance" align="start" />
                   </span>
                   <span
                     className={cn(
@@ -653,20 +698,11 @@ export function CoachPage() {
                     </div>
 
                     {total === 0 ? (
-                      <Card variant="flat" padding="lg">
-                        <div className="flex flex-col items-center text-center gap-2 py-4">
-                          <MessageSquare
-                            className="h-8 w-8 text-muted-foreground/60"
-                            aria-hidden="true"
-                          />
-                          <p className="text-sm font-medium text-foreground">
-                            {t('coach.feedback.emptyTitle')}
-                          </p>
-                          <p className="text-xs text-muted-foreground max-w-sm">
-                            {t('coach.feedback.emptyDescription')}
-                          </p>
-                        </div>
-                      </Card>
+                      <EmptyState
+                        illustration="feedback"
+                        title={t('coach.feedback.emptyTitle')}
+                        description={t('coach.feedback.emptyDescription')}
+                      />
                     ) : (
                       <div className="flex flex-col gap-3">
                         {items.map((item) => (
@@ -977,6 +1013,11 @@ export function CoachPage() {
                             <InfoTooltip i18nKey="coach.charts.intervalPace" />
                           </div>
                         </div>
+                        {intervalPaces.length < 3 ? (
+                          <div className="flex items-center justify-center h-[160px] text-xs text-muted-foreground text-center px-4">
+                            {t('coach.charts.notEnoughData')}
+                          </div>
+                        ) : (
                         <ResponsiveContainer width="100%" height={160}>
                           <LineChart
                             data={intervalPaces.map((p) => ({
@@ -1014,6 +1055,9 @@ export function CoachPage() {
                               axisLine={false}
                               tickFormatter={(v: number) => formatPace(v)}
                               width={40}
+                              domain={intervalPaceDomain}
+                              ticks={intervalPaceTicks}
+                              allowDecimals={false}
                             />
                             <Tooltip
                               content={
@@ -1039,6 +1083,7 @@ export function CoachPage() {
                             />
                           </LineChart>
                         </ResponsiveContainer>
+                        )}
                         <p className="mt-2 text-xs text-muted-foreground">
                           {t('coach.charts.lowerIsFaster')}
                         </p>
@@ -1075,6 +1120,11 @@ export function CoachPage() {
                             </Badge>
                           ) : null}
                         </div>
+                        {efPaces.length < 3 ? (
+                          <div className="flex items-center justify-center h-[160px] text-xs text-muted-foreground text-center px-4">
+                            {t('coach.charts.notEnoughData')}
+                          </div>
+                        ) : (
                         <ResponsiveContainer width="100%" height={160}>
                           <LineChart
                             data={efPaces.map((p) => ({
@@ -1112,6 +1162,9 @@ export function CoachPage() {
                               axisLine={false}
                               tickFormatter={(v: number) => formatPace(v)}
                               width={40}
+                              domain={efPaceDomain}
+                              ticks={efPaceTicks}
+                              allowDecimals={false}
                             />
                             <Tooltip
                               content={
@@ -1137,6 +1190,7 @@ export function CoachPage() {
                             />
                           </LineChart>
                         </ResponsiveContainer>
+                        )}
                         <p className="mt-2 text-xs text-muted-foreground">
                           {t('coach.charts.efPace.aerobicHint')}
                         </p>

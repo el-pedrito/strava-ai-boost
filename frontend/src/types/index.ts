@@ -33,6 +33,19 @@ export interface Activity {
   max_speed?: number;
   kudos_count?: number;
   comment_count?: number;
+  audio_debrief_url?: string;
+  audio_debrief_duration_sec?: number;
+  audio_debrief_generated_at?: string;
+  audio_debrief_language?: string;
+}
+
+export interface AudioDebriefPayload {
+  audio_url: string;
+  duration_sec?: number;
+  generated_at?: string;
+  language?: string;
+  voice?: string;
+  expires_in_sec?: number;
 }
 
 export interface QualityStats {

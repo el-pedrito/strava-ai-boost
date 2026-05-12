@@ -10,6 +10,8 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  EmptyState,
+  InfoTooltip,
   Input,
   Label,
   Select,
@@ -323,13 +325,19 @@ export function PreferencesPage() {
       {/* Athlete profile */}
       <Card padding="lg">
         <CardHeader>
-          <CardTitle>{t('preferences.profile.title')}</CardTitle>
+          <div className="flex items-center gap-1.5">
+            <CardTitle>{t('preferences.profile.title')}</CardTitle>
+            <InfoTooltip i18nKey="preferences.profile.help" align="start" />
+          </div>
           <CardDescription>{t('preferences.profile.description')}</CardDescription>
         </CardHeader>
         <div className="flex flex-col gap-5">
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
-              <Label htmlFor="athlete-profile">{t('preferences.profile.fieldLabel')}</Label>
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="athlete-profile">{t('preferences.profile.fieldLabel')}</Label>
+                <InfoTooltip i18nKey="preferences.profile.field.help" align="start" />
+              </div>
               <span
                 className={
                   state.athleteProfile.length > 2000
@@ -353,7 +361,10 @@ export function PreferencesPage() {
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label htmlFor="max-hr">{t('preferences.profile.fcMax')}</Label>
+            <div className="flex items-center gap-1.5">
+              <Label htmlFor="max-hr">{t('preferences.profile.fcMax')}</Label>
+              <InfoTooltip i18nKey="preferences.maxHr.help" align="start" />
+            </div>
             <p className="text-xs text-muted-foreground">{t('preferences.profile.fcMaxDescription')}</p>
             <div className="flex flex-wrap items-center gap-2">
               <div className="w-32">
@@ -383,7 +394,10 @@ export function PreferencesPage() {
         <CardHeader>
           <div className="flex items-start justify-between gap-3">
             <div className="flex flex-col gap-1.5">
-              <CardTitle>Personal records</CardTitle>
+              <div className="flex items-center gap-1.5">
+                <CardTitle>Personal records</CardTitle>
+                <InfoTooltip i18nKey="preferences.records.help" align="start" />
+              </div>
               <CardDescription>
                 Your benchmark times. The coach uses them to contextualize your progress.
               </CardDescription>
@@ -433,7 +447,10 @@ export function PreferencesPage() {
         <CardHeader>
           <div className="flex items-start justify-between gap-3">
             <div className="flex flex-col gap-1.5">
-              <CardTitle>{t('preferences.zones.title')}</CardTitle>
+              <div className="flex items-center gap-1.5">
+                <CardTitle>{t('preferences.zones.title')}</CardTitle>
+                <InfoTooltip i18nKey="preferences.zones.help" align="start" />
+              </div>
               <CardDescription>{t('preferences.zones.description')}</CardDescription>
             </div>
             <Button
@@ -510,39 +527,62 @@ export function PreferencesPage() {
       {/* Content style */}
       <Card padding="lg">
         <CardHeader>
-          <CardTitle>{t('preferences.style.title')}</CardTitle>
+          <div className="flex items-center gap-1.5">
+            <CardTitle>{t('preferences.style.title')}</CardTitle>
+            <InfoTooltip i18nKey="preferences.style.help" align="start" />
+          </div>
           <CardDescription>{t('preferences.style.description')}</CardDescription>
         </CardHeader>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <Field label={t('preferences.style.length')} hint="Preferred length for activity descriptions">
+          <Field
+            label={t('preferences.style.length')}
+            hint="Preferred length for activity descriptions"
+            helpKey="preferences.style.length.help"
+          >
             <Select
               options={LENGTH_OPTIONS}
               value={state.contentLength}
               onChange={(v) => setState((prev) => ({ ...prev, contentLength: v }))}
             />
           </Field>
-          <Field label={t('preferences.style.tone')} hint="Communication style for descriptions">
+          <Field
+            label={t('preferences.style.tone')}
+            hint="Communication style for descriptions"
+            helpKey="preferences.style.tone.help"
+          >
             <Select
               options={TONE_OPTIONS}
               value={state.contentTone}
               onChange={(v) => setState((prev) => ({ ...prev, contentTone: v }))}
             />
           </Field>
-          <Field label={t('preferences.style.emoji')} hint="How many emojis to include in generated text">
+          <Field
+            label={t('preferences.style.emoji')}
+            hint="How many emojis to include in generated text"
+            helpKey="preferences.style.emoji.help"
+          >
             <Select
               options={EMOJI_OPTIONS}
               value={state.emojiUsage}
               onChange={(v) => setState((prev) => ({ ...prev, emojiUsage: v }))}
             />
           </Field>
-          <Field label={t('preferences.style.technical')} hint="Level of technical detail">
+          <Field
+            label={t('preferences.style.technical')}
+            hint="Level of technical detail"
+            helpKey="preferences.style.technical.help"
+          >
             <Select
               options={DETAIL_OPTIONS}
               value={state.technicalDetail}
               onChange={(v) => setState((prev) => ({ ...prev, technicalDetail: v }))}
             />
           </Field>
-          <Field label={t('preferences.style.language')} hint="Language for titles and descriptions">
+          <Field
+            label={t('preferences.style.language')}
+            hint="Language for titles and descriptions"
+            helpKey="preferences.style.language.help"
+          >
             <Select
               options={LANGUAGE_OPTIONS}
               value={state.contentLanguage}
@@ -555,19 +595,30 @@ export function PreferencesPage() {
       {/* Demographics */}
       <Card padding="lg">
         <CardHeader>
-          <CardTitle>Demographics</CardTitle>
+          <div className="flex items-center gap-1.5">
+            <CardTitle>Demographics</CardTitle>
+            <InfoTooltip i18nKey="preferences.demographics.help" align="start" />
+          </div>
           <CardDescription>Demographic info to adapt content to your profile.</CardDescription>
         </CardHeader>
         <div className="flex flex-col gap-5">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Field label={t('preferences.demographics.age')} hint="Helps adapt references and tone">
+            <Field
+              label={t('preferences.demographics.age')}
+              hint="Helps adapt references and tone"
+              helpKey="preferences.demographics.age.help"
+            >
               <Select
                 options={AGE_OPTIONS}
                 value={state.ageRange}
                 onChange={(v) => setState((prev) => ({ ...prev, ageRange: v }))}
               />
             </Field>
-            <Field label="Sport approach" hint="Your main motivation for training">
+            <Field
+              label="Sport approach"
+              hint="Your main motivation for training"
+              helpKey="preferences.demographics.sportApproach.help"
+            >
               <Select
                 options={SPORT_OPTIONS}
                 value={state.sportApproach}
@@ -577,7 +628,10 @@ export function PreferencesPage() {
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label>Interests</Label>
+            <div className="flex items-center gap-1.5">
+              <Label>Interests</Label>
+              <InfoTooltip i18nKey="preferences.demographics.interests.help" align="start" />
+            </div>
             <p className="text-xs text-muted-foreground">
               The AI uses these to add relevant references in generated content.
             </p>
@@ -641,13 +695,21 @@ export function PreferencesPage() {
 interface FieldProps {
   label: string;
   hint?: string;
+  helpKey?: string;
   children: React.ReactNode;
 }
 
-function Field({ label, hint, children }: FieldProps) {
+function Field({ label, hint, helpKey, children }: FieldProps) {
   return (
     <div className="flex flex-col gap-1.5">
-      <Label>{label}</Label>
+      {helpKey ? (
+        <div className="flex items-center gap-1.5">
+          <Label>{label}</Label>
+          <InfoTooltip i18nKey={helpKey} align="start" />
+        </div>
+      ) : (
+        <Label>{label}</Label>
+      )}
       {children}
       {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
     </div>
@@ -706,11 +768,14 @@ function computePace(distance: string, time: string): { pace: string; speed: str
 }
 
 function RecordsList({ records, onRemove }: RecordsListProps) {
+  const { t } = useTranslation();
   if (records.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">
-        No records saved. Add your times for 5K, 10K, half-marathon, marathon, etc.
-      </p>
+      <EmptyState
+        illustration="records"
+        title={t('empty.records.title')}
+        description={t('preferences.records.empty')}
+      />
     );
   }
 
