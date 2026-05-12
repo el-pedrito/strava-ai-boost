@@ -470,6 +470,7 @@ export function CoachPage() {
                 <motion.div variants={stagger.item} className="h-full">
                   <KPI
                     label="Ramp rate"
+                    info="metrics.rampRate"
                     value={
                       rampRate !== null ? (
                         <span
