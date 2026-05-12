@@ -1,5 +1,5 @@
 import { useState, useEffect, type ReactNode } from 'react';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, BarChart3 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge, Button, Input, Label, Toggle } from '@/ui';
 import { CampusCoachLogo } from '../../components/icons/CampusCoachLogo.tsx';
@@ -253,9 +253,7 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
       {/* Intervals.icu */}
       <ModuleCard
         logo={
-          <span className="font-mono text-sm font-semibold tracking-tight text-foreground">
-            intervals.icu
-          </span>
+          <BarChart3 className="h-7 w-7 text-primary" aria-hidden="true" />
         }
         title={t('modules.intervals.title')}
         description={t('modules.intervals.description')}
@@ -326,7 +324,7 @@ function ModuleCard({ logo, title, description, toggleId, enabled, onToggle, sta
   return (
     <div className="flex flex-col rounded-xl border border-border bg-surface p-5">
       <div className="flex items-start justify-between gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center">{logo}</div>
+        <div className="flex h-10 min-w-10 shrink-0 items-center justify-start">{logo}</div>
         <Toggle id={toggleId} checked={enabled} onCheckedChange={onToggle} aria-label={t('modules.toggleAria', { name: title })} />
       </div>
       <div className="mt-3 flex items-center justify-between gap-2">

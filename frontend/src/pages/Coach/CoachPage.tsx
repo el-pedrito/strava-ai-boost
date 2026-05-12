@@ -443,14 +443,14 @@ export function CoachPage() {
                 initial="hidden"
                 animate="show"
               >
-                <motion.div variants={stagger.item}>
+                <motion.div variants={stagger.item} className="h-full">
                   <KPI
                     label="Volume (4 weeks)"
                     value={Math.round(totalKm)}
                     unit="km"
                   />
                 </motion.div>
-                <motion.div variants={stagger.item}>
+                <motion.div variants={stagger.item} className="h-full">
                   <KPI
                     label="Sessions (4 weeks)"
                     value={
@@ -464,10 +464,10 @@ export function CoachPage() {
                     }
                   />
                 </motion.div>
-                <motion.div variants={stagger.item}>
+                <motion.div variants={stagger.item} className="h-full">
                   <KPI label="This week" value={thisWeekKm} unit="km" />
                 </motion.div>
-                <motion.div variants={stagger.item}>
+                <motion.div variants={stagger.item} className="h-full">
                   <KPI
                     label="Ramp rate"
                     value={
