@@ -29,6 +29,7 @@ import {
   Button,
   Card,
   KPI,
+  Pagination,
   Tabs,
   TabsContent,
   TabsList,
@@ -153,7 +154,14 @@ export function CoachPage() {
   const [data, setData] = useState<CoachSummary | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [feedbackLimit, setFeedbackLimit] = useState<number>(5);
+  const FEEDBACK_PAGE_SIZE_KEY = 'coach.feedback.pageSize';
+  const [feedbackPage, setFeedbackPage] = useState<number>(1);
+  const [feedbackPageSize, setFeedbackPageSize] = useState<number>(() => {
+    if (typeof window === 'undefined') return 5;
+    const stored = window.localStorage.getItem(FEEDBACK_PAGE_SIZE_KEY);
+    const parsed = stored ? Number(stored) : NaN;
+    return [3, 5, 10, 20].includes(parsed) ? parsed : 5;
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -417,23 +425,36 @@ export function CoachPage() {
                     No coach feedback available yet.
                   </p>
                 </Card>
-              ) : (
-                <div className="flex flex-col gap-3">
-                  {data.recent_feedback.slice(0, feedbackLimit).map((item) => (
-                    <FeedbackCard key={item.activity_id} item={item} />
-                  ))}
-                  {data.recent_feedback.length > feedbackLimit ? (
-                    <Button
-                      variant="outline"
-                      size="md"
-                      onClick={() => setFeedbackLimit((prev) => prev + 5)}
-                      className="self-center"
-                    >
-                      View {data.recent_feedback.length - feedbackLimit} more
-                    </Button>
-                  ) : null}
-                </div>
-              )}
+              ) : (() => {
+                const total = data.recent_feedback.length;
+                const totalPages = Math.max(1, Math.ceil(total / feedbackPageSize));
+                const safePage = Math.min(Math.max(1, feedbackPage), totalPages);
+                const start = (safePage - 1) * feedbackPageSize;
+                const items = data.recent_feedback.slice(start, start + feedbackPageSize);
+                return (
+                  <div className="flex flex-col gap-3">
+                    {items.map((item) => (
+                      <FeedbackCard key={item.activity_id} item={item} />
+                    ))}
+                    {total > Math.min(...[3, 5, 10, 20]) ? (
+                      <Pagination
+                        total={total}
+                        page={safePage}
+                        pageSize={feedbackPageSize}
+                        onPageChange={setFeedbackPage}
+                        onPageSizeChange={(size) => {
+                          setFeedbackPageSize(size);
+                          setFeedbackPage(1);
+                          if (typeof window !== 'undefined') {
+                            window.localStorage.setItem(FEEDBACK_PAGE_SIZE_KEY, String(size));
+                          }
+                        }}
+                        className="mt-2"
+                      />
+                    ) : null}
+                  </div>
+                );
+              })()}
             </section>
 
             <Card variant="default" padding="md">

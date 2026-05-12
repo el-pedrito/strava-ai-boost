@@ -17,3 +17,4 @@ export { Tabs, TabsList, TabsTrigger, TabsContent } from './Tabs';
 export { Select, type SelectProps, type SelectOption } from './Select';
 export { Textarea, type TextareaProps } from './Textarea';
 export { Toggle, type ToggleProps } from './Toggle';
+export { Pagination, type PaginationProps } from './Pagination';
