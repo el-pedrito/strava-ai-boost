@@ -919,17 +919,36 @@ def get_coach_summary() -> Dict[str, Any]:
             median_speed = sorted(speeds)[len(speeds) // 2]
 
             fast_laps = [l for l in laps if float(l.get('average_speed', 0)) > median_speed * 1.15 and float(l.get('distance', 0)) > 200]
+            slow_laps = [l for l in laps if float(l.get('average_speed', 0)) <= median_speed * 1.15 and float(l.get('distance', 0)) > 200]
 
-            # If has fast laps (>15% faster than median) = interval session
+            # If has fast laps (>15% faster than median) = interval session.
+            # Aggregate fast laps into ONE point per session (mean pace +
+            # mean HR weighted by distance) so the chart shows one dot per
+            # workout instead of N overlapping dots on the same date.
             if len(fast_laps) >= 2:
+                total_dist = 0.0
+                total_time = 0.0
+                hr_weighted = 0.0
+                hr_dist = 0.0
                 for fl in fast_laps:
                     sp = float(fl.get('average_speed', 0))
-                    if sp > 0:
-                        interval_paces.append({
-                            'date': created,
-                            'pace_sec': round(1000 / sp),
-                            'hr': fl.get('average_heartrate'),
-                        })
+                    dist = float(fl.get('distance', 0))
+                    if sp > 0 and dist > 0:
+                        total_dist += dist
+                        total_time += dist / sp
+                        hr = fl.get('average_heartrate')
+                        if hr is not None:
+                            try:
+                                hr_weighted += float(hr) * dist
+                                hr_dist += dist
+                            except (TypeError, ValueError):
+                                pass
+                if total_dist > 0 and total_time > 0:
+                    interval_paces.append({
+                        'date': created,
+                        'pace_sec': round(total_time / (total_dist / 1000)),
+                        'hr': round(hr_weighted / hr_dist) if hr_dist > 0 else None,
+                    })
             # If mostly slow laps and low pace variance = EF session
             elif len(slow_laps) >= len(laps) * 0.7:
                 total_dist = sum(float(l.get('distance', 0)) for l in laps)
