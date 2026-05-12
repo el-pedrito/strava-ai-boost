@@ -163,7 +163,12 @@ Règles: tutoiement, réponses concises (3-5 phrases), factuel."""
 
 
 def _build_user_context(user_id: str) -> list:
-    """Build athlete context from DynamoDB."""
+    """Build athlete context from DynamoDB.
+
+    Includes athlete profile, records, weekly volume summary, and a detailed
+    list of recent enriched activities so the coach can refer to specific sessions
+    (title, date, type, distance, pace, HR, modules, AI title/description, coach feedback).
+    """
     context_parts = []
     try:
         table = dynamodb.Table(USER_CONFIG_TABLE)
@@ -186,16 +191,97 @@ def _build_user_context(user_id: str) -> list:
             IndexName="UserActivitiesIndex",
             KeyConditionExpression="user_id = :uid AND created_at >= :since",
             ExpressionAttributeValues={":uid": user_id, ":since": four_weeks_ago},
-            ProjectionExpression="activity_type, distance, moving_time",
         )
         activities = resp.get("Items", [])
         if activities:
-            total_km = sum(float(a.get("distance", 0)) for a in activities) / 1000
+            # Aggregate summary
+            total_km = sum(float(a.get("distance", 0) or 0) for a in activities) / 1000
             context_parts.append(f"4 semaines: {len(activities)} activités, {total_km:.0f}km")
+
+            # Build detailed list of last 12 activities (most recent first) so
+            # the coach can answer questions about specific sessions.
+            activities.sort(key=lambda a: a.get("start_date") or a.get("created_at", ""), reverse=True)
+            details = _format_recent_activities(activities[:12])
+            if details:
+                context_parts.append("Dernières séances détaillées:\n" + details)
     except Exception as e:
         logger.warning(f"Failed to get activities: {e}")
 
     return context_parts
+
+
+def _format_recent_activities(activities: list) -> str:
+    """Format a list of activities into a compact textual block for the coach prompt.
+
+    Each line: date | type | title | distance | duration | pace | HR | modules | feedback summary.
+    Truncated to keep the prompt within token budget (~150 chars per session max).
+    """
+    lines = []
+    for a in activities:
+        try:
+            date = (a.get("start_date") or a.get("start_date_local") or a.get("created_at", ""))[:10]
+            atype = a.get("activity_type", "?")
+            title = a.get("enhanced_title") or a.get("original_name", "Activité")
+            title = title[:60]
+
+            distance_m = float(a.get("distance", 0) or 0)
+            distance_str = f"{distance_m / 1000:.1f}km" if distance_m else "-"
+
+            moving_s = float(a.get("moving_time", 0) or 0)
+            duration_str = f"{int(moving_s // 60)}min" if moving_s else "-"
+
+            # Pace (min/km) for runs
+            pace_str = "-"
+            if atype == "Run" and distance_m > 0 and moving_s > 0:
+                pace_s_per_km = moving_s / (distance_m / 1000)
+                pace_str = f"{int(pace_s_per_km // 60)}:{int(pace_s_per_km % 60):02d}/km"
+
+            avg_hr = a.get("average_heartrate")
+            max_hr = a.get("max_heartrate")
+            hr_parts = []
+            if avg_hr:
+                hr_parts.append(f"avg {int(float(avg_hr))}")
+            if max_hr:
+                hr_parts.append(f"max {int(float(max_hr))}")
+            hr_str = f"FC {' / '.join(hr_parts)}" if hr_parts else ""
+
+            modules = a.get("modules_used", []) or []
+            mod_str = f"modules: {', '.join(modules[:4])}" if modules else ""
+
+            ai_desc = a.get("enhanced_description") or ""
+            if ai_desc:
+                ai_desc = ai_desc[:120].replace("\n", " ")
+
+            # Coach feedback: extract short strava_block summary if present
+            fb = a.get("coach_feedback")
+            fb_str = ""
+            if fb:
+                if isinstance(fb, str):
+                    try:
+                        fb = json.loads(fb)
+                    except (json.JSONDecodeError, TypeError):
+                        fb = None
+                if isinstance(fb, dict):
+                    block = fb.get("strava_block") or fb.get("detailed_analysis") or ""
+                    if isinstance(block, str) and block:
+                        fb_str = f"feedback: {block[:140].replace(chr(10), ' ')}"
+
+            parts = [
+                f"- {date} | {atype} | {title} | {distance_str} | {duration_str} | {pace_str}",
+            ]
+            if hr_str:
+                parts.append(hr_str)
+            if mod_str:
+                parts.append(mod_str)
+            if ai_desc:
+                parts.append(f"desc: {ai_desc}")
+            if fb_str:
+                parts.append(fb_str)
+            lines.append(" | ".join(parts))
+        except (ValueError, TypeError, AttributeError) as e:
+            logger.debug(f"Skipping activity in context: {e}")
+            continue
+    return "\n".join(lines)
 
 
 MEMORY_ID = os.environ.get("BEDROCK_AGENTCORE_MEMORY_ID", "")
