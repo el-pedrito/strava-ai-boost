@@ -1,6 +1,5 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { Spinner, Box } from '@cloudscape-design/components';
 import { Shell } from './layouts/AppLayout.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { OAuthCallback } from './pages/Configuration/OAuthCallback.tsx';
@@ -15,9 +14,12 @@ const CoachPage = lazy(() => import('./pages/Coach/CoachPage.tsx').then(m => ({ 
 
 function PageLoader() {
   return (
-    <Box textAlign="center" padding="xxl">
-      <Spinner size="large" />
-    </Box>
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div
+        className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-primary"
+        aria-label="Loading"
+      />
+    </div>
   );
 }
 

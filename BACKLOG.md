@@ -19,7 +19,7 @@ Le projet est fonctionnel et en production (dev). Toute la chaine fonctionne end
 - Webhook API sans auth — Documente (exigence Strava, HMAC-SHA1)
 - Logger inconsistant — Harmonise sur `shared.logger.get_logger()`
 - Cost allocation tags — CDK + AgentCore resources + IAM execution roles (per-agent Bedrock cost via CUR 2.0)
-- **Cost optimization pass (April 2026)** — $513/mo -> ~$26/mo. See [docs/OPTIMIZATION-PLAN.md](docs/OPTIMIZATION-PLAN.md).
+- **Cost optimization pass (April 2026)** — $513/mo -> ~$26/mo (Campus Coach weekly cron + Haiku, Bedrock prompt caching, MaxToolCountsHook, MonitoringStack supprimé).
   - Campus Coach cron weekly (was daily) + mark session done on match
   - Campus Coach + Memory Strategy -> Haiku 4.5 (was Sonnet)
   - Bedrock prompt caching on content_gen system prompt

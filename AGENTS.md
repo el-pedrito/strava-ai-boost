@@ -170,11 +170,9 @@ strava-ai-boost/
 │   ├── build_layer.sh                  # Build script
 │   └── requirements.txt                # Python packages
 │
-├── docs/                       # User documentation
-│   ├── getting-started/
-│   ├── user-guide/
-│   ├── advanced/
-│   └── reference/
+├── docs/                       # Project docs
+│   ├── ROADMAP.md                     # Forward-looking roadmap
+│   └── design/                        # Design specs
 │
 ├── .agents/                    # AI assistant documentation
 │   └── summary/
@@ -892,8 +890,10 @@ aws stepfunctions describe-execution \
 ## Additional Resources
 
 ### Documentation
-- **User Documentation:** `docs/`
-- **Scripts Documentation:** `scripts/README.md`
+- **Roadmap:** `docs/ROADMAP.md`
+- **Backlog:** `BACKLOG.md`
+- **Scripts:** `scripts/README.md`
+- **Tests:** `tests/README.md`
 - **README:** `README.md`
 
 ### External Links
