@@ -11,6 +11,8 @@ const ConfigurationPage = lazy(() => import('./pages/Configuration/Configuration
 const PreferencesPage = lazy(() => import('./pages/Preferences/PreferencesPage.tsx').then(m => ({ default: m.PreferencesPage })));
 const ContentQualityPage = lazy(() => import('./pages/Quality/ContentQualityPage.tsx').then(m => ({ default: m.ContentQualityPage })));
 const CoachPage = lazy(() => import('./pages/Coach/CoachPage.tsx').then(m => ({ default: m.CoachPage })));
+const OnboardingPage = lazy(() => import('./pages/Onboarding/OnboardingPage.tsx').then(m => ({ default: m.OnboardingPage })));
+const ActivityDetailPage = lazy(() => import('./pages/Activity/ActivityDetailPage.tsx').then(m => ({ default: m.ActivityDetailPage })));
 
 function PageLoader() {
   return (
@@ -37,6 +39,8 @@ export default function App() {
                 <Route path="/preferences" element={<PreferencesPage />} />
                 <Route path="/quality" element={<ContentQualityPage />} />
                 <Route path="/coach" element={<CoachPage />} />
+                <Route path="/onboarding" element={<OnboardingPage />} />
+                <Route path="/activities/:id" element={<ActivityDetailPage />} />
               </Route>
             </Routes>
           </Suspense>

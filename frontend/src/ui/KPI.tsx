@@ -1,5 +1,6 @@
-import { forwardRef, type HTMLAttributes, type ReactNode } from 'react';
+import { forwardRef, useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from 'react';
 import { ArrowDownRight, ArrowUpRight, Minus } from 'lucide-react';
+import { animate, useMotionValue, useReducedMotion } from 'framer-motion';
 import { cn } from '@/lib/cn';
 
 export interface KPIProps extends HTMLAttributes<HTMLDivElement> {
@@ -10,6 +11,82 @@ export interface KPIProps extends HTMLAttributes<HTMLDivElement> {
   icon?: ReactNode;
   loading?: boolean;
   size?: 'sm' | 'md' | 'lg';
+}
+
+const ANIMATION_DURATION_MS = 600;
+const DEBOUNCE_MS = 300;
+
+function isFiniteNumeric(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+function tryParseNumber(value: ReactNode): number | null {
+  if (isFiniteNumeric(value)) return value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed === '') return null;
+    // Avoid matching strings with units or mixed content (e.g., "12 km", "5m30s")
+    if (!/^-?\d+(\.\d+)?$/.test(trimmed)) return null;
+    const n = Number(trimmed);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function formatNumber(value: number, isInteger: boolean): string {
+  if (isInteger) return String(Math.round(value));
+  return value.toFixed(1);
+}
+
+interface AnimatedNumberProps {
+  value: number;
+  ariaLabel?: string;
+}
+
+function AnimatedNumber({ value, ariaLabel }: AnimatedNumberProps) {
+  const reduceMotion = useReducedMotion();
+  const motionValue = useMotionValue(0);
+  const [display, setDisplay] = useState<string>(() =>
+    formatNumber(reduceMotion ? value : 0, Number.isInteger(value))
+  );
+  const debounceRef = useRef<number | null>(null);
+  const isInteger = Number.isInteger(value);
+
+  useEffect(() => {
+    if (reduceMotion) {
+      motionValue.set(value);
+      setDisplay(formatNumber(value, isInteger));
+      return;
+    }
+
+    if (debounceRef.current !== null) {
+      window.clearTimeout(debounceRef.current);
+    }
+
+    debounceRef.current = window.setTimeout(() => {
+      const controls = animate(motionValue, value, {
+        duration: ANIMATION_DURATION_MS / 1000,
+        ease: [0.215, 0.61, 0.355, 1], // easeOutCubic
+        onUpdate: (latest) => {
+          setDisplay(formatNumber(latest, isInteger));
+        },
+      });
+      return () => controls.stop();
+    }, DEBOUNCE_MS);
+
+    return () => {
+      if (debounceRef.current !== null) {
+        window.clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+    };
+  }, [value, isInteger, motionValue, reduceMotion]);
+
+  return (
+    <span aria-live="polite" aria-label={ariaLabel ?? formatNumber(value, isInteger)}>
+      {display}
+    </span>
+  );
 }
 
 export const KPI = forwardRef<HTMLDivElement, KPIProps>(
@@ -29,6 +106,8 @@ export const KPI = forwardRef<HTMLDivElement, KPIProps>(
       deltaTone = isGood ? 'success' : 'danger';
       DeltaIcon = positive ? ArrowUpRight : ArrowDownRight;
     }
+
+    const numericValue = tryParseNumber(value);
 
     return (
       <div
@@ -56,7 +135,11 @@ export const KPI = forwardRef<HTMLDivElement, KPIProps>(
           ) : (
             <>
               <span className={cn('font-numeric font-semibold leading-none text-foreground', valueSize)}>
-                {value}
+                {numericValue !== null ? (
+                  <AnimatedNumber value={numericValue} />
+                ) : (
+                  value
+                )}
               </span>
               {unit ? (
                 <span className="text-sm font-medium text-muted-foreground">{unit}</span>

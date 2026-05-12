@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, type ComponentType } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import {
   Activity as ActivityIcon,
   ArrowDown,
@@ -18,7 +19,10 @@ import {
   Waves,
   Zap,
 } from 'lucide-react';
+import { motion, useReducedMotion } from 'framer-motion';
 import { Alert, Badge, Button, Card, KPI } from '../../ui';
+import { OnboardingHint } from '../../components/OnboardingHint.tsx';
+import { staggerContainer, staggerItem } from '../../lib/motion.ts';
 import { useAutoRefresh } from '../../hooks/useAutoRefresh.ts';
 import { useFlash } from '../../layouts/AppLayout.tsx';
 import { api } from '../../api/client.ts';
@@ -27,7 +31,9 @@ import { cn } from '../../lib/cn.ts';
 import type { DashboardStats, SystemStatus, Activity } from '../../types/index.ts';
 
 interface RawActivity {
+  activity_id?: string;
   enhanced_title?: string;
+  enhanced_description?: string;
   original_name?: string;
   created_at?: string;
   updated_at?: string;
@@ -39,6 +45,16 @@ interface RawActivity {
   similarity_score?: number;
   feedback_analyzed?: boolean;
   generated_at?: string;
+  distance?: number;
+  moving_time?: number;
+  elapsed_time?: number;
+  total_elevation_gain?: number;
+  average_heartrate?: number;
+  max_heartrate?: number;
+  average_speed?: number;
+  max_speed?: number;
+  kudos_count?: number;
+  comment_count?: number;
 }
 
 function processingSeconds(createdAt?: string, updatedAt?: string): number | undefined {
@@ -64,6 +80,20 @@ function transformActivities(raw: RawActivity[]): Activity[] {
     generated_at: act.generated_at,
     created_at_raw: act.created_at,
     processing_time_seconds: processingSeconds(act.created_at, act.updated_at),
+    activity_id: act.activity_id,
+    enhanced_title: act.enhanced_title,
+    enhanced_description: act.enhanced_description,
+    original_name: act.original_name,
+    distance: act.distance,
+    moving_time: act.moving_time,
+    elapsed_time: act.elapsed_time,
+    total_elevation_gain: act.total_elevation_gain,
+    average_heartrate: act.average_heartrate,
+    max_heartrate: act.max_heartrate,
+    average_speed: act.average_speed,
+    max_speed: act.max_speed,
+    kudos_count: act.kudos_count,
+    comment_count: act.comment_count,
   }));
 }
 
@@ -279,6 +309,7 @@ type SortDir = 'asc' | 'desc';
 
 export function DashboardPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const flash = useFlash();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [status, setStatus] = useState<SystemStatus | null>(null);
@@ -428,6 +459,10 @@ export function DashboardPage() {
       ? 'success'
       : 'warning';
 
+  const reduceMotion = useReducedMotion();
+  const containerVariants = reduceMotion ? undefined : staggerContainer;
+  const itemVariants = reduceMotion ? undefined : staggerItem;
+
   return (
     <div className="flex flex-col gap-6 md:gap-8 pb-10">
       {/* Header */}
@@ -459,6 +494,9 @@ export function DashboardPage() {
         </div>
       </header>
 
+      {/* Onboarding hint (shown only if user hasn't finished setup) */}
+      <OnboardingHint oauthConnected={status?.strava_connected} />
+
       {/* Error */}
       {error ? (
         <Alert variant="error">
@@ -472,36 +510,47 @@ export function DashboardPage() {
       ) : null}
 
       {/* Hero KPIs */}
-      <section
+      <motion.section
         aria-label={t('dashboard.kpi.summaryAria')}
-        className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 animate-fade-in-up"
+        className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4"
+        variants={containerVariants}
+        initial="hidden"
+        animate="show"
       >
-        <KPI
-          label={t('dashboard.kpi.activities')}
-          value={loading ? '' : (stats?.total_activities ?? 0)}
-          loading={loading}
-          icon={<ActivityIcon className="h-4 w-4" />}
-        />
-        <KPI
-          label={t('dashboard.kpi.successRate')}
-          value={loading ? '' : successRateValue}
-          unit={loading ? undefined : successRateUnit}
-          loading={loading}
-          icon={<TrendingUp className="h-4 w-4" />}
-        />
-        <KPI
-          label={t('dashboard.kpi.completed')}
-          value={loading ? '' : (stats?.completed_activities ?? 0)}
-          loading={loading}
-          icon={<ListChecks className="h-4 w-4" />}
-        />
-        <KPI
-          label={t('dashboard.kpi.avgProcessing')}
-          value={loading ? '' : avgProcessingTime}
-          loading={loading}
-          icon={<Zap className="h-4 w-4" />}
-        />
-      </section>
+        <motion.div variants={itemVariants}>
+          <KPI
+            label={t('dashboard.kpi.activities')}
+            value={loading ? '' : (stats?.total_activities ?? 0)}
+            loading={loading}
+            icon={<ActivityIcon className="h-4 w-4" />}
+          />
+        </motion.div>
+        <motion.div variants={itemVariants}>
+          <KPI
+            label={t('dashboard.kpi.successRate')}
+            value={loading ? '' : successRateValue}
+            unit={loading ? undefined : successRateUnit}
+            loading={loading}
+            icon={<TrendingUp className="h-4 w-4" />}
+          />
+        </motion.div>
+        <motion.div variants={itemVariants}>
+          <KPI
+            label={t('dashboard.kpi.completed')}
+            value={loading ? '' : (stats?.completed_activities ?? 0)}
+            loading={loading}
+            icon={<ListChecks className="h-4 w-4" />}
+          />
+        </motion.div>
+        <motion.div variants={itemVariants}>
+          <KPI
+            label={t('dashboard.kpi.avgProcessing')}
+            value={loading ? '' : avgProcessingTime}
+            loading={loading}
+            icon={<Zap className="h-4 w-4" />}
+          />
+        </motion.div>
+      </motion.section>
 
       {/* Connection status */}
       <section aria-label={t('dashboard.connections.aria')} className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -639,10 +688,25 @@ export function DashboardPage() {
                     {sortedActivities.map((act, idx) => {
                       const Icon = activityIcon(act.activity_type);
                       const sBadge = statusBadge(act.status, t);
+                      const detailKey = act.activity_id ?? act.name;
+                      const handleOpen = () =>
+                        navigate(`/activities/${encodeURIComponent(detailKey)}`, {
+                          state: { activity: act },
+                        });
                       return (
                         <tr
                           key={`${act.name}-${idx}`}
-                          className="border-b border-border last:border-b-0 transition-colors hover:bg-surface-muted/40"
+                          onClick={handleOpen}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              handleOpen();
+                            }
+                          }}
+                          tabIndex={0}
+                          role="button"
+                          aria-label={t('dashboard.activities.openAria', { name: act.name })}
+                          className="cursor-pointer border-b border-border last:border-b-0 transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
                         >
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-3">
@@ -693,10 +757,25 @@ export function DashboardPage() {
                 {sortedActivities.map((act, idx) => {
                   const Icon = activityIcon(act.activity_type);
                   const sBadge = statusBadge(act.status, t);
+                  const detailKey = act.activity_id ?? act.name;
+                  const handleOpen = () =>
+                    navigate(`/activities/${encodeURIComponent(detailKey)}`, {
+                      state: { activity: act },
+                    });
                   return (
                     <li
                       key={`${act.name}-${idx}`}
-                      className="flex flex-col gap-3 border-b border-border px-4 py-4 last:border-b-0"
+                      onClick={handleOpen}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          handleOpen();
+                        }
+                      }}
+                      tabIndex={0}
+                      role="button"
+                      aria-label={t('dashboard.activities.openAria', { name: act.name })}
+                      className="flex cursor-pointer flex-col gap-3 border-b border-border px-4 py-4 transition-colors last:border-b-0 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
                     >
                       <div className="flex items-start gap-3">
                         <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">

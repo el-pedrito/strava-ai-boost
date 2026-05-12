@@ -19,6 +19,20 @@ export interface Activity {
   generated_at?: string;
   created_at_raw?: string;
   processing_time_seconds?: number;
+  activity_id?: string;
+  enhanced_title?: string;
+  enhanced_description?: string;
+  original_name?: string;
+  distance?: number;
+  moving_time?: number;
+  elapsed_time?: number;
+  total_elevation_gain?: number;
+  average_heartrate?: number;
+  max_heartrate?: number;
+  average_speed?: number;
+  max_speed?: number;
+  kudos_count?: number;
+  comment_count?: number;
 }
 
 export interface QualityStats {
