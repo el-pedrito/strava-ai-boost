@@ -394,17 +394,28 @@ export function ContentQualityPage() {
         animate="show"
       >
         <motion.div variants={itemVariants} className="h-full">
-          <KPI label={t('quality.kpi.avgConfidence')} value={avgConfidenceValue} loading={loading} />
+          <KPI
+            label={t('quality.kpi.avgConfidence')}
+            value={avgConfidenceValue}
+            loading={loading}
+            info="metrics.confidence"
+          />
         </motion.div>
         <motion.div variants={itemVariants} className="h-full">
           <KPI
             label={t('quality.kpi.editRate')}
             value={editRateValue}
             loading={loading}
+            info="metrics.editRate"
           />
         </motion.div>
         <motion.div variants={itemVariants} className="h-full">
-          <KPI label={t('quality.kpi.avgSimilarity')} value={avgSimilarityValue} loading={loading} />
+          <KPI
+            label={t('quality.kpi.avgSimilarity')}
+            value={avgSimilarityValue}
+            loading={loading}
+            info="metrics.similarity"
+          />
         </motion.div>
         <motion.div variants={itemVariants} className="h-full">
           <KPI label={t('quality.kpi.feedbackAnalyzed')} value={feedbackValue} loading={loading} />

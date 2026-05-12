@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useRef, useState, type HTMLAttributes, type Reac
 import { ArrowDownRight, ArrowUpRight, Minus } from 'lucide-react';
 import { animate, useMotionValue, useReducedMotion } from 'framer-motion';
 import { cn } from '@/lib/cn';
+import { InfoTooltip } from './InfoTooltip';
 
 export interface KPIProps extends HTMLAttributes<HTMLDivElement> {
   label: string;
@@ -11,6 +12,8 @@ export interface KPIProps extends HTMLAttributes<HTMLDivElement> {
   icon?: ReactNode;
   loading?: boolean;
   size?: 'sm' | 'md' | 'lg';
+  /** i18n key prefix for the help tooltip. If omitted, no tooltip is shown. */
+  info?: string;
 }
 
 const ANIMATION_DURATION_MS = 600;
@@ -91,7 +94,7 @@ function AnimatedNumber({ value, ariaLabel }: AnimatedNumberProps) {
 
 export const KPI = forwardRef<HTMLDivElement, KPIProps>(
   (
-    { className, label, value, unit, delta, icon, loading, size = 'md', ...props },
+    { className, label, value, unit, delta, icon, loading, size = 'md', info, ...props },
     ref
   ) => {
     const valueSize = size === 'lg' ? 'text-5xl' : size === 'sm' ? 'text-2xl' : 'text-4xl';
@@ -127,7 +130,10 @@ export const KPI = forwardRef<HTMLDivElement, KPIProps>(
           >
             {label}
           </span>
-          {icon ? <span className="shrink-0 text-muted-foreground">{icon}</span> : null}
+          <div className="flex shrink-0 items-center gap-1">
+            {icon ? <span className="text-muted-foreground">{icon}</span> : null}
+            {info ? <InfoTooltip i18nKey={info} /> : null}
+          </div>
         </div>
         <div className="flex items-baseline gap-2">
           {loading ? (
