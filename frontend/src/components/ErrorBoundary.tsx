@@ -16,11 +16,11 @@ interface State {
 interface FallbackProps {
   error: Error | null;
   heading?: string;
-  onReload: () => void;
+  onRetry: () => void;
   onGoHome: () => void;
 }
 
-function ErrorFallback({ error, heading, onReload, onGoHome }: FallbackProps): ReactNode {
+function ErrorFallback({ error, heading, onRetry, onGoHome }: FallbackProps): ReactNode {
   const { t } = useTranslation();
   const isDev = import.meta.env.DEV;
   const title = heading ?? t('errorBoundary.heading');
@@ -38,8 +38,8 @@ function ErrorFallback({ error, heading, onReload, onGoHome }: FallbackProps): R
             </pre>
           ) : null}
           <div className="flex gap-2 pt-2">
-            <Button variant="primary" onClick={onReload}>
-              {t('errorBoundary.reload')}
+            <Button variant="primary" onClick={onRetry}>
+              {t('errorBoundary.retry')}
             </Button>
             <Button variant="ghost" onClick={onGoHome}>
               {t('errorBoundary.goHome')}
@@ -65,8 +65,8 @@ export class ErrorBoundary extends Component<Props, State> {
     console.error('ErrorBoundary caught:', error, errorInfo);
   }
 
-  private handleReload = (): void => {
-    window.location.reload();
+  private handleRetry = (): void => {
+    this.setState({ hasError: false, error: null });
   };
 
   private handleGoHome = (): void => {
@@ -79,7 +79,7 @@ export class ErrorBoundary extends Component<Props, State> {
         <ErrorFallback
           error={this.state.error}
           heading={this.props.fallbackMessage}
-          onReload={this.handleReload}
+          onRetry={this.handleRetry}
           onGoHome={this.handleGoHome}
         />
       );

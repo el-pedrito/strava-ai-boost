@@ -27,6 +27,7 @@
   "errorBoundary.heading": "Une erreur est survenue",
   "errorBoundary.description": "Une erreur inattendue s'est produite. La page a tenté de se relancer sans succès.",
   "errorBoundary.reload": "Recharger",
+  "errorBoundary.retry": "Réessayer",
   "errorBoundary.goHome": "Retour à l'accueil",
   "oauthCallback.connecting": "Connexion à Strava en cours...",
   "oauthCallback.success": "Connexion réussie",

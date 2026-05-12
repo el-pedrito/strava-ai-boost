@@ -27,6 +27,7 @@
   "errorBoundary.heading": "Something went wrong",
   "errorBoundary.description": "An unexpected error occurred. The page tried to recover but failed.",
   "errorBoundary.reload": "Reload",
+  "errorBoundary.retry": "Retry",
   "errorBoundary.goHome": "Go to home",
   "oauthCallback.connecting": "Connecting your Strava account...",
   "oauthCallback.success": "Connection successful",
