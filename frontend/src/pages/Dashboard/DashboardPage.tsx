@@ -517,7 +517,7 @@ export function DashboardPage() {
         initial="hidden"
         animate="show"
       >
-        <motion.div variants={itemVariants}>
+        <motion.div variants={itemVariants} className="h-full">
           <KPI
             label={t('dashboard.kpi.activities')}
             value={loading ? '' : (stats?.total_activities ?? 0)}
@@ -525,7 +525,7 @@ export function DashboardPage() {
             icon={<ActivityIcon className="h-4 w-4" />}
           />
         </motion.div>
-        <motion.div variants={itemVariants}>
+        <motion.div variants={itemVariants} className="h-full">
           <KPI
             label={t('dashboard.kpi.successRate')}
             value={loading ? '' : successRateValue}
@@ -534,7 +534,7 @@ export function DashboardPage() {
             icon={<TrendingUp className="h-4 w-4" />}
           />
         </motion.div>
-        <motion.div variants={itemVariants}>
+        <motion.div variants={itemVariants} className="h-full">
           <KPI
             label={t('dashboard.kpi.completed')}
             value={loading ? '' : (stats?.completed_activities ?? 0)}
@@ -542,7 +542,7 @@ export function DashboardPage() {
             icon={<ListChecks className="h-4 w-4" />}
           />
         </motion.div>
-        <motion.div variants={itemVariants}>
+        <motion.div variants={itemVariants} className="h-full">
           <KPI
             label={t('dashboard.kpi.avgProcessing')}
             value={loading ? '' : avgProcessingTime}

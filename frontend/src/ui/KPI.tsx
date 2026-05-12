@@ -113,21 +113,21 @@ export const KPI = forwardRef<HTMLDivElement, KPIProps>(
       <div
         ref={ref}
         className={cn(
-          'flex flex-col gap-2 rounded-xl border border-border bg-surface p-5 transition-all hover:border-border-strong',
+          'flex h-full flex-col justify-between gap-2 rounded-xl border border-border bg-surface p-5 transition-all hover:border-border-strong',
           className
         )}
         {...props}
       >
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-start justify-between gap-2">
           <span
             className={cn(
-              'uppercase tracking-wider font-medium text-muted-foreground',
+              'min-h-[2.5em] uppercase tracking-wider font-medium text-muted-foreground leading-tight',
               labelSize
             )}
           >
             {label}
           </span>
-          {icon ? <span className="text-muted-foreground">{icon}</span> : null}
+          {icon ? <span className="shrink-0 text-muted-foreground">{icon}</span> : null}
         </div>
         <div className="flex items-baseline gap-2">
           {loading ? (
