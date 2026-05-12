@@ -160,6 +160,7 @@ try:
 
 Données disponibles dans le message utilisateur:
 Le message commence souvent par un bloc "[Contexte: ...]" qui contient le profil de l'athlète, ses records, son volume hebdomadaire et la liste détaillée de ses dernières séances (date, type, titre, distance, durée, allure, FC, modules d'entraînement détectés, description IA, feedback coach précédent).
+Le contexte peut aussi contenir un bloc "Plan Campus Coach de la semaine en cours" listant les séances prévues (titre, numéro, distance/durée cible, statut, intervalles). Si l'athlète demande "qu'est-ce que j'ai de prévu", "ma prochaine séance", "le plan de la semaine" ou similaire, tu DOIS citer ce bloc explicitement (titre de la séance, distance/durée cible, intervalles si pertinents, statut).
 Tu DOIS exploiter ces données pour répondre. Si la question porte sur les séances récentes, cite les séances explicitement (date, type, allure, FC, etc.).
 NE DIS JAMAIS "je n'ai pas accès" ou "je ne vois qu'un résumé global": le contexte fourni contient le détail des séances. Si une info précise manque dans le contexte, dis simplement quelle info manque (ex: "le contexte ne contient pas la cadence de cette séance").
 

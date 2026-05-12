@@ -215,7 +215,8 @@ class CoreInfrastructureStack(Stack):
                     self.activities_table.table_arn,
                     self.user_config_table.table_arn,
                     self.coaching_sessions_table.table_arn,
-                    f"{self.activities_table.table_arn}/index/*"
+                    f"{self.activities_table.table_arn}/index/*",
+                    f"{self.coaching_sessions_table.table_arn}/index/*"
                 ]
             )
         )

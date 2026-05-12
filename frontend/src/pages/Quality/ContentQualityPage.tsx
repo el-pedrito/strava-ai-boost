@@ -12,6 +12,9 @@ import {
   Flower2,
   Activity as ActivityIcon,
   FileSearch,
+  Brain,
+  CheckCircle2,
+  Clock,
   type LucideIcon,
 } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
@@ -19,6 +22,7 @@ import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 import { api } from '@/api/client';
 import { formatDateTime, computeProcessingTime } from '@/utils/formatDate';
 import { Alert, Badge, Button, Card, KPI } from '@/ui';
+import { InfoTooltip } from '@/ui/InfoTooltip';
 import { staggerContainer, staggerItem } from '@/lib/motion';
 import type { Activity, QualityStats } from '@/types/index';
 
@@ -127,6 +131,26 @@ function editStatus(
   return { text: t('quality.editStatus.kept'), variant: 'success' };
 }
 
+type MemoryStatus = {
+  text: string;
+  variant: 'default' | 'success' | 'info';
+  Icon: LucideIcon;
+};
+
+function memoryStatus(
+  modified: boolean | null | undefined,
+  analyzed: boolean | undefined,
+  t: TFn
+): MemoryStatus {
+  if (!analyzed) {
+    return { text: t('quality.memory.pending'), variant: 'default', Icon: Clock };
+  }
+  if (modified === true) {
+    return { text: t('quality.memory.updated'), variant: 'success', Icon: Brain };
+  }
+  return { text: t('quality.memory.validated'), variant: 'info', Icon: CheckCircle2 };
+}
+
 interface ConfidenceBarProps {
   value: number;
 }
@@ -154,8 +178,10 @@ interface ActivityRowProps {
 function DesktopRow({ item, t }: ActivityRowProps & { t: TFn }) {
   const Icon = getActivityLucideIcon(item.activity_type);
   const status = editStatus(item.description_modified, item.feedback_analyzed, t);
+  const memory = memoryStatus(item.description_modified, item.feedback_analyzed, t);
   const hasConfidence = item.confidence !== undefined && item.confidence > 0;
   const hasSimilarity = item.similarity_score !== undefined && item.similarity_score > 0;
+  const MemoryIcon = memory.Icon;
 
   return (
     <tr className="hover:bg-muted transition-colors">
@@ -192,6 +218,12 @@ function DesktopRow({ item, t }: ActivityRowProps & { t: TFn }) {
           <span className="text-muted-foreground">—</span>
         )}
       </td>
+      <td className="py-3 px-4">
+        <Badge variant={memory.variant} size="sm">
+          <MemoryIcon className="h-3 w-3" aria-hidden="true" />
+          {memory.text}
+        </Badge>
+      </td>
       <td className="py-3 px-4 font-numeric text-xs tabular-nums text-muted-foreground">
         {item.processing_time}
       </td>
@@ -202,8 +234,10 @@ function DesktopRow({ item, t }: ActivityRowProps & { t: TFn }) {
 function MobileCard({ item, t }: ActivityRowProps & { t: TFn }) {
   const Icon = getActivityLucideIcon(item.activity_type);
   const status = editStatus(item.description_modified, item.feedback_analyzed, t);
+  const memory = memoryStatus(item.description_modified, item.feedback_analyzed, t);
   const hasConfidence = item.confidence !== undefined && item.confidence > 0;
   const hasSimilarity = item.similarity_score !== undefined && item.similarity_score > 0;
+  const MemoryIcon = memory.Icon;
 
   return (
     <Card padding="sm" className="hover:bg-muted transition-colors">
@@ -219,7 +253,7 @@ function MobileCard({ item, t }: ActivityRowProps & { t: TFn }) {
       <div className="text-xs text-muted-foreground font-numeric tabular-nums mb-3">
         {item.date} <span className="opacity-50">·</span> {item.processing_time}
       </div>
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3 mb-3">
         <div className="flex-1 min-w-0">
           {hasConfidence ? (
             <ConfidenceBar value={item.confidence as number} />
@@ -240,6 +274,13 @@ function MobileCard({ item, t }: ActivityRowProps & { t: TFn }) {
             <span>—</span>
           )}
         </div>
+      </div>
+      <div className="flex items-center justify-between gap-2 pt-2 border-t border-border">
+        <span className="text-xs text-muted-foreground">{t('quality.mobile.memoryLabel')}</span>
+        <Badge variant={memory.variant} size="sm">
+          <MemoryIcon className="h-3 w-3" aria-hidden="true" />
+          {memory.text}
+        </Badge>
       </div>
     </Card>
   );
@@ -406,7 +447,7 @@ export function ContentQualityPage() {
             label={t('quality.kpi.editRate')}
             value={editRateValue}
             loading={loading}
-            info="metrics.editRate"
+            info="metrics.editrate"
           />
         </motion.div>
         <motion.div variants={itemVariants} className="h-full">
@@ -418,7 +459,12 @@ export function ContentQualityPage() {
           />
         </motion.div>
         <motion.div variants={itemVariants} className="h-full">
-          <KPI label={t('quality.kpi.feedbackAnalyzed')} value={feedbackValue} loading={loading} />
+          <KPI
+            label={t('quality.kpi.feedbackAnalyzed')}
+            value={feedbackValue}
+            loading={loading}
+            info="metrics.feedbackAnalyzed"
+          />
         </motion.div>
       </motion.div>
 
@@ -502,6 +548,12 @@ export function ContentQualityPage() {
                       <span className="inline-flex items-center gap-1">
                         {t('quality.col.similarity')}
                         <SortIcon k="similarity" />
+                      </span>
+                    </th>
+                    <th className="text-left py-3 px-4 font-medium">
+                      <span className="inline-flex items-center gap-1">
+                        {t('quality.col.memory')}
+                        <InfoTooltip i18nKey="metrics.memoryLearning" />
                       </span>
                     </th>
                     <th className="text-left py-3 px-4 font-medium">{t('quality.col.time')}</th>

@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
 import {
   Bar,
   BarChart,
@@ -16,12 +15,13 @@ import {
   YAxis,
 } from 'recharts';
 import {
+  ArrowRight,
   Calendar,
   ChevronDown,
   ChevronUp,
   Flame,
   Footprints,
-  Pencil,
+  MessageSquare,
   Sparkles,
   TrendingDown,
   TrendingUp,
@@ -30,8 +30,8 @@ import { motion, useReducedMotion } from 'framer-motion';
 import {
   Alert,
   Badge,
-  Button,
   Card,
+  InfoTooltip,
   KPI,
   Pagination,
   Tabs,
@@ -79,7 +79,12 @@ interface CoachSummary {
   athlete_profile: string;
 }
 
-const WEEK_LABELS: string[] = ['4 wks ago', '3 wks', '2 wks', '1 wk'];
+const WEEK_LABEL_KEYS = [
+  'coach.trends.weekLabels.w4',
+  'coach.trends.weekLabels.w3',
+  'coach.trends.weekLabels.w2',
+  'coach.trends.weekLabels.w1',
+] as const;
 
 function paceToSec(pace: string): number {
   const m = pace.match(/^(\d+):(\d{2})$/);
@@ -91,6 +96,14 @@ function formatPace(secs: number): string {
   const m = Math.floor(secs / 60);
   const s = Math.round(secs % 60);
   return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+/** Compact date label for axis ticks: "YYYY-MM-DD" -> "MM-DD" or "DD/MM" by locale. */
+function formatShortDate(raw: string, locale: string): string {
+  if (!raw) return '';
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return raw;
+  return locale.startsWith('fr') ? `${m[3]}/${m[2]}` : `${m[2]}-${m[3]}`;
 }
 
 function KPISkeleton() {
@@ -110,35 +123,79 @@ interface FeedbackCardProps {
   item: CoachFeedbackItem;
 }
 
+function formatFeedbackDate(raw: string, locale: string): string {
+  if (!raw) return '';
+  // Try parsing as ISO/Date first
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    try {
+      return new Intl.DateTimeFormat(locale, {
+        weekday: 'short',
+        day: '2-digit',
+        month: 'short',
+      }).format(parsed);
+    } catch {
+      return raw;
+    }
+  }
+  return raw;
+}
+
 function FeedbackCard({ item }: FeedbackCardProps) {
+  const { t, i18n } = useTranslation();
   const [expanded, setExpanded] = useState(false);
-  const summary = item.coach_feedback?.strava_block ?? 'No summary available.';
+  const summary = item.coach_feedback?.strava_block ?? t('coach.feedback.noSummary');
   const detail = item.coach_feedback?.detailed_analysis;
+  const recommendation = item.coach_feedback?.recommendation_next;
+  const formattedDate = formatFeedbackDate(item.date, i18n.language);
 
   return (
     <Card variant="default" padding="md">
       <div className="flex flex-col gap-1 mb-2">
         <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
-          {item.date}
+          {formattedDate}
         </span>
-        <span className="text-base font-medium leading-tight">{item.title}</span>
+        <span className="text-base font-medium leading-snug break-words">
+          {item.title}
+        </span>
       </div>
       <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
         {summary}
       </p>
+      {recommendation ? (
+        <div className="mt-3 flex items-start gap-2 rounded-md bg-primary/5 border border-primary/20 px-3 py-2">
+          <ArrowRight
+            className="h-4 w-4 text-primary mt-0.5 flex-shrink-0"
+            aria-hidden="true"
+          />
+          <div className="flex flex-col gap-0.5">
+            <span className="text-xs font-medium uppercase tracking-wider text-primary">
+              {t('coach.feedback.recommendationNext')}
+            </span>
+            <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
+              {recommendation}
+            </p>
+          </div>
+        </div>
+      ) : null}
       {detail ? (
         <div className="mt-3 pt-3 border-t border-border">
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
             className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+            aria-expanded={expanded}
           >
             {expanded ? (
               <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
             ) : (
               <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
             )}
-            <span>{expanded ? 'Hide details' : 'Detailed analysis'}</span>
+            <span>
+              {expanded
+                ? t('coach.feedback.hideDetail')
+                : t('coach.feedback.viewDetail')}
+            </span>
           </button>
           {expanded ? (
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">
@@ -160,8 +217,8 @@ function useStaggerVariants() {
 }
 
 export function CoachPage() {
-  const { t } = useTranslation();
-  const navigate = useNavigate();
+  const { t, i18n } = useTranslation();
+  const locale = i18n.language;
   const chartTheme = useChartTheme();
   const stagger = useStaggerVariants();
 
@@ -199,6 +256,10 @@ export function CoachPage() {
   }, []);
 
   const trends = data?.trends;
+  const weekLabels = useMemo<string[]>(
+    () => WEEK_LABEL_KEYS.map((k) => t(k)),
+    [t],
+  );
   const vol = useMemo<number[]>(() => trends?.weekly_volume_km ?? [], [trends]);
   const totalKm = vol.reduce((a, b) => a + b, 0);
   const runSessions = (trends?.run_sessions_per_week ?? []).reduce(
@@ -214,20 +275,20 @@ export function CoachPage() {
 
   const volumeChartData = useMemo(
     () =>
-      WEEK_LABELS.map((week, i) => ({
+      weekLabels.map((week, i) => ({
         week,
         km: vol[i] ?? 0,
       })),
-    [vol]
+    [vol, weekLabels]
   );
 
   const paceChartData = useMemo(() => {
     const paces = trends?.avg_pace_per_week ?? [];
-    return WEEK_LABELS.map((week, i) => {
+    return weekLabels.map((week, i) => {
       const sec = paces[i] ? paceToSec(paces[i]) : 0;
       return { week, paceSec: sec > 0 ? sec : null };
     });
-  }, [trends]);
+  }, [trends, weekLabels]);
 
   const validPaceSecs = paceChartData
     .map((p) => p.paceSec)
@@ -270,12 +331,12 @@ export function CoachPage() {
     }
     if (maxIdx >= 0 && max > 0) {
       return t('coach.insights.volumePeak', {
-        week: WEEK_LABELS[maxIdx],
+        week: weekLabels[maxIdx],
         km: Math.round(max),
       });
     }
     return null;
-  }, [vol, t]);
+  }, [vol, t, weekLabels]);
 
   // Pace insight
   const paceInsight = useMemo<string | null>(() => {
@@ -376,7 +437,7 @@ export function CoachPage() {
 
   const nextSession =
     data?.recent_feedback?.[0]?.coach_feedback?.recommendation_next ??
-    'Plan your next session in your Campus Coach plan.';
+    t('coach.now.nextSession.fallback');
 
   const compliance = trends?.compliance ?? null;
 
@@ -398,9 +459,11 @@ export function CoachPage() {
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
       <header className="mb-6 flex flex-col gap-1">
-        <h1 className="text-3xl font-semibold tracking-tight">Coach</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">
+          {t('coach.header.title')}
+        </h1>
         <p className="text-sm text-muted-foreground">
-          Your training assistant. Trends, insights, conversation.
+          {t('coach.header.subtitle')}
         </p>
       </header>
 
@@ -412,9 +475,9 @@ export function CoachPage() {
 
       <Tabs defaultValue="now">
         <TabsList>
-          <TabsTrigger value="now">Now</TabsTrigger>
-          <TabsTrigger value="trends">Trends</TabsTrigger>
-          <TabsTrigger value="chat">Chat</TabsTrigger>
+          <TabsTrigger value="now">{t('coach.tabs.now')}</TabsTrigger>
+          <TabsTrigger value="trends">{t('coach.tabs.trends')}</TabsTrigger>
+          <TabsTrigger value="chat">{t('coach.tabs.chat')}</TabsTrigger>
         </TabsList>
 
         {/* TAB: NOW */}
@@ -427,7 +490,7 @@ export function CoachPage() {
                 </div>
                 <div className="flex-1">
                   <div className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-1">
-                    Next session
+                    {t('coach.now.nextSession.title')}
                   </div>
                   <p className="text-sm leading-relaxed">{nextSession}</p>
                 </div>
@@ -445,32 +508,42 @@ export function CoachPage() {
               >
                 <motion.div variants={stagger.item} className="h-full">
                   <KPI
-                    label="Volume (4 weeks)"
+                    label={t('coach.now.kpi.volumeLabel')}
                     value={Math.round(totalKm)}
                     unit="km"
                   />
                 </motion.div>
                 <motion.div variants={stagger.item} className="h-full">
                   <KPI
-                    label="Sessions (4 weeks)"
+                    label={t('coach.now.kpi.sessionsLabel')}
                     value={
                       <span className="text-2xl">
                         {runSessions}
-                        <span className="text-muted-foreground"> runs</span>
+                        <span className="text-muted-foreground">
+                          {' '}
+                          {t('coach.now.kpi.runsLabel')}
+                        </span>
                         <span className="text-muted-foreground"> · </span>
                         {otherSessions}
-                        <span className="text-muted-foreground"> other</span>
+                        <span className="text-muted-foreground">
+                          {' '}
+                          {t('coach.now.kpi.otherLabel')}
+                        </span>
                       </span>
                     }
                   />
                 </motion.div>
                 <motion.div variants={stagger.item} className="h-full">
-                  <KPI label="This week" value={thisWeekKm} unit="km" />
+                  <KPI
+                    label={t('coach.now.kpi.thisWeekLabel')}
+                    value={thisWeekKm}
+                    unit="km"
+                  />
                 </motion.div>
                 <motion.div variants={stagger.item} className="h-full">
                   <KPI
-                    label="Ramp rate"
-                    info="metrics.rampRate"
+                    label={t('coach.now.kpi.rampRateLabel')}
+                    info="metrics.ramp"
                     value={
                       rampRate !== null ? (
                         <span
@@ -505,14 +578,16 @@ export function CoachPage() {
 
             {rampRate !== null && rampRate > 10 ? (
               <Alert variant="warning">
-                Load is climbing fast (+{rampRate}%). Consider an easier week.
+                {t('coach.now.rampWarn', { rate: rampRate })}
               </Alert>
             ) : null}
 
             {compliance ? (
               <Card variant="default" padding="md">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium">Plan compliance</span>
+                  <span className="text-sm font-medium">
+                    {t('coach.now.compliance.title')}
+                  </span>
                   <span
                     className={cn(
                       'text-sm font-numeric font-semibold',
@@ -542,82 +617,88 @@ export function CoachPage() {
                   />
                 </div>
                 <div className="mt-2 text-xs text-muted-foreground">
-                  {compliance.completed}/{compliance.planned} sessions completed
+                  {t('coach.now.compliance.completed', {
+                    completed: compliance.completed,
+                    planned: compliance.planned,
+                  })}
                 </div>
               </Card>
             ) : null}
 
             <section className="flex flex-col gap-3">
-              <h2 className="text-lg font-semibold tracking-tight">
-                Latest feedback
-              </h2>
-              {!data?.recent_feedback?.length ? (
-                <Card variant="flat" padding="md">
-                  <p className="text-sm text-muted-foreground">
-                    No coach feedback available yet.
-                  </p>
-                </Card>
-              ) : (() => {
-                const total = data.recent_feedback.length;
+              {(() => {
+                const total = data?.recent_feedback?.length ?? 0;
                 const totalPages = Math.max(1, Math.ceil(total / feedbackPageSize));
                 const safePage = Math.min(Math.max(1, feedbackPage), totalPages);
                 const start = (safePage - 1) * feedbackPageSize;
-                const items = data.recent_feedback.slice(start, start + feedbackPageSize);
+                const end = Math.min(start + feedbackPageSize, total);
+                const shown = total === 0 ? 0 : end - start;
+                const items = data?.recent_feedback?.slice(start, end) ?? [];
+                const showPagination = total > 3;
+
                 return (
-                  <div className="flex flex-col gap-3">
-                    {items.map((item) => (
-                      <FeedbackCard key={item.activity_id} item={item} />
-                    ))}
-                    {total > Math.min(...[3, 5, 10, 20]) ? (
-                      <Pagination
-                        total={total}
-                        page={safePage}
-                        pageSize={feedbackPageSize}
-                        onPageChange={setFeedbackPage}
-                        onPageSizeChange={(size) => {
-                          setFeedbackPageSize(size);
-                          setFeedbackPage(1);
-                          if (typeof window !== 'undefined') {
-                            window.localStorage.setItem(FEEDBACK_PAGE_SIZE_KEY, String(size));
-                          }
-                        }}
-                        className="mt-2"
-                      />
-                    ) : null}
-                  </div>
+                  <>
+                    <div className="flex flex-col gap-1">
+                      <h2 className="text-lg font-semibold tracking-tight">
+                        {t('coach.feedback.title')}
+                      </h2>
+                      {total > 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          {t('coach.feedback.subtitle', {
+                            shown,
+                            total,
+                          })}
+                        </p>
+                      ) : null}
+                    </div>
+
+                    {total === 0 ? (
+                      <Card variant="flat" padding="lg">
+                        <div className="flex flex-col items-center text-center gap-2 py-4">
+                          <MessageSquare
+                            className="h-8 w-8 text-muted-foreground/60"
+                            aria-hidden="true"
+                          />
+                          <p className="text-sm font-medium text-foreground">
+                            {t('coach.feedback.emptyTitle')}
+                          </p>
+                          <p className="text-xs text-muted-foreground max-w-sm">
+                            {t('coach.feedback.emptyDescription')}
+                          </p>
+                        </div>
+                      </Card>
+                    ) : (
+                      <div className="flex flex-col gap-3">
+                        {items.map((item) => (
+                          <FeedbackCard key={item.activity_id} item={item} />
+                        ))}
+                        {showPagination ? (
+                          <Card variant="flat" padding="sm">
+                            <Pagination
+                              total={total}
+                              page={safePage}
+                              pageSize={feedbackPageSize}
+                              onPageChange={setFeedbackPage}
+                              onPageSizeChange={(size) => {
+                                setFeedbackPageSize(size);
+                                setFeedbackPage(1);
+                                if (typeof window !== 'undefined') {
+                                  window.localStorage.setItem(
+                                    FEEDBACK_PAGE_SIZE_KEY,
+                                    String(size),
+                                  );
+                                }
+                              }}
+                            />
+                          </Card>
+                        ) : null}
+                      </div>
+                    )}
+                  </>
                 );
               })()}
             </section>
 
-            <Card variant="default" padding="md">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-lg font-semibold tracking-tight">Profile</h2>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => navigate('/preferences')}
-                >
-                  <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span>Edit</span>
-                </Button>
-              </div>
-              {data?.athlete_profile ? (
-                <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
-                  {data.athlete_profile}
-                </p>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  No profile defined.{' '}
-                  <button
-                    type="button"
-                    onClick={() => navigate('/preferences')}
-                    className="text-primary hover:underline font-medium"
-                  >
-                    Configure
-                  </button>
-                </p>
-              )}
-            </Card>
           </div>
         </TabsContent>
 
@@ -626,21 +707,28 @@ export function CoachPage() {
           <div className="flex flex-col gap-6">
             {loading ? (
               <Card variant="default" padding="lg">
-                <p className="text-sm text-muted-foreground">Loading trends...</p>
+                <p className="text-sm text-muted-foreground">
+                  {t('coach.charts.loading')}
+                </p>
               </Card>
             ) : !trends ? (
               <Card variant="flat" padding="md">
-                <p className="text-sm text-muted-foreground">No trends available.</p>
+                <p className="text-sm text-muted-foreground">
+                  {t('coach.charts.empty')}
+                </p>
               </Card>
             ) : (
               <>
                 <Card variant="default" padding="lg">
                   <div className="mb-4 flex flex-col gap-0.5">
-                    <h2 className="text-lg font-semibold tracking-tight">
-                      Weekly volume
-                    </h2>
+                    <div className="flex items-center gap-1.5">
+                      <h2 className="text-lg font-semibold tracking-tight">
+                        {t('coach.charts.volume.title')}
+                      </h2>
+                      <InfoTooltip i18nKey="coach.charts.volume" />
+                    </div>
                     <span className="text-xs text-muted-foreground">
-                      Last 4 weeks
+                      {t('coach.charts.last4Weeks')}
                     </span>
                   </div>
                   <ResponsiveContainer width="100%" height={240}>
@@ -722,7 +810,7 @@ export function CoachPage() {
                       </Bar>
                       {volumeMax.idx >= 0 && volumeMax.max > 0 ? (
                         <ReferenceDot
-                          x={WEEK_LABELS[volumeMax.idx]}
+                          x={weekLabels[volumeMax.idx]}
                           y={volumeMax.max}
                           r={4}
                           fill={chartTheme.primaryColor}
@@ -749,11 +837,14 @@ export function CoachPage() {
 
                 <Card variant="default" padding="lg">
                   <div className="mb-4 flex flex-col gap-0.5">
-                    <h2 className="text-lg font-semibold tracking-tight">
-                      Average pace
-                    </h2>
+                    <div className="flex items-center gap-1.5">
+                      <h2 className="text-lg font-semibold tracking-tight">
+                        {t('coach.charts.pace.title')}
+                      </h2>
+                      <InfoTooltip i18nKey="coach.charts.pace" />
+                    </div>
                     <span className="text-xs text-muted-foreground">
-                      Lower = faster
+                      {t('coach.charts.lowerIsFaster')}
                     </span>
                   </div>
                   <ResponsiveContainer width="100%" height={240}>
@@ -881,8 +972,9 @@ export function CoachPage() {
                               aria-hidden="true"
                             />
                             <h3 className="text-sm font-semibold">
-                              Interval pace
+                              {t('coach.charts.intervalPace.title')}
                             </h3>
+                            <InfoTooltip i18nKey="coach.charts.intervalPace" />
                           </div>
                         </div>
                         <ResponsiveContainer width="100%" height={160}>
@@ -908,6 +1000,8 @@ export function CoachPage() {
                               }}
                               tickLine={false}
                               axisLine={false}
+                              tickFormatter={(v: string) => formatShortDate(v, locale)}
+                              minTickGap={16}
                             />
                             <YAxis
                               reversed
@@ -926,7 +1020,7 @@ export function CoachPage() {
                                 <ChartTooltip
                                   valueFormatter={(v) =>
                                     typeof v === 'number'
-                                      ? `${formatPace(v)}/km`
+                                      ? `${formatPace(v)}${t('coach.chart.paceUnit')}`
                                       : String(v)
                                   }
                                 />
@@ -946,7 +1040,7 @@ export function CoachPage() {
                           </LineChart>
                         </ResponsiveContainer>
                         <p className="mt-2 text-xs text-muted-foreground">
-                          Lower = faster
+                          {t('coach.charts.lowerIsFaster')}
                         </p>
                         {intervalInsight ? (
                           <div className="mt-3 flex items-start gap-2 rounded-md bg-surface px-2.5 py-1.5">
@@ -970,11 +1064,14 @@ export function CoachPage() {
                               className="h-4 w-4 text-success"
                               aria-hidden="true"
                             />
-                            <h3 className="text-sm font-semibold">Easy pace</h3>
+                            <h3 className="text-sm font-semibold">
+                              {t('coach.charts.efPace.title')}
+                            </h3>
+                            <InfoTooltip i18nKey="coach.charts.efPace" />
                           </div>
                           {efAvgHr !== null ? (
                             <Badge variant="outline" size="sm">
-                              Avg HR: {efAvgHr} bpm
+                              {t('coach.charts.efPace.avgHr', { hr: efAvgHr })}
                             </Badge>
                           ) : null}
                         </div>
@@ -1001,6 +1098,8 @@ export function CoachPage() {
                               }}
                               tickLine={false}
                               axisLine={false}
+                              tickFormatter={(v: string) => formatShortDate(v, locale)}
+                              minTickGap={16}
                             />
                             <YAxis
                               reversed
@@ -1019,7 +1118,7 @@ export function CoachPage() {
                                 <ChartTooltip
                                   valueFormatter={(v) =>
                                     typeof v === 'number'
-                                      ? `${formatPace(v)}/km`
+                                      ? `${formatPace(v)}${t('coach.chart.paceUnit')}`
                                       : String(v)
                                   }
                                 />
@@ -1039,7 +1138,7 @@ export function CoachPage() {
                           </LineChart>
                         </ResponsiveContainer>
                         <p className="mt-2 text-xs text-muted-foreground">
-                          Pace down + HR stable = aerobic progress
+                          {t('coach.charts.efPace.aerobicHint')}
                         </p>
                         {efInsight ? (
                           <div className="mt-3 flex items-start gap-2 rounded-md bg-surface px-2.5 py-1.5">

@@ -12,11 +12,11 @@ interface Message {
   timestamp: string;
 }
 
-const SUGGESTIONS: string[] = [
-  'Am I ready for a sub-45 10K?',
-  'How should I recover this week?',
-  'Why did my EF pace drop?',
-  'Should I add intervals?',
+const SUGGESTION_KEYS: string[] = [
+  'coach.chat.suggestion1',
+  'coach.chat.suggestion2',
+  'coach.chat.suggestion3',
+  'coach.chat.suggestion4',
 ];
 
 interface ChatHistoryEntry {
@@ -111,9 +111,11 @@ export function CoachChat() {
   return (
     <div className="flex flex-col h-[70vh]">
       <div className="mb-4 flex flex-col gap-1">
-        <h2 className="text-xl font-semibold tracking-tight">Ask the coach</h2>
+        <h2 className="text-xl font-semibold tracking-tight">
+          {t('coach.chat.headerTitle')}
+        </h2>
         <p className="text-sm text-muted-foreground">
-          Ask anything about your training.
+          {t('coach.chat.headerSubtitle')}
         </p>
       </div>
 
@@ -122,28 +124,31 @@ export function CoachChat() {
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Sparkles className="h-4 w-4 text-primary" aria-hidden="true" />
-              <span>Try one of these:</span>
+              <span>{t('coach.chat.suggestionsHint')}</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {SUGGESTIONS.map((s) => (
-                <Card
-                  key={s}
-                  variant="flat"
-                  padding="sm"
-                  onClick={() => handleSuggestion(s)}
-                  className="cursor-pointer hover:bg-muted transition-colors text-sm"
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      handleSuggestion(s);
-                    }
-                  }}
-                >
-                  {s}
-                </Card>
-              ))}
+              {SUGGESTION_KEYS.map((key) => {
+                const text = t(key);
+                return (
+                  <Card
+                    key={key}
+                    variant="flat"
+                    padding="sm"
+                    onClick={() => handleSuggestion(text)}
+                    className="cursor-pointer hover:bg-muted transition-colors text-sm"
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleSuggestion(text);
+                      }
+                    }}
+                  >
+                    {text}
+                  </Card>
+                );
+              })}
             </div>
           </div>
         ) : (
@@ -166,7 +171,7 @@ export function CoachChat() {
                 >
                   {msg.role === 'coach' ? (
                     <div className="text-xs text-muted-foreground mb-1 font-medium">
-                      Coach
+                      {t('coach.chat.coachLabel')}
                     </div>
                   ) : null}
                   <div className="whitespace-pre-wrap">{msg.text}</div>
@@ -177,10 +182,10 @@ export function CoachChat() {
               <div className="flex justify-start">
                 <div className="rounded-2xl px-4 py-3 bg-surface border border-border">
                   <div className="text-xs text-muted-foreground mb-1 font-medium">
-                    Coach
+                    {t('coach.chat.coachLabel')}
                   </div>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <span>Coach is thinking</span>
+                    <span>{t('coach.chat.thinkingShort')}</span>
                     <span className="inline-flex gap-1">
                       <span
                         className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse"
