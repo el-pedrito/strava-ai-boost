@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/ui';
 import { StravaAppSetup } from './StravaAppSetup.tsx';
 import { OAuthConnection } from './OAuthConnection.tsx';
@@ -9,6 +10,7 @@ import { api } from '../../api/client.ts';
 import type { OAuthStatus, ModulesMap } from '../../types/index.ts';
 
 export function ConfigurationPage() {
+  const { t } = useTranslation();
   const flash = useFlash();
   const [searchParams, setSearchParams] = useSearchParams();
   const [stravaConfigured, setStravaConfigured] = useState(false);
@@ -19,14 +21,14 @@ export function ConfigurationPage() {
   useEffect(() => {
     const oauthResult = searchParams.get('oauth');
     if (oauthResult === 'success') {
-      flash('success', 'Successfully connected to Strava!');
+      flash('success', t('configuration.oauth.successFlash'));
       setSearchParams({});
     } else if (oauthResult === 'error') {
-      const message = searchParams.get('message') || 'OAuth failed';
+      const message = searchParams.get('message') || t('configuration.oauth.errorFallback');
       flash('error', message);
       setSearchParams({});
     }
-  }, [searchParams, setSearchParams, flash]);
+  }, [searchParams, setSearchParams, flash, t]);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -50,14 +52,14 @@ export function ConfigurationPage() {
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-6 md:py-8">
       <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">Configuration</h1>
-        <p className="text-sm text-muted-foreground">Connect Strava and configure modules.</p>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">{t('configuration.title')}</h1>
+        <p className="text-sm text-muted-foreground">{t('configuration.description')}</p>
       </header>
 
       <Card padding="lg">
         <CardHeader>
-          <CardTitle>Strava connection</CardTitle>
-          <CardDescription>Configure your Strava app and authorize access to your activities.</CardDescription>
+          <CardTitle>{t('configuration.strava.title')}</CardTitle>
+          <CardDescription>{t('configuration.strava.description')}</CardDescription>
         </CardHeader>
         {!stravaConfigured ? (
           <StravaAppSetup onConfigured={fetchStatus} />
@@ -68,8 +70,8 @@ export function ConfigurationPage() {
 
       <Card padding="lg">
         <CardHeader>
-          <CardTitle>Modules</CardTitle>
-          <CardDescription>Enable optional integrations to enrich your activity descriptions.</CardDescription>
+          <CardTitle>{t('configuration.modules.title')}</CardTitle>
+          <CardDescription>{t('configuration.modules.description')}</CardDescription>
         </CardHeader>
         <ModuleConfiguration modules={modules} onModuleChanged={fetchStatus} />
       </Card>
