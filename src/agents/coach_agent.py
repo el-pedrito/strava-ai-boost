@@ -30,11 +30,13 @@ def retrieve_coaching_observations(memory_id: str, user_id: str) -> List[str]:
         response = client.retrieve_memory_records(
             memoryId=memory_id,
             namespace=f"coaching_observations/{user_id}",
-            searchQuery="recent coaching observations and athlete patterns",
-            topK=5,
+            searchCriteria={
+                "searchQuery": "recent coaching observations and athlete patterns",
+                "topK": 5,
+            },
         )
-        records = response.get("memoryRecords", [])
-        return [r.get("content", {}).get("text", "") for r in records if r.get("content")]
+        records = response.get("memoryRecordSummaries", [])
+        return [r["content"]["text"] for r in records if r.get("content", {}).get("text")]
     except Exception as e:
         logger.warning(f"Failed to retrieve coaching observations: {e}")
         return []
