@@ -287,6 +287,109 @@ class VoiceDebriefStack(Stack):
             description="ARN of the audio debrief API Lambda (wire into API Gateway)",
         )
 
+        self._create_weekly_recap()
+
+    # ------------------------------------------------------------------
+    # Weekly Audio Recap (EventBridge schedule + on-demand)
+    # ------------------------------------------------------------------
+    def _create_weekly_recap(self) -> None:
+        from aws_cdk import aws_dynamodb as dynamodb, aws_events as events, aws_events_targets as targets
+
+        # DynamoDB table for recap metadata
+        self.recap_table = dynamodb.Table(
+            self,
+            "RecapTable",
+            table_name="strava-ai-boost-weekly-recaps",
+            partition_key=dynamodb.Attribute(name="user_id", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="week", type=dynamodb.AttributeType.STRING),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            encryption=dynamodb.TableEncryption.AWS_MANAGED,
+            point_in_time_recovery=True,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
+        role = iam.Role(
+            self,
+            "WeeklyRecapRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AWSLambdaBasicExecutionRole"
+                )
+            ],
+        )
+
+        # DynamoDB: read activities + user config, read/write recaps
+        role.add_to_policy(iam.PolicyStatement(
+            actions=["dynamodb:Query"],
+            resources=[
+                self.core_stack.activities_table.table_arn,
+                f"{self.core_stack.activities_table.table_arn}/index/*",
+            ],
+        ))
+        role.add_to_policy(iam.PolicyStatement(
+            actions=["dynamodb:GetItem"],
+            resources=[self.core_stack.user_config_table.table_arn],
+        ))
+        role.add_to_policy(iam.PolicyStatement(
+            actions=["dynamodb:GetItem", "dynamodb:PutItem"],
+            resources=[self.recap_table.table_arn],
+        ))
+
+        # Bedrock Sonnet (higher quality for recap)
+        role.add_to_policy(iam.PolicyStatement(
+            actions=["bedrock:InvokeModel"],
+            resources=[
+                f"arn:aws:bedrock:{Aws.REGION}:{Aws.ACCOUNT_ID}:inference-profile/global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
+            ],
+        ))
+
+        # Polly
+        role.add_to_policy(iam.PolicyStatement(
+            actions=["polly:SynthesizeSpeech"],
+            resources=["*"],
+        ))
+
+        # S3 write recaps
+        role.add_to_policy(iam.PolicyStatement(
+            actions=["s3:PutObject"],
+            resources=[self.audio_bucket.arn_for_objects("recaps/*")],
+        ))
+
+        self.recap_lambda = lambda_.Function(
+            self,
+            "WeeklyAudioRecap",
+            function_name="StravaAIBoost-WeeklyAudioRecap",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="support.weekly_audio_recap.handler",
+            code=lambda_.Code.from_asset("lambda_functions"),
+            layers=[self.core_stack.dependencies_layer],
+            timeout=Duration.minutes(3),
+            memory_size=512,
+            role=role,
+            environment={
+                "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
+                "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
+                "RECAP_TABLE": "strava-ai-boost-weekly-recaps",
+                "AUDIO_DEBRIEF_BUCKET": self.audio_bucket.bucket_name,
+                "BEDROCK_MODEL_ID": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                "POLLY_VOICE_FR": "Lea",
+                "POLLY_VOICE_EN": "Joanna",
+                "DEFAULT_USER_ID": self.node.try_get_context("default_user_id") or "",
+            },
+            description="Weekly audio recap generator (Sunday 20h + on-demand)",
+        )
+
+        # EventBridge: Sunday 20:00 UTC
+        events.Rule(
+            self,
+            "WeeklyRecapSchedule",
+            schedule=events.Schedule.cron(minute="0", hour="20", week_day="SUN"),
+            targets=[targets.LambdaFunction(self.recap_lambda)],
+            description="Trigger weekly audio recap every Sunday at 20:00 UTC",
+        )
+
     # ------------------------------------------------------------------
     # Public references
     # ------------------------------------------------------------------

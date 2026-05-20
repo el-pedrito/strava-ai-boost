@@ -28,6 +28,7 @@ import {
 import { motion, useReducedMotion } from 'framer-motion';
 import {
   Alert,
+  AudioPlayer,
   Badge,
   Card,
   EmptyState,
@@ -268,6 +269,23 @@ export function CoachPage() {
       cancelled = true;
     };
   }, []);
+
+  // Recaps state
+  interface Recap { week: string; generated_at: string; duration_seconds: number; activity_count: number; audio_url: string; }
+  const [recaps, setRecaps] = useState<Recap[]>([]);
+  const [generating, setGenerating] = useState(false);
+
+  const fetchRecaps = () => {
+    api.get<{ recaps: Recap[] }>('/coach/recaps').then((d) => setRecaps(d.recaps || [])).catch(() => {});
+  };
+  useEffect(() => { fetchRecaps(); }, []);
+
+  const handleGenerateRecap = () => {
+    setGenerating(true);
+    api.post('/coach/recaps', {}).then(() => {
+      setTimeout(() => { fetchRecaps(); setGenerating(false); }, 15000);
+    }).catch(() => setGenerating(false));
+  };
 
   const trends = data?.trends;
   const weekLabels = useMemo<string[]>(
@@ -722,6 +740,41 @@ export function CoachPage() {
                 )}
               </Card>
             )}
+
+            {/* Weekly Audio Recaps */}
+            <Card variant="default" padding="md">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm font-medium">{t('coach.recaps.title')}</span>
+                <button
+                  type="button"
+                  onClick={handleGenerateRecap}
+                  disabled={generating}
+                  className="text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                >
+                  {generating ? t('coach.recaps.generating') : t('coach.recaps.generate')}
+                </button>
+              </div>
+              {recaps.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{t('coach.recaps.empty')}</p>
+              ) : (
+                <div className="space-y-3">
+                  {recaps.slice(0, 5).map((recap) => (
+                    <div key={recap.week} className="flex items-center gap-3 p-2 rounded-md bg-muted/50">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium">{t('coach.recaps.week', { week: recap.week })}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {t('coach.recaps.activities', { count: recap.activity_count })}
+                          {recap.duration_seconds > 0 && ` · ${Math.round(recap.duration_seconds / 60)}min`}
+                        </div>
+                      </div>
+                      {recap.audio_url && (
+                        <AudioPlayer src={recap.audio_url} duration={recap.duration_seconds} className="flex-shrink-0" />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
 
             {compliance ? (
               <Card variant="default" padding="md">

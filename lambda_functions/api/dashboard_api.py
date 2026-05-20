@@ -26,6 +26,7 @@ logger = get_logger("dashboard_api")
 
 # Initialize AWS clients
 dynamodb = boto3.resource('dynamodb')
+s3 = boto3.client('s3')
 _cloudwatch = None
 
 
@@ -122,6 +123,69 @@ def get_cached_or_compute(cache_key: str, compute_func, *args, **kwargs):
     for key, ttl in _cache_ttl.items():
         if current_time > ttl:
             keys_to_remove.append(key)
+    for key in keys_to_remove:
+        _cache.pop(key, None)
+        _cache_ttl.pop(key, None)
+
+
+def get_coach_recaps(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Get paginated weekly audio recaps or trigger generation."""
+    method = event.get("httpMethod", "GET")
+
+    if method == "POST":
+        # On-demand generation: invoke the recap Lambda async
+        lambda_client = boto3.client("lambda")
+        lambda_client.invoke(
+            FunctionName="StravaAIBoost-WeeklyAudioRecap",
+            InvocationType="Event",
+            Payload=json.dumps({"user_id": _current_user_id, "force": False}),
+        )
+        return {"status": "generating", "message": "Recap generation started"}
+
+    # GET: return paginated list of recaps
+    recap_table_name = os.environ.get("RECAP_TABLE", "strava-ai-boost-weekly-recaps")
+    recap_table = dynamodb.Table(recap_table_name)
+    bucket = os.environ.get("AUDIO_DEBRIEF_BUCKET", "")
+
+    try:
+        resp = recap_table.query(
+            KeyConditionExpression="user_id = :uid",
+            ExpressionAttributeValues={":uid": _current_user_id},
+            ScanIndexForward=False,
+            Limit=10,
+        )
+        items = resp.get("Items", [])
+
+        # Generate presigned URLs for each recap
+        recaps = []
+        for item in items:
+            s3_key = item.get("s3_key", "")
+            url = ""
+            if s3_key and bucket:
+                try:
+                    url = s3.generate_presigned_url(
+                        "get_object",
+                        Params={"Bucket": bucket, "Key": s3_key},
+                        ExpiresIn=3600,
+                    )
+                except Exception:
+                    pass
+            recaps.append({
+                "week": item.get("week", ""),
+                "generated_at": item.get("generated_at", ""),
+                "duration_seconds": item.get("duration_seconds", 0),
+                "activity_count": item.get("activity_count", 0),
+                "audio_url": url,
+            })
+
+        return {"recaps": recaps, "count": len(recaps)}
+    except ClientError as e:
+        logger.warning(f"Failed to query recaps: {e}")
+        return {"recaps": [], "count": 0}
+    keys_to_remove = []
+    for key, ttl in _cache_ttl.items():
+        if current_time > ttl:
+            keys_to_remove.append(key)
     
     for key in keys_to_remove:
         _cache.pop(key, None)
@@ -171,6 +235,9 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         elif '/coach/summary' in path:
             response_data = get_coach_summary()
             return create_success_response(response_data)
+        elif '/coach/recaps' in path:
+            response_data = get_coach_recaps(event)
+            return create_success_response(response_data)
         else:
             return create_error_response(404, 'Endpoint not found')
         
@@ -187,7 +254,7 @@ def validate_request(event: Dict[str, Any]) -> str:
     try:
         # Check HTTP method
         http_method = event.get('httpMethod', '')
-        if http_method not in ['GET', 'OPTIONS']:
+        if http_method not in ['GET', 'POST', 'OPTIONS']:
             return f'Method {http_method} not allowed'
         
         # Validate query parameters for dashboard requests

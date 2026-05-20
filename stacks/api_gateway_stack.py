@@ -10,6 +10,7 @@ This stack creates the REST API endpoints for the local web interface:
 import os
 
 from aws_cdk import (
+    Aws,
     Stack,
     aws_apigateway as apigateway,
     aws_lambda as lambda_,
@@ -135,12 +136,35 @@ class ApiGatewayStack(Stack):
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
                 "COACHING_SESSIONS_TABLE": self.core_stack.table_names["coaching_sessions"],
                 "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
-                "DEFAULT_USER_ID": self.node.try_get_context("default_user_id") or ""
+                "DEFAULT_USER_ID": self.node.try_get_context("default_user_id") or "",
+                "RECAP_TABLE": "strava-ai-boost-weekly-recaps",
+                "AUDIO_DEBRIEF_BUCKET": f"strava-ai-boost-audio-debriefs-{Aws.ACCOUNT_ID}",
             }
         )
         
         # Grant Secrets Manager permissions to dashboard lambda
         self.core_stack.strava_oauth_secret.grant_read(self.dashboard_lambda)
+
+        # Grant DashboardAPI permission to invoke WeeklyAudioRecap Lambda (on-demand recap generation)
+        self.dashboard_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["lambda:InvokeFunction"],
+                resources=[f"arn:aws:lambda:{Aws.REGION}:{Aws.ACCOUNT_ID}:function:StravaAIBoost-WeeklyAudioRecap"],
+            )
+        )
+        # Grant DashboardAPI read access to recaps table and S3 for presigned URLs
+        self.dashboard_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["dynamodb:Query", "dynamodb:GetItem"],
+                resources=[f"arn:aws:dynamodb:{Aws.REGION}:{Aws.ACCOUNT_ID}:table/strava-ai-boost-weekly-recaps"],
+            )
+        )
+        self.dashboard_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["s3:GetObject"],
+                resources=[f"arn:aws:s3:::strava-ai-boost-audio-debriefs-{Aws.ACCOUNT_ID}/recaps/*"],
+            )
+        )
 
         # User Preferences API Lambda
         self.preferences_lambda = lambda_.Function(
@@ -430,6 +454,23 @@ class ApiGatewayStack(Stack):
         coach_ask_resource.add_method(
             "POST",
             apigateway.LambdaIntegration(self.coach_ask_lambda),
+            api_key_required=False,
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
+        )
+
+        # /coach/recaps endpoint (GET list + POST generate)
+        coach_recaps_resource = coach_resource.add_resource("recaps")
+        coach_recaps_resource.add_method(
+            "GET",
+            apigateway.LambdaIntegration(self.dashboard_lambda),
+            api_key_required=False,
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
+        )
+        coach_recaps_resource.add_method(
+            "POST",
+            apigateway.LambdaIntegration(self.dashboard_lambda),
             api_key_required=False,
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
