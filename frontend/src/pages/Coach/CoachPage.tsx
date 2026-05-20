@@ -70,11 +70,25 @@ interface CoachSummary {
     sessions_per_week: number[];
     run_sessions_per_week?: number[];
     other_sessions_per_week?: number[];
+    other_sessions_breakdown?: Record<string, number>;
     avg_pace_per_week: string[];
     interval_paces?: PacePoint[];
     ef_paces?: PacePoint[];
     ramp_rate?: number | null;
     compliance?: { planned: number; completed: number; percentage: number } | null;
+    recovery?: {
+      form: number | null;
+      ctl: number | null;
+      atl: number | null;
+      resting_hr: number | null;
+      hrv: number | null;
+      vo2max: number | null;
+      vo2max_delta_7d: number | null;
+      resting_hr_delta_7d: number | null;
+      sleep_hours: number | null;
+      sleep_display: string | null;
+      sleep_delta_7d_min: number | null;
+    } | null;
   };
   athlete_profile: string;
 }
@@ -270,6 +284,17 @@ export function CoachPage() {
     (a: number, b: number) => a + b,
     0
   );
+  const otherBreakdown: Record<string, number> = trends?.other_sessions_breakdown ?? {};
+  // Group by translated label (e.g. WeightTraining + Workout + Crossfit → musculation)
+  const groupedOther = useMemo(() => {
+    const grouped: Record<string, number> = {};
+    for (const [type, count] of Object.entries(otherBreakdown)) {
+      const label = t(`coach.now.kpi.sportType.${type}`, { defaultValue: '' }) || t('coach.now.kpi.otherLabel');
+      grouped[label] = (grouped[label] || 0) + (count as number);
+    }
+    // Sort by count desc, take top 2
+    return Object.entries(grouped).sort((a, b) => b[1] - a[1]).slice(0, 2);
+  }, [otherBreakdown, t]);
   const thisWeekKm = vol.length > 0 ? vol[vol.length - 1] : 0;
   const rampRate = trends?.ramp_rate ?? null;
 
@@ -567,12 +592,15 @@ export function CoachPage() {
                           {' '}
                           {t('coach.now.kpi.runsLabel')}
                         </span>
-                        <span className="text-muted-foreground"> · </span>
-                        {otherSessions}
-                        <span className="text-muted-foreground">
-                          {' '}
-                          {t('coach.now.kpi.otherLabel')}
-                        </span>
+                        {otherSessions > 0 && groupedOther.map(([label, count]) => (
+                          <span key={label}>
+                            <span className="text-muted-foreground"> · </span>
+                            {count}
+                            <span className="text-muted-foreground">
+                              {' '}{label}
+                            </span>
+                          </span>
+                        ))}
                       </span>
                     }
                   />
@@ -625,6 +653,75 @@ export function CoachPage() {
                 {t('coach.now.rampWarn', { rate: rampRate })}
               </Alert>
             ) : null}
+
+            {trends?.recovery && (
+              <Card variant="default" padding="md">
+                <span className="inline-flex items-center gap-1 text-sm font-medium mb-3">
+                  {t('coach.now.recovery.title')}
+                  <InfoTooltip i18nKey="metrics.recovery" align="start" />
+                </span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  {trends.recovery.form !== null && (
+                    <div className="text-center">
+                      <div className={cn(
+                        'text-xl font-numeric font-bold',
+                        trends.recovery.form > 5 && 'text-success',
+                        trends.recovery.form < -10 && 'text-danger',
+                        trends.recovery.form >= -10 && trends.recovery.form <= 5 && 'text-warning',
+                      )}>
+                        {trends.recovery.form > 0 ? '+' : ''}{Math.round(trends.recovery.form)}
+                      </div>
+                      <div className="text-xs text-muted-foreground">{t('coach.now.recovery.form')}</div>
+                      <div className="text-xs mt-0.5">
+                        {trends.recovery.form > 5 ? t('coach.now.recovery.fresh') : trends.recovery.form < -10 ? t('coach.now.recovery.fatigued') : t('coach.now.recovery.neutral')}
+                      </div>
+                    </div>
+                  )}
+                  {trends.recovery.vo2max !== null && (
+                    <div className="text-center">
+                      <div className="text-xl font-numeric font-bold">{trends.recovery.vo2max}</div>
+                      <div className="text-xs text-muted-foreground">{t('coach.now.recovery.vo2max')}</div>
+                      {trends.recovery.vo2max_delta_7d !== null && (
+                        <div className={cn('text-xs mt-0.5', trends.recovery.vo2max_delta_7d >= 0 ? 'text-success' : 'text-danger')}>
+                          {trends.recovery.vo2max_delta_7d > 0 ? '+' : ''}{trends.recovery.vo2max_delta_7d}/7j
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {trends.recovery.resting_hr !== null && (
+                    <div className="text-center">
+                      <div className="text-xl font-numeric font-bold">{trends.recovery.resting_hr} <span className="text-sm font-normal">bpm</span></div>
+                      <div className="text-xs text-muted-foreground">{t('coach.now.recovery.restingHr')}</div>
+                      {trends.recovery.resting_hr_delta_7d !== null && (
+                        <div className={cn('text-xs mt-0.5', trends.recovery.resting_hr_delta_7d <= 0 ? 'text-success' : 'text-danger')}>
+                          {trends.recovery.resting_hr_delta_7d > 0 ? '+' : ''}{trends.recovery.resting_hr_delta_7d}/7j
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {trends.recovery.sleep_display && (
+                    <div className="text-center">
+                      <div className="text-xl font-numeric font-bold">{trends.recovery.sleep_display}</div>
+                      <div className="text-xs text-muted-foreground">{t('coach.now.recovery.sleep')}</div>
+                      {trends.recovery.sleep_delta_7d_min !== null && trends.recovery.sleep_delta_7d_min !== 0 && (
+                        <div className={cn('text-xs mt-0.5', trends.recovery.sleep_delta_7d_min > 0 ? 'text-success' : 'text-danger')}>
+                          {trends.recovery.sleep_delta_7d_min > 0 ? '+' : ''}{trends.recovery.sleep_delta_7d_min}min/7j
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {trends.recovery.form !== null && (
+                  <p className="text-xs text-muted-foreground mt-3 border-t border-border pt-2">
+                    {trends.recovery.form > 5
+                      ? t('coach.now.recovery.insightFresh')
+                      : trends.recovery.form < -10
+                        ? t('coach.now.recovery.insightFatigued')
+                        : t('coach.now.recovery.insightNeutral')}
+                  </p>
+                )}
+              </Card>
+            )}
 
             {compliance ? (
               <Card variant="default" padding="md">

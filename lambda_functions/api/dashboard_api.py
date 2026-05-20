@@ -10,7 +10,7 @@ Provides dashboard data for the local web interface including:
 
 import json
 import os
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import boto3
 from botocore.exceptions import ClientError
 from datetime import datetime, timedelta, timezone
@@ -383,6 +383,57 @@ def get_activity_processing_stats(start_date: datetime) -> Dict[str, Any]:
                 'query_method': 'error',
                 'error': 'Query failed'
             }
+
+
+def _extract_recovery(activities: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Extract recovery state from the most recent activity with Intervals.icu data."""
+    for a in activities:
+        icu_raw = a.get('intervals_icu_json')
+        if not icu_raw:
+            continue
+        try:
+            icu = json.loads(icu_raw) if isinstance(icu_raw, str) else icu_raw
+            fitness = icu.get('fitness', {})
+            trends = icu.get('trends', {})
+            return {
+                'form': float(fitness['form']) if fitness.get('form') is not None else None,
+                'ctl': float(fitness['ctl']) if fitness.get('ctl') is not None else None,
+                'atl': float(fitness['atl']) if fitness.get('atl') is not None else None,
+                'resting_hr': fitness.get('resting_hr'),
+                'hrv': fitness.get('hrv'),
+                'vo2max': float(trends['vo2max']['current']) if trends.get('vo2max', {}).get('current') else None,
+                'vo2max_delta_7d': float(trends['vo2max']['delta_7d']) if trends.get('vo2max', {}).get('delta_7d') else None,
+                'resting_hr_delta_7d': float(trends['resting_hr']['delta_7d']) if trends.get('resting_hr', {}).get('delta_7d') else None,
+                'sleep_hours': None,
+                'sleep_display': _format_sleep(trends.get('sleep_duration', {}).get('avg_30d')),
+                'sleep_delta_7d_min': _sleep_delta_minutes(trends.get('sleep_duration', {}).get('delta_7d')),
+            }
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            continue
+    return None
+
+
+def _format_sleep(seconds) -> Optional[str]:
+    """Format sleep seconds as Xh:MM."""
+    if seconds is None:
+        return None
+    try:
+        total = int(float(seconds))
+        h = total // 3600
+        m = (total % 3600) // 60
+        return f"{h}h{m:02d}"
+    except (ValueError, TypeError):
+        return None
+
+
+def _sleep_delta_minutes(delta_seconds) -> Optional[int]:
+    """Convert sleep delta (seconds) to minutes."""
+    if delta_seconds is None:
+        return None
+    try:
+        return round(float(delta_seconds) / 60)
+    except (ValueError, TypeError):
+        return None
 
 
 def get_activity_type_breakdown(activities: List[Dict[str, Any]]) -> Dict[str, int]:
@@ -835,6 +886,7 @@ def get_coach_summary() -> Dict[str, Any]:
         weekly_distance_for_pace = [0.0] * 4
         run_sessions_per_week = [0] * 4
         other_sessions_per_week = [0] * 4
+        other_sessions_breakdown = {}  # {sport_type: count} for non-Run activities
 
         for a in recent:
             activity_date = a.get('start_date') or a.get('start_date_local') or a.get('created_at', '')
@@ -865,6 +917,7 @@ def get_coach_summary() -> Dict[str, Any]:
                         weekly_distance_for_pace[week_idx] += distance_m
                 else:
                     other_sessions_per_week[week_idx] += 1
+                    other_sessions_breakdown[activity_type] = other_sessions_breakdown.get(activity_type, 0) + 1
                 sessions_per_week[week_idx] += 1
             except (ValueError, TypeError):
                 continue
@@ -1027,11 +1080,13 @@ def get_coach_summary() -> Dict[str, Any]:
                 'sessions_per_week': sessions_per_week,
                 'run_sessions_per_week': run_sessions_per_week,
                 'other_sessions_per_week': other_sessions_per_week,
+                'other_sessions_breakdown': other_sessions_breakdown,
                 'avg_pace_per_week': avg_pace_per_week,
                 'interval_paces': interval_trend[-20:],
                 'ef_paces': ef_trend[-20:],
                 'ramp_rate': ramp_rate,
                 'compliance': compliance,
+                'recovery': _extract_recovery(recent),
             }
         }
 
