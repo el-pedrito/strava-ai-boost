@@ -210,53 +210,43 @@ def _build_user_context(user_id: str) -> list:
 
     weekly_plan = _fetch_campus_weekly_plan(user_id)
     if weekly_plan:
-        context_parts.append("Plan Campus Coach de la semaine en cours:\n" + weekly_plan)
+        context_parts.append(weekly_plan)
 
     return context_parts
 
 
 def _fetch_campus_weekly_plan(user_id: str) -> str:
-    """Fetch Campus Coach planned sessions for the current ISO week.
+    """Fetch Campus Coach sessions for current week and next week.
 
-    Queries the IsoWeekIndex GSI on the Campus coaching sessions table.
-    Falls back to the most recent week_number via WeekNumberIndex if the
-    current ISO week has no entries yet.
-
-    Returns a compact text block (one line per session). Empty string if
-    nothing was found or the table is unavailable.
+    Uses Scan with FilterExpression on is_current_week / is_future flags.
+    Returns a compact text block. Empty string if nothing found.
     """
     try:
-        from datetime import datetime, timezone
         sessions_table = dynamodb.Table(COACHING_SESSIONS_TABLE)
-
-        # Primary: query current ISO week
-        current_iso_week = datetime.now(timezone.utc).strftime('%Y-W%W')
-        resp = sessions_table.query(
-            IndexName="IsoWeekIndex",
-            KeyConditionExpression="iso_week = :iw",
-            ExpressionAttributeValues={":iw": current_iso_week},
+        resp = sessions_table.scan(
+            FilterExpression="is_current_week = :cw OR is_future = :ft",
+            ExpressionAttributeValues={":cw": True, ":ft": True},
         )
-        week_sessions = resp.get("Items", [])
-
-        # Fallback: most recent week_number via WeekNumberIndex
-        if not week_sessions:
-            scan_resp = sessions_table.scan(Limit=5, ProjectionExpression="week_number, updated_at")
-            scan_items = scan_resp.get("Items", []) or []
-            if scan_items:
-                latest = sorted(scan_items, key=lambda x: x.get("updated_at", ""), reverse=True)[0]
-                wn = latest.get("week_number", "")
-                if wn:
-                    resp = sessions_table.query(
-                        IndexName="WeekNumberIndex",
-                        KeyConditionExpression="week_number = :wn",
-                        ExpressionAttributeValues={":wn": wn},
-                    )
-                    week_sessions = resp.get("Items", [])
-
-        if not week_sessions:
+        all_sessions = resp.get("Items", [])
+        if not all_sessions:
             return ""
 
-        return _format_campus_sessions(week_sessions)
+        current_week = [s for s in all_sessions if s.get("is_current_week")]
+        future_sessions = sorted(
+            [s for s in all_sessions if s.get("is_future") and not s.get("is_current_week")],
+            key=lambda s: s.get("week_date", 0)
+        )
+        next_week = []
+        if future_sessions:
+            next_week_date = future_sessions[0].get("week_date_iso")
+            next_week = [s for s in future_sessions if s.get("week_date_iso") == next_week_date]
+
+        parts = []
+        if current_week:
+            parts.append("Plan Campus Coach cette semaine:\n" + _format_campus_sessions(current_week))
+        if next_week:
+            parts.append("Plan Campus Coach semaine prochaine:\n" + _format_campus_sessions(next_week))
+        return "\n".join(parts)
     except Exception as e:
         logger.warning(f"Failed to fetch Campus weekly plan: {e}")
         return ""
@@ -268,49 +258,42 @@ def _format_campus_sessions(sessions: list) -> str:
     for s in sessions:
         try:
             title = (s.get("title") or "Séance").strip()[:80]
-            session_number = s.get("session_number", "?")
-            targeted = s.get("targetedMetrics") or {}
-            target_dist = targeted.get("target_distance_km")
-            target_dur = targeted.get("target_duration_min")
             status = (s.get("status") or "").strip() or "à venir"
+            dist = s.get("expected_distance_km")
+            dur = s.get("expected_duration_min")
 
             target_parts = []
-            if target_dist not in (None, ""):
+            if dist:
                 try:
-                    target_parts.append(f"{float(target_dist):.1f}km")
+                    target_parts.append(f"{float(dist):.1f}km")
                 except (ValueError, TypeError):
                     pass
-            if target_dur not in (None, ""):
+            if dur:
                 try:
-                    target_parts.append(f"{float(target_dur):.0f}min")
+                    target_parts.append(f"{float(dur):.0f}min")
                 except (ValueError, TypeError):
                     pass
             target_str = " / ".join(target_parts) if target_parts else "objectif libre"
 
-            header = f"- {title} (séance #{session_number}, {target_str}, statut: {status})"
+            header = f"- {title} ({target_str}, statut: {status})"
 
             intervals = s.get("intervals") or []
             interval_summary = ""
             if isinstance(intervals, list) and intervals:
                 pieces = []
                 for iv in intervals[:6]:
-                    if not isinstance(iv, dict):
-                        continue
-                    label = iv.get("label") or iv.get("type") or iv.get("name") or "bloc"
-                    repeats = iv.get("repeats") or iv.get("count")
-                    distance = iv.get("distance_m") or iv.get("distance")
-                    duration = iv.get("duration_s") or iv.get("duration")
-                    intensity = iv.get("intensity") or iv.get("zone") or iv.get("pace")
-                    parts = [str(label)[:30]]
-                    if repeats:
-                        parts.append(f"x{repeats}")
-                    if distance:
-                        parts.append(f"{distance}m" if isinstance(distance, (int, float)) else str(distance)[:20])
-                    if duration:
-                        parts.append(f"{duration}s" if isinstance(duration, (int, float)) else str(duration)[:20])
-                    if intensity:
-                        parts.append(str(intensity)[:30])
-                    pieces.append(" ".join(parts))
+                    if isinstance(iv, str):
+                        pieces.append(iv[:50])
+                    elif isinstance(iv, dict):
+                        label = iv.get("label") or iv.get("type") or "bloc"
+                        parts = [str(label)[:30]]
+                        if iv.get("repeats"):
+                            parts.append(f"x{iv['repeats']}")
+                        if iv.get("distance"):
+                            parts.append(str(iv["distance"])[:20])
+                        if iv.get("pace"):
+                            parts.append(str(iv["pace"])[:20])
+                        pieces.append(" ".join(parts))
                 if pieces:
                     interval_summary = "  Intervalles: " + " ; ".join(pieces)
 

@@ -9,7 +9,6 @@ import os
 import asyncio
 from typing import Dict, Any, Optional, List
 from decimal import Decimal
-from datetime import datetime, timedelta, timezone
 
 import boto3
 from shared.logger import get_logger
@@ -236,32 +235,16 @@ def _apply_campus_coach_processing(
 
 
 def _get_recent_campus_sessions(activity_date: str = None) -> List[Dict[str, Any]]:
-    """Get Campus Coach sessions for the current week only (max 6)"""
+    """Get Campus Coach sessions for the current week."""
     try:
         table = dynamodb.Table(COACHING_SESSIONS_TABLE)
 
-        if activity_date:
-            try:
-                act_dt = datetime.fromisoformat(activity_date.replace('Z', '+00:00'))
-            except Exception:
-                act_dt = datetime.now(timezone.utc)
-        else:
-            act_dt = datetime.now(timezone.utc)
-
-        cutoff_date = (act_dt - timedelta(days=14)).isoformat()
-
         response = table.scan(
-            FilterExpression='updated_at >= :cutoff AND #status = :status',
-            ExpressionAttributeNames={'#status': 'status'},
-            ExpressionAttributeValues={
-                ':cutoff': cutoff_date,
-                ':status': 'À faire'
-            }
+            FilterExpression='is_current_week = :cw',
+            ExpressionAttributeValues={':cw': True}
         )
 
         sessions = response.get('Items', [])
-        sessions = sorted(sessions, key=lambda x: x.get('updated_at', ''), reverse=True)
-        sessions = sessions[:6]
 
         def decimal_to_float(obj: Any) -> Any:
             if isinstance(obj, Decimal):

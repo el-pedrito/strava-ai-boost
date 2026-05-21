@@ -18,6 +18,8 @@ from aws_cdk import (
     aws_events_targets as targets,
     aws_cloudwatch as cloudwatch,
     aws_cloudwatch_actions as cw_actions,
+    aws_secretsmanager as secretsmanager,
+    aws_dynamodb as dynamodb,
     Duration
 )
 from constructs import Construct
@@ -55,6 +57,9 @@ class WebhookProcessingStack(Stack):
         
         # Create webhook API
         self._create_webhook_api()
+
+        # Create Campus Coach sync
+        self._create_campus_coach_sync()
 
     def _create_sqs_queues(self) -> None:
         """Create SQS queues for reliable message processing"""
@@ -346,6 +351,51 @@ class WebhookProcessingStack(Stack):
             "WebhookValidator",
             validate_request_body=True,
             validate_request_parameters=True
+        )
+
+    def _create_campus_coach_sync(self) -> None:
+        """Create Campus Coach sync Lambda triggered daily"""
+
+        campus_coach_secret = secretsmanager.Secret.from_secret_name_v2(
+            self, "CampusCoachSecret",
+            "strava-ai-boost-campus-coach-credentials"
+        )
+        coaching_sessions_table = dynamodb.Table.from_table_name(
+            self, "CoachingSessionsTable",
+            "strava-ai-boost-campus-coaching-sessions"
+        )
+
+        self.campus_coach_sync = lambda_.Function(
+            self, "CampusCoachSync",
+            function_name="StravaAIBoost-CampusCoachSync",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="webhooks.campus_coach_sync.handler",
+            code=lambda_.Code.from_asset("lambda_functions"),
+            layers=[self.core_stack.dependencies_layer],
+            timeout=Duration.seconds(60),
+            memory_size=256,
+            environment={
+                "CAMPUS_COACH_SECRET_ARN": campus_coach_secret.secret_arn,
+                "COACHING_SESSIONS_TABLE": "strava-ai-boost-campus-coaching-sessions",
+                "USER_CONFIG_TABLE": "strava-ai-boost-user-configuration",
+                "DEFAULT_USER_ID": self.node.try_get_context("default_user_id") or "",
+            }
+        )
+
+        campus_coach_secret.grant_read(self.campus_coach_sync)
+        coaching_sessions_table.grant_read_write_data(self.campus_coach_sync)
+
+        # Also need to read user config to check if module is enabled
+        user_config_table = dynamodb.Table.from_table_name(
+            self, "UserConfigTableRef", "strava-ai-boost-user-configuration"
+        )
+        user_config_table.grant_read_data(self.campus_coach_sync)
+
+        events.Rule(
+            self, "CampusCoachSyncSchedule",
+            rule_name="strava-ai-boost-campus-coach-daily-sync",
+            schedule=events.Schedule.cron(hour="5", minute="0"),
+            targets=[targets.LambdaFunction(self.campus_coach_sync)]
         )
 
     @property
