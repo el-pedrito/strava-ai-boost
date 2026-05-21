@@ -10,7 +10,7 @@ from typing import Dict, Any
 # Default LLM Model Configuration
 DEFAULT_BEDROCK_MODEL_ID = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
 DEFAULT_ANTHROPIC_VERSION = "bedrock-2023-05-31"
-DEFAULT_MAX_TOKENS = 2000  # Increased for Claude Sonnet 4.5
+DEFAULT_MAX_TOKENS = 4096  # Ensure full descriptions with fun facts are never truncated
 DEFAULT_TEMPERATURE = 0.7
 
 class LLMConfig:

@@ -37,6 +37,8 @@ export interface Activity {
   audio_debrief_duration_sec?: number;
   audio_debrief_generated_at?: string;
   audio_debrief_language?: string;
+  map?: { summary_polyline?: string };
+  calories?: number | string;
 }
 
 export interface AudioDebriefPayload {

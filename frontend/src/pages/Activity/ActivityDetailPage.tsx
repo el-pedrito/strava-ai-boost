@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type ComponentType } from 'react';
+import { lazy, Suspense, useState, useEffect, useMemo, type ComponentType } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import {
@@ -9,6 +9,7 @@ import {
   ChevronUp,
   Clock,
   Dumbbell,
+  Flame,
   Flower2,
   Footprints,
   Headphones,
@@ -27,6 +28,10 @@ import { api, ApiError } from '../../api/client.ts';
 import { cn } from '../../lib/cn.ts';
 import { formatDateTime } from '../../utils/formatDate.ts';
 import type { Activity, AudioDebriefPayload } from '../../types/index.ts';
+
+const ActivityMap = lazy(() =>
+  import('./ActivityMap').then((m) => ({ default: m.ActivityMap })),
+);
 
 type LucideIcon = ComponentType<{ className?: string }>;
 type BadgeVariant = 'default' | 'primary' | 'success' | 'warning' | 'danger' | 'info' | 'outline';
@@ -191,7 +196,7 @@ export function ActivityDetailPage() {
   const { id: routeId } = useParams<{ id: string }>();
 
   const stateActivity = (location.state as { activity?: Activity } | null)?.activity ?? null;
-  const [activity] = useState<Activity | null>(stateActivity);
+  const [activity, setActivity] = useState<Activity | null>(stateActivity);
   const [coachFeedback, setCoachFeedback] = useState<CoachFeedbackItem | null>(null);
   const [feedbackExpanded, setFeedbackExpanded] = useState(false);
   const [audioDebrief, setAudioDebrief] = useState<AudioDebriefPayload | null>(null);
@@ -199,6 +204,24 @@ export function ActivityDetailPage() {
   const [audioStatus, setAudioStatus] = useState<'unknown' | 'pending' | 'unavailable'>('unknown');
 
   const activityId = activity?.activity_id ?? routeId ?? null;
+
+  // Fetch activity from API to enrich with fields not in location.state (map, calories, etc.)
+  useEffect(() => {
+    if (!activityId) return;
+    let cancelled = false;
+    async function fetchActivity() {
+      try {
+        const data = await api.get<{ activities: Activity[] }>('/dashboard/activities', { limit: '50' });
+        if (cancelled) return;
+        const match = data?.activities?.find((a) => a.activity_id === activityId);
+        if (match) setActivity((prev) => prev ? { ...prev, ...match } : match);
+      } catch {
+        // Silently ignore
+      }
+    }
+    fetchActivity();
+    return () => { cancelled = true; };
+  }, [activityId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -278,6 +301,8 @@ export function ActivityDetailPage() {
     if (avgHr) items.push({ icon: Heart, label: t('activity.stats.avgHr'), value: avgHr });
     if (maxHr) items.push({ icon: TrendingUp, label: t('activity.stats.maxHr'), value: maxHr });
     if (elev) items.push({ icon: Mountain, label: t('activity.stats.elevGain'), value: elev });
+    const cal = activity.calories ? Math.round(Number(activity.calories)) : 0;
+    if (cal > 0) items.push({ icon: Flame, label: t('activity.stats.calories'), value: `${cal} kcal` });
     return items;
   }, [activity, t]);
 
@@ -346,13 +371,23 @@ export function ActivityDetailPage() {
         </div>
       </header>
 
-      <Card padding="md" className="flex flex-col items-center justify-center gap-2 py-10 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-          <MapIcon className="h-6 w-6" />
-        </div>
-        <p className="text-sm font-medium text-foreground">{t('activity.map.title')}</p>
-        <p className="text-xs text-muted-foreground">{t('activity.map.placeholder')}</p>
-      </Card>
+      {activity.map?.summary_polyline ? (
+        <Suspense
+          fallback={
+            <div className="h-[300px] w-full animate-pulse rounded-xl bg-muted" />
+          }
+        >
+          <ActivityMap polyline={activity.map.summary_polyline} />
+        </Suspense>
+      ) : (
+        <Card padding="md" className="flex flex-col items-center justify-center gap-2 py-10 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+            <MapIcon className="h-6 w-6" />
+          </div>
+          <p className="text-sm font-medium text-foreground">{t('activity.map.title')}</p>
+          <p className="text-xs text-muted-foreground">{t('activity.map.placeholder')}</p>
+        </Card>
+      )}
 
       {stats.length > 0 ? (
         <section aria-label={t('activity.stats.aria')} className="flex flex-col gap-3">

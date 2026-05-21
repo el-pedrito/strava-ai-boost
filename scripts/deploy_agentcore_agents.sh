@@ -93,7 +93,7 @@ EOF
     
     # If toolkit doesn't work, try from YAML
     if [ -z "$memory_id" ] && [ -f ".bedrock_agentcore.yaml" ]; then
-        memory_id=$(grep -B 2 "memory_name: ${memory_name}" .bedrock_agentcore.yaml | grep "memory_id:" | awk '{print $2}' | tr -d "'" || echo "")
+        memory_id=$(grep -B 2 "memory_name: ${memory_name}" .bedrock_agentcore.yaml | grep "memory_id:" | head -1 | awk '{print $2}' | tr -d "'" || echo "")
         if [ "$memory_id" = "null" ]; then
             memory_id=""
         fi

@@ -225,7 +225,7 @@ def _synthesize_audio(script: str, voice: str) -> tuple:
             Text=script,
             OutputFormat="mp3",
             VoiceId=voice,
-            Engine="neural",
+            Engine=os.environ.get("POLLY_ENGINE", "generative"),
             SampleRate="22050",
             TextType="text",
         )
