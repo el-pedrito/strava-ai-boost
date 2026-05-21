@@ -1,0 +1,46 @@
+- generic [ref=e2]:
+  - main [ref=e4]:
+    - generic [ref=e9]:
+      - navigation [ref=e10]:
+        - button [ref=e11] [cursor=pointer]:
+          - img [ref=e13]
+        - button "Already have an account? Sign in" [ref=e15] [cursor=pointer]
+      - generic [ref=e16]:
+        - generic [ref=e17]:
+          - heading "Create an account" [level=1] [ref=e18]
+          - paragraph [ref=e19]: Enter your email to get started.
+        - group [ref=e20]:
+          - generic [ref=e21]:
+            - generic [ref=e22]: Email address
+            - textbox "Email address" [ref=e23]:
+              - /placeholder: example@email.com
+        - group [ref=e24]:
+          - generic [ref=e25]:
+            - generic [ref=e26]:
+              - generic [ref=e27]: Password
+              - textbox "Password" [ref=e28]:
+                - /placeholder: ••••••••••
+            - button [ref=e29] [cursor=pointer]:
+              - img [ref=e30]
+          - paragraph [ref=e32]: Password must be at least 8 characters long.
+        - button "Sign up" [disabled] [ref=e33]:
+          - generic [ref=e34]: Sign up
+        - generic [ref=e37]: or
+        - generic [ref=e39]:
+          - button "Continue with Google" [ref=e40] [cursor=pointer]:
+            - generic [ref=e41]:
+              - img [ref=e42]
+              - text: Continue with Google
+          - button "Continue with Apple" [ref=e47] [cursor=pointer]:
+            - generic [ref=e48]:
+              - img [ref=e49]
+              - text: Continue with Apple
+          - paragraph [ref=e51]:
+            - text: By clicking Sign up, you accept the
+            - link "Terms and Conditions of Sale" [ref=e52] [cursor=pointer]:
+              - /url: "’https:"
+            - text: and the
+            - link "Campus Privacy Policy" [ref=e53] [cursor=pointer]:
+              - /url: "’https:"
+            - text: .
+  - region "Notifications alt+T"
