@@ -786,6 +786,20 @@ def get_activity_history(query_params: Dict[str, str]) -> Dict[str, Any]:
                 'feedback_analyzed': activity.get('feedback_analyzed', False),
                 'generated_at': gen_metadata.get('generated_at', ''),
             }
+
+            # Extract map polyline from activity_data_json if available
+            activity_data_raw = activity.get('activity_data_json')
+            if activity_data_raw:
+                try:
+                    ad = json.loads(activity_data_raw) if isinstance(activity_data_raw, str) else activity_data_raw
+                    polyline = (ad.get('map') or {}).get('summary_polyline')
+                    if polyline:
+                        formatted_activity['map'] = {'summary_polyline': polyline}
+                    calories = ad.get('calories')
+                    if calories:
+                        formatted_activity['calories'] = float(calories)
+                except (json.JSONDecodeError, TypeError, AttributeError):
+                    pass
             formatted_activities.append(formatted_activity)
         
         return {

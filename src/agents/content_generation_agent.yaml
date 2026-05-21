@@ -19,7 +19,7 @@ model:
   model_id: ${BEDROCK_MODEL_ID:-global.anthropic.claude-sonnet-4-5-20250929-v1:0}
   region: ${BEDROCK_REGION:-eu-west-1}
   temperature: 0.7  # Optimized for Claude Sonnet 4.5 consistency
-  max_tokens: 2000  # Increased for detailed content generation
+  max_tokens: 4096  # Ensure full descriptions with fun facts are never truncated
   
 # Agent Configuration
 agent:

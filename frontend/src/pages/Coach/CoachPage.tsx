@@ -598,11 +598,13 @@ export function CoachPage() {
                     label={t('coach.now.kpi.volumeLabel')}
                     value={Math.round(totalKm)}
                     unit="km"
+                    info="metrics.volume"
                   />
                 </motion.div>
                 <motion.div variants={stagger.item} className="h-full">
                   <KPI
                     label={t('coach.now.kpi.sessionsLabel')}
+                    info="metrics.sessions"
                     value={
                       <span className="text-2xl">
                         {runSessions}
@@ -628,6 +630,7 @@ export function CoachPage() {
                     label={t('coach.now.kpi.thisWeekLabel')}
                     value={thisWeekKm}
                     unit="km"
+                    info="metrics.thisWeek"
                   />
                 </motion.div>
                 <motion.div variants={stagger.item} className="h-full">
@@ -689,7 +692,10 @@ export function CoachPage() {
                       )}>
                         {trends.recovery.form > 0 ? '+' : ''}{Math.round(trends.recovery.form)}
                       </div>
-                      <div className="text-xs text-muted-foreground">{t('coach.now.recovery.form')}</div>
+                      <div className="inline-flex items-center gap-0.5 text-xs text-muted-foreground">
+                        {t('coach.now.recovery.form')}
+                        <InfoTooltip i18nKey="metrics.tsb" />
+                      </div>
                       <div className="text-xs mt-0.5">
                         {trends.recovery.form > 5 ? t('coach.now.recovery.fresh') : trends.recovery.form < -10 ? t('coach.now.recovery.fatigued') : t('coach.now.recovery.neutral')}
                       </div>
@@ -698,7 +704,10 @@ export function CoachPage() {
                   {trends.recovery.vo2max !== null && (
                     <div className="text-center">
                       <div className="text-xl font-numeric font-bold">{trends.recovery.vo2max}</div>
-                      <div className="text-xs text-muted-foreground">{t('coach.now.recovery.vo2max')}</div>
+                      <div className="inline-flex items-center gap-0.5 text-xs text-muted-foreground">
+                        {t('coach.now.recovery.vo2max')}
+                        <InfoTooltip i18nKey="metrics.vo2max" />
+                      </div>
                       {trends.recovery.vo2max_delta_7d !== null && (
                         <div className={cn('text-xs mt-0.5', trends.recovery.vo2max_delta_7d >= 0 ? 'text-success' : 'text-danger')}>
                           {trends.recovery.vo2max_delta_7d > 0 ? '+' : ''}{trends.recovery.vo2max_delta_7d}/7j
@@ -709,7 +718,10 @@ export function CoachPage() {
                   {trends.recovery.resting_hr !== null && (
                     <div className="text-center">
                       <div className="text-xl font-numeric font-bold">{trends.recovery.resting_hr} <span className="text-sm font-normal">bpm</span></div>
-                      <div className="text-xs text-muted-foreground">{t('coach.now.recovery.restingHr')}</div>
+                      <div className="inline-flex items-center gap-0.5 text-xs text-muted-foreground">
+                        {t('coach.now.recovery.restingHr')}
+                        <InfoTooltip i18nKey="metrics.restinghr" />
+                      </div>
                       {trends.recovery.resting_hr_delta_7d !== null && (
                         <div className={cn('text-xs mt-0.5', trends.recovery.resting_hr_delta_7d <= 0 ? 'text-success' : 'text-danger')}>
                           {trends.recovery.resting_hr_delta_7d > 0 ? '+' : ''}{trends.recovery.resting_hr_delta_7d}/7j
@@ -720,7 +732,10 @@ export function CoachPage() {
                   {trends.recovery.sleep_display && (
                     <div className="text-center">
                       <div className="text-xl font-numeric font-bold">{trends.recovery.sleep_display}</div>
-                      <div className="text-xs text-muted-foreground">{t('coach.now.recovery.sleep')}</div>
+                      <div className="inline-flex items-center gap-0.5 text-xs text-muted-foreground">
+                        {t('coach.now.recovery.sleep')}
+                        <InfoTooltip i18nKey="metrics.sleep" />
+                      </div>
                       {trends.recovery.sleep_delta_7d_min !== null && trends.recovery.sleep_delta_7d_min !== 0 && (
                         <div className={cn('text-xs mt-0.5', trends.recovery.sleep_delta_7d_min > 0 ? 'text-success' : 'text-danger')}>
                           {trends.recovery.sleep_delta_7d_min > 0 ? '+' : ''}{trends.recovery.sleep_delta_7d_min}min/7j

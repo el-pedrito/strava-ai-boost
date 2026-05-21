@@ -523,6 +523,7 @@ export function DashboardPage() {
             value={loading ? '' : (stats?.total_activities ?? 0)}
             loading={loading}
             icon={<ActivityIcon className="h-4 w-4" />}
+            info="metrics.activities"
           />
         </motion.div>
         <motion.div variants={itemVariants} className="h-full">
@@ -532,6 +533,7 @@ export function DashboardPage() {
             unit={loading ? undefined : successRateUnit}
             loading={loading}
             icon={<TrendingUp className="h-4 w-4" />}
+            info="metrics.successRate"
           />
         </motion.div>
         <motion.div variants={itemVariants} className="h-full">
@@ -540,6 +542,7 @@ export function DashboardPage() {
             value={loading ? '' : (stats?.completed_activities ?? 0)}
             loading={loading}
             icon={<ListChecks className="h-4 w-4" />}
+            info="metrics.completed"
           />
         </motion.div>
         <motion.div variants={itemVariants} className="h-full">
@@ -548,6 +551,7 @@ export function DashboardPage() {
             value={loading ? '' : avgProcessingTime}
             loading={loading}
             icon={<Zap className="h-4 w-4" />}
+            info="metrics.avgProcessing"
           />
         </motion.div>
       </motion.section>
