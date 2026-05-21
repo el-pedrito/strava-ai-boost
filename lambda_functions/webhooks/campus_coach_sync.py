@@ -25,7 +25,7 @@ COACHING_SESSIONS_TABLE = os.environ['COACHING_SESSIONS_TABLE']
 SECRET_ARN = os.environ.get('SECRET_ARN', 'strava-ai-boost-campus-coach-credentials')
 USER_CONFIG_TABLE = os.environ.get('USER_CONFIG_TABLE', 'strava-ai-boost-user-configuration')
 
-API_BASE = "https://api.campus.coach"
+API_BASE = os.environ.get("CAMPUS_COACH_API_URL", "https://api.campus.coach")
 
 
 def _is_module_enabled(user_id: str) -> bool:
