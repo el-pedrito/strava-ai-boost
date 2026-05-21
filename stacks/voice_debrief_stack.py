@@ -377,6 +377,7 @@ class VoiceDebriefStack(Stack):
                 "POLLY_VOICE_FR": "Ambre",
                 "POLLY_VOICE_EN": "Joanna",
                 "DEFAULT_USER_ID": self.node.try_get_context("default_user_id") or "",
+                "BEDROCK_AGENTCORE_MEMORY_ID": "content_gen_mem-hnupsb8Lxz",
             },
             description="Weekly audio recap generator (Sunday 20h + on-demand)",
         )
