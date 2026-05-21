@@ -156,7 +156,7 @@ class TestCoachAskApiCampus:
 
         assert 'Plan Campus Coach cette semaine' in result
         assert 'Force + Allure 10km' in result
-        assert 'Plan Campus Coach semaine prochaine' in result
+        assert 'Plan Campus Coach 2026-W22' in result
         assert 'Sortie longue' in result
 
     @patch('boto3.resource')
