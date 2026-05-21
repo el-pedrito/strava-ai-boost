@@ -1115,44 +1115,19 @@ def get_coach_summary(user_id: str) -> Dict[str, Any]:
         compliance = None
         try:
             sessions_table = dynamodb.Table(COACHING_SESSIONS_TABLE)
-            # Query current week by iso_week GSI
-            current_iso_week = now.strftime('%Y-W%W')
-            resp = sessions_table.query(
-                IndexName="IsoWeekIndex",
-                KeyConditionExpression="iso_week = :iw",
-                ExpressionAttributeValues={":iw": current_iso_week},
+            # Scan for current week sessions (new API sync format)
+            resp = sessions_table.scan(
+                FilterExpression="is_current_week = :cw",
+                ExpressionAttributeValues={":cw": True},
             )
             current_week_sessions = resp.get("Items", [])
 
-            # Fallback: query most recent week via WeekNumberIndex
-            if not current_week_sessions:
-                scan_resp = sessions_table.scan(Limit=5, ProjectionExpression="week_number, updated_at")
-                if scan_resp.get("Items"):
-                    latest = sorted(scan_resp["Items"], key=lambda x: x.get("updated_at", ""), reverse=True)[0]
-                    wn = latest.get("week_number", "")
-                    if wn:
-                        resp = sessions_table.query(
-                            IndexName="WeekNumberIndex",
-                            KeyConditionExpression="week_number = :wn",
-                            ExpressionAttributeValues={":wn": wn},
-                        )
-                        candidates = resp.get("Items", [])
-                        # Only use if 3-6 sessions (real week plan)
-                        if 3 <= len(candidates) <= 6:
-                            current_week_sessions = candidates
-
             total_planned = len(current_week_sessions)
             if total_planned > 0:
-                # Count sessions whose Campus Coach status indicates completion.
-                # The scraper stores French status values: "Complétée"/"Completée"/"Fait"/"Validée".
-                # We also accept English equivalents for forward-compat.
-                done_statuses = {
-                    'completed', 'complétée', 'completée', 'complete',
-                    'fait', 'faite', 'validée', 'validee', 'done', 'finished'
-                }
+                # New format uses 'done' status directly
                 completed_count = sum(
                     1 for s in current_week_sessions
-                    if (s.get('status') or '').strip().lower() in done_statuses
+                    if (s.get('status') or '').strip().lower() == 'done'
                 )
                 compliance = {
                     'planned': total_planned,
