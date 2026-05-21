@@ -83,7 +83,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             is_current = (week_date == int(monday_current.timestamp() * 1000))
             is_future = week_date > int(monday_current.timestamp() * 1000)
             context_data = week.get('context', {})
-            paces = week.get('estimatedPaces', {})
+            paces = week.get('estimatedPaces', [])
 
             for idx, session in enumerate(week.get('sessions', [])):
                 session_id = f"{week_date}_{idx}"
@@ -253,9 +253,17 @@ def _build_intervals(session: Dict, paces: List) -> List[Dict[str, Any]]:
 
 def _delete_stale_sessions(table: Any, current_ids: set[str]) -> int:
     """Delete sessions from DynamoDB that are no longer in the API response."""
-    response = table.scan(ProjectionExpression='session_date, session_id')
-    existing = {f"{item['session_date']}#{item['session_id']}": item for item in response.get('Items', [])
-                if item.get('session_date') != 'athlete-context'}  # Don't delete context item
+    existing = {}
+    scan_kwargs = {'ProjectionExpression': 'session_date, session_id'}
+    while True:
+        response = table.scan(**scan_kwargs)
+        for item in response.get('Items', []):
+            if item.get('session_date') != 'athlete-context':
+                key = f"{item['session_date']}#{item['session_id']}"
+                existing[key] = item
+        if 'LastEvaluatedKey' not in response:
+            break
+        scan_kwargs['ExclusiveStartKey'] = response['LastEvaluatedKey']
 
     stale_keys = set(existing.keys()) - current_ids
     deleted = 0
