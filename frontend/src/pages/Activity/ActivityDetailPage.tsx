@@ -211,9 +211,9 @@ export function ActivityDetailPage() {
     let cancelled = false;
     async function fetchActivity() {
       try {
-        const data = await api.get<{ activities: Activity[] }>('/dashboard/activities', { limit: '50' });
+        const data = await api.get<{ activities: Activity[] }>('/dashboard/activities', { activity_id: activityId });
         if (cancelled) return;
-        const match = data?.activities?.find((a) => a.activity_id === activityId);
+        const match = data?.activities?.[0];
         if (match) setActivity((prev) => prev ? { ...prev, ...match } : match);
       } catch {
         // Silently ignore

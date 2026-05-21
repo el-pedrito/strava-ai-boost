@@ -282,8 +282,25 @@ export function CoachPage() {
 
   const handleGenerateRecap = () => {
     setGenerating(true);
+    const prevCount = recaps.length;
+    const prevLatest = recaps[0]?.generated_at;
     api.post('/coach/recaps', {}).then(() => {
-      setTimeout(() => { fetchRecaps(); setGenerating(false); }, 15000);
+      let attempts = 0;
+      const poll = setInterval(() => {
+        attempts++;
+        api.get<{ recaps: Recap[] }>('/coach/recaps').then((d) => {
+          const fresh = d.recaps || [];
+          if (fresh.length > prevCount || (fresh[0]?.generated_at && fresh[0].generated_at !== prevLatest)) {
+            clearInterval(poll);
+            setRecaps(fresh);
+            setGenerating(false);
+          } else if (attempts >= 12) {
+            clearInterval(poll);
+            setRecaps(fresh);
+            setGenerating(false);
+          }
+        }).catch(() => { if (attempts >= 12) { clearInterval(poll); setGenerating(false); } });
+      }, 5000);
     }).catch(() => setGenerating(false));
   };
 

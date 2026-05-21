@@ -241,9 +241,8 @@ def _synthesize_audio(script: str, voice: str) -> tuple:
             TextType="text",
         )
         audio_bytes = resp["AudioStream"].read()
-        # Estimate duration from word count
-        word_count = len(script.split())
-        duration_sec = round(word_count / 155 * 60)
+        # Compute duration from MP3 byte length (48kbps at 22050Hz)
+        duration_sec = round(len(audio_bytes) * 8 / 48000)
         return audio_bytes, duration_sec
     except Exception as e:
         logger.error(f"Polly synthesis failed: {e}")
