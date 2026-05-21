@@ -432,7 +432,7 @@ The Lambda Layer cannot be replaced via CDK due to CloudFormation cross-stack ex
 ## Testing
 
 ```bash
-# Lambda unit tests (136 tests, ~0.7s — no AWS credentials needed)
+# Lambda unit tests (162 tests, ~0.7s — no AWS credentials needed)
 pytest tests/unit/ -v
 
 # Infrastructure/integration tests (73 tests — requires AWS credentials)
@@ -446,7 +446,7 @@ cd frontend && npm test
 pytest tests/ -v
 ```
 
-**Test coverage:** 176 total tests (136 backend + 40 frontend).
+**Test coverage:** 202 total tests (162 backend + 40 frontend).
 
 ## Cost Tracking
 
