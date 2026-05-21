@@ -30,7 +30,7 @@ class TestValidateRequest:
         assert validate_request(event) is None
 
     def test_post_not_allowed(self):
-        event = {'httpMethod': 'POST'}
+        event = {'httpMethod': 'PUT'}
         result = validate_request(event)
         assert 'not allowed' in result
 
