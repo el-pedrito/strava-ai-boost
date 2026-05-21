@@ -57,18 +57,15 @@ def _get_user_id(event: Dict[str, Any]) -> str:
     return DEFAULT_USER_ID
 
 
-_current_user_id = DEFAULT_USER_ID
-
-
-def _query_user_activities(since: datetime = None, projection: str = None) -> List[Dict[str, Any]]:
+def _query_user_activities(user_id: str, since: datetime = None, projection: str = None) -> List[Dict[str, Any]]:
     """Query activities for the default user using GSI. Falls back to scan if no user_id."""
     table = dynamodb.Table(ACTIVITIES_TABLE)
 
-    if _current_user_id:
+    if user_id:
         kwargs: Dict[str, Any] = {
             "IndexName": "UserActivitiesIndex",
             "KeyConditionExpression": "user_id = :uid",
-            "ExpressionAttributeValues": {":uid": _current_user_id},
+            "ExpressionAttributeValues": {":uid": user_id},
             "ScanIndexForward": False,  # newest first
         }
         if since:
@@ -130,7 +127,7 @@ def get_cached_or_compute(cache_key: str, compute_func, *args, **kwargs):
     return result
 
 
-def get_coach_recaps(event: Dict[str, Any]) -> Dict[str, Any]:
+def get_coach_recaps(event: Dict[str, Any], user_id: str) -> Dict[str, Any]:
     """Get paginated weekly audio recaps or trigger generation."""
     method = event.get("httpMethod", "GET")
 
@@ -140,7 +137,7 @@ def get_coach_recaps(event: Dict[str, Any]) -> Dict[str, Any]:
         lambda_client.invoke(
             FunctionName="StravaAIBoost-WeeklyAudioRecap",
             InvocationType="Event",
-            Payload=json.dumps({"user_id": _current_user_id, "force": False}),
+            Payload=json.dumps({"user_id": user_id, "force": False}),
         )
         return {"status": "generating", "message": "Recap generation started"}
 
@@ -152,7 +149,7 @@ def get_coach_recaps(event: Dict[str, Any]) -> Dict[str, Any]:
     try:
         resp = recap_table.query(
             KeyConditionExpression="user_id = :uid",
-            ExpressionAttributeValues={":uid": _current_user_id},
+            ExpressionAttributeValues={":uid": user_id},
             ScanIndexForward=False,
             Limit=10,
         )
@@ -203,8 +200,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     
     Handles various dashboard data requests
     """
-    global _current_user_id
-    _current_user_id = _get_user_id(event)
+    user_id = _get_user_id(event)
     inject_correlation_id(logger, event)
     try:
         http_method = event.get('httpMethod', 'GET')
@@ -226,19 +222,19 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
         # Route requests based on path
         if '/dashboard/stats' in path:
-            response_data = get_dashboard_stats(query_params)
+            response_data = get_dashboard_stats(query_params, user_id)
             return create_success_response(response_data)
         elif '/dashboard/activities' in path:
-            response_data = get_activity_history(query_params)
+            response_data = get_activity_history(query_params, user_id)
             return create_success_response(response_data)
         elif '/dashboard/system' in path:
-            response_data = get_system_stats()
+            response_data = get_system_stats(user_id)
             return create_success_response(response_data)
         elif '/coach/summary' in path:
-            response_data = get_coach_summary()
+            response_data = get_coach_summary(user_id)
             return create_success_response(response_data)
         elif '/coach/recaps' in path:
-            response_data = get_coach_recaps(event)
+            response_data = get_coach_recaps(event, user_id)
             return create_success_response(response_data)
         else:
             return create_error_response(404, 'Endpoint not found')
@@ -295,7 +291,7 @@ def validate_request(event: Dict[str, Any]) -> str:
         return f'Request validation failed: {str(e)}'
 
 
-def get_dashboard_stats(query_params: Dict[str, str]) -> Dict[str, Any]:
+def get_dashboard_stats(query_params: Dict[str, str], user_id: str) -> Dict[str, Any]:
     """Get dashboard statistics and metrics with caching"""
     try:
         # Get time range from query params (default: last 30 days)
@@ -309,7 +305,7 @@ def get_dashboard_stats(query_params: Dict[str, str]) -> Dict[str, Any]:
         activity_stats = get_cached_or_compute(
             f"{cache_key_base}_activity_stats",
             get_activity_processing_stats,
-            start_date
+            start_date, user_id
         )
         
         # Get system performance metrics (cached with shorter TTL)
@@ -322,14 +318,14 @@ def get_dashboard_stats(query_params: Dict[str, str]) -> Dict[str, Any]:
         module_stats = get_cached_or_compute(
             f"{cache_key_base}_module_stats",
             get_module_usage_stats,
-            start_date
+            start_date, user_id
         )
         
         # Get engagement metrics (cached)
         engagement_metrics = get_cached_or_compute(
             f"{cache_key_base}_engagement",
             get_engagement_metrics,
-            start_date
+            start_date, user_id
         )
         
         return {
@@ -351,7 +347,7 @@ def get_dashboard_stats(query_params: Dict[str, str]) -> Dict[str, Any]:
         raise
 
 
-def get_activity_processing_stats(start_date: datetime) -> Dict[str, Any]:
+def get_activity_processing_stats(start_date: datetime, user_id: str) -> Dict[str, Any]:
     """Get activity processing statistics from DynamoDB using GSI for better performance"""
     try:
         table = dynamodb.Table(ACTIVITIES_TABLE)
@@ -420,7 +416,7 @@ def get_activity_processing_stats(start_date: datetime) -> Dict[str, Any]:
         logger.info("Falling back to UserActivitiesIndex query")
 
         try:
-            recent_activities = _query_user_activities(since=start_date)
+            recent_activities = _query_user_activities(user_id, since=start_date)
             
             # Calculate statistics
             total_activities = len(recent_activities)
@@ -599,10 +595,10 @@ def get_performance_metrics() -> Dict[str, Any]:
         }
 
 
-def get_module_usage_stats(start_date: datetime) -> Dict[str, Any]:
+def get_module_usage_stats(start_date: datetime, user_id: str) -> Dict[str, Any]:
     """Get module usage statistics"""
     try:
-        recent_activities = _query_user_activities(since=start_date)
+        recent_activities = _query_user_activities(user_id, since=start_date)
 
         # Count module usage
         module_counts = {}
@@ -630,10 +626,10 @@ def get_module_usage_stats(start_date: datetime) -> Dict[str, Any]:
         }
 
 
-def get_engagement_metrics(start_date: datetime) -> Dict[str, Any]:
+def get_engagement_metrics(start_date: datetime, user_id: str) -> Dict[str, Any]:
     """Get engagement metrics from DynamoDB stored activity data"""
     try:
-        recent_activities = _query_user_activities(since=start_date)
+        recent_activities = _query_user_activities(user_id, since=start_date)
 
         total_kudos = 0
         total_comments = 0
@@ -693,62 +689,73 @@ def get_engagement_metrics(start_date: datetime) -> Dict[str, Any]:
         }
 
 
-def get_activity_history(query_params: Dict[str, str]) -> Dict[str, Any]:
+def get_activity_history(query_params: Dict[str, str], user_id: str) -> Dict[str, Any]:
     """Get recent activity history with processing details using GSI for better performance"""
     try:
         # Get pagination parameters
         limit = int(query_params.get('limit', '20'))
         offset = int(query_params.get('offset', '0'))
         status_filter = query_params.get('status')  # Optional status filter
+        activity_id_filter = query_params.get('activity_id')  # Optional single activity lookup
         
         table = dynamodb.Table(ACTIVITIES_TABLE)
         
-        all_activities = []
-        
-        if status_filter:
-            # Use GSI to query by specific status
-            try:
-                response = table.query(
-                    IndexName='ProcessingStatusIndex',
-                    KeyConditionExpression='processing_status = :status',
-                    ExpressionAttributeValues={':status': status_filter},
-                    ScanIndexForward=False  # Sort by created_at descending
-                )
-                all_activities = response.get('Items', [])
-            except Exception as gsi_error:
-                logger.warning(f"GSI query failed, falling back to query: {str(gsi_error)}")
-                all_activities = _query_user_activities()
+        # Fast path: direct lookup by activity_id
+        if activity_id_filter:
+            response = table.get_item(Key={'activity_id': activity_id_filter})
+            item = response.get('Item')
+            if not item:
+                return {'activities': [], 'total_count': 0, 'returned_count': 0, 'offset': 0, 'limit': 1, 'has_more': False}
+            all_activities = [item]
+            # Skip pagination logic, jump to formatting
+            paginated_activities = all_activities
         else:
-            # Get all activities - try GSI approach first
-            try:
-                # Query each status separately and combine
-                statuses = ['completed', 'failed', 'processing', 'queued']
-                for status in statuses:
-                    try:
-                        response = table.query(
-                            IndexName='ProcessingStatusIndex',
-                            KeyConditionExpression='processing_status = :status',
-                            ExpressionAttributeValues={':status': status},
-                            ScanIndexForward=False
-                        )
-                        all_activities.extend(response.get('Items', []))
-                    except Exception:
-                        # Skip this status if query fails
-                        continue
-                
-                # If no activities found via GSI, fallback to query helper
-                if not all_activities:
-                    all_activities = _query_user_activities()
-                    
-            except Exception as gsi_error:
-                logger.warning(f"GSI queries failed, falling back to query: {str(gsi_error)}")
-                all_activities = _query_user_activities()
-        
-        # Sort by created_at descending (in case GSI didn't sort properly)
-        all_activities.sort(key=lambda x: x.get('created_at', ''), reverse=True)
-        
-        # Apply pagination
-        paginated_activities = all_activities[offset:offset + limit]
+            all_activities = []
+
+            if status_filter:
+                # Use GSI to query by specific status
+                try:
+                    response = table.query(
+                        IndexName='ProcessingStatusIndex',
+                        KeyConditionExpression='processing_status = :status',
+                        ExpressionAttributeValues={':status': status_filter},
+                        ScanIndexForward=False  # Sort by created_at descending
+                    )
+                    all_activities = response.get('Items', [])
+                except Exception as gsi_error:
+                    logger.warning(f"GSI query failed, falling back to query: {str(gsi_error)}")
+                    all_activities = _query_user_activities(user_id)
+            else:
+                # Get all activities - try GSI approach first
+                try:
+                    # Query each status separately and combine
+                    statuses = ['completed', 'failed', 'processing', 'queued']
+                    for status in statuses:
+                        try:
+                            response = table.query(
+                                IndexName='ProcessingStatusIndex',
+                                KeyConditionExpression='processing_status = :status',
+                                ExpressionAttributeValues={':status': status},
+                                ScanIndexForward=False
+                            )
+                            all_activities.extend(response.get('Items', []))
+                        except Exception:
+                            # Skip this status if query fails
+                            continue
+
+                    # If no activities found via GSI, fallback to query helper
+                    if not all_activities:
+                        all_activities = _query_user_activities(user_id)
+
+                except Exception as gsi_error:
+                    logger.warning(f"GSI queries failed, falling back to query: {str(gsi_error)}")
+                    all_activities = _query_user_activities(user_id)
+
+            # Sort by created_at descending (in case GSI didn't sort properly)
+            all_activities.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+
+            # Apply pagination
+            paginated_activities = all_activities[offset:offset + limit]
         
         # Format activities for display
         formatted_activities = []
@@ -830,17 +837,17 @@ def get_activity_history(query_params: Dict[str, str]) -> Dict[str, Any]:
 
 
 
-def get_system_stats() -> Dict[str, Any]:
+def get_system_stats(user_id: str) -> Dict[str, Any]:
     """Get system-wide statistics (total activities, success rate, queue depth)"""
     try:
         table = dynamodb.Table(ACTIVITIES_TABLE)
 
         # Get total activities count via GSI query
-        if _current_user_id:
+        if user_id:
             total_response = table.query(
                 IndexName="UserActivitiesIndex",
                 KeyConditionExpression="user_id = :uid",
-                ExpressionAttributeValues={":uid": _current_user_id},
+                ExpressionAttributeValues={":uid": user_id},
                 Select='COUNT'
             )
         else:
@@ -849,7 +856,7 @@ def get_system_stats() -> Dict[str, Any]:
 
         # Get activities from last 24 hours for success rate
         cutoff_time = (datetime.now(tz=timezone.utc) - timedelta(hours=24)).isoformat()
-        recent_activities = _query_user_activities(since=datetime.now(tz=timezone.utc) - timedelta(hours=24))
+        recent_activities = _query_user_activities(user_id, since=datetime.now(tz=timezone.utc) - timedelta(hours=24))
 
         total_recent = len(recent_activities)
         successful_recent = sum(1 for a in recent_activities if a.get('processing_status') == 'completed')
@@ -918,7 +925,7 @@ def get_system_stats() -> Dict[str, Any]:
         }
 
 
-def get_coach_summary() -> Dict[str, Any]:
+def get_coach_summary(user_id: str) -> Dict[str, Any]:
     """Get coach summary: recent feedback, training trends, and athlete profile."""
     try:
         table = dynamodb.Table(ACTIVITIES_TABLE)
@@ -939,7 +946,7 @@ def get_coach_summary() -> Dict[str, Any]:
         now = datetime.now(tz=timezone.utc)
         start_date = now - timedelta(days=30)
 
-        recent = _query_user_activities(since=start_date)
+        recent = _query_user_activities(user_id, since=start_date)
         recent.sort(key=lambda x: x.get('created_at', ''), reverse=True)
 
         # Recent feedback: last 5 activities with coach_feedback
