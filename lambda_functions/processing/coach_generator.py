@@ -97,49 +97,41 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         if suffer_score:
             historical_summary["current_suffer_score"] = suffer_score
 
-        # Add Campus Coach sessions for current week (if available)
+        # Add Campus Coach sessions (current week + next week)
         try:
             sessions_table = dynamodb.Table(os.environ.get("COACHING_SESSIONS_TABLE", "strava-ai-boost-campus-coaching-sessions"))
-            # Query current week by iso_week GSI
-            current_iso_week = datetime.now(timezone.utc).strftime('%Y-W%W')
-            resp = sessions_table.query(
-                IndexName="IsoWeekIndex",
-                KeyConditionExpression="iso_week = :iw",
-                ExpressionAttributeValues={":iw": current_iso_week},
+            resp = sessions_table.scan(
+                FilterExpression="is_current_week = :cw OR is_future = :ft",
+                ExpressionAttributeValues={":cw": True, ":ft": True},
             )
-            week_sessions = resp.get("Items", [])
+            all_sessions = resp.get("Items", [])
 
-            # Fallback: query most recent week_number via WeekNumberIndex
-            if not week_sessions:
-                # Get the latest updated session to find its week_number
-                scan_resp = sessions_table.scan(Limit=5, ProjectionExpression="week_number, updated_at")
-                if scan_resp.get("Items"):
-                    latest = sorted(scan_resp["Items"], key=lambda x: x.get("updated_at", ""), reverse=True)[0]
-                    wn = latest.get("week_number", "")
-                    if wn:
-                        resp = sessions_table.query(
-                            IndexName="WeekNumberIndex",
-                            KeyConditionExpression="week_number = :wn",
-                            ExpressionAttributeValues={":wn": wn},
-                        )
-                        week_sessions = resp.get("Items", [])
+            current_week = [s for s in all_sessions if s.get("is_current_week")]
+            # Next week = future sessions from the earliest future week
+            future_sessions = sorted(
+                [s for s in all_sessions if s.get("is_future") and not s.get("is_current_week")],
+                key=lambda s: s.get("week_date", 0)
+            )
+            next_week = []
+            if future_sessions:
+                next_week_date = future_sessions[0].get("week_date_iso")
+                next_week = [s for s in future_sessions if s.get("week_date_iso") == next_week_date]
 
-            # Always inject the Campus Coach plan when sessions were found,
-            # whether they came from the primary iso_week query or the fallback.
-            # Note: DynamoDB Decimal values are handled by the JSON `default=` hook
-            # in _invoke_coach_agent (converts via __float__), so no manual cast needed here.
-            if week_sessions:
-                historical_summary["campus_coach_plan"] = [
-                    {
-                        "title": s.get("title", ""),
-                        "session_number": s.get("session_number", ""),
-                        "intervals": s.get("intervals", []),
-                        "target_distance_km": (s.get("targetedMetrics") or {}).get("target_distance_km"),
-                        "target_duration_min": (s.get("targetedMetrics") or {}).get("target_duration_min"),
-                        "status": s.get("status", ""),
-                    }
-                    for s in week_sessions
-                ]
+            def _format_plan_session(s):
+                return {
+                    "title": s.get("title", ""),
+                    "intervals": s.get("intervals", []),
+                    "expected_distance_km": s.get("expected_distance_km"),
+                    "expected_duration_min": s.get("expected_duration_min"),
+                    "status": s.get("status", ""),
+                    "sport": s.get("sport", ""),
+                    "difficulty": s.get("difficulty", ""),
+                }
+
+            if current_week:
+                historical_summary["campus_coach_plan"] = [_format_plan_session(s) for s in current_week]
+            if next_week:
+                historical_summary["campus_coach_plan_next_week"] = [_format_plan_session(s) for s in next_week]
         except Exception as e:
             logger.warning(f"Failed to fetch Campus Coach sessions: {e}")
 
