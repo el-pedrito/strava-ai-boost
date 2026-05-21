@@ -306,9 +306,26 @@ Détail des séances :
         return None
 
 
+def _prepare_text_for_tts(text: str) -> str:
+    """Preprocess text for TTS to avoid misreadings (e.g. 4:27 read as 4h27)."""
+    import re
+    # Convert pace notation: "4:27/km" → "4 minutes 27 par kilomètre"
+    text = re.sub(r'(\d+):(\d{2})/km', r'\1 minutes \2 par kilomètre', text)
+    # Convert pace without /km: "4:27" in running context → "4 minutes 27"
+    text = re.sub(r'(\d+):(\d{2})(?!\d)', r'\1 minutes \2', text)
+    # Convert "km/h" to spoken form
+    text = re.sub(r'(\d+(?:\.\d+)?)\s*km/h', r'\1 kilomètres heure', text)
+    # Convert "bpm" to spoken form
+    text = re.sub(r'(\d+)\s*bpm', r'\1 battements par minute', text)
+    return text
+
+
 def _synthesize_audio(script: str, voice: str) -> tuple:
     """Synthesize speech with Polly. Returns (audio_bytes, duration_sec)."""
     try:
+        # Preprocess text for TTS: convert pace notation (4:27/km → 4 minutes 27 par km)
+        script = _prepare_text_for_tts(script)
+
         resp = polly.synthesize_speech(
             Text=script,
             OutputFormat="mp3",
