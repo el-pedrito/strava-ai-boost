@@ -51,14 +51,18 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     else:
         end = datetime.now(timezone.utc)
 
-    start = end - timedelta(days=7)
-    iso_week = end.strftime("%G-W%V")
-
     # On-demand recaps use date range label; scheduled (EventBridge) use ISO week
     is_scheduled = event.get("source", "").startswith("aws.events") or event.get("detail-type") == "Scheduled Event"
+    iso_week = end.strftime("%G-W%V")
+
     if is_scheduled:
+        # Scheduled: cover Monday to Sunday of current ISO week
+        monday = end - timedelta(days=end.weekday())
+        start = monday.replace(hour=0, minute=0, second=0, microsecond=0)
         week_label = iso_week
     else:
+        # On-demand: cover last 7 days
+        start = end - timedelta(days=7)
         week_label = f"{start.strftime('%d_%m')}-{end.strftime('%d_%m')}"
 
     # Check idempotency
