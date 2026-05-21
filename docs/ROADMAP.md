@@ -50,18 +50,14 @@
 - [x] **Recovery state widget Coach Now** — Form/TSB, VO2max, FC repos, Sommeil avec deltas 7j depuis Intervals.icu
 - [x] **Help tooltip systématique sur chaque KPI** — `(?)` Radix Popover sur tous les KPIs (Dashboard, Coach, Quality, Recovery). i18n FR/EN.
 - [x] **Map polyline sur Activity detail** — tracé GPS Leaflet (lazy-loaded, dark mode, auto-fit bounds)
-- [ ] **Campus Coach : migration Browser Tool → API REST directe**
-  - Découverte : `POST api.campus.coach/account/login` + `GET /smart-training?from=...&to=...` retourne toutes les semaines accessibles (1-4 selon cycle facturation) en JSON structuré avec sessions, intervalles, allures, statuts
-  - Étapes :
-    1. Désactiver le scheduler de l'agent Campus Coach (Browser Tool)
-    2. Créer une Lambda `campus_coach_sync.py` qui : login API → fetch toutes les semaines `access: "allowed"` → stocker en DynamoDB (table `strava-ai-boost-campus-coaching-sessions`) avec `week_date` timestamp comme SK
-    3. Identifier la semaine courante via `weekDate` timestamp vs `datetime.now()` (lundi de la semaine ISO)
-    4. Stocker les semaines futures avec un flag `is_future: true` pour distinguer de la semaine en cours
-    5. Trigger : EventBridge schedule (1x/jour lundi matin, ou on-demand via API)
-    6. Mettre à jour `coach_generator.py` et `coach_ask_api.py` pour injecter semaine courante + semaine suivante dans le contexte coach
-    7. Le content agent continue de matcher sur la semaine courante (pas de changement)
-  - Avantages : 100% fiable (vs 70% Browser Tool), instantané (1s vs 2-3min), données structurées (JSON vs scraping DOM), accès aux semaines futures pour le coach
-  - Risque : API non-documentée, peut changer sans prévenir. Fallback : réactiver le Browser Tool agent
+- [x] **Campus Coach : migration Browser Tool → API REST directe**
+  - `POST api.campus.coach/account/login` + `GET /smart-training?from=...&to=...` retourne toutes les semaines accessibles en JSON structuré
+  - Lambda `campus_coach_sync.py` : login → fetch → store DynamoDB (9 semaines, 39 sessions)
+  - EventBridge daily 05:00 UTC + on-demand
+  - Coach context enrichi : semaine courante + semaine suivante
+  - Module check : ne sync que si campus_coach module activé
+  - Agent Browser Tool conservé comme fallback (non supprimé)
+  - 26 tests unitaires (14 sync + 12 consumers)
 
 ### Moyen terme (1-2 mois)
 

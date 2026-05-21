@@ -29,7 +29,7 @@ Strava AI Boost is a **serverless AWS application** that automatically enhances 
 - **15 Lambda functions** (5 API, 3 processing, 3 webhooks, 2 support, 2 coach)
 - **3 AgentCore agents**
 - **7 CDK stacks**
-- **176 tests** (136 backend + 40 frontend)
+- **202 tests** (162 backend + 40 frontend)
 - **Python 3.12** runtime, **React 19 + TypeScript + Vite** frontend
 - **Cognito authentication** (JWT, custom:strava_id attribute, no self-registration)
 - **CloudFront + S3** frontend hosting (OAC)
@@ -108,7 +108,8 @@ strava-ai-boost/
 │   ├── webhooks/                       # Event ingestion
 │   │   ├── webhook_handler.py          # Webhook receiver
 │   │   ├── activity_processor.py       # SQS processor
-│   │   └── campus_coach_invoker.py     # Session retrieval
+│   │   ├── campus_coach_invoker.py     # Session retrieval (legacy Browser Tool)
+│   │   └── campus_coach_sync.py        # Direct API sync (replaces Browser Tool)
 │   ├── support/                        # Operational utilities
 │   │   ├── feedback_analyzer.py        # Feedback loop
 │   │   ├── weekly_synthesis.py         # Weekly training synthesis (EventBridge Sunday 20:00 UTC)
@@ -153,7 +154,7 @@ strava-ai-boost/
 │   └── vite.config.ts                  # Vite + Vitest configuration
 │
 ├── tests/                      # Test suite
-│   ├── unit/                           # Lambda unit tests (136 tests)
+│   ├── unit/                           # Lambda unit tests (162 tests)
 │   │   ├── conftest.py                 # Env vars for Lambda imports
 │   │   ├── test_webhook_handler.py     # 30 tests: validation, routing, signature
 │   │   ├── test_content_generator.py   # 36 tests: DynamoDB, parsing, storage
@@ -369,7 +370,7 @@ class MyModule(BaseModule):
 
 ### Running Tests
 
-**Lambda Unit Tests (136 tests, ~0.7s):**
+**Lambda Unit Tests (162 tests, ~1s):**
 ```bash
 pytest tests/unit/ -v
 ```
@@ -558,7 +559,9 @@ class TestMyModule:
 - Pierre's real writing style examples used as positive anchors in prompts
 - Goal: authentic, personal voice — not generic AI-sounding text
 
-**Campus Coach Agent** (`campus_coach_agent.py`): Extract training sessions via Browser Tool, Claude Sonnet 4.5. Stores sessions in DynamoDB — no analysis, matching is done by the content agent.
+**Campus Coach Agent** (`campus_coach_agent.py`): Extract training sessions via Browser Tool, Claude Sonnet 4.5. Stores sessions in DynamoDB — no analysis, matching is done by the content agent. **NOTE: Replaced by direct API sync (`campus_coach_sync.py`) since May 2026. Agent kept as fallback.**
+
+**Campus Coach Sync** (`lambda_functions/webhooks/campus_coach_sync.py`): Direct REST API integration replacing Browser Tool. Login + `GET /smart-training` fetches all accessible weeks (1-4 depending on billing cycle). Stores structured sessions in DynamoDB with `is_current_week`/`is_future` flags. EventBridge daily 05:00 UTC. Only runs if campus_coach module is enabled.
 
 **Coach Agent** (`coach_agent.py`): Training feedback agent using Claude Sonnet 4.5 with LTM memory (`coaching_observations` namespace). Analyzes activity in context of athlete profile (objectives, history, experience, pace zones, personal records, FCmax), recent training trends (4 weeks via GSI query with EF pace@HR, CTL/Form, segment PRs), and historical observations. Produces training feedback focused on **progression and trends** (not session recap). Runs in parallel with content generation.
 
