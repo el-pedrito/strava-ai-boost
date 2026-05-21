@@ -54,17 +54,24 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     start = end - timedelta(days=7)
     iso_week = end.strftime("%G-W%V")
 
+    # On-demand recaps use date range label; scheduled (EventBridge) use ISO week
+    is_scheduled = event.get("source", "").startswith("aws.events") or event.get("detail-type") == "Scheduled Event"
+    if is_scheduled:
+        week_label = iso_week
+    else:
+        week_label = f"{start.strftime('%d_%m')}-{end.strftime('%d_%m')}"
+
     # Check idempotency
     recap_table = dynamodb.Table(RECAP_TABLE)
-    existing = _get_existing_recap(recap_table, user_id, iso_week)
+    existing = _get_existing_recap(recap_table, user_id, week_label)
     if existing and not event.get("force"):
-        logger.info(f"Recap already exists for {iso_week}, skipping")
+        logger.info(f"Recap already exists for {week_label}, skipping")
         return {"statusCode": 200, "recap": existing}
 
     # Fetch week activities
     activities = _fetch_week_activities(user_id, start)
     if not activities:
-        logger.info(f"No activities for {iso_week}, skipping")
+        logger.info(f"No activities for {week_label}, skipping")
         return {"statusCode": 200, "message": "No activities this week"}
 
     # Get user config for language and profile
@@ -73,7 +80,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     athlete_profile = user_config.get("user_preferences", {}).get("athlete_profile", "")
 
     # Generate script via Bedrock
-    script = _generate_script(activities, athlete_profile, language, iso_week)
+    script = _generate_script(activities, athlete_profile, language, week_label)
     if not script:
         return {"statusCode": 500, "error": "Script generation failed"}
 
@@ -84,13 +91,13 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         return {"statusCode": 500, "error": "Audio synthesis failed"}
 
     # Store in S3
-    s3_key = f"recaps/{user_id}/{iso_week}.mp3"
-    _upload_to_s3(audio_bytes, s3_key, user_id, iso_week)
+    s3_key = f"recaps/{user_id}/{week_label}.mp3"
+    _upload_to_s3(audio_bytes, s3_key, user_id, week_label)
 
     # Store metadata in DynamoDB
     recap_item = {
         "user_id": user_id,
-        "week": iso_week,
+        "week": week_label,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "s3_key": s3_key,
         "duration_seconds": duration_sec,
@@ -101,7 +108,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     }
     recap_table.put_item(Item=recap_item)
 
-    logger.info(f"Recap generated: {iso_week}, {duration_sec}s, {len(activities)} activities")
+    logger.info(f"Recap generated: {week_label}, {duration_sec}s, {len(activities)} activities")
     return {"statusCode": 200, "recap": recap_item}
 
 
