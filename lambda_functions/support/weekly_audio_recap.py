@@ -159,6 +159,30 @@ def _get_user_config(user_id: str) -> Dict:
         return {}
 
 
+def _get_campus_goal_context() -> str:
+    """Fetch Campus Coach goal context for the recap."""
+    try:
+        table = dynamodb.Table(os.environ.get("COACHING_SESSIONS_TABLE", "strava-ai-boost-campus-coaching-sessions"))
+        resp = table.scan(
+            FilterExpression="session_date = :sd",
+            ExpressionAttributeValues={":sd": "athlete-context"},
+        )
+        items = resp.get("Items", [])
+        if not items:
+            return ""
+        ctx = items[0]
+        goal = ctx.get("goal", {})
+        if not goal:
+            return ""
+        return (
+            f"Objectif Campus Coach : {goal.get('type', '')} | "
+            f"{goal.get('trainings_done', '?')}/{goal.get('trainings_total', '?')} séances | "
+            f"Assiduité : {ctx.get('assiduity', '?')}"
+        )
+    except Exception:
+        return ""
+
+
 def _retrieve_memory_observations(user_id: str) -> str:
     """Retrieve recent coaching observations from AgentCore Memory."""
     if not MEMORY_ID or not user_id:
@@ -248,6 +272,11 @@ Règles :
     memory_context = _retrieve_memory_observations(user_id)
     if memory_context:
         context_parts.append(f"Observations coach récentes (mémoire) : {memory_context}")
+
+    # Campus Coach goal context
+    campus_context = _get_campus_goal_context()
+    if campus_context:
+        context_parts.append(campus_context)
 
     user_msg = f"""{chr(10).join(context_parts)}
 

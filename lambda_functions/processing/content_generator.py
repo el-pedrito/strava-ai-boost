@@ -296,6 +296,7 @@ def generate_enhanced_content(
         'user_profile': user_profile,
         'active_modules': modules,
         'campus_coach_session': campus_coach_sessions,
+        'campus_coach_context': _get_campus_context(),
         'enduraw_data': enduraw_data,
         'intervals_icu_data': intervals_icu_data,
         'workout_type': activity_data.get('workout_type'),
@@ -361,6 +362,38 @@ def _process_agent_response(response: Dict[str, Any]) -> str:
 
     logger.info(f"AgentCore response length: {len(completion)}")
     return completion
+
+
+def _get_campus_context() -> Optional[Dict[str, Any]]:
+    """Fetch Campus Coach athlete context (goal, cycle, assiduity) for content enrichment."""
+    try:
+        table = dynamodb.Table(os.environ.get("COACHING_SESSIONS_TABLE", "strava-ai-boost-campus-coaching-sessions"))
+        resp = table.scan(
+            FilterExpression="session_date = :sd",
+            ExpressionAttributeValues={":sd": "athlete-context"},
+        )
+        items = resp.get("Items", [])
+        if not items:
+            return None
+        ctx = items[0]
+        # Also get current week's cycle theme
+        week_resp = table.scan(
+            FilterExpression="is_current_week = :cw",
+            ExpressionAttributeValues={":cw": True},
+            Limit=1,
+        )
+        week_items = week_resp.get("Items", [])
+        cycle_theme = week_items[0].get("cycle_theme", "") if week_items else ""
+        cycle_desc = week_items[0].get("cycle_description", "") if week_items else ""
+
+        return {
+            "goal": ctx.get("goal", {}),
+            "assiduity": ctx.get("assiduity", ""),
+            "cycle_theme": cycle_theme,
+            "cycle_description": cycle_desc,
+        }
+    except Exception:
+        return None
 
 
 def _fix_truncated_fun_fact(description: str) -> str:
