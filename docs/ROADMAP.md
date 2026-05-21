@@ -50,7 +50,6 @@
 - [x] **Recovery state widget Coach Now** — Form/TSB, VO2max, FC repos, Sommeil avec deltas 7j depuis Intervals.icu
 - [x] **Help tooltip systématique sur chaque KPI** — `(?)` Radix Popover sur tous les KPIs (Dashboard, Coach, Quality, Recovery). i18n FR/EN.
 - [x] **Map polyline sur Activity detail** — tracé GPS Leaflet (lazy-loaded, dark mode, auto-fit bounds)
-- [ ] **Notifications in-app** : "Ton activité X a été enrichie" (toast persistant à la connexion)
 
 ### Moyen terme (1-2 mois)
 
