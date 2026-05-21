@@ -377,7 +377,7 @@ class VoiceDebriefStack(Stack):
                 "POLLY_VOICE_FR": "Ambre",
                 "POLLY_VOICE_EN": "Joanna",
                 "DEFAULT_USER_ID": self.node.try_get_context("default_user_id") or "",
-                "BEDROCK_AGENTCORE_MEMORY_ID": "content_gen_mem-hnupsb8Lxz",
+                "BEDROCK_AGENTCORE_MEMORY_ID": self._load_memory_id(),
             },
             description="Weekly audio recap generator (Sunday 20h + on-demand)",
         )
@@ -390,6 +390,13 @@ class VoiceDebriefStack(Stack):
             targets=[targets.LambdaFunction(self.recap_lambda)],
             description="Trigger weekly audio recap every Sunday at 20:00 UTC",
         )
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+    def _load_memory_id(self) -> str:
+        from .env_loader import load_agentcore_memory_id
+        return load_agentcore_memory_id()
 
     # ------------------------------------------------------------------
     # Public references
