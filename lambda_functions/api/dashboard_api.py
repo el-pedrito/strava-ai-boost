@@ -1122,9 +1122,18 @@ def get_coach_summary(user_id: str) -> Dict[str, Any]:
             )
             current_week_sessions = resp.get("Items", [])
 
+            # Fallback: old Browser Tool format (no is_current_week flag)
+            if not current_week_sessions:
+                all_resp = sessions_table.scan()
+                all_items = all_resp.get("Items", [])
+                if all_items and "week_number" in all_items[0]:
+                    latest_week = max(all_items, key=lambda x: x.get("updated_at", "")).get("week_number", "")
+                    current_week_sessions = [s for s in all_items if s.get("week_number") == latest_week]
+
             total_planned = len(current_week_sessions)
             if total_planned > 0:
-                # New format uses 'done' status directly
+                # Support both formats: new='done', old='Fait'/'Complétée'
+                done_statuses = {'done', 'fait', 'faite', 'complétée', 'completée', 'validée'}
                 completed_count = sum(
                     1 for s in current_week_sessions
                     if (s.get('status') or '').strip().lower() == 'done'

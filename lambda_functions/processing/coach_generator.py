@@ -106,6 +106,18 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             )
             all_sessions = resp.get("Items", [])
 
+            # Fallback: old Browser Tool format (no is_current_week flag)
+            if not all_sessions:
+                fallback_resp = sessions_table.scan()
+                fallback_items = fallback_resp.get("Items", [])
+                if fallback_items and "week_number" in fallback_items[0]:
+                    all_sessions = fallback_items
+                    # Mark latest week as "current" for compat
+                    latest_week = max(fallback_items, key=lambda x: x.get("updated_at", "")).get("week_number", "")
+                    for s in all_sessions:
+                        s["is_current_week"] = (s.get("week_number") == latest_week)
+                        s["is_future"] = False
+
             current_week = [s for s in all_sessions if s.get("is_current_week")]
             future_sessions = sorted(
                 [s for s in all_sessions if s.get("is_future") and not s.get("is_current_week")],
