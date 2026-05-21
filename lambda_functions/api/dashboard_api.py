@@ -127,6 +127,8 @@ def get_cached_or_compute(cache_key: str, compute_func, *args, **kwargs):
         _cache.pop(key, None)
         _cache_ttl.pop(key, None)
 
+    return result
+
 
 def get_coach_recaps(event: Dict[str, Any]) -> Dict[str, Any]:
     """Get paginated weekly audio recaps or trigger generation."""
