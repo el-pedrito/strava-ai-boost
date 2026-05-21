@@ -760,14 +760,23 @@ export function CoachPage() {
             <Card variant="default" padding="md">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-medium">{t('coach.recaps.title')}</span>
-                <button
-                  type="button"
-                  onClick={handleGenerateRecap}
-                  disabled={generating}
-                  className="text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                >
-                  {generating ? t('coach.recaps.generating') : t('coach.recaps.generate')}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={fetchRecaps}
+                    className="text-xs px-2 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                  >
+                    ↻
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleGenerateRecap}
+                    disabled={generating}
+                    className="text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    {generating ? t('coach.recaps.generating') : t('coach.recaps.generate')}
+                  </button>
+                </div>
               </div>
               {recaps.length === 0 ? (
                 <p className="text-sm text-muted-foreground">{t('coach.recaps.empty')}</p>
