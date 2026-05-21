@@ -223,7 +223,8 @@ Règles :
 - Ton naturel, pas de jargon excessif, pas de listes à puces
 - Pas de em dash (—), pas de formules AI-generated
 - Parle des sensations, pas juste des chiffres
-- Si tu as des observations passées (mémoire), fais le lien avec les semaines précédentes"""
+- Si tu as des observations passées (mémoire), fais le lien avec les semaines précédentes
+- Si les records personnels montrent un événement récent (< 2 mois), contextualise la semaine par rapport à cet événement (ex: reconstruction post-marathon, prépa avant course)"""
 
     # Build rich user context from config
     prefs = (user_config or {}).get("user_preferences", {})
