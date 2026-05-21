@@ -61,6 +61,10 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         credentials = _get_credentials()
         token = _login(credentials['username'], credentials['password'])
 
+        # Fetch supplementary data (goal, profile, assiduity)
+        table = dynamodb.Table(COACHING_SESSIONS_TABLE)
+        _sync_athlete_context(token, table, user_id)
+
         now = datetime.now(timezone.utc)
         from_ms = int((now - timedelta(weeks=6)).timestamp() * 1000)
         to_ms = int((now + timedelta(weeks=6)).timestamp() * 1000)
@@ -69,7 +73,6 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         allowed_weeks = [w for w in weeks if w.get('access') == 'allowed']
 
         monday_current = _monday_of_iso_week(now)
-        table = dynamodb.Table(COACHING_SESSIONS_TABLE)
 
         new_session_ids: set[str] = set()
         sessions_stored = 0
@@ -251,7 +254,8 @@ def _build_intervals(session: Dict, paces: List) -> List[Dict[str, Any]]:
 def _delete_stale_sessions(table: Any, current_ids: set[str]) -> int:
     """Delete sessions from DynamoDB that are no longer in the API response."""
     response = table.scan(ProjectionExpression='session_date, session_id')
-    existing = {f"{item['session_date']}#{item['session_id']}": item for item in response.get('Items', [])}
+    existing = {f"{item['session_date']}#{item['session_id']}": item for item in response.get('Items', [])
+                if item.get('session_date') != 'athlete-context'}  # Don't delete context item
 
     stale_keys = set(existing.keys()) - current_ids
     deleted = 0
@@ -266,3 +270,72 @@ def _delete_stale_sessions(table: Any, current_ids: set[str]) -> int:
         logger.info(f"Deleted {deleted} stale sessions")
 
     return deleted
+
+
+def _sync_athlete_context(token: str, table: Any, user_id: str) -> None:
+    """Fetch and store supplementary athlete context from Campus Coach API."""
+    try:
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # Active goal (race objective, progress)
+        goal_resp = requests.get(f"{API_BASE}/smart-training/goal/active", headers=headers, timeout=10)
+        goals = goal_resp.json() if goal_resp.status_code == 200 else []
+
+        # Assiduity status
+        assiduity_resp = requests.get(f"{API_BASE}/smart-training/assiduity-status", headers=headers, timeout=10)
+        assiduity = assiduity_resp.json() if assiduity_resp.status_code == 200 else {}
+
+        # User sport infos
+        user_resp = requests.get(f"{API_BASE}/account/user-infos", headers=headers, timeout=10)
+        user_infos = user_resp.json() if user_resp.status_code == 200 else {}
+
+        # Build context item
+        active_goal = goals[0] if goals else {}
+        context_item = {
+            'session_date': 'athlete-context',  # PK - special key
+            'session_id': user_id,  # SK
+            'synced_at': datetime.now(timezone.utc).isoformat(),
+        }
+
+        # Goal data
+        if active_goal:
+            stats = active_goal.get('stats', {})
+            context_item['goal'] = {
+                'type': active_goal.get('goalType', ''),
+                'competition_date': str(active_goal.get('competitionDate', '')),
+                'duration_weeks': str(active_goal.get('durationInWeeks', '')),
+                'status': active_goal.get('status', ''),
+                'trainings_total': str(stats.get('trainingsCount', 0)),
+                'trainings_done': str(stats.get('trainingsDoneCount', 0)),
+                'distance_total_km': str(round(stats.get('distanceTotal', 0), 1)),
+                'time_total_min': str(round(stats.get('timeTotal', 0) / 60)),
+            }
+
+        # Assiduity
+        if assiduity:
+            context_item['assiduity'] = assiduity.get('assiduity', '')
+            context_item['assiduity_sub_status'] = assiduity.get('assiduitySubStatus', '')
+
+        # Sport profile
+        sport_infos = user_infos.get('sportInfos', {})
+        if sport_infos:
+            exp = sport_infos.get('experience', {})
+            context_item['sport_profile'] = {
+                'sessions_per_week': str(exp.get('sessionsPerWeek', '')),
+                'volume_per_week_km': str(exp.get('volumePerWeek', {}).get('minKm', '')),
+                'priority': sport_infos.get('training', {}).get('priority', ''),
+                'ppg_active': str(sport_infos.get('ppgPreferences', {}).get('active', False)),
+                'injuries_minor': str(sport_infos.get('injuries', {}).get('minor', 0)),
+                'injuries_major': str(sport_infos.get('injuries', {}).get('major', 0)),
+            }
+
+        # Subscription info
+        end_of_sub = user_infos.get('endOfSub')
+        if end_of_sub:
+            context_item['subscription_end'] = str(end_of_sub)
+
+        table.put_item(Item=context_item)
+        logger.info("Athlete context synced successfully")
+
+    except Exception as e:
+        logger.warning(f"Failed to sync athlete context (non-fatal): {e}")
