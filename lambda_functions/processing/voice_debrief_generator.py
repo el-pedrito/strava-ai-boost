@@ -366,8 +366,20 @@ def _clean_script(text: str) -> str:
 # ----------------------------------------------------------------------
 # Polly synthesis
 # ----------------------------------------------------------------------
+def _prepare_for_tts(text: str) -> str:
+    """Preprocess text for TTS to avoid misreadings."""
+    import re
+    text = re.sub(r'(\d+):(\d{2})/km', r'\1 minutes \2 par kilomètre', text)
+    text = re.sub(r'(\d+):(\d{2})(?!\d)', r'\1 minutes \2', text)
+    text = re.sub(r'(\d+(?:\.\d+)?)\s*km/h', r'\1 kilomètres heure', text)
+    text = re.sub(r'(\d+)\s*bpm', r'\1 battements par minute', text)
+    return text
+
+
 def _synthesize_speech(script: str, voice_id: str) -> bytes:
-    """Synthesize MP3 audio with Amazon Polly (neural engine)."""
+    """Synthesize MP3 audio with Amazon Polly."""
+    # Preprocess for TTS: convert pace notation (4:27/km → 4 minutes 27 par kilomètre)
+    script = _prepare_for_tts(script)
     response = polly.synthesize_speech(
         Text=script,
         OutputFormat="mp3",
