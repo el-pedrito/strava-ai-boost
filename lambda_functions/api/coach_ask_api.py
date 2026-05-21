@@ -228,6 +228,18 @@ def _fetch_campus_weekly_plan(user_id: str) -> str:
             ExpressionAttributeValues={":cw": True, ":ft": True},
         )
         all_sessions = resp.get("Items", [])
+
+        # Fallback: old Browser Tool format (no is_current_week flag)
+        if not all_sessions:
+            fallback_resp = sessions_table.scan()
+            fallback_items = fallback_resp.get("Items", [])
+            if fallback_items and "week_number" in fallback_items[0]:
+                latest_week = max(fallback_items, key=lambda x: x.get("updated_at", "")).get("week_number", "")
+                for s in fallback_items:
+                    s["is_current_week"] = (s.get("week_number") == latest_week)
+                    s["is_future"] = False
+                all_sessions = fallback_items
+
         if not all_sessions:
             return ""
 
@@ -257,8 +269,8 @@ def _fetch_campus_weekly_plan(user_id: str) -> str:
                 parts.append(f"Plan Campus Coach {week_iso}:\n" + _format_campus_sessions(future_by_week[week_iso]))
 
         # Add athlete context (goal, assiduity)
-        ctx_resp = sessions_table.scan(
-            FilterExpression="session_date = :sd",
+        ctx_resp = sessions_table.query(
+            KeyConditionExpression="session_date = :sd",
             ExpressionAttributeValues={":sd": "athlete-context"},
         )
         ctx_items = ctx_resp.get("Items", [])

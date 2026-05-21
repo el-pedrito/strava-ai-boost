@@ -102,7 +102,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     'coach_advice': session.get('coachAdvice', ''),
                     'sport': session.get('sport', ''),
                     'training_type': session.get('trainingType', ''),
-                    'difficulty': session.get('difficulty', 0),
+                    'difficulty': int(session.get('difficulty', 0)),
                     'importance': session.get('importance', False),
                     'status': session.get('status', 'todo'),
                     'is_current_week': is_current,

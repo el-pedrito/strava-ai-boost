@@ -1136,7 +1136,7 @@ def get_coach_summary(user_id: str) -> Dict[str, Any]:
                 done_statuses = {'done', 'fait', 'faite', 'complétée', 'completée', 'validée'}
                 completed_count = sum(
                     1 for s in current_week_sessions
-                    if (s.get('status') or '').strip().lower() == 'done'
+                    if (s.get('status') or '').strip().lower() in done_statuses
                 )
                 compliance = {
                     'planned': total_planned,
