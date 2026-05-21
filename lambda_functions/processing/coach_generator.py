@@ -97,7 +97,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         if suffer_score:
             historical_summary["current_suffer_score"] = suffer_score
 
-        # Add Campus Coach sessions (current week + next week)
+        # Add Campus Coach sessions (current week + all future weeks)
         try:
             sessions_table = dynamodb.Table(os.environ.get("COACHING_SESSIONS_TABLE", "strava-ai-boost-campus-coaching-sessions"))
             resp = sessions_table.scan(
@@ -107,15 +107,10 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             all_sessions = resp.get("Items", [])
 
             current_week = [s for s in all_sessions if s.get("is_current_week")]
-            # Next week = future sessions from the earliest future week
             future_sessions = sorted(
                 [s for s in all_sessions if s.get("is_future") and not s.get("is_current_week")],
                 key=lambda s: s.get("week_date", 0)
             )
-            next_week = []
-            if future_sessions:
-                next_week_date = future_sessions[0].get("week_date_iso")
-                next_week = [s for s in future_sessions if s.get("week_date_iso") == next_week_date]
 
             def _format_plan_session(s):
                 return {
@@ -130,8 +125,27 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
             if current_week:
                 historical_summary["campus_coach_plan"] = [_format_plan_session(s) for s in current_week]
-            if next_week:
-                historical_summary["campus_coach_plan_next_week"] = [_format_plan_session(s) for s in next_week]
+
+            # Group all future weeks
+            if future_sessions:
+                future_by_week = {}
+                for s in future_sessions:
+                    week_iso = s.get("week_date_iso", "")
+                    if week_iso not in future_by_week:
+                        future_by_week[week_iso] = []
+                    future_by_week[week_iso].append(_format_plan_session(s))
+                historical_summary["campus_coach_future_weeks"] = future_by_week
+
+            # Also inject athlete context if available
+            ctx_resp = sessions_table.scan(
+                FilterExpression="session_date = :sd",
+                ExpressionAttributeValues={":sd": "athlete-context"},
+            )
+            ctx_items = ctx_resp.get("Items", [])
+            if ctx_items:
+                ctx = ctx_items[0]
+                historical_summary["campus_coach_goal"] = ctx.get("goal", {})
+                historical_summary["campus_coach_assiduity"] = ctx.get("assiduity", "")
         except Exception as e:
             logger.warning(f"Failed to fetch Campus Coach sessions: {e}")
 
