@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import { MapContainer, TileLayer, Polyline, useMap } from 'react-leaflet';
 import type { LatLngBoundsExpression, LatLngTuple } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -34,7 +34,7 @@ function decodePolyline(encoded: string): LatLngTuple[] {
 
 function FitBounds({ bounds }: { bounds: LatLngBoundsExpression }) {
   const map = useMap();
-  useMemo(() => {
+  useEffect(() => {
     map.fitBounds(bounds, { padding: [30, 30] });
   }, [map, bounds]);
   return null;
