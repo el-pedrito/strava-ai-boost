@@ -5,12 +5,18 @@
 
 ## Done
 
-- **Weekly Audio Recap V1** : Lambda `StravaAIBoost-WeeklyAudioRecap` (Bedrock Sonnet script 200-300 mots → Polly neural Léa → MP3 S3 privé). DynamoDB `strava-ai-boost-weekly-recaps` (PK user_id, SK week). EventBridge dimanche 20h UTC + on-demand via POST `/coach/recaps`. Frontend : section "Récaps hebdo" dans Coach page avec AudioPlayer, pagination, bouton "Générer". Coût estimé ~$0.05/recap.
-- **Recovery State Widget** : card Coach page avec Form/TSB (color-coded frais/neutre/fatigué), VO2max (+delta 7j), FC repos (+delta 7j), Sommeil (moyenne 30j + delta 7j). Données Intervals.icu. InfoTooltip explicatif + insight narratif contextuel.
+- **Weekly Audio Recap V1** : Lambda `StravaAIBoost-WeeklyAudioRecap` (Bedrock Sonnet script 200-300 mots → Polly Generative Ambre → MP3 S3 privé). DynamoDB `strava-ai-boost-weekly-recaps` (PK user_id, SK week). EventBridge dimanche 20h UTC + on-demand via POST `/coach/recaps`. Frontend : section "Récaps hebdo" dans Coach page avec AudioPlayer, pagination, bouton "Générer". On-demand utilise label date range (17_05-21_05), scheduler utilise ISO week. Coût estimé ~$0.05/recap.
+- **Recovery State Widget** : card Coach page avec Form/TSB (color-coded frais/neutre/fatigué), VO2max (+delta 7j), FC repos (+delta 7j), Sommeil (moyenne 30j + delta 7j). Données Intervals.icu. InfoTooltip individuel sur chaque métrique + insight narratif contextuel.
 - **Catégorisation fine des activités** : KPI "Séances" affiche les top 2 catégories non-Run (musculation, vélo, nage, rando, marche, yoga) au lieu de "X autre". Backend `other_sessions_breakdown` + frontend groupement par label traduit FR/EN.
 - **Fix Coach LTM Memory** : `coach_agent.py` corrigé pour utiliser `searchCriteria` (API AgentCore Memory changée). `memoryRecordSummaries` au lieu de `memoryRecords`. Coach récupère maintenant les observations passées.
-- **Voice debrief audio V1 (Polly)** : stack `StravaAIBoost-VoiceDebrief` déployé. Bedrock Haiku 4.5 → script 60-90s → Polly neural Léa (FR) / Joanna (EN) → MP3 S3 privé → presigned URL 1h → AudioPlayer dans Activity detail. Coût ~$0.018-0.020/debrief. Trigger DynamoDB Stream idempotent.
+- **Voice debrief audio V1 (Polly Generative)** : stack `StravaAIBoost-VoiceDebrief` déployé. Bedrock Haiku 4.5 → script 60-90s → Polly Generative Ambre (FR) / Joanna (EN) → MP3 S3 privé → presigned URL 1h → AudioPlayer dans Activity detail. Coût ~$0.03/debrief. Trigger DynamoDB Stream idempotent.
 - **Help tooltips Configuration + Preferences** : aide contextuelle sur Strava, modules, athlete profile, Max HR, records, pace zones, content style, demographics. 19 sections.
+- **Help tooltips systématique sur tous les KPIs** : `(?)` Radix Popover sur chaque KPI (Dashboard 4, Coach 4 + Recovery 4, Quality 4). i18n FR/EN. Pattern via prop `info` sur composant KPI.
+- **Map polyline Activity detail** : tracé GPS Leaflet (lazy-loaded 154kb, OpenStreetMap light / CartoDB dark, auto-fit bounds, 300px, rounded-xl). Polyline décodée inline (pas de dépendance externe). Fetch API automatique si données manquantes dans location.state.
+- **Calories sur Activity detail** : tile 🔥 Calories (kcal) dans les stats. Backend extrait depuis `activity_data_json`.
+- **Fix fun fact tronqué** : détection et suppression des fun facts incomplets (LLM coupe mid-sentence). Limite `enforce_preferences` augmentée (detailed: 1500→2500). Content agent `max_tokens` 2000→4096.
+- **Polly Generative + voix Ambre** : engine `neural`→`generative` + voix FR `Lea`→`Ambre` sur voice debrief et weekly recap. Qualité vocale nettement supérieure.
+- **Fix deploy script AgentCore** : parsing memory_id dupliqué (head -1), profil AWS manquant.
 - **Empty states illustrés** : composant `EmptyState` + 6 SVG inline (activity, feedback, records, search, connect, celebrate). Migré 5 empty states.
 - **Compliance Coach Now** : fix bug "5/5 = 100%" qui comptait toutes les activités au lieu des séances Campus complétées.
 - **Plan Campus injection coach** : fix indentation `coach_generator.py` qui faisait que le plan n'était jamais injecté dans le contexte coach (sauf fallback WeekNumberIndex).
@@ -42,17 +48,15 @@
 
 - [x] **Catégorisation fine des activités "other"** — KPI affiche top 2 catégories (musculation, vélo, etc.)
 - [x] **Recovery state widget Coach Now** — Form/TSB, VO2max, FC repos, Sommeil avec deltas 7j depuis Intervals.icu
-- [ ] **Help tooltip systématique sur chaque KPI** — petit `(?)` en haut à droite de chaque card KPI (Dashboard, Coach Now, Quality, Recovery, partout). Au hover/tap : popover Radix avec définition courte (HRV, VO2max, Resting HR, Sleep, Form/TSB, Ramp rate, EF pace, Edit rate, Confidence, Similarity, etc.). i18n FR/EN. Pattern réutilisable via une nouvelle prop `info?: string` sur le composant `KPI`.
-- [ ] **Voice debrief audio post-séance V1 (Polly)** — Bedrock génère un script court (200 mots) à partir du `coach_feedback`, Polly TTS neural voice Léa (FR) / Joanna (EN), MP3 stocké S3 avec URL signée, bouton "Listen to debrief" dans Activity detail. Personne ne le fait en mainstream (cf [analyse](./COMPETITIVE-ANALYSIS.md)). V2 future = Nova Sonic conversationnel temps réel.
-- [ ] **Map polyline sur Activity detail** — afficher le tracé Strava (Mapbox static ou Leaflet, polyline dispo via Strava API). Aujourd'hui placeholder.
-- [ ] **Empty states illustrés** : remplacer les icônes lucide par des illustrations SVG sur les pages "vides"
+- [x] **Help tooltip systématique sur chaque KPI** — `(?)` Radix Popover sur tous les KPIs (Dashboard, Coach, Quality, Recovery). i18n FR/EN.
+- [x] **Map polyline sur Activity detail** — tracé GPS Leaflet (lazy-loaded, dark mode, auto-fit bounds)
 - [ ] **Map / split par km sur Activity detail** : breakdown allure / FC par kilomètre via streams Strava
 - [ ] **Notifications in-app** : "Ton activité X a été enrichie" (toast persistant à la connexion)
 
 ### Moyen terme (1-2 mois)
 
 - [ ] **Race time prediction + plan adaptatif minimum viable** — Strava vient de bundler Runna (-60%) précisément pour combler ce trou (cf [analyse](./COMPETITIVE-ANALYSIS.md)). Devient un standard que les users vont attendre.
-- [x] **Recap audio hebdomadaire type podcast** — déployé 20 mai 2026. Dimanche 20h UTC + on-demand. Bedrock Sonnet + Polly Léa. Paginé dans Coach page.
+- [x] **Recap audio hebdomadaire type podcast** — déployé 20 mai 2026. Dimanche 20h UTC + on-demand (label date range). Bedrock Sonnet + Polly Generative Ambre. Paginé dans Coach page.
 - [ ] **Mémoire long terme + multi-tour soignée pour le Coach IA** — déjà partiellement câblée (AgentCore Memory). Strava Athlete Intelligence est mono-tour. Si l'UX est soignée, vraie différenciation.
 - [ ] **Landing page publique** (`/`) avant login : value prop, démo, screenshots, FAQ
 - [ ] **Pricing page** Free / Pro / Coach avec Stripe Checkout

@@ -550,7 +550,7 @@ class TestMyModule:
 
 **Location:** `src/agents/`
 
-**Content Agent** (`content_agent.py`): Generate enhanced activity content with LTM memory, Claude Sonnet 4.5, Guardrails enabled. Receives device-recorded laps (from Strava Laps API), Campus Coach sessions, Enduraw reports, and Intervals.icu data (CTL/ATL/Form/HRV/Decoupling). Handles all matching logic (Campus Coach session matching, workout classification) via prompt rules in `embedded_prompts.py`.
+**Content Agent** (`content_agent.py`): Generate enhanced activity content with LTM memory, Claude Sonnet 4.5, Guardrails enabled, max_tokens 4096. Receives device-recorded laps (from Strava Laps API), Campus Coach sessions, Enduraw reports, and Intervals.icu data (CTL/ATL/Form/HRV/Decoupling). Handles all matching logic (Campus Coach session matching, workout classification) via prompt rules in `embedded_prompts.py`.
 
 **Anti-AI Writing Rules** (enforced in content generation prompts):
 - Em dash (—) and en dash (–) are **banned** from all generated content
