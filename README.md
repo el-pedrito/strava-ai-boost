@@ -107,7 +107,7 @@ The frontend is hosted on CloudFront with Cognito authentication:
 
 #### Campus Coach (Optional)
 
-Matches activities with planned training sessions from [campus.coach](https://campus.coach).
+Matches activities with planned training sessions from [campus.coach](https://campus.coach). Uses direct REST API sync (login + GET /smart-training) to fetch up to 9 weeks of structured sessions with intervals and targets. Daily sync via EventBridge (05:00 UTC).
 
 1. Go to Configuration > Modules, enable "Campus Coach"
 2. Enter your Campus Coach username and password
@@ -132,6 +132,12 @@ Fitness/fatigue context from [Intervals.icu](https://intervals.icu) training ana
    - **Ramp rate**: Training load progression speed — detects overtraining risk
    - **HRV**: Heart rate variability when available
    - **Decoupling**: Cardiac drift percentage — aerobic efficiency indicator for long runs
+
+### Voice Features
+
+**Voice Debrief**: Automatic audio summary per activity using Bedrock Haiku → Polly Generative engine with Ambre voice (FR) / Joanna (EN). MP3 stored in S3, presigned URL served to frontend AudioPlayer.
+
+**Weekly Audio Recap**: Sunday 20:00 UTC + on-demand. Bedrock Sonnet script → Polly Generative Ambre → MP3. Enriched with AgentCore Memory, user preferences, PRs, pace zones, and Campus Coach goal context.
 
 ### Personal Profile
 
