@@ -5,7 +5,7 @@
 
 ## Done
 
-- **Weekly Audio Recap V1** : Lambda `StravaAIBoost-WeeklyAudioRecap` (Bedrock Sonnet script 200-300 mots → Polly Generative Ambre → MP3 S3 privé). DynamoDB `strava-ai-boost-weekly-recaps` (PK user_id, SK week). EventBridge dimanche 20h UTC + on-demand via POST `/coach/recaps`. Frontend : section "Récaps hebdo" dans Coach page avec AudioPlayer, pagination, bouton "Générer". On-demand utilise label date range (17_05-21_05), scheduler utilise ISO week. Coût estimé ~$0.05/recap.
+- **Weekly Audio Recap V1** : Lambda `StravaAIBoost-WeeklyAudioRecap` (Bedrock Sonnet script 200-300 mots → Polly Generative Ambre → MP3 S3 privé). DynamoDB `strava-ai-boost-weekly-recaps` (PK user_id, SK week). EventBridge dimanche 20h UTC + on-demand via POST `/coach/recaps`. Frontend : section "Récaps hebdo" dans Coach page avec AudioPlayer, pagination, bouton "Générer", refresh button + polling (remplace setTimeout). On-demand utilise label date range (17_05-21_05), scheduler utilise ISO week Mon-Sun. AgentCore Memory + user prefs/PRs/pace zones + Campus goal context injectés dans le prompt. Coût estimé ~$0.05/recap.
 - **Recovery State Widget** : card Coach page avec Form/TSB (color-coded frais/neutre/fatigué), VO2max (+delta 7j), FC repos (+delta 7j), Sommeil (moyenne 30j + delta 7j). Données Intervals.icu. InfoTooltip individuel sur chaque métrique + insight narratif contextuel.
 - **Catégorisation fine des activités** : KPI "Séances" affiche les top 2 catégories non-Run (musculation, vélo, nage, rando, marche, yoga) au lieu de "X autre". Backend `other_sessions_breakdown` + frontend groupement par label traduit FR/EN.
 - **Fix Coach LTM Memory** : `coach_agent.py` corrigé pour utiliser `searchCriteria` (API AgentCore Memory changée). `memoryRecordSummaries` au lieu de `memoryRecords`. Coach récupère maintenant les observations passées.
@@ -19,6 +19,10 @@
 - **Fix deploy script AgentCore** : parsing memory_id dupliqué (head -1), profil AWS manquant.
 - **Empty states illustrés** : composant `EmptyState` + 6 SVG inline (activity, feedback, records, search, connect, celebrate). Migré 5 empty states.
 - **Compliance Coach Now** : fix bug "5/5 = 100%" qui comptait toutes les activités au lieu des séances Campus complétées.
+- **Content agent enrichi** : `personal_records` + `max_hr` injectés dans `user_profile`. `campus_coach_context` (semaines futures + athlete context) injecté dans le prompt.
+- **Code review fixes** : `get_cached_or_compute` return, `useMemo`→`useEffect`, global `user_id` removed, `activity_id` endpoint, polling, audio duration.
+- **All values configurable via env vars** : plus aucune valeur hardcodée (URLs, IDs, limites).
+- **202 tests** : 162 backend + 40 frontend.
 - **Plan Campus injection coach** : fix indentation `coach_generator.py` qui faisait que le plan n'était jamais injecté dans le contexte coach (sauf fallback WeekNumberIndex).
 - **Coach chat sees Campus weekly plan** : `coach_ask_api.py` fetch maintenant les séances de la semaine + IAM index access via Core stack.
 - **Quality > Memory column** : pastille icône color-coded + tooltip Radix au hover (mobile texte préservé).
@@ -52,10 +56,11 @@
 - [x] **Map polyline sur Activity detail** — tracé GPS Leaflet (lazy-loaded, dark mode, auto-fit bounds)
 - [x] **Campus Coach : migration Browser Tool → API REST directe**
   - `POST api.campus.coach/account/login` + `GET /smart-training?from=...&to=...` retourne toutes les semaines accessibles en JSON structuré
-  - Lambda `campus_coach_sync.py` : login → fetch → store DynamoDB (9 semaines, 39 sessions)
+  - Lambda `campus_coach_sync.py` : login → fetch → store DynamoDB (9 semaines, 39 sessions, structured intervals)
   - EventBridge daily 05:00 UTC + on-demand
-  - Coach context enrichi : semaine courante + semaine suivante
-  - Module check : ne sync que si campus_coach module activé
+  - All future weeks injected into coach context
+  - Athlete context (goal, assiduity, sport profile) persisted
+  - Module activation check : ne sync que si campus_coach module activé
   - Agent Browser Tool conservé comme fallback (non supprimé)
   - 26 tests unitaires (14 sync + 12 consumers)
 
