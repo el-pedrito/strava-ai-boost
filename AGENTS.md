@@ -1,7 +1,7 @@
 # AGENTS.md - AI Assistant Context for Strava AI Boost
 
-**Version:** 4.0.0
-**Last Updated:** 2026-05-11
+**Version:** 4.1.0
+**Last Updated:** 2026-05-21
 **Purpose:** Comprehensive context for AI coding assistants
 
 ---
@@ -26,7 +26,7 @@ Strava AI Boost is a **serverless AWS application** that automatically enhances 
 
 ### Key Statistics
 - **~18,000 LOC** in core components
-- **15 Lambda functions** (5 API, 3 processing, 3 webhooks, 2 support, 2 coach)
+- **16 Lambda functions** (5 API, 3 processing, 4 webhooks, 2 support, 2 coach)
 - **3 AgentCore agents**
 - **7 CDK stacks**
 - **202 tests** (162 backend + 40 frontend)
@@ -51,7 +51,8 @@ Activity Fetcher: Strava API → activity data + laps (GET /activities/{id}/laps
 Content Generator: DynamoDB → classify workout from laps → build prompt with formatted laps → AgentCore agent → store
 Coach Generator: DynamoDB → athlete profile + zones + PRs + historical context (4 weeks, GSI query) → AgentCore coach_agent → coaching feedback
 Assembly Lambda: Merge content + coach outputs → update Strava + store results
-Campus Coach: Sessions stored in DynamoDB → passed to content_gen agent prompt → LLM does the matching
+Campus Coach API Sync: REST login + GET /smart-training → structured sessions (intervals, targets) → DynamoDB (is_current_week/is_future flags)
+Campus Coach Context: Sessions stored in DynamoDB → passed to content_gen agent prompt → LLM does the matching
 ```
 
 **Conversational Coach:**
@@ -108,11 +109,11 @@ strava-ai-boost/
 │   ├── webhooks/                       # Event ingestion
 │   │   ├── webhook_handler.py          # Webhook receiver
 │   │   ├── activity_processor.py       # SQS processor
-│   │   ├── campus_coach_invoker.py     # Session retrieval (legacy Browser Tool)
-│   │   └── campus_coach_sync.py        # Direct API sync (replaces Browser Tool)
+│   │   ├── campus_coach_invoker.py     # Session retrieval (legacy Browser Tool — fallback only)
+│   │   └── campus_coach_sync.py        # Direct REST API sync (login + GET /smart-training, 9 weeks, 39 sessions)
 │   ├── support/                        # Operational utilities
 │   │   ├── feedback_analyzer.py        # Feedback loop
-│   │   ├── weekly_synthesis.py         # Weekly training synthesis (EventBridge Sunday 20:00 UTC)
+│   │   ├── weekly_synthesis.py         # Weekly training synthesis (EventBridge Sunday 20:00 UTC + on-demand, AgentCore Memory + user prefs/PRs/pace zones + Campus goal context)
 │   │   └── stepfunctions_error_handler.py  # Error handler
 │   └── shared/                         # Shared utilities module
 │       ├── __init__.py
@@ -551,7 +552,7 @@ class TestMyModule:
 
 **Location:** `src/agents/`
 
-**Content Agent** (`content_agent.py`): Generate enhanced activity content with LTM memory, Claude Sonnet 4.5, Guardrails enabled, max_tokens 4096. Receives device-recorded laps (from Strava Laps API), Campus Coach sessions, Enduraw reports, and Intervals.icu data (CTL/ATL/Form/HRV/Decoupling). Handles all matching logic (Campus Coach session matching, workout classification) via prompt rules in `embedded_prompts.py`.
+**Content Agent** (`content_agent.py`): Generate enhanced activity content with LTM memory, Claude Sonnet 4.5, Guardrails enabled, max_tokens 4096. Receives device-recorded laps (from Strava Laps API), Campus Coach sessions, Enduraw reports, and Intervals.icu data (CTL/ATL/Form/HRV/Decoupling). User profile includes personal_records and max_hr. Campus Coach context (current + future weeks with structured intervals) injected. Handles all matching logic (Campus Coach session matching, workout classification) via prompt rules in `embedded_prompts.py`.
 
 **Anti-AI Writing Rules** (enforced in content generation prompts):
 - Em dash (—) and en dash (–) are **banned** from all generated content
@@ -561,7 +562,7 @@ class TestMyModule:
 
 **Campus Coach Agent** (`campus_coach_agent.py`): Extract training sessions via Browser Tool, Claude Sonnet 4.5. Stores sessions in DynamoDB — no analysis, matching is done by the content agent. **NOTE: Replaced by direct API sync (`campus_coach_sync.py`) since May 2026. Agent kept as fallback.**
 
-**Campus Coach Sync** (`lambda_functions/webhooks/campus_coach_sync.py`): Direct REST API integration replacing Browser Tool. Login + `GET /smart-training` fetches all accessible weeks (1-4 depending on billing cycle). Stores structured sessions in DynamoDB with `is_current_week`/`is_future` flags. EventBridge daily 05:00 UTC. Only runs if campus_coach module is enabled.
+**Campus Coach Sync** (`lambda_functions/webhooks/campus_coach_sync.py`): Direct REST API integration replacing Browser Tool. Login via `POST /account/login` + `GET /smart-training?from=...&to=...` fetches all accessible weeks (1-9 depending on billing cycle). Stores structured sessions in DynamoDB with `is_current_week`/`is_future` flags, including intervals and targets. EventBridge daily 05:00 UTC. Only runs if campus_coach module is enabled. Athlete context (goal, assiduity, sport profile) persisted. All future weeks injected into coach context.
 
 **Coach Agent** (`coach_agent.py`): Training feedback agent using Claude Sonnet 4.5 with LTM memory (`coaching_observations` namespace). Analyzes activity in context of athlete profile (objectives, history, experience, pace zones, personal records, FCmax), recent training trends (4 weeks via GSI query with EF pace@HR, CTL/Form, segment PRs), and historical observations. Produces training feedback focused on **progression and trends** (not session recap). Runs in parallel with content generation.
 
@@ -573,6 +574,8 @@ class TestMyModule:
 - Best efforts PRs (auto-accumulated) + segment PRs (top 20)
 - Computed metrics: EF (pace@HR), %FCmax, Zone 3 moderate time
 - Campus Coach weekly plan (current week sessions with intervals and targets)
+- Campus Coach future weeks (all synced future sessions for planning context)
+- Campus Coach athlete context (goal, assiduity, sport profile)
 - Training load + intensity per activity (from Intervals.icu)
 - Past coaching observations (LTM memory)
 
@@ -598,6 +601,8 @@ The coach agent uses the same memory resource with a dedicated `coaching_observa
 The feedback analyzer writes before/after diffs as conversational events (ASSISTANT=generated, USER=edited). Modification detection threshold: **99.5% similarity** (even minor edits trigger memory writes). The UserPreferenceStrategy automatically extracts preferences (length, tone, emojis, structure, technical detail) and consolidates them over time.
 
 The content agent reads preferences via `RetrieveMemoryRecords` semantic search across user-specific namespaces.
+
+The weekly recap Lambda also reads AgentCore Memory (user preferences, PRs, pace zones) and Campus Coach goal context to personalize the audio script.
 
 ### Deployment
 
