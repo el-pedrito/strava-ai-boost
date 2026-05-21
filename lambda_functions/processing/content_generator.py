@@ -211,6 +211,14 @@ def build_user_profile_from_config(user_config: Dict[str, Any]) -> Optional[Dict
         if athlete_profile_text:
             user_profile['athlete_profile'] = athlete_profile_text
 
+        personal_records = preferences.get('personal_records')
+        if personal_records:
+            user_profile['personal_records'] = personal_records
+
+        max_hr = preferences.get('max_hr')
+        if max_hr:
+            user_profile['max_hr'] = max_hr
+
         return user_profile
 
     except Exception as e:
