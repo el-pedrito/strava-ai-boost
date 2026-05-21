@@ -244,8 +244,30 @@ def _fetch_campus_weekly_plan(user_id: str) -> str:
         parts = []
         if current_week:
             parts.append("Plan Campus Coach cette semaine:\n" + _format_campus_sessions(current_week))
-        if next_week:
-            parts.append("Plan Campus Coach semaine prochaine:\n" + _format_campus_sessions(next_week))
+
+        # Group all future weeks
+        if future_sessions:
+            future_by_week = {}
+            for s in future_sessions:
+                week_iso = s.get("week_date_iso", "")
+                if week_iso not in future_by_week:
+                    future_by_week[week_iso] = []
+                future_by_week[week_iso].append(s)
+            for week_iso in sorted(future_by_week.keys()):
+                parts.append(f"Plan Campus Coach {week_iso}:\n" + _format_campus_sessions(future_by_week[week_iso]))
+
+        # Add athlete context (goal, assiduity)
+        ctx_resp = sessions_table.scan(
+            FilterExpression="session_date = :sd",
+            ExpressionAttributeValues={":sd": "athlete-context"},
+        )
+        ctx_items = ctx_resp.get("Items", [])
+        if ctx_items:
+            ctx = ctx_items[0]
+            goal = ctx.get("goal", {})
+            if goal:
+                parts.append(f"Objectif Campus: {goal.get('type','')} | {goal.get('trainings_done','')}/{goal.get('trainings_total','')} séances | Assiduité: {ctx.get('assiduity','')}")
+
         return "\n".join(parts)
     except Exception as e:
         logger.warning(f"Failed to fetch Campus weekly plan: {e}")
