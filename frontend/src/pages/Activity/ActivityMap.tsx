@@ -46,7 +46,13 @@ interface ActivityMapProps {
 
 export function ActivityMap({ polyline }: ActivityMapProps) {
   const { theme } = useTheme();
-  const positions = useMemo(() => decodePolyline(polyline), [polyline]);
+  const positions = useMemo(() => {
+    try {
+      return decodePolyline(polyline);
+    } catch {
+      return [];
+    }
+  }, [polyline]);
 
   if (positions.length === 0) return null;
 
