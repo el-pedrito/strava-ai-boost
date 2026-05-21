@@ -33,6 +33,8 @@ USER_CONFIG_TABLE = os.environ["USER_CONFIG_TABLE"]
 AUDIO_BUCKET = os.environ["AUDIO_DEBRIEF_BUCKET"]
 RECAP_TABLE = os.environ.get("RECAP_TABLE", ACTIVITIES_TABLE)
 MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-4-5-20250929-v1:0")
+MEMORY_ID = os.environ.get("BEDROCK_AGENTCORE_MEMORY_ID") or os.environ.get("MEMORY_ID")
+REGION = os.environ.get("AWS_REGION", "us-east-1")
 POLLY_VOICE_FR = os.environ.get("POLLY_VOICE_FR", "Lea")
 POLLY_VOICE_EN = os.environ.get("POLLY_VOICE_EN", "Joanna")
 DEFAULT_USER_ID = os.environ.get("DEFAULT_USER_ID", "")
@@ -84,7 +86,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     athlete_profile = user_config.get("user_preferences", {}).get("athlete_profile", "")
 
     # Generate script via Bedrock
-    script = _generate_script(activities, athlete_profile, language, week_label)
+    script = _generate_script(activities, athlete_profile, language, week_label, user_config=user_config, user_id=user_id)
     if not script:
         return {"statusCode": 500, "error": "Script generation failed"}
 
@@ -157,7 +159,28 @@ def _get_user_config(user_id: str) -> Dict:
         return {}
 
 
-def _generate_script(activities: list, athlete_profile: str, language: str, week: str) -> Optional[str]:
+def _retrieve_memory_observations(user_id: str) -> str:
+    """Retrieve recent coaching observations from AgentCore Memory."""
+    if not MEMORY_ID or not user_id:
+        return ""
+    try:
+        client = boto3.client("bedrock-agentcore", region_name=REGION)
+        response = client.retrieve_memory_records(
+            memoryId=MEMORY_ID,
+            namespace=user_id,
+            searchCriteria={"semanticSearch": {"query": "weekly training progression trends fatigue recovery observations"}},
+            maxResults=5,
+        )
+        records = response.get("memoryRecords", [])
+        if records:
+            texts = [r.get("content", {}).get("text", "") for r in records if r.get("content")]
+            return " | ".join(t[:200] for t in texts if t)
+    except Exception as e:
+        logger.warning(f"Failed to retrieve memory for recap: {e}")
+    return ""
+
+
+def _generate_script(activities: list, athlete_profile: str, language: str, week: str, user_config: Dict = None, user_id: str = "") -> Optional[str]:
     """Generate podcast-style script via Bedrock."""
     # Build activity summaries
     summaries = []
@@ -199,9 +222,33 @@ Règles :
 - Termine par une projection sur la semaine à venir (encouragement ou conseil)
 - Ton naturel, pas de jargon excessif, pas de listes à puces
 - Pas de em dash (—), pas de formules AI-generated
-- Parle des sensations, pas juste des chiffres"""
+- Parle des sensations, pas juste des chiffres
+- Si tu as des observations passées (mémoire), fais le lien avec les semaines précédentes"""
 
-    user_msg = f"""Profil athlète : {athlete_profile or 'Non renseigné'}
+    # Build rich user context from config
+    prefs = (user_config or {}).get("user_preferences", {})
+    pace_zones = prefs.get("pace_zones", {})
+    personal_records = prefs.get("personal_records", [])
+    max_hr = prefs.get("max_hr", "")
+
+    context_parts = [f"Profil athlète : {athlete_profile or 'Non renseigné'}"]
+    if max_hr:
+        context_parts.append(f"FC max : {max_hr} bpm")
+    if pace_zones:
+        zones_str = ", ".join(f"{k}: {v.get('min','')}-{v.get('max','')}/km" for k, v in pace_zones.items() if isinstance(v, dict))
+        if zones_str:
+            context_parts.append(f"Zones d'allure : {zones_str}")
+    if personal_records:
+        prs_str = ", ".join(f"{pr.get('distance','')}: {pr.get('time','')}" for pr in personal_records[:5] if isinstance(pr, dict))
+        if prs_str:
+            context_parts.append(f"Records personnels : {prs_str}")
+
+    # Retrieve memory observations for continuity
+    memory_context = _retrieve_memory_observations(user_id)
+    if memory_context:
+        context_parts.append(f"Observations coach récentes (mémoire) : {memory_context}")
+
+    user_msg = f"""{chr(10).join(context_parts)}
 
 Semaine {week} : {run_count} courses + {other_count} autres = {len(activities)} séances
 Volume total : {round(total_km, 1)}km en {total_time_min}min
