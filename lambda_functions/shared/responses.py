@@ -7,7 +7,7 @@ from typing import Any, Dict
 logger = logging.getLogger(__name__)
 
 CORS_HEADERS_READ = {
-    'Content-Type': 'application/json',
+    'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
@@ -15,7 +15,7 @@ CORS_HEADERS_READ = {
 }
 
 CORS_HEADERS_WRITE = {
-    'Content-Type': 'application/json',
+    'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
@@ -40,6 +40,7 @@ def create_success_response(
         'body': json.dumps(
             {**data, 'timestamp': datetime.now(UTC).isoformat()},
             default=decimal_default,
+            ensure_ascii=False,
         ),
     }
 
