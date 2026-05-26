@@ -180,6 +180,11 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Store feedback in DynamoDB
         store_coach_feedback(activity_id, feedback)
 
+        # Strip em/en dashes (anti-AI writing rule)
+        for key in ("strava_block", "detailed_analysis", "recommendation_next"):
+            if key in feedback and isinstance(feedback[key], str):
+                feedback[key] = feedback[key].replace('—', ',').replace('–', ',')
+
         return {
             "statusCode": 200,
             "activity_id": activity_id,
@@ -213,8 +218,26 @@ def _invoke_coach_agent(
 
     session_id = f"coach-{uuid.uuid4().hex}"
 
+    # Extract activity date for correct week identification
+    activity_start = activity_data.get("start_date_local") or activity_data.get("start_date", "")
+    try:
+        activity_dt = datetime.fromisoformat(activity_start.replace("Z", "+00:00"))
+        activity_iso_week = activity_dt.isocalendar()[1]
+        activity_date_str = activity_dt.strftime("%Y-%m-%d")
+        activity_time_local = activity_dt.strftime("%Hh%M")
+        activity_weekday = ['lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche'][activity_dt.weekday()]
+    except (ValueError, AttributeError):
+        activity_iso_week = datetime.now(timezone.utc).isocalendar()[1]
+        activity_date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        activity_time_local = ''
+        activity_weekday = ''
+
     payload = json.dumps({
         "activity_data": activity_data,
+        "activity_date": activity_date_str,
+        "activity_iso_week": activity_iso_week,
+        "activity_time_local": activity_time_local,
+        "activity_weekday": activity_weekday,
         "user_config": user_config,
         "historical_summary": historical_summary,
         "memory_id": MEMORY_ID,
