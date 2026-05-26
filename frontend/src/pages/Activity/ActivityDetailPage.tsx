@@ -211,7 +211,7 @@ export function ActivityDetailPage() {
     let cancelled = false;
     async function fetchActivity() {
       try {
-        const data = await api.get<{ activities: Activity[] }>('/dashboard/activities', { activity_id: activityId });
+        const data = await api.get<{ activities: Activity[] }>(`/dashboard/activities?activity_id=${activityId}`);
         if (cancelled) return;
         const match = data?.activities?.[0];
         if (match) setActivity((prev) => prev ? { ...prev, ...match } : match);

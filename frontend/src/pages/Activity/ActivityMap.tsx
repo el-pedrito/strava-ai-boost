@@ -69,6 +69,7 @@ export function ActivityMap({ polyline }: ActivityMapProps) {
   return (
     <div className="h-[300px] w-full overflow-hidden rounded-xl">
       <MapContainer
+        key={polyline}
         bounds={bounds}
         scrollWheelZoom={false}
         style={{ height: '100%', width: '100%' }}
