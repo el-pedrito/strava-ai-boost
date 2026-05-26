@@ -779,6 +779,7 @@ def get_activity_history(query_params: Dict[str, str], user_id: str) -> Dict[str
                 'original_name': activity.get('original_name', ''),
                 'enhanced_title': activity.get('enhanced_title', ''),
                 'enhanced_description': activity.get('enhanced_description', ''),
+                'start_date': activity.get('start_date', ''),
                 'activity_type': activity.get('activity_type', ''),
                 'distance': activity.get('distance', 0),
                 'moving_time': activity.get('moving_time', 0),
