@@ -18,6 +18,7 @@ export interface Activity {
   feedback_analyzed?: boolean;
   generated_at?: string;
   created_at_raw?: string;
+  start_date_raw?: string;
   processing_time_seconds?: number;
   activity_id?: string;
   enhanced_title?: string;

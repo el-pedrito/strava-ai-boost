@@ -35,6 +35,7 @@ interface RawActivity {
   enhanced_title?: string;
   enhanced_description?: string;
   original_name?: string;
+  start_date?: string;
   created_at?: string;
   updated_at?: string;
   processing_status?: string;
@@ -68,7 +69,7 @@ function processingSeconds(createdAt?: string, updatedAt?: string): number | und
 function transformActivities(raw: RawActivity[]): Activity[] {
   return raw.slice(0, 10).map((act) => ({
     name: act.enhanced_title || act.original_name || 'Unknown',
-    date: act.created_at ? formatDateTime(act.created_at) : 'N/A',
+    date: act.start_date ? formatDateTime(act.start_date) : act.created_at ? formatDateTime(act.created_at) : 'N/A',
     processing_time: computeProcessingTime(act.created_at, act.updated_at),
     status: (act.processing_status as Activity['status']) || 'unknown',
     modules_used: act.modules_used || [],
@@ -79,6 +80,7 @@ function transformActivities(raw: RawActivity[]): Activity[] {
     feedback_analyzed: act.feedback_analyzed,
     generated_at: act.generated_at,
     created_at_raw: act.created_at,
+    start_date_raw: act.start_date,
     processing_time_seconds: processingSeconds(act.created_at, act.updated_at),
     activity_id: act.activity_id,
     enhanced_title: act.enhanced_title,
@@ -330,8 +332,8 @@ export function DashboardPage() {
         av = a.name.toLowerCase();
         bv = b.name.toLowerCase();
       } else if (sortKey === 'date') {
-        av = a.created_at_raw ? new Date(a.created_at_raw).getTime() : 0;
-        bv = b.created_at_raw ? new Date(b.created_at_raw).getTime() : 0;
+        av = a.start_date_raw ? new Date(a.start_date_raw).getTime() : 0;
+        bv = b.start_date_raw ? new Date(b.start_date_raw).getTime() : 0;
       } else if (sortKey === 'time') {
         av = a.processing_time_seconds ?? -1;
         bv = b.processing_time_seconds ?? -1;
