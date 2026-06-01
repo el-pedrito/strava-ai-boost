@@ -75,8 +75,8 @@
 - [ ] **Race time prediction + plan adaptatif minimum viable** — Strava vient de bundler Runna (-60%) précisément pour combler ce trou (cf [analyse](./COMPETITIVE-ANALYSIS.md)). Devient un standard que les users vont attendre.
 - [x] **Recap audio hebdomadaire type podcast** — déployé 20 mai 2026. Dimanche 20h UTC + on-demand (label date range). Bedrock Sonnet + Polly Generative Ambre. Paginé dans Coach page.
 - [ ] **Mémoire long terme + multi-tour soignée pour le Coach IA** — déjà partiellement câblée (AgentCore Memory). Strava Athlete Intelligence est mono-tour. Si l'UX est soignée, vraie différenciation.
-- [ ] **Strava MCP integration** — Strava annonce le support du Model Context Protocol. Quand disponible, intégrer pour le coach conversationnel (accès structuré aux données sans API wrapper custom). Surveiller les annonces.
-- [ ] **API fees mitigation** — Strava introduit des frais mensuels pour les développeurs. Évaluer l'impact, optimiser les appels API (caching, batch), vérifier le tier "single player" self-service.
+- [ ] **Strava MCP integration** — Strava a lancé un serveur MCP remote (`https://mcp.strava.com/mcp`) le 1er juin 2026. Read-only, OAuth, accès aux streams per-second, fitness trends, readiness. Réservé aux abonnés Strava. Potentiel pour enrichir le coach conversationnel avec des données qu'on n'a pas aujourd'hui (streams HR per-second, fitness trends natives). Limité : read-only donc on garde l'API pour le write (update title/description).
+- [ ] **API fees mitigation** — Strava introduit un "Subscription required" pour le Standard Tier développeur (1er juin 2026). Pas clair si c'est l'abo athlete classique (~$12/mois), un dev fee séparé ($11.99/mois), ou si les apps single-player existantes sont grandfathered. À surveiller : si l'accès API est coupé, il faudra payer. Actuellement l'app fonctionne sans abo (tier gratuit 1 athlète, 100 reads/15min).
 - [ ] **Landing page publique** (`/`) avant login : value prop, démo, screenshots, FAQ
 - [ ] **Pricing page** Free / Pro / Coach avec Stripe Checkout
 - [ ] **Stripe customer portal** pour gérer abonnement
