@@ -1147,6 +1147,15 @@ def get_coach_summary(user_id: str) -> Dict[str, Any]:
         except Exception as e:
             logger.warning(f'Failed to compute compliance: {e}')
 
+        # Fetch strength history for muscu trends
+        strength_history = []
+        try:
+            config_response = config_table.get_item(Key={'user_id': user_id})
+            sh = config_response.get('Item', {}).get('user_preferences', {}).get('strength_history', {})
+            strength_history = sh.get('entries', [])
+        except Exception:
+            pass
+
         return {
             'athlete_profile': athlete_profile,
             'recent_feedback': recent_feedback,
@@ -1162,6 +1171,7 @@ def get_coach_summary(user_id: str) -> Dict[str, Any]:
                 'ramp_rate': ramp_rate,
                 'compliance': compliance,
                 'recovery': _extract_recovery(recent),
+                'strength_history': strength_history[-20:],
             }
         }
 
