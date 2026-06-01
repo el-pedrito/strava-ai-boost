@@ -68,7 +68,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             activity_data['laps_data'] = laps_data
 
         # Apply module-specific processing
-        enhanced_modules = apply_module_processing(activity_data, None, active_modules)
+        enhanced_modules = apply_module_processing(activity_data, None, active_modules, laps_data)
 
         # Generate enhanced content via AgentCore
         enhanced_content = generate_enhanced_content(
@@ -80,10 +80,19 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Store generated content
         store_generated_content(activity_id, enhanced_content)
 
-        # P0.2: Mark Campus Coach session as done if the agent matched one
-        matched_session_id = enhanced_content.get('matched_session_id')
-        if matched_session_id:
-            mark_campus_session_done(matched_session_id, activity_id)
+        # P0.2: Mark Campus Coach session as done using pre-matched session from modules_processing
+        matched_session = None
+        for m in enhanced_modules:
+            if m.get('name') == 'campus_coach' and m.get('matched_session'):
+                matched_session = m['matched_session']
+                break
+        if matched_session:
+            mark_campus_session_done(matched_session, activity_id)
+
+        # Track strength history for WeightTraining activities
+        sport_type = activity_data.get('sport_type', activity_data.get('type', ''))
+        if sport_type == 'WeightTraining':
+            _track_strength_history(user_id, activity_id, activity_data)
 
         return {
             'statusCode': 200,
@@ -218,6 +227,10 @@ def build_user_profile_from_config(user_config: Dict[str, Any]) -> Optional[Dict
         max_hr = preferences.get('max_hr')
         if max_hr:
             user_profile['max_hr'] = max_hr
+
+        strength_program = preferences.get('strength_program')
+        if strength_program:
+            user_profile['strength_program'] = strength_program
 
         return user_profile
 
@@ -607,19 +620,18 @@ def _parse_agent_response(
 
 # --- Storage ---
 
-def mark_campus_session_done(session_id: str, activity_id: str) -> None:
-    """P0.2: Mark a Campus Coach session as 'Fait' after content generator matched it."""
+def mark_campus_session_done(session: Dict[str, Any], activity_id: str) -> None:
+    """P0.2: Mark a Campus Coach session as 'Fait' after deterministic matching."""
     try:
         coaching_table_name = os.environ.get('COACHING_SESSIONS_TABLE')
-        if not coaching_table_name or not session_id:
+        if not coaching_table_name or not session:
             return
-        # session_id format: "{week_number}-{session_number}" e.g. "15-12-1/5"
-        # DDB PK: session_date = "week-{week_number}", SK: session_id
-        week_number = session_id.rsplit('-', 1)[0] if '-' in session_id else None
-        if not week_number:
-            logger.warning(f"Cannot derive week_number from session_id: {session_id}")
+        # Use session_date (PK) and session_id (SK) directly from the session object
+        session_date = session.get('session_date')
+        session_id = session.get('session_id')
+        if not session_date or not session_id:
+            logger.warning(f"Cannot mark session done: missing session_date or session_id")
             return
-        session_date = f"week-{week_number}"
         table = dynamodb.Table(coaching_table_name)
         table.update_item(
             Key={'session_date': session_date, 'session_id': session_id},
@@ -631,10 +643,43 @@ def mark_campus_session_done(session_id: str, activity_id: str) -> None:
                 ':aid': activity_id
             }
         )
-        logger.info(f"✅ Marked Campus Coach session {session_id} as Fait (activity {activity_id})")
+        logger.info(f"✅ Marked Campus Coach session '{session.get('title')}' ({session_id}) as Fait (activity {activity_id})")
     except Exception as e:
-        logger.warning(f"Failed to mark session {session_id} as Fait: {e}")
+        logger.warning(f"Failed to mark session as Fait: {e}")
 
+
+def _track_strength_history(user_id: str, activity_id: str, activity_data: Dict[str, Any]) -> None:
+    """Parse WeightTraining description and append to strength_history for progression tracking."""
+    try:
+        description = activity_data.get('description', '')
+        if not description or len(description) < 10:
+            return
+
+        activity_date = activity_data.get('start_date_local', activity_data.get('start_date', ''))
+        duration_min = activity_data.get('moving_time', 0) / 60
+
+        # Store raw description as a history entry — the coach LLM will interpret it
+        # against the strength_program to track progressions
+        entry = {
+            'date': activity_date[:10] if activity_date else datetime.now(timezone.utc).strftime('%Y-%m-%d'),
+            'activity_id': activity_id,
+            'duration_min': int(duration_min),
+            'description': description[:500],
+        }
+
+        table = dynamodb.Table(USER_CONFIG_TABLE)
+        table.update_item(
+            Key={'user_id': user_id},
+            UpdateExpression='SET user_preferences.strength_history.entries = list_append(if_not_exists(user_preferences.strength_history.entries, :empty), :entry), user_preferences.strength_history.last_updated = :ts',
+            ExpressionAttributeValues={
+                ':entry': [entry],
+                ':empty': [],
+                ':ts': datetime.now(timezone.utc).isoformat()
+            }
+        )
+        logger.info(f"📝 Tracked strength history for activity {activity_id} ({activity_date[:10]})")
+    except Exception as e:
+        logger.warning(f"Failed to track strength history: {e}")
 
 
 def store_generated_content(activity_id: str, content: Dict[str, Any]) -> None:

@@ -69,7 +69,8 @@ def get_active_modules(user_config: Dict[str, Any]) -> List[Dict[str, Any]]:
 def apply_module_processing(
     activity_data: Dict[str, Any],
     streams_data: Optional[Dict[str, Any]],
-    modules: List[Dict[str, Any]]
+    modules: List[Dict[str, Any]],
+    laps_data: Optional[List[Dict[str, Any]]] = None
 ) -> List[Dict[str, Any]]:
     """Apply module-specific processing using module registry"""
     enhanced_modules = []
@@ -97,7 +98,7 @@ def apply_module_processing(
                     enhanced_modules.append(enhanced_module)
                 else:
                     enhanced_module = _apply_legacy_module_processing(
-                        activity_data, module
+                        activity_data, module, laps_data
                     )
                     enhanced_modules.append(enhanced_module)
 
@@ -112,7 +113,7 @@ def apply_module_processing(
         for module in modules:
             try:
                 enhanced_module = _apply_legacy_module_processing(
-                    activity_data, module
+                    activity_data, module, laps_data
                 )
                 enhanced_modules.append(enhanced_module)
             except Exception as e:
@@ -165,14 +166,15 @@ def _apply_module_instance_processing(
 
 def _apply_legacy_module_processing(
     activity_data: Dict[str, Any],
-    module: Dict[str, Any]
+    module: Dict[str, Any],
+    laps_data: Optional[List[Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
     """Apply legacy module processing"""
     try:
         module_name = module['name']
 
         if module_name == 'campus_coach' and module.get('enabled', False):
-            return _apply_campus_coach_processing(activity_data, module)
+            return _apply_campus_coach_processing(activity_data, module, laps_data)
         elif module_name == 'enduraw' and module.get('enabled', False):
             return module
         else:
@@ -187,17 +189,18 @@ def _apply_legacy_module_processing(
 
 def _apply_campus_coach_processing(
     activity_data: Dict[str, Any],
-    module: Dict[str, Any]
+    module: Dict[str, Any],
+    laps_data: Optional[List[Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
     """
     Apply Campus Coach session matching.
-    Retrieves recent sessions from DynamoDB for agent analysis.
+    Pre-matches sessions deterministically using laps structure, then passes
+    only the best match to the LLM for narrative enrichment.
     """
     try:
-        logger.info("Retrieving Campus Coach sessions for intelligent agent matching...")
+        logger.info("Retrieving Campus Coach sessions for deterministic matching...")
 
         activity_date = activity_data.get('start_date_local', activity_data.get('start_date', ''))
-        distance_km = activity_data.get('distance', 0) / 1000
         duration_min = activity_data.get('moving_time', 0) / 60
         activity_type = activity_data.get('type', '').lower()
 
@@ -205,23 +208,38 @@ def _apply_campus_coach_processing(
 
         enhanced_module = module.copy()
 
-        if sessions:
-            logger.info(f"Retrieved {len(sessions)} Campus Coach sessions for agent analysis")
-            enhanced_module['campus_coach_sessions'] = sessions
-            enhanced_module['sessions_available'] = True
-            enhanced_module['session_count'] = len(sessions)
-            enhanced_module['activity_context'] = {
-                'date': activity_date,
-                'distance_km': distance_km,
-                'duration_min': duration_min,
-                'type': activity_type,
-                'title': activity_data.get('name', ''),
-                'description': activity_data.get('description', '')
-            }
-        else:
+        if not sessions:
             enhanced_module['campus_coach_sessions'] = []
             enhanced_module['sessions_available'] = False
             enhanced_module['note'] = 'No recent Campus Coach sessions found'
+            return enhanced_module
+
+        # Pre-match: score each session against laps
+        best_match = None
+        best_score = 0.0
+        laps = laps_data or activity_data.get('laps', [])
+
+        for session in sessions:
+            score = _score_session_match(session, laps, duration_min, activity_type)
+            title = session.get('title', 'Unknown')
+            logger.info(f"  Session '{title}' (id={session.get('session_id')}): score={score:.2f}")
+            if score > best_score:
+                best_score = score
+                best_match = session
+
+        if best_match and best_score >= 0.5:
+            logger.info(f"✅ Pre-matched session: '{best_match.get('title')}' (score={best_score:.2f})")
+            enhanced_module['campus_coach_sessions'] = [best_match]
+            enhanced_module['matched_session'] = best_match
+            enhanced_module['match_score'] = best_score
+            enhanced_module['sessions_available'] = True
+            enhanced_module['session_count'] = 1
+        else:
+            logger.info(f"No session matched above threshold (best={best_score:.2f})")
+            enhanced_module['campus_coach_sessions'] = sessions
+            enhanced_module['sessions_available'] = True
+            enhanced_module['session_count'] = len(sessions)
+            enhanced_module['note'] = 'No strong match found, passing all sessions to LLM'
 
         return enhanced_module
 
@@ -234,8 +252,166 @@ def _apply_campus_coach_processing(
         return enhanced_module
 
 
+def _score_session_match(
+    session: Dict[str, Any],
+    laps: List[Dict[str, Any]],
+    activity_duration_min: float,
+    activity_type: str
+) -> float:
+    """
+    Score how well a campus session matches the activity laps.
+    Returns 0.0-1.0. Higher = better match.
+    """
+    title = session.get('title', '').lower()
+    intervals = session.get('intervals', [])
+
+    # Rule out non-running sessions for running activities and vice versa
+    is_renforcement = 'renforcement' in title or 'ppg' in title
+    is_running_activity = activity_type in ('run', 'trail run', 'virtual run')
+
+    if is_renforcement and is_running_activity:
+        return 0.0
+    if not is_renforcement and activity_type == 'weighttraining':
+        return 0.0
+    # WeightTraining matches Renforcement
+    if is_renforcement and activity_type == 'weighttraining':
+        return 0.8
+
+    if not laps or not intervals:
+        return 0.1
+
+    # Extract session target duration from intervals
+    session_duration_min = _extract_session_duration(intervals)
+    if session_duration_min > 0:
+        duration_ratio = min(activity_duration_min, session_duration_min) / max(activity_duration_min, session_duration_min)
+    else:
+        duration_ratio = 0.5
+
+    # Count work intervals in session (excluding warm-up, cool-down, recovery)
+    work_intervals = [i for i in intervals if i.get('type') == 'work']
+    session_work_count = sum(i.get('repeat', 1) for i in work_intervals)
+
+    # Detect interval structure from laps
+    lap_structure = _analyze_lap_structure(laps)
+    activity_fast_count = lap_structure['fast_lap_count']
+    activity_has_warmup = lap_structure['has_warmup']
+    activity_avg_fast_duration = lap_structure['avg_fast_duration_sec']
+
+    # Score components
+    score = 0.0
+
+    # Duration match (0-0.3)
+    score += duration_ratio * 0.3
+
+    # Interval count match (0-0.4) — most important signal
+    if session_work_count > 0 and activity_fast_count > 0:
+        count_ratio = min(activity_fast_count, session_work_count) / max(activity_fast_count, session_work_count)
+        score += count_ratio * 0.4
+    elif session_work_count == 0 and activity_fast_count == 0:
+        # Pure EF session matches pure EF activity
+        score += 0.4
+    elif session_work_count == 0 and activity_fast_count <= 1:
+        # EF session, activity has maybe 1 fast lap (GPS noise)
+        score += 0.3
+
+    # Interval duration match (0-0.3)
+    if work_intervals and activity_avg_fast_duration > 0:
+        session_avg_duration = _avg_work_interval_duration(work_intervals)
+        if session_avg_duration > 0:
+            dur_ratio = min(activity_avg_fast_duration, session_avg_duration) / max(activity_avg_fast_duration, session_avg_duration)
+            score += dur_ratio * 0.3
+
+    return min(score, 1.0)
+
+
+def _extract_session_duration(intervals: List[Dict[str, Any]]) -> float:
+    """Extract total planned duration in minutes from session intervals."""
+    total_sec = 0
+    for interval in intervals:
+        duration_str = interval.get('duration', '')
+        repeat = interval.get('repeat', 1)
+        sec = _parse_duration_to_seconds(duration_str)
+        total_sec += sec * repeat
+    return total_sec / 60
+
+
+def _parse_duration_to_seconds(duration_str: str) -> float:
+    """Parse duration string like '30 min', '2:30 min', '30 sec' to seconds."""
+    if not duration_str:
+        return 0
+    duration_str = duration_str.strip().lower()
+    if 'min' in duration_str:
+        parts = duration_str.replace('min', '').strip()
+        if ':' in parts:
+            m, s = parts.split(':')
+            return float(m) * 60 + float(s)
+        return float(parts) * 60
+    if 'sec' in duration_str:
+        return float(duration_str.replace('sec', '').strip())
+    return 0
+
+
+def _avg_work_interval_duration(work_intervals: List[Dict[str, Any]]) -> float:
+    """Average duration of work intervals in seconds."""
+    durations = []
+    for i in work_intervals:
+        sec = _parse_duration_to_seconds(i.get('duration', ''))
+        if sec > 0:
+            durations.append(sec)
+    return sum(durations) / len(durations) if durations else 0
+
+
+def _analyze_lap_structure(laps: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Analyze laps to detect interval structure."""
+    if not laps:
+        return {'fast_lap_count': 0, 'has_warmup': False, 'avg_fast_duration_sec': 0}
+
+    # Calculate pace for each lap
+    paces = []
+    for lap in laps:
+        speed = lap.get('average_speed', 0)
+        if isinstance(speed, str):
+            speed = float(speed)
+        if speed > 0:
+            pace_sec_per_km = 1000 / speed
+            paces.append({
+                'pace': pace_sec_per_km,
+                'duration': lap.get('moving_time', lap.get('elapsed_time', 0)),
+                'distance': lap.get('distance', 0)
+            })
+
+    if not paces:
+        return {'fast_lap_count': 0, 'has_warmup': False, 'avg_fast_duration_sec': 0}
+
+    # Determine threshold: laps faster than median - 20sec/km are "fast"
+    all_paces = [p['pace'] for p in paces]
+    median_pace = sorted(all_paces)[len(all_paces) // 2]
+
+    # Only consider variation if there's meaningful spread (>20 sec/km)
+    pace_spread = max(all_paces) - min(all_paces)
+    if pace_spread < 20:
+        # Uniform pace = no intervals
+        return {'fast_lap_count': 0, 'has_warmup': False, 'avg_fast_duration_sec': 0}
+
+    fast_threshold = median_pace - 15  # 15 sec/km faster than median
+    fast_laps = [p for p in paces if p['pace'] < fast_threshold]
+
+    # Detect warmup: first lap is slow and long (>5min)
+    has_warmup = False
+    if paces and paces[0]['pace'] > median_pace and paces[0]['duration'] > 300:
+        has_warmup = True
+
+    avg_fast_duration = sum(l['duration'] for l in fast_laps) / len(fast_laps) if fast_laps else 0
+
+    return {
+        'fast_lap_count': len(fast_laps),
+        'has_warmup': has_warmup,
+        'avg_fast_duration_sec': avg_fast_duration
+    }
+
+
 def _get_recent_campus_sessions(activity_date: str = None) -> List[Dict[str, Any]]:
-    """Get Campus Coach sessions for the current week."""
+    """Get Campus Coach sessions for the current week, excluding already-done ones."""
     try:
         table = dynamodb.Table(COACHING_SESSIONS_TABLE)
 
@@ -245,6 +421,9 @@ def _get_recent_campus_sessions(activity_date: str = None) -> List[Dict[str, Any
         )
 
         sessions = response.get('Items', [])
+
+        # Filter out sessions already marked as done
+        sessions = [s for s in sessions if s.get('status') != 'Fait']
 
         def decimal_to_float(obj: Any) -> Any:
             if isinstance(obj, Decimal):
@@ -257,7 +436,7 @@ def _get_recent_campus_sessions(activity_date: str = None) -> List[Dict[str, Any
 
         sessions = decimal_to_float(sessions)
 
-        logger.info(f"Retrieved {len(sessions)} Campus Coach sessions")
+        logger.info(f"Retrieved {len(sessions)} Campus Coach sessions (excluded done)")
         return sessions
 
     except Exception as e:

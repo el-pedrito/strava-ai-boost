@@ -89,6 +89,14 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     activity_data["_computed_metrics"] = _compute_coach_metrics(
                         activity_data["_laps"], activity_data
                     )
+            # Inject strength program + history for global training vision
+            if prefs.get("strength_program"):
+                historical_summary["strength_program"] = prefs["strength_program"]
+            if prefs.get("strength_history"):
+                # Only pass last 8 entries to keep context manageable
+                history = prefs["strength_history"]
+                entries = history.get("entries", [])
+                historical_summary["strength_history"] = entries[-8:] if entries else []
         except Exception as e:
             logger.warning(f"Failed to enrich historical summary: {e}")
 
