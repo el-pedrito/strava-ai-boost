@@ -52,7 +52,7 @@ Content Generator: DynamoDB → classify workout from laps → build prompt with
 Coach Generator: DynamoDB → athlete profile + zones + PRs + historical context (4 weeks, GSI query) → AgentCore coach_agent → coaching feedback
 Assembly Lambda: Merge content + coach outputs → update Strava + store results
 Campus Coach API Sync: REST login + GET /smart-training → structured sessions (intervals, targets) → DynamoDB (is_current_week/is_future flags)
-Campus Coach Context: Sessions stored in DynamoDB → passed to content_gen agent prompt → LLM does the matching
+Campus Coach Context: Sessions stored in DynamoDB → scored deterministically against laps in modules_processing.py → best match passed to content_gen agent
 ```
 
 **Conversational Coach:**
@@ -552,7 +552,7 @@ class TestMyModule:
 
 **Location:** `src/agents/`
 
-**Content Agent** (`content_agent.py`): Generate enhanced activity content with LTM memory, Claude Sonnet 4.5, Guardrails enabled, max_tokens 4096. Receives device-recorded laps (from Strava Laps API), Campus Coach sessions, Enduraw reports, and Intervals.icu data (CTL/ATL/Form/HRV/Decoupling). User profile includes personal_records and max_hr. Campus Coach context (current + future weeks with structured intervals) injected. Handles all matching logic (Campus Coach session matching, workout classification) via prompt rules in `embedded_prompts.py`.
+**Content Agent** (`content_agent.py`): Generate enhanced activity content with LTM memory, Claude Sonnet 4.5, Guardrails enabled, max_tokens 4096. Receives device-recorded laps (from Strava Laps API), Campus Coach sessions, Enduraw reports, and Intervals.icu data (CTL/ATL/Form/HRV/Decoupling). User profile includes personal_records, max_hr, and strength_program. Campus Coach context (current + future weeks with structured intervals) injected. Campus Coach matching is **deterministic** (scored in code via `modules_processing.py`, not by LLM). Only the best-matched session is passed to the LLM for narrative enrichment.
 
 **Anti-AI Writing Rules** (enforced in content generation prompts):
 - Em dash (—) and en dash (–) are **banned** from all generated content
@@ -562,12 +562,20 @@ class TestMyModule:
 
 **Campus Coach Agent** (`campus_coach_agent.py`): Extract training sessions via Browser Tool, Claude Sonnet 4.5. Stores sessions in DynamoDB — no analysis, matching is done by the content agent. **NOTE: Replaced by direct API sync (`campus_coach_sync.py`) since May 2026. Agent kept as fallback.**
 
+**Campus Coach Matching** (deterministic, `modules_processing.py`):
+- Sessions scored against activity laps using: activity type, duration match, interval count, interval duration
+- Score ≥ 0.5 → only that session sent to LLM, marked "Fait" in DynamoDB
+- Score < 0.5 → all sessions passed for context, nothing marked done
+- Already-done sessions filtered from future matching
+
 **Campus Coach Sync** (`lambda_functions/webhooks/campus_coach_sync.py`): Direct REST API integration replacing Browser Tool. Login via `POST /account/login` + `GET /smart-training?from=...&to=...` fetches all accessible weeks (1-9 depending on billing cycle). Stores structured sessions in DynamoDB with `is_current_week`/`is_future` flags, including intervals and targets. EventBridge daily 05:00 UTC. Only runs if campus_coach module is enabled. Athlete context (goal, assiduity, sport profile) persisted. All future weeks injected into coach context.
 
 **Coach Agent** (`coach_agent.py`): Training feedback agent using Claude Sonnet 4.5 with LTM memory (`coaching_observations` namespace). Analyzes activity in context of athlete profile (objectives, history, experience, pace zones, personal records, FCmax), recent training trends (4 weeks via GSI query with EF pace@HR, CTL/Form, segment PRs), and historical observations. Produces training feedback focused on **progression and trends** (not session recap). Runs in parallel with content generation.
 
 **Coach Context (injected):**
 - Athlete profile + pace zones + personal records + FCmax
+- **Strength program** (Upper A, Upper B, Rappel — exercises with sets/load/rest)
+- **Strength history** (last 8 WeightTraining descriptions for progression tracking)
 - Historical: all activities from 4 weeks (max 30) with EF, CTL, decoupling, prev_coach_note, training_load
 - Fitness trend (CTL progression from Intervals.icu if available)
 - Athlete HR zones (from Strava, fetched at OAuth)
