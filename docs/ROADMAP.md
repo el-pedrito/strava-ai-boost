@@ -66,12 +66,17 @@
   - Module activation check : ne sync que si campus_coach module activé
   - Agent Browser Tool conservé comme fallback (non supprimé)
   - 26 tests unitaires (14 sync + 12 consumers)
+- [ ] **Strava FIT sets data ingestion** — Depuis le 21 mai 2026, Strava ingère les sets structurés (exercice, reps, poids, durée) depuis les fichiers FIT. Lire ces données via l'API pour alimenter `strength_history` automatiquement (plus besoin de parser la description). Rend le tracking muscu 100% automatique et précis.
+- [ ] **Coach Trends : graphiques progression muscu** — Ajouter des charts dans la page Coach Trends pour visualiser les progressions de charges (DC, tractions, etc.) au fil du temps. Données depuis `strength_history`. Même pattern que les charts pace/volume existants.
+- [ ] **Deauthorization endpoint** — Implémenter le nouveau endpoint Strava (1er juin 2026) pour un disconnect propre dans le flow OAuth.
 
 ### Moyen terme (1-2 mois)
 
 - [ ] **Race time prediction + plan adaptatif minimum viable** — Strava vient de bundler Runna (-60%) précisément pour combler ce trou (cf [analyse](./COMPETITIVE-ANALYSIS.md)). Devient un standard que les users vont attendre.
 - [x] **Recap audio hebdomadaire type podcast** — déployé 20 mai 2026. Dimanche 20h UTC + on-demand (label date range). Bedrock Sonnet + Polly Generative Ambre. Paginé dans Coach page.
 - [ ] **Mémoire long terme + multi-tour soignée pour le Coach IA** — déjà partiellement câblée (AgentCore Memory). Strava Athlete Intelligence est mono-tour. Si l'UX est soignée, vraie différenciation.
+- [ ] **Strava MCP integration** — Strava annonce le support du Model Context Protocol. Quand disponible, intégrer pour le coach conversationnel (accès structuré aux données sans API wrapper custom). Surveiller les annonces.
+- [ ] **API fees mitigation** — Strava introduit des frais mensuels pour les développeurs. Évaluer l'impact, optimiser les appels API (caching, batch), vérifier le tier "single player" self-service.
 - [ ] **Landing page publique** (`/`) avant login : value prop, démo, screenshots, FAQ
 - [ ] **Pricing page** Free / Pro / Coach avec Stripe Checkout
 - [ ] **Stripe customer portal** pour gérer abonnement
