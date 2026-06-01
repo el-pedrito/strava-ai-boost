@@ -99,7 +99,8 @@ def get_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
                 'athlete_profile': preferences.get('athlete_profile', ''),
                 'personal_records': preferences.get('personal_records', []),
                 'max_hr': preferences.get('max_hr', None),
-                'best_efforts_prs': best_efforts_prs
+                'best_efforts_prs': best_efforts_prs,
+                'strength_program': preferences.get('strength_program', None),
             }
         }
 
@@ -208,7 +209,12 @@ def update_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
                     return create_error_response(400, 'max_hr must be between 120 and 230', cors_headers=CORS_HEADERS)
             except (ValueError, TypeError):
                 return create_error_response(400, 'max_hr must be an integer', cors_headers=CORS_HEADERS)
-        
+
+        # Add strength_program if provided
+        strength_program = body.get('strength_program')
+        if strength_program is not None:
+            preferences['strength_program'] = strength_program
+
         # Save to DynamoDB
         table = dynamodb.Table(USER_CONFIG_TABLE)
         table.update_item(
