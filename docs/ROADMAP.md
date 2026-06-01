@@ -46,6 +46,8 @@
 - PWA installable (manifest, icons, theme-color, apple-touch, OG/Twitter)
 - Code splitting (chunks < 500kb, index 578 → 92kb, suppression `@cloudscape-design/*`)
 - Coach chat backend : injection des 12 dernières séances détaillées dans le contexte (DynamoDB) + AgentCore Memory pour les observations sémantiques
+- **Deterministic Campus Coach matching** : pre-match sessions against laps in code (duration, interval count, pace analysis) instead of relying on LLM. Only best match sent to LLM. Sessions marked "Fait" in DynamoDB with correct keys. Already-done sessions filtered from future matching. Fixes wrong session matching bug.
+- **Strength program tracking** : programme muscu structuré stocké dans `user_preferences.strength_program` (Upper A, Upper B, Rappel). Auto-tracking des charges via `strength_history` (description Strava parsée à chaque WeightTraining). Coach injecté avec programme + historique pour vision globale (total hebdo muscu+course, progressions charges, espacement recommandé).
 
 ## Next
 

@@ -54,6 +54,35 @@ Le plus gros chantier restant. Debloque l'acces mobile et supprime la dependance
 
 ## P2 — Medium
 
+### Programme Muscu structuré (Coach vision globale)
+Le coach n'a pas de visibilité structurée sur les séances muscu — il lit le profil athlète (texte libre) mais ne peut pas matcher/tracker les progressions.
+
+**Objectif :** Stocker le programme muscu de référence, matcher les activités WeightTraining, tracker les progressions de charges.
+
+**Spec :**
+- Nouveau champ `user_preferences.strength_program` dans DynamoDB :
+  ```json
+  {
+    "sessions": [
+      {"id": "upper_a", "name": "Upper A — Dos dominant", "frequency": "1x/semaine",
+       "exercises": [
+         {"name": "Tractions", "sets": "4×8-10", "load": "BW (+5kg s1)", "rest": "2min"},
+         {"name": "Low row machine convergente", "sets": "4×10", "load": "80-82.5kg", "rest": "2min"},
+         ...
+       ]},
+      {"id": "upper_b", "name": "Upper B — Pec dominant", ...},
+      {"id": "rappel_upper", "name": "Rappel upper (post renfo Campus)", ...}
+    ]
+  }
+  ```
+- Page frontend "Programme Muscu" (CRUD, éditable)
+- Injection dans le prompt coach : programme de référence + total semaine (course + muscu)
+- Matching activité WeightTraining : le coach lit la description Strava pour identifier Upper A/B/Rappel. Si description vide → fallback sur le programme de référence.
+- Tracking progressions : comparer charges/volumes d'une semaine à l'autre (ex: "DC passé de 80kg 4x8 à 85kg 4x8 en 3 semaines")
+- `recommendation_next` intègre la charge globale : "Cette semaine : 5 séances course Campus + 2 Upper + 1 Rappel = 8 séances total"
+
+**Note :** La description Strava prime toujours sur le programme de référence (l'athlète adapte en fonction des machines dispo, de l'envie, etc.)
+
 ### RemovalPolicy.DESTROY sur DynamoDB
 `core_infrastructure_stack.py:78,109,129` — 3 tables + 4 secrets en DESTROY. Acceptable en dev, a passer en RETAIN avant prod.
 - **Fix :** Conditionner sur `environment` context

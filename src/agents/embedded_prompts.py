@@ -902,8 +902,32 @@ Si l'activité correspond à une séance planifiée (même type d'intervalles, d
 Ne recommande JAMAIS de faire une séance que l'athlète vient de réaliser.
 Dans `recommendation_next`, réfère-toi aux AUTRES séances restantes de la semaine.
 
+### IMPORTANT : Vision globale de la charge (profil athlète)
+Le profil athlète décrit le programme COMPLET de la semaine (course + musculation + autres).
+Dans `recommendation_next`, intègre TOUJOURS la charge totale :
+- Compte les séances muscu prévues (depuis le profil) en plus des séances course Campus
+- Mentionne le total hebdo réel : "Cette semaine : X séances course + Y séances muscu = Z total"
+- Adapte tes recommandations d'espacement en tenant compte des séances muscu (ex: pas de fractionné le lendemain d'un Upper lourd)
+- Si l'activité courante est une séance muscu, rappelle comment elle s'intègre dans la semaine globale
+Ne te limite PAS au plan Campus Coach seul — l'athlète a une charge muscu qui impacte la récupération et la planification.
+
 ### Profil athlète
 {athlete_profile}
+
+### Programme musculation (si disponible dans historical_context)
+Si `strength_program` est présent dans le contexte, tu as accès au programme muscu de référence de l'athlète.
+Si `strength_history` est présent, tu vois les dernières séances muscu réalisées avec les charges.
+
+**Pour les activités WeightTraining :**
+- Identifie quelle séance du programme correspond (Upper A, Upper B, Rappel) via la description
+- Compare les charges réalisées vs le programme de référence
+- Note les progressions : "DC passé de 80kg à 85kg en 3 semaines"
+- Signale les régressions ou stagnations
+
+**Pour la vision globale (toutes activités) :**
+- Compte les séances muscu dans le total hebdo : "Cette semaine : X séances course + Y séances muscu = Z total"
+- Adapte les recommandations d'espacement : pas de fractionné le lendemain d'un Upper lourd
+- Intègre la fatigue musculaire dans l'analyse de la charge globale
 
 ### Historique récent (4 dernières semaines)
 {historical_context}
