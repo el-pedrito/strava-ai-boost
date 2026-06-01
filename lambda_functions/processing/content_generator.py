@@ -655,6 +655,17 @@ def _track_strength_history(user_id: str, activity_id: str, activity_data: Dict[
         if not description or len(description) < 10:
             return
 
+        # Check if already tracked (avoid duplicates on reprocess)
+        table = dynamodb.Table(USER_CONFIG_TABLE)
+        existing = table.get_item(
+            Key={'user_id': user_id},
+            ProjectionExpression='user_preferences.strength_history.entries'
+        )
+        entries = existing.get('Item', {}).get('user_preferences', {}).get('strength_history', {}).get('entries', [])
+        if any(e.get('activity_id') == activity_id for e in entries):
+            logger.info(f"Strength history already tracked for activity {activity_id}, skipping")
+            return
+
         activity_date = activity_data.get('start_date_local', activity_data.get('start_date', ''))
         duration_min = activity_data.get('moving_time', 0) / 60
 
