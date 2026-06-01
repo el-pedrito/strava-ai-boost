@@ -154,6 +154,7 @@ Customize AI content generation in Configuration > Personal Profile:
 | **Athlete Profile** | Free-text field for objectives, training history, experience level |
 | **FC Max** | Manual or calculated (Tanaka: 208 - 0.7 × age). Auto-updated if activity shows higher HR |
 | **Personal Records** | Manual PRs with distance, time, date, event. Auto-calculates pace & speed |
+| **Strength Program** | Structured muscu sessions (Upper A, Upper B, Rappel). Exercises with sets/load/rest. Auto-tracked from Strava descriptions. Coach uses it for global weekly vision and progression tracking |
 
 ### Enhancement Control
 
