@@ -77,6 +77,7 @@ interface CoachSummary {
     ef_paces?: PacePoint[];
     ramp_rate?: number | null;
     compliance?: { planned: number; completed: number; percentage: number } | null;
+    strength_history?: Array<{ date: string; activity_id: string; duration_min: number; description: string }>;
     recovery?: {
       form: number | null;
       ctl: number | null;
@@ -1398,6 +1399,28 @@ export function CoachPage() {
                     ) : null}
                   </div>
                 ) : null}
+
+                {/* Strength History */}
+                {(trends?.strength_history?.length ?? 0) > 0 && (
+                  <Card padding="md">
+                    <h3 className="text-sm font-semibold mb-3">💪 Historique Musculation</h3>
+                    <div className="space-y-2">
+                      {trends!.strength_history!.map((entry, i) => (
+                        <div key={i} className="flex items-start gap-3 text-xs border-b border-border/50 pb-2 last:border-0">
+                          <span className="text-muted-foreground whitespace-nowrap font-medium">
+                            {new Date(entry.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                          </span>
+                          <span className="text-foreground leading-relaxed">{entry.description}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {(trends?.strength_history?.length ?? 0) < 3 && (
+                      <p className="mt-3 text-xs text-muted-foreground italic">
+                        Les graphiques de progression des charges apparaîtront après 3+ séances enregistrées.
+                      </p>
+                    )}
+                  </Card>
+                )}
 
                 {rampInsight && rampInsight.tone === 'warning' ? (
                   <Alert variant="warning">{rampInsight.text}</Alert>
