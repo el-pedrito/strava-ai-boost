@@ -675,7 +675,7 @@ def _track_strength_history(user_id: str, activity_id: str, activity_data: Dict[
             'date': activity_date[:10] if activity_date else datetime.now(timezone.utc).strftime('%Y-%m-%d'),
             'activity_id': activity_id,
             'duration_min': int(duration_min),
-            'description': description[:500],
+            'description': description[:1000],
         }
 
         table = dynamodb.Table(USER_CONFIG_TABLE)
