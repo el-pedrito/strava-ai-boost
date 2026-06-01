@@ -261,8 +261,8 @@ export function PreferencesPage() {
               )
             : [],
           maxHr: p.max_hr ? String(p.max_hr) : '',
-          strengthProgram: Array.isArray(p.strength_program?.sessions)
-            ? (p.strength_program.sessions as Array<{ id?: string; name: string; frequency: string; exercises: StrengthExercise[] }>).map(
+          strengthProgram: Array.isArray((p.strength_program as { sessions?: unknown[] })?.sessions)
+            ? ((p.strength_program as { sessions: Array<{ id?: string; name: string; frequency: string; exercises: StrengthExercise[] }> }).sessions).map(
                 (s) => ({ ...s, id: s.id || crypto.randomUUID() })
               )
             : [],
