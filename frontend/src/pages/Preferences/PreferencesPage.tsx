@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Calculator, Check, Plus, RotateCcw, Trash2, X } from 'lucide-react';
+import { Calculator, Check, ChevronDown, ChevronRight, Plus, RotateCcw, Trash2, X } from 'lucide-react';
 import {
   Alert,
   Badge,
@@ -134,6 +134,20 @@ const formatTime = (secs: number): string => {
   return `${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, '0')}`;
 };
 
+interface StrengthExercise {
+  name: string;
+  sets: string;
+  load: string;
+  rest: string;
+}
+
+interface StrengthSession {
+  id: string;
+  name: string;
+  frequency: string;
+  exercises: StrengthExercise[];
+}
+
 interface PersonalRecord {
   id: string;
   distance: string;
@@ -160,6 +174,7 @@ interface PreferencesState {
   athleteProfile: string;
   personalRecords: PersonalRecord[];
   maxHr: string;
+  strengthProgram: StrengthSession[];
 }
 
 const initialState: PreferencesState = {
@@ -175,6 +190,7 @@ const initialState: PreferencesState = {
   athleteProfile: '',
   personalRecords: [],
   maxHr: '',
+  strengthProgram: [],
 };
 
 function statesEqual(a: PreferencesState, b: PreferencesState): boolean {
@@ -203,6 +219,7 @@ function statesEqual(a: PreferencesState, b: PreferencesState): boolean {
     const rb = b.personalRecords[i];
     if (ra.distance !== rb.distance || ra.time !== rb.time || ra.date !== rb.date || ra.event !== rb.event) return false;
   }
+  if (JSON.stringify(a.strengthProgram) !== JSON.stringify(b.strengthProgram)) return false;
   return true;
 }
 
@@ -244,6 +261,11 @@ export function PreferencesPage() {
               )
             : [],
           maxHr: p.max_hr ? String(p.max_hr) : '',
+          strengthProgram: Array.isArray(p.strength_program?.sessions)
+            ? (p.strength_program.sessions as Array<{ id?: string; name: string; frequency: string; exercises: StrengthExercise[] }>).map(
+                (s) => ({ ...s, id: s.id || crypto.randomUUID() })
+              )
+            : [],
         };
         setState(next);
         lastLoadedRef.current = next;
@@ -285,6 +307,14 @@ export function PreferencesPage() {
           .filter((r) => r.distance && r.time)
           .map((r) => ({ distance: r.distance, time: r.time, date: r.date, event: r.event })),
         ...(state.maxHr ? { max_hr: parseInt(state.maxHr, 10) } : {}),
+        strength_program: {
+          sessions: state.strengthProgram.map((s) => ({
+            id: s.id,
+            name: s.name,
+            frequency: s.frequency,
+            exercises: s.exercises,
+          })),
+        },
       });
       flash('success', 'Preferences saved. Future activities will use these settings.');
       lastLoadedRef.current = state;
@@ -388,6 +418,12 @@ export function PreferencesPage() {
           </div>
         </div>
       </Card>
+
+      {/* Strength Program */}
+      <StrengthProgramSection
+        sessions={state.strengthProgram}
+        onChange={(sessions) => setState((prev) => ({ ...prev, strengthProgram: sessions }))}
+      />
 
       {/* Personal Records */}
       <Card padding="lg">
@@ -934,5 +970,155 @@ function AddRecordDialog({ open, onOpenChange, onAdd }: AddRecordDialogProps) {
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+  );
+}
+
+function StrengthProgramSection({
+  sessions,
+  onChange,
+}: {
+  sessions: StrengthSession[];
+  onChange: (sessions: StrengthSession[]) => void;
+}) {
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  const toggleCollapse = (id: string) =>
+    setCollapsed((prev) => ({ ...prev, [id]: !prev[id] }));
+
+  const addSession = () =>
+    onChange([...sessions, { id: crypto.randomUUID(), name: '', frequency: '', exercises: [] }]);
+
+  const removeSession = (id: string) => onChange(sessions.filter((s) => s.id !== id));
+
+  const updateSession = (id: string, field: 'name' | 'frequency', value: string) =>
+    onChange(sessions.map((s) => (s.id === id ? { ...s, [field]: value } : s)));
+
+  const addExercise = (sessionId: string) =>
+    onChange(
+      sessions.map((s) =>
+        s.id === sessionId ? { ...s, exercises: [...s.exercises, { name: '', sets: '', load: '', rest: '' }] } : s
+      )
+    );
+
+  const removeExercise = (sessionId: string, idx: number) =>
+    onChange(
+      sessions.map((s) =>
+        s.id === sessionId ? { ...s, exercises: s.exercises.filter((_, i) => i !== idx) } : s
+      )
+    );
+
+  const updateExercise = (sessionId: string, idx: number, field: keyof StrengthExercise, value: string) =>
+    onChange(
+      sessions.map((s) =>
+        s.id === sessionId
+          ? { ...s, exercises: s.exercises.map((e, i) => (i === idx ? { ...e, [field]: value } : e)) }
+          : s
+      )
+    );
+
+  return (
+    <Card padding="lg">
+      <CardHeader>
+        <CardTitle>Programme Musculation</CardTitle>
+        <CardDescription>
+          Ton programme de référence. Le coach compare tes séances réelles avec ce plan pour tracker les progressions.
+        </CardDescription>
+      </CardHeader>
+      <div className="flex flex-col gap-4">
+        {sessions.map((session) => {
+          const isCollapsed = collapsed[session.id];
+          return (
+            <div key={session.id} className="rounded-lg border border-border p-3">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => toggleCollapse(session.id)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </button>
+                <Input
+                  value={session.name}
+                  onChange={(e) => updateSession(session.id, 'name', e.target.value)}
+                  placeholder="Nom de la séance"
+                  className="flex-1"
+                />
+                <Input
+                  value={session.frequency}
+                  onChange={(e) => updateSession(session.id, 'frequency', e.target.value)}
+                  placeholder="Fréquence (ex: 2x/sem)"
+                  className="w-36"
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => removeSession(session.id)}
+                  className="text-muted-foreground hover:text-danger"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+              {!isCollapsed && (
+                <div className="mt-3 flex flex-col gap-2">
+                  {session.exercises.length > 0 && (
+                    <div className="hidden text-xs font-medium text-muted-foreground md:grid md:grid-cols-[1fr_80px_80px_80px_32px] md:gap-2">
+                      <span>Exercice</span>
+                      <span>Séries</span>
+                      <span>Charge</span>
+                      <span>Repos</span>
+                      <span />
+                    </div>
+                  )}
+                  {session.exercises.map((ex, idx) => (
+                    <div
+                      key={idx}
+                      className="grid grid-cols-2 gap-2 md:grid-cols-[1fr_80px_80px_80px_32px]"
+                    >
+                      <Input
+                        value={ex.name}
+                        onChange={(e) => updateExercise(session.id, idx, 'name', e.target.value)}
+                        placeholder="Exercice"
+                        className="col-span-2 md:col-span-1"
+                      />
+                      <Input
+                        value={ex.sets}
+                        onChange={(e) => updateExercise(session.id, idx, 'sets', e.target.value)}
+                        placeholder="4x8"
+                      />
+                      <Input
+                        value={ex.load}
+                        onChange={(e) => updateExercise(session.id, idx, 'load', e.target.value)}
+                        placeholder="60kg"
+                      />
+                      <Input
+                        value={ex.rest}
+                        onChange={(e) => updateExercise(session.id, idx, 'rest', e.target.value)}
+                        placeholder="90s"
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeExercise(session.id, idx)}
+                        className="text-muted-foreground hover:text-danger"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  <Button variant="outline" size="sm" onClick={() => addExercise(session.id)} className="self-start">
+                    <Plus className="h-4 w-4" />
+                    Ajouter exercice
+                  </Button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+        <Button variant="outline" size="sm" onClick={addSession} className="self-start">
+          <Plus className="h-4 w-4" />
+          Ajouter une séance
+        </Button>
+      </div>
+    </Card>
   );
 }
