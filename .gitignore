@@ -41,10 +41,28 @@ lambda_functions/jmespath/
 lambda_functions/jmespath-*.dist-info/
 lambda_functions/typing_extensions*
 lambda_functions/bin/
+# coach_stream vendored deps (Starlette + uvicorn, pure-python)
+lambda_functions/starlette/
+lambda_functions/starlette-*.dist-info/
+lambda_functions/uvicorn/
+lambda_functions/uvicorn-*.dist-info/
+lambda_functions/anyio/
+lambda_functions/anyio-*.dist-info/
+lambda_functions/sniffio/
+lambda_functions/sniffio-*.dist-info/
+lambda_functions/click/
+lambda_functions/click-*.dist-info/
+lambda_functions/h11/
+lambda_functions/h11-*.dist-info/
+lambda_functions/idna/
+lambda_functions/idna-*.dist-info/
 
 # CDK
 cdk.out/
 .cdk.staging/
+
+# Deployment artifacts
+deployment-info-*.json
 cdk.context.json
 
 # IDE

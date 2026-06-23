@@ -66,6 +66,12 @@ interface PacePoint {
 
 interface CoachSummary {
   recent_feedback: CoachFeedbackItem[];
+  current_week?: {
+    runs: number;
+    run_km: number;
+    other: number;
+    total: number;
+  };
   trends: {
     weekly_volume_km: number[];
     sessions_per_week: number[];
@@ -541,6 +547,16 @@ export function CoachPage() {
     data?.recent_feedback?.[0]?.coach_feedback?.recommendation_next ??
     t('coach.now.nextSession.fallback');
 
+  // Real current-week tally (recomputed live on every /coach/summary load),
+  // shown as the source of truth alongside the coach's frozen recommendation.
+  const cw = data?.current_week;
+  const currentWeekLabel = cw
+    ? [
+        cw.runs > 0 ? `${cw.runs} ${cw.runs > 1 ? t('coach.now.thisWeek.runs') : t('coach.now.thisWeek.run')} (${cw.run_km.toFixed(1)}km)` : null,
+        cw.other > 0 ? `${cw.other} ${cw.other > 1 ? t('coach.now.thisWeek.others') : t('coach.now.thisWeek.other')}` : null,
+      ].filter(Boolean).join(' + ') || t('coach.now.thisWeek.none')
+    : null;
+
   const compliance = trends?.compliance ?? null;
 
   let rampTone: 'success' | 'danger' | 'muted' = 'muted';
@@ -597,6 +613,11 @@ export function CoachPage() {
                     </span>
                     <InfoTooltip i18nKey="metrics.nextSession" align="start" />
                   </div>
+                  {currentWeekLabel ? (
+                    <p className="text-xs text-muted-foreground mb-1">
+                      {t('coach.now.thisWeek.label')}: {currentWeekLabel}
+                    </p>
+                  ) : null}
                   <p className="text-sm leading-relaxed">{nextSession}</p>
                 </div>
               </div>

@@ -668,6 +668,21 @@ def build_historical_summary(user_id: str, current_activity_id: str) -> Dict[str
                     entry["prev_coach_note"] = sb[:150]
             recent_breakdown.append(entry)
 
+        # Explicit per-week session counts (runs/km/strength) so the coach states
+        # real weekly figures instead of hallucinating "5 séances cette semaine".
+        # Reuses the same helper as the chat; normalize field names first
+        # (activity_data_json uses `type`, the helper expects `activity_type`).
+        from shared.coach_context import format_weekly_breakdown
+        normalized = [
+            {
+                "activity_type": a.get("type", a.get("activity_type", "")),
+                "distance": a.get("distance", 0),
+                "start_date": a.get("start_date_local") or a.get("start_date", ""),
+            }
+            for a in activities
+        ]
+        weekly_breakdown = format_weekly_breakdown(normalized)
+
         return {
             "weeks": 4,
             "total_activities": len(activities),
@@ -678,6 +693,7 @@ def build_historical_summary(user_id: str, current_activity_id: str) -> Dict[str
             "weeks_active": weeks_active,
             "consistency": f"{weeks_active}/4 weeks",
             "weekly_km": {str(k): round(v, 1) for k, v in weekly_distances.items()},
+            "weekly_breakdown": weekly_breakdown,
             "recent_activities": recent_breakdown,
             **_build_fitness_trend(activities),
         }

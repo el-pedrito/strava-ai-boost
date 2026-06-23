@@ -10,6 +10,10 @@ export interface AppConfig {
   cognitoUserPoolId: string;
   cognitoClientId: string;
   cognitoRegion: string;
+  // Optional: coach streaming (AG-UI over SSE). When absent, CoachChat falls
+  // back to the buffered /coach/ask endpoint — no regression.
+  identityPoolId?: string;
+  coachStreamUrl?: string;
 }
 
 let _config: AppConfig | null = null;
@@ -40,6 +44,8 @@ export async function loadConfig(): Promise<AppConfig> {
     cognitoUserPoolId: (import.meta.env.VITE_COGNITO_USER_POOL_ID as string) || '',
     cognitoClientId: (import.meta.env.VITE_COGNITO_CLIENT_ID as string) || '',
     cognitoRegion: (import.meta.env.VITE_COGNITO_REGION as string) || 'us-east-1',
+    identityPoolId: (import.meta.env.VITE_COGNITO_IDENTITY_POOL_ID as string) || undefined,
+    coachStreamUrl: (import.meta.env.VITE_COACH_STREAM_URL as string) || undefined,
   };
 
   return _config;

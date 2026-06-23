@@ -1156,9 +1156,21 @@ def get_coach_summary(user_id: str) -> Dict[str, Any]:
         except Exception:
             pass
 
+        # Real current-week tally (post-reversal: last index = week in progress).
+        # Computed live on every /coach/summary call so the frontend reflects the
+        # actual sessions done this week instead of the frozen (sometimes
+        # hallucinated) recommendation_next text.
+        current_week = {
+            'runs': run_sessions_per_week[-1] if run_sessions_per_week else 0,
+            'run_km': round(weekly_volume[-1], 1) if weekly_volume else 0.0,
+            'other': other_sessions_per_week[-1] if other_sessions_per_week else 0,
+            'total': sessions_per_week[-1] if sessions_per_week else 0,
+        }
+
         return {
             'athlete_profile': athlete_profile,
             'recent_feedback': recent_feedback,
+            'current_week': current_week,
             'trends': {
                 'weekly_volume_km': [round(v, 1) for v in weekly_volume],
                 'sessions_per_week': sessions_per_week,

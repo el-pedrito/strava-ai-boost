@@ -3,7 +3,8 @@ import { SendHorizonal, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button, Card, Input } from '@/ui';
 import { cn } from '@/lib/cn';
-import { api } from '../../api/client.ts';
+import { api, getIdToken } from '../../api/client.ts';
+import { isStreamingEnabled, streamCoachAnswer } from '../../api/coachStream.ts';
 import { getConfig } from '../../config.ts';
 
 interface Message {
@@ -51,6 +52,7 @@ export function CoachChat() {
   const [messages, setMessages] = useState<Message[]>(getInitialMessages);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [streaming, setStreaming] = useState(false);
   const [sessionId] = useState<string>(getOrCreateSessionId);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -63,6 +65,24 @@ export function CoachChat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
+  // Buffered fallback: the original one-shot POST to /coach/ask.
+  const sendBuffered = async (
+    trimmed: string,
+    userId: string,
+    history: ChatHistoryEntry[],
+  ) => {
+    const res = await api.post<AskResponse>('/coach/ask', {
+      question: trimmed,
+      user_id: userId,
+      session_id: sessionId,
+      history,
+    });
+    setMessages((prev) => [
+      ...prev,
+      { role: 'coach', text: res.answer, timestamp: new Date().toLocaleTimeString() },
+    ]);
+  };
+
   const sendQuestion = async (question: string) => {
     const trimmed = question.trim();
     if (!trimmed || loading) return;
@@ -73,22 +93,48 @@ export function CoachChat() {
     ]);
     setLoading(true);
 
+    const userId = getConfig().defaultUserId;
+    const history: ChatHistoryEntry[] = messages.slice(-10).map((m) => ({
+      role: m.role === 'user' ? 'user' : 'assistant',
+      content: m.text,
+    }));
+
     try {
-      const userId = getConfig().defaultUserId;
-      const history: ChatHistoryEntry[] = messages.slice(-10).map((m) => ({
-        role: m.role === 'user' ? 'user' : 'assistant',
-        content: m.text,
-      }));
-      const res = await api.post<AskResponse>('/coach/ask', {
-        question: trimmed,
-        user_id: userId,
-        session_id: sessionId,
-        history,
-      });
-      setMessages((prev) => [
-        ...prev,
-        { role: 'coach', text: res.answer, timestamp: new Date().toLocaleTimeString() },
-      ]);
+      const idToken = getIdToken();
+      if (isStreamingEnabled() && idToken) {
+        // Streaming path: append a coach placeholder, fill it token-by-token.
+        const startedAt = new Date().toLocaleTimeString();
+        let streamed = '';
+        setMessages((prev) => [...prev, { role: 'coach', text: '', timestamp: startedAt }]);
+        const appendDelta = (delta: string) => {
+          // First token arrived: hide the "coach is thinking" indicator.
+          setStreaming(true);
+          streamed += delta;
+          setMessages((prev) => {
+            const next = [...prev];
+            next[next.length - 1] = { role: 'coach', text: streamed, timestamp: startedAt };
+            return next;
+          });
+        };
+        try {
+          await streamCoachAnswer(
+            { question: trimmed, user_id: userId, session_id: sessionId },
+            idToken,
+            { onDelta: appendDelta },
+          );
+          if (streamed) return;
+          // Empty stream: drop the placeholder and fall through to buffered.
+          setMessages((prev) => prev.slice(0, -1));
+        } catch (streamErr) {
+          // Streaming failed: surface the real cause, then fall back to buffered POST.
+          console.error('[coach stream] failed, falling back to /coach/ask:', streamErr);
+          setMessages((prev) => prev.slice(0, -1));
+        } finally {
+          setStreaming(false);
+        }
+      }
+
+      await sendBuffered(trimmed, userId, history);
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -178,7 +224,7 @@ export function CoachChat() {
                 </div>
               </div>
             ))}
-            {loading ? (
+            {loading && !streaming ? (
               <div className="flex justify-start">
                 <div className="rounded-2xl px-4 py-3 bg-surface border border-border">
                   <div className="text-xs text-muted-foreground mb-1 font-medium">
