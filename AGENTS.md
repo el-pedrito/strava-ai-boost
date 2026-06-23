@@ -26,7 +26,7 @@ Strava AI Boost is a **serverless AWS application** that automatically enhances 
 
 ### Key Statistics
 - **~18,000 LOC** in core components
-- **16 Lambda functions** (5 API, 3 processing, 4 webhooks, 2 support, 2 coach)
+- **17 Lambda functions** (5 API, 3 processing, 4 webhooks, 2 support, 2 coach, 1 coach streaming)
 - **3 AgentCore agents**
 - **7 CDK stacks**
 - **202 tests** (162 backend + 40 frontend)
@@ -57,9 +57,17 @@ Campus Coach Context: Sessions stored in DynamoDB → scored deterministically a
 
 **Conversational Coach:**
 ```
-POST /coach/ask → CoachAskAPI Lambda → AgentCore Runtime session (strava_ai_boost_coach) → streaming response
-Sessions persist via AgentCore Runtime session IDs (per-user, stateful conversations)
+Streaming (primary): POST <FunctionURL>/coach/ask/stream → CoachStreamAPI (Starlette + Lambda Web Adapter)
+  → bedrock converse_stream → AG-UI SSE events (RUN_STARTED / TEXT_MESSAGE_* / RUN_FINISHED)
+  Function URL: AWS_IAM + RESPONSE_STREAM. Frontend signs SigV4 via Cognito Identity Pool.
+Buffered (fallback): POST /coach/ask → CoachAskAPI Lambda → AgentCore Runtime session → response
+  Frontend (CoachChat.tsx) tries streaming first, falls back to buffered on any failure.
 ```
+
+Both paths build athlete context via `shared/coach_context.py` (`build_user_context` +
+`format_weekly_breakdown` for real per-ISO-week run/km/strength counts — prevents the coach
+from hallucinating weekly session totals). `coach_generator.py` reuses `format_weekly_breakdown`
+in `build_historical_summary` so per-activity feedback also reports real weekly figures.
 
 ---
 
@@ -97,7 +105,11 @@ strava-ai-boost/
 │   │   ├── dashboard_api.py            # Dashboard API
 │   │   ├── user_preferences_api.py     # Preferences API
 │   │   ├── agentcore_health_check.py   # Health check
-│   │   └── coach_ask_api.py            # Conversational coach endpoint
+│   │   └── coach_ask_api.py            # Conversational coach endpoint (buffered fallback)
+│   ├── coach_stream/                   # Streaming coach (AG-UI SSE)
+│   │   ├── app.py                      # Starlette app, bedrock converse_stream → AG-UI events
+│   │   ├── run.sh                      # Lambda Web Adapter startup (uvicorn); handler=coach_stream/run.sh
+│   │   └── requirements.txt            # starlette + uvicorn (pure-python, vendored via build_coach_stream_deps.sh)
 │   ├── processing/                     # Content pipeline
 │   │   ├── activity_fetcher.py         # Data fetcher
 │   │   ├── content_generator.py        # AI content generation
@@ -120,6 +132,7 @@ strava-ai-boost/
 │       ├── logger.py                   # Powertools Logger, Metrics, correlation IDs
 │       ├── env_validation.py           # Environment variable validation
 │       ├── responses.py                # Standardized API responses
+│       ├── coach_context.py            # Athlete context builders + format_weekly_breakdown (chat + stream)
 │       └── strava_oauth.py             # OAuth token management
 │
 ├── src/

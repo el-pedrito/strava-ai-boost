@@ -125,6 +125,10 @@ class TestBuildHistoricalSummary:
         assert summary["weeks"] == 4
         assert summary["total_distance_km"] == 80.0
         assert summary["weeks_active"] == 3
+        # Real per-week breakdown is now provided (string; may be empty if all
+        # activities fall outside the rolling 4-week window relative to today).
+        assert "weekly_breakdown" in summary
+        assert isinstance(summary["weekly_breakdown"], str)
 
 from processing.coach_generator import _compute_coach_metrics, extract_and_store_prs, _build_fitness_trend
 
