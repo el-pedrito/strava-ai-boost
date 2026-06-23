@@ -9,7 +9,7 @@ export class ApiError extends Error {
   }
 }
 
-function getIdToken(): string | null {
+export function getIdToken(): string | null {
   try {
     const config = getConfig();
     if (!config.cognitoUserPoolId || !config.cognitoClientId) return null;
