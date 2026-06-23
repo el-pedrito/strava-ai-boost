@@ -91,6 +91,7 @@ api_stack = ApiGatewayStack(
     "StravaAIBoost-API",
     core_stack=core_stack,
     user_pool=frontend_stack.user_pool,
+    user_pool_client=frontend_stack.user_pool_client,
     cloudfront_domain=frontend_stack.distribution.distribution_domain_name,
     audio_debrief_lambda=voice_debrief_stack.api_lambda,
     env=env,

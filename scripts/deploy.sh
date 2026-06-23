@@ -171,6 +171,17 @@ else
     print_warning "Lambda Layer build script not found, skipping layer build"
 fi
 
+print_status "Vendoring coach streaming deps (Starlette + uvicorn)..."
+if [ -f "scripts/build_coach_stream_deps.sh" ]; then
+    chmod +x scripts/build_coach_stream_deps.sh
+    if ./scripts/build_coach_stream_deps.sh; then
+        print_status "✅ Coach streaming deps vendored"
+    else
+        print_error "❌ Coach streaming deps vendoring failed"
+        exit 1
+    fi
+fi
+
 # Step 5: CDK Synthesis and Validation
 print_section "🔍 Step 5: CDK synthesis and validation"
 

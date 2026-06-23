@@ -119,6 +119,12 @@ Dette technique #1+#4 : hash `LAYER_ASSET_HASH` et build du layer sont manuels. 
 ### CDK Feature Flags manquants
 Dette technique #2 : ~35/58 flags configurés dans `cdk.json` — warnings a chaque `cdk synth/deploy`. Bruit log + risque comportement par defaut legacy sur upgrade CDK. Passer `cdk flags` puis aligner.
 
+### Hallucination résumé hebdo hors-chat (bloc "Prochaine séance")
+Le composant frontend affichant "Prochaine séance / Total semaine en cours : X séances" hallucine les chiffres (ex: "5 séances cette semaine" alors que 0 activité réelle cette semaine). Bug distinct du chat coach — le chat a été corrigé via `format_weekly_breakdown` (découpage hebdo explicite dans le contexte) le 2026-06-23. Appliquer le même type de fix au composant/endpoint qui génère ce bloc (probablement /coach/summary ou /coach/trends, ou le coach_feedback généré à l'enhancement). Localiser le composant frontend puis injecter les vrais chiffres hebdo au lieu de laisser le LLM extrapoler.
+
+### cdk-nag absent (chantier dédié)
+Aucune intégration cdk-nag dans le projet (`Aspects.of(app).add(AwsSolutionsChecks())` absent de `app.py`). Le skill `check-cdk-security` le flagge comme requis pour les projets CDK. À traiter dans un chantier dédié car l'activation app-wide fera remonter des findings sur les 7 stacks existants (à trier + supprimer avec justification). Détecté le 2026-06-23 lors de l'ajout du coach streaming (AG-UI). Le nouveau code (Function URL AWS_IAM + RESPONSE_STREAM, Identity Pool sans accès non-authentifié, rôle scopé) passe l'audit manuel — c'est l'outillage automatisé qui manque, pas la conformité.
+
 ## P3 — Low
 
 ### Campus Coach API
@@ -308,4 +314,7 @@ vide = comportement actuel.
 ### Verify Observability Stack
 - Checker traces dans CloudWatch GenAI Observability dashboard
 - Verifier X-Ray custom resources et CloudWatch Logs resource policy
+
+### A2UI — generative UI pour le coach (évolution future)
+Le coach streame aujourd'hui du texte via AG-UI (SSE : Function URL `RESPONSE_STREAM`/`AWS_IAM` + SigV4 Identity Pool, `coach_stream/app.py` Starlette + Lambda Web Adapter). A2UI (`a2ui-project`, Google/ADK, preview v0.9.1) est **complémentaire** : il définit un format JSON déclaratif d'UI que l'agent génère, et utilise **AG-UI comme transport** — le socle SSE déjà en place. Pertinent SI on veut des artefacts riches générés à la volée (graphe de charge interactif, formulaire d'objectifs dynamique) plutôt que du texte. Pas prioritaire : (1) le coach renvoie du texte conversationnel, pas d'UI dynamique ; (2) A2UI pas encore v1.0 (policy §10) ; (3) rendu couplé à CopilotKit/Lit, alors qu'on a un design system maison. À reconsidérer quand un besoin de generative UI concret apparaît. Détecté 2026-06-23.
 - Si pas de traces : checker OpenTelemetry enabled dans AgentCore runtime

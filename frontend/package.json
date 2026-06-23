@@ -12,6 +12,10 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@aws-crypto/sha256-js": "^5.2.0",
+    "@aws-sdk/client-cognito-identity": "^3.1075.0",
+    "@aws-sdk/credential-provider-cognito-identity": "^3.972.48",
+    "@aws-sdk/signature-v4": "^3.370.0",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
     "@radix-ui/react-popover": "^1.1.15",
@@ -21,7 +25,8 @@
     "@radix-ui/react-tabs": "^1.1.13",
     "@radix-ui/react-toast": "^1.2.15",
     "@radix-ui/react-tooltip": "^1.2.8",
-    "amazon-cognito-identity-js": "^6.3.16",
+    "@smithy/protocol-http": "^5.5.2",
+    "amazon-cognito-identity-js": "^6.3.18",
     "framer-motion": "^12.38.0",
     "i18next": "^26.1.0",
     "i18next-browser-languagedetector": "^8.2.1",
@@ -31,7 +36,8 @@
     "react-i18next": "^17.0.7",
     "react-is": "^19.2.6",
     "react-leaflet": "4.2.1",
-    "react-router-dom": "^7.13.1",
+    "react-router": "^7.18.0",
+    "react-router-dom": "^7.18.0",
     "recharts": "^3.8.1"
   },
   "devDependencies": {
