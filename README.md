@@ -10,6 +10,7 @@ Strava AI Boost is a production-ready, modular serverless application that autom
 - Python 3.12+, Node.js (for CDK)
 - AgentCore CLI (for Phase 2 only)
 - Strava Account with API application registered
+- **Paid Strava subscription (required since 2026)** — Strava now gates all API access behind an active subscription. Without it, your API application is set to `Inactive` and every call returns `403 Forbidden` (`Application Status: Inactive`), so no activities can be read or enhanced. See [Strava OAuth Setup](#strava-oauth-setup).
 
 ### Phase 1: Infrastructure Deployment (Required)
 
@@ -92,6 +93,8 @@ The frontend is hosted on CloudFront with Cognito authentication:
 ## Configuration
 
 ### Strava OAuth Setup
+
+> **⚠️ Strava subscription required (policy change, 2026).** Strava moved API access to subscriber-only: *"We're updating API access to be subscriber-only. Start a subscription to maintain your access."* An account without an active paid subscription has its API application forced to `Inactive`, and **every** API call (read *and* write, including `GET /athlete`) returns `403 Forbidden` with body `{"resource":"Application","field":"Status","code":"Inactive"}`. A secondary symptom is the OAuth token scope being downgraded to `read` only (losing `activity:read_all` and `activity:write`). Subscribe at https://www.strava.com/subscribe to restore access; once the app is `Active`, a normal token refresh recovers the full `activity:read_all activity:write read` scope automatically. Note: the *"Upgrade your API"* option on the dashboard (higher rate limits / more athletes) is unrelated and **not** required for a personal single-athlete deployment.
 
 1. Go to https://www.strava.com/settings/api and create an app
 2. Set **Authorization Callback Domain** to your CloudFront domain (e.g., `d1p03w7uoqpahh.cloudfront.net`) — no http://, no path
@@ -396,6 +399,7 @@ aws logs filter-log-events \
 - Check enhancement is not paused (Dashboard > Resume Enhancement)
 - Verify webhook: `./scripts/configure_strava_webhook.sh dev --validate-only`
 - Check SQS queue and DLQ for stuck messages
+- **Strava 403 `Application Status: Inactive`** — the Strava API application has been deactivated because the account lacks an active paid subscription (see [Strava OAuth Setup](#strava-oauth-setup)). Step Functions executions fail with `403 Client Error: Forbidden` and messages land in the DLQ. Fix: subscribe at https://www.strava.com/subscribe, confirm the app is `Active` (a token refresh restores the full scope automatically), then reprocess the DLQ.
 
 **Modules showing disabled after OAuth refresh**
 - Fixed in v2.4.0: `user_id` is now persisted at top level during OAuth callback
