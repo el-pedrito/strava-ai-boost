@@ -279,10 +279,11 @@ class WebhookProcessingStack(Stack):
             topic_name="strava-ai-boost-ops-alerts",
             display_name="Strava AI Boost Ops Alerts"
         )
-        alert_email = self.node.try_get_context("alert_email") or "user@example.com"
-        self.alerts_topic.add_subscription(
-            sns_subscriptions.EmailSubscription(alert_email)
-        )
+        alert_email = self.node.try_get_context("alert_email")
+        if alert_email:
+            self.alerts_topic.add_subscription(
+                sns_subscriptions.EmailSubscription(alert_email)
+            )
         alarm_action = cw_actions.SnsAction(self.alerts_topic)
 
         # Alarm on DLQ messages (AWS Best Practice)
@@ -328,6 +329,8 @@ class WebhookProcessingStack(Stack):
         lambda_errors_alarm.add_alarm_action(alarm_action)
 
         # Monthly cost budget with email notification at 80% actual and 100% forecasted
+        if not alert_email:
+            return  # Budget notifications require an email; set alert_email in cdk.context.json
         budget_limit = float(self.node.try_get_context("budget_limit_usd") or 35)
         budgets.CfnBudget(
             self, "MonthlyCostBudget",

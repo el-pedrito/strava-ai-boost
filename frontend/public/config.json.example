@@ -1,0 +1,9 @@
+{
+  "apiGatewayUrl": "https://YOUR_API_ID.execute-api.YOUR_REGION.amazonaws.com/prod",
+  "defaultUserId": "YOUR_STRAVA_ATHLETE_ID",
+  "cognitoUserPoolId": "YOUR_REGION_XXXXXXXXX",
+  "cognitoClientId": "YOUR_COGNITO_CLIENT_ID",
+  "cognitoRegion": "us-east-1",
+  "identityPoolId": "YOUR_REGION:YOUR_IDENTITY_POOL_ID",
+  "coachStreamUrl": "https://YOUR_FUNCTION_URL.lambda-url.YOUR_REGION.on.aws/coach/ask/stream"
+}

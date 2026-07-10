@@ -678,7 +678,7 @@ aws cognito-idp admin-create-user \
 ./scripts/configure_agentcore_integration.sh
 ```
 
-**Frontend URL:** https://d1p03w7uoqpahh.cloudfront.net (deployed automatically with the Frontend stack)
+**Frontend URL:** the `DistributionDomain` output of the Frontend stack (deployed automatically)
 
 ### Updating Existing Deployment
 

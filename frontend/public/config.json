@@ -1,9 +1,0 @@
-{
-  "apiGatewayUrl": "https://uprxy587ri.execute-api.us-east-1.amazonaws.com/prod",
-  "defaultUserId": "YOUR_USER_ID",
-  "cognitoUserPoolId": "us-east-1_KzemZ5qIG",
-  "cognitoClientId": "14qeb2oe765ocujhdnhg5ibga9",
-  "cognitoRegion": "us-east-1",
-  "identityPoolId": "us-east-1:d457a74e-4c9e-4580-8bde-4cb97ceeea2a",
-  "coachStreamUrl": "https://pjidhr5vhtffvia32ziquza2mi0izylk.lambda-url.us-east-1.on.aws/coach/ask/stream"
-}

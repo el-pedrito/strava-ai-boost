@@ -1,6 +1,5 @@
-# Pre-commit hooks for SA demo projects
+# Pre-commit hooks
 # Install: pip install pre-commit && pre-commit install
-# Reference: https://console.harmony.a2z.com/engsec-docs/SA/using-gitlab-for-engagements
 
 repos:
   # Secret detection — REQUIRED per Code Scanner Recommendations

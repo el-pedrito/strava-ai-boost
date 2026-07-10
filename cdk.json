@@ -55,7 +55,6 @@
     "@aws-cdk/aws-ec2:ebsDefaultGp3Volume": true,
     "@aws-cdk/aws-ecs:removeDefaultDeploymentAlarm": false,
     "region": "us-east-1",
-    "default_user_id": "YOUR_USER_ID",
     "lambda_web_adapter": {
       "account": "123456789012",
       "layer_name": "LambdaAdapterLayerX86",

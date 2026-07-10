@@ -66,7 +66,7 @@ cdk deploy --all --require-approval never
 
 The frontend is hosted on CloudFront with Cognito authentication:
 
-**Live URL:** https://d1p03w7uoqpahh.cloudfront.net
+**Live URL:** your CloudFront distribution domain (see `DistributionDomain` output of the Frontend stack)
 
 1. **Create a user** (no self-registration — admin only):
    ```bash
@@ -97,7 +97,7 @@ The frontend is hosted on CloudFront with Cognito authentication:
 > **⚠️ Strava subscription required (policy change, 2026).** Strava moved API access to subscriber-only: *"We're updating API access to be subscriber-only. Start a subscription to maintain your access."* An account without an active paid subscription has its API application forced to `Inactive`, and **every** API call (read *and* write, including `GET /athlete`) returns `403 Forbidden` with body `{"resource":"Application","field":"Status","code":"Inactive"}`. A secondary symptom is the OAuth token scope being downgraded to `read` only (losing `activity:read_all` and `activity:write`). Subscribe at https://www.strava.com/subscribe to restore access; once the app is `Active`, a normal token refresh recovers the full `activity:read_all activity:write read` scope automatically. Note: the *"Upgrade your API"* option on the dashboard (higher rate limits / more athletes) is unrelated and **not** required for a personal single-athlete deployment.
 
 1. Go to https://www.strava.com/settings/api and create an app
-2. Set **Authorization Callback Domain** to your CloudFront domain (e.g., `d1p03w7uoqpahh.cloudfront.net`) — no http://, no path
+2. Set **Authorization Callback Domain** to your CloudFront domain (e.g., `dXXXXXXXXXXXXX.cloudfront.net`) — no http://, no path
 3. Store credentials in Secrets Manager:
    ```bash
    aws secretsmanager put-secret-value \
@@ -406,7 +406,7 @@ aws logs filter-log-events \
 - If still occurring, disconnect and reconnect Strava OAuth
 
 **Frontend won't load**
-- Verify CloudFront distribution is deployed: check https://d1p03w7uoqpahh.cloudfront.net
+- Verify CloudFront distribution is deployed: check the `DistributionDomain` stack output
 - Check Cognito User Pool exists and user is created
 - If login fails, verify password meets 12+ character requirement
 - Check browser console for CORS errors (CloudFront domain must be in API Gateway CORS config)
