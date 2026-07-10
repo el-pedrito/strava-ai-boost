@@ -129,28 +129,6 @@ class AWSTestConfig:
         
         return None
     
-    def get_api_gateway_key(self) -> Optional[str]:
-        """Get API Gateway key value from API Gateway"""
-        try:
-            apigw = self.session.client('apigateway')
-            
-            # Find API keys with values
-            keys = apigw.get_api_keys(includeValues=True)
-            
-            for key in keys['items']:
-                if 'strava-ai-boost' in key['name'].lower():
-                    # Return the actual key value, not the ID
-                    return key.get('value', key.get('id'))
-            
-            # If no named key found, try to get any key
-            if keys['items']:
-                return keys['items'][0].get('value', keys['items'][0].get('id'))
-                
-        except Exception as e:
-            logger.warning(f"Failed to get API Gateway key: {e}")
-        
-        return None
-    
     def get_all_resources(self) -> Dict[str, Any]:
         """Get all AWS resources for testing"""
         return {
@@ -159,8 +137,7 @@ class AWSTestConfig:
             'queues': self.get_sqs_queues(),
             'step_functions': self.get_step_functions(),
             'secrets': self.get_secrets(),
-            'api_url': self.get_api_gateway_url(),
-            'api_key': self.get_api_gateway_key()
+            'api_url': self.get_api_gateway_url()
         }
     
     def print_summary(self):
@@ -194,8 +171,6 @@ class AWSTestConfig:
         
         if resources['api_url']:
             print(f"\nAPI Gateway URL: {resources['api_url']}")
-        if resources['api_key']:
-            print(f"API Gateway Key: {resources['api_key'][:10]}...")
         
         print("="*60 + "\n")
 

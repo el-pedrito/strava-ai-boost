@@ -4,7 +4,6 @@ import { ApiError, api } from '../client';
 vi.mock('../../config.ts', () => ({
   getConfig: () => ({
     apiGatewayUrl: 'https://api.example.com',
-    apiGatewayKey: 'test-key',
     defaultUserId: 'user-123',
   }),
 }));
@@ -39,7 +38,6 @@ describe('api.get', () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           'Content-Type': 'application/json',
-          'x-api-key': 'test-key',
         }),
       }),
     );

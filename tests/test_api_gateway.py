@@ -15,19 +15,20 @@ from .aws_config import get_aws_config
 
 @pytest.fixture(scope="module")
 def api_client(aws_config):
-    """Create API client with dynamic configuration"""
+    """Create API client with dynamic configuration (Cognito JWT auth)"""
+    import os
+
     api_url = aws_config.get_api_gateway_url()
-    api_key = aws_config.get_api_gateway_key()
-    
-    if not api_url or not api_key:
-        pytest.skip("API Gateway not fully configured")
-    
+    id_token = os.environ.get("COGNITO_ID_TOKEN")
+
+    if not api_url or not id_token:
+        pytest.skip("API Gateway URL or COGNITO_ID_TOKEN not configured")
+
     class APIClient:
-        def __init__(self, base_url, api_key):
+        def __init__(self, base_url, id_token):
             self.base_url = base_url.rstrip('/')
-            self.api_key = api_key
             self.headers = {
-                "X-API-Key": self.api_key,
+                "Authorization": id_token,
                 "Content-Type": "application/json"
             }
         
@@ -65,7 +66,7 @@ def api_client(aws_config):
                 timeout=timeout
             )
     
-    return APIClient(api_url, api_key)
+    return APIClient(api_url, id_token)
 
 
 class TestHealthEndpoints:
@@ -269,38 +270,38 @@ class TestErrorHandling:
         # Should return 403 or 405 (Method Not Allowed)
         assert response.status_code in [403, 405]
     
-    def test_missing_api_key(self):
-        """Test request without API key"""
+    def test_missing_auth_token(self):
+        """Test request without Cognito token"""
         # Get API URL
         config = get_aws_config()
         api_url = config.get_api_gateway_url()
-        
+
         if not api_url:
             pytest.skip("API Gateway URL not available")
-        
-        # Request without API key
+
+        # Request without Authorization header
         response = requests.get(f"{api_url}/health/agentcore", timeout=10)
-        
-        # Should return 403 (Forbidden)
-        assert response.status_code == 403
-    
-    def test_invalid_api_key(self):
-        """Test request with invalid API key"""
+
+        # Should return 401 (Unauthorized)
+        assert response.status_code == 401
+
+    def test_invalid_auth_token(self):
+        """Test request with invalid Cognito token"""
         config = get_aws_config()
         api_url = config.get_api_gateway_url()
-        
+
         if not api_url:
             pytest.skip("API Gateway URL not available")
-        
-        # Request with invalid API key
+
+        # Request with invalid token
         response = requests.get(
             f"{api_url}/health/agentcore",
-            headers={"X-API-Key": "invalid-key-12345"},
+            headers={"Authorization": "invalid-token-12345"},
             timeout=10
         )
-        
-        # Should return 403 (Forbidden)
-        assert response.status_code == 403
+
+        # Should return 401 (Unauthorized)
+        assert response.status_code == 401
 
 
 class TestAPIPerformance:
@@ -479,11 +480,10 @@ class TestAPIGatewaySummary:
         print("="*60)
         
         api_url = aws_config.get_api_gateway_url()
-        api_key = aws_config.get_api_gateway_key()
-        
+
         print(f"API URL: {api_url}")
-        print(f"API Key: {api_key[:15]}..." if api_key else "API Key: Not found")
-        
+        print("Auth: Cognito JWT (set COGNITO_ID_TOKEN env var for live tests)")
+
         print("\nAvailable Endpoints:")
         endpoints = [
             "GET  /health/agentcore",
@@ -506,4 +506,3 @@ class TestAPIGatewaySummary:
         print("="*60 + "\n")
         
         assert api_url is not None, "API Gateway URL should be discoverable"
-        assert api_key is not None, "API Gateway Key should be discoverable"

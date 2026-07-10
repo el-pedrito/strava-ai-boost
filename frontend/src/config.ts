@@ -5,7 +5,6 @@
 
 export interface AppConfig {
   apiGatewayUrl: string;
-  apiGatewayKey: string;
   defaultUserId: string;
   cognitoUserPoolId: string;
   cognitoClientId: string;
@@ -39,7 +38,6 @@ export async function loadConfig(): Promise<AppConfig> {
   // Fallback to Vite env variables (development)
   _config = {
     apiGatewayUrl: (import.meta.env.VITE_API_GATEWAY_URL as string) || '',
-    apiGatewayKey: (import.meta.env.VITE_API_GATEWAY_KEY as string) || '',
     defaultUserId: (import.meta.env.VITE_DEFAULT_USER_ID as string) || '',
     cognitoUserPoolId: (import.meta.env.VITE_COGNITO_USER_POOL_ID as string) || '',
     cognitoClientId: (import.meta.env.VITE_COGNITO_CLIENT_ID as string) || '',

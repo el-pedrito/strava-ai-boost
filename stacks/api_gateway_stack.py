@@ -402,14 +402,18 @@ class ApiGatewayStack(Stack):
         self.api = apigateway.RestApi(
             self, "StravaAIBoostAPI",
             rest_api_name="Strava AI Boost Local Interface API",
-            description="REST API for Strava AI Boost (Cognito + API Key auth)",
+            description="REST API for Strava AI Boost (Cognito auth)",
             default_cors_preflight_options=apigateway.CorsOptions(
                 allow_origins=allowed_origins,
                 allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-                allow_headers=["Content-Type", "Authorization", "X-Requested-With", "X-API-Key"]
+                allow_headers=["Content-Type", "Authorization", "X-Requested-With"]
             ),
             endpoint_configuration=apigateway.EndpointConfiguration(
                 types=[apigateway.EndpointType.REGIONAL]
+            ),
+            deploy_options=apigateway.StageOptions(
+                throttling_rate_limit=100,
+                throttling_burst_limit=200,
             )
         )
 
@@ -422,33 +426,8 @@ class ApiGatewayStack(Stack):
                 authorizer_name="StravaAIBoost-CognitoAuth",
             )
         
-        # Create API Key for authentication
-        self.api_key = self.api.add_api_key(
-            "StravaAIBoostAPIKey",
-            api_key_name="strava-ai-boost-local-interface-key",
-            description="API Key for Strava AI Boost local web interface"
-        )
-        
-        # Create Usage Plan
-        self.usage_plan = self.api.add_usage_plan(
-            "StravaAIBoostUsagePlan",
-            name="Strava AI Boost Local Interface Usage Plan",
-            description="Usage plan for local web interface with rate limiting",
-            throttle=apigateway.ThrottleSettings(
-                rate_limit=100,  # 100 requests per second
-                burst_limit=200  # 200 concurrent requests
-            ),
-            quota=apigateway.QuotaSettings(
-                limit=10000,  # 10,000 requests per day
-                period=apigateway.Period.DAY
-            )
-        )
-        
-        # Associate API Key with Usage Plan
-        self.usage_plan.add_api_key(self.api_key)
+        # Create API resources and methods (Cognito-authorized)
 
-        # Create API resources and methods with API Key requirement
-        
         # /config resource for configuration management
         config_resource = self.api.root.add_resource("config")
         
@@ -457,7 +436,6 @@ class ApiGatewayStack(Stack):
         strava_resource.add_method(
             "GET",
             apigateway.LambdaIntegration(self.config_lambda),
-            api_key_required=False,
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
             method_responses=[
@@ -471,7 +449,6 @@ class ApiGatewayStack(Stack):
         oauth_resource.add_method(
             "GET", 
             apigateway.LambdaIntegration(self.config_lambda),
-            api_key_required=False,
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
             method_responses=[
@@ -485,14 +462,12 @@ class ApiGatewayStack(Stack):
         oauth_resource.add_method(
             "POST",
             apigateway.LambdaIntegration(self.config_lambda),
-            api_key_required=False,
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
         )
         oauth_resource.add_method(
             "DELETE",
             apigateway.LambdaIntegration(self.config_lambda),
-            api_key_required=False,
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
         )
@@ -502,14 +477,12 @@ class ApiGatewayStack(Stack):
         modules_resource.add_method(
             "GET",
             apigateway.LambdaIntegration(self.config_lambda),
-            api_key_required=False,
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
         )
         modules_resource.add_method(
             "POST",
             apigateway.LambdaIntegration(self.config_lambda),
-            api_key_required=False,
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
         )
@@ -518,14 +491,12 @@ class ApiGatewayStack(Stack):
         module_resource.add_method(
             "PUT",
             apigateway.LambdaIntegration(self.config_lambda),
-            api_key_required=False,
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
         )
         module_resource.add_method(
             "DELETE",
             apigateway.LambdaIntegration(self.config_lambda),
-            api_key_required=False,
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
         )
@@ -535,14 +506,12 @@ class ApiGatewayStack(Stack):
         enhancement_resource.add_method(
             "GET",
             apigateway.LambdaIntegration(self.config_lambda),
-            api_key_required=False,
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
         )
         enhancement_resource.add_method(
             "POST",
             apigateway.LambdaIntegration(self.config_lambda),
-            api_key_required=False,
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
         )
@@ -555,7 +524,6 @@ class ApiGatewayStack(Stack):
         stats_resource.add_method(
             "GET",
             apigateway.LambdaIntegration(self.dashboard_lambda),
-            api_key_required=False,
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
         )
@@ -565,7 +533,6 @@ class ApiGatewayStack(Stack):
         activities_resource.add_method(
             "GET",
             apigateway.LambdaIntegration(self.dashboard_lambda),
-            api_key_required=False,
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
         )
@@ -575,7 +542,6 @@ class ApiGatewayStack(Stack):
         system_resource.add_method(
             "GET",
             apigateway.LambdaIntegration(self.dashboard_lambda),
-            api_key_required=False,
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
         )
@@ -586,7 +552,6 @@ class ApiGatewayStack(Stack):
         coach_summary_resource.add_method(
             "GET",
             apigateway.LambdaIntegration(self.dashboard_lambda),
-            api_key_required=False,
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
         )
@@ -596,7 +561,6 @@ class ApiGatewayStack(Stack):
         coach_ask_resource.add_method(
             "POST",
             apigateway.LambdaIntegration(self.coach_ask_lambda),
-            api_key_required=False,
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
         )
@@ -606,14 +570,12 @@ class ApiGatewayStack(Stack):
         coach_recaps_resource.add_method(
             "GET",
             apigateway.LambdaIntegration(self.dashboard_lambda),
-            api_key_required=False,
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
         )
         coach_recaps_resource.add_method(
             "POST",
             apigateway.LambdaIntegration(self.dashboard_lambda),
-            api_key_required=False,
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
         )
@@ -623,14 +585,12 @@ class ApiGatewayStack(Stack):
         preferences_resource.add_method(
             "GET",
             apigateway.LambdaIntegration(self.preferences_lambda),
-            api_key_required=False,
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
         )
         preferences_resource.add_method(
             "POST",
             apigateway.LambdaIntegration(self.preferences_lambda),
-            api_key_required=False,
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
         )
@@ -641,7 +601,6 @@ class ApiGatewayStack(Stack):
         agentcore_health_resource.add_method(
             "GET",
             apigateway.LambdaIntegration(self.agentcore_health_lambda),
-            api_key_required=False,
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
         )
@@ -654,7 +613,6 @@ class ApiGatewayStack(Stack):
             audio_url_resource.add_method(
                 "GET",
                 apigateway.LambdaIntegration(self.audio_debrief_lambda),
-                api_key_required=False,
                 authorizer=self.cognito_authorizer,
                 authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
                 method_responses=[
@@ -672,28 +630,15 @@ class ApiGatewayStack(Stack):
         strava_connection_resource.add_method(
             "GET",
             apigateway.LambdaIntegration(self.config_lambda),
-            api_key_required=False,
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
         )
         
-        # Associate Usage Plan with API Stage
-        self.usage_plan.add_api_stage(
-            stage=self.api.deployment_stage
-        )
-
         # Add request validation
         self.api.add_request_validator(
             "RequestValidator",
             validate_request_body=True,
             validate_request_parameters=True
-        )
-        
-        # Output API Key value (will be shown in CloudFormation outputs)
-        CfnOutput(
-            self, "APIKeyValue",
-            value=self.api_key.key_id,
-            description="API Key ID for Strava AI Boost local interface (retrieve value with: aws apigateway get-api-key --api-key <key-id> --include-value)"
         )
 
     @property

@@ -204,7 +204,13 @@ class TestApiGatewayStack:
     @pytest.fixture
     def api_stack(self):
         """Create API Gateway stack for testing"""
-        app = cdk.App()
+        # Load cdk.json context (lambda_web_adapter layer config needed by the stack)
+        import json
+        from pathlib import Path
+        cdk_context = json.loads(
+            (Path(__file__).parent.parent / "cdk.json").read_text()
+        ).get("context", {})
+        app = cdk.App(context=cdk_context)
         core_stack = CoreInfrastructureStack(
             app,
             "TestCoreStack",
@@ -224,21 +230,24 @@ class TestApiGatewayStack:
         
         template.resource_count_is("AWS::ApiGateway::RestApi", 1)
     
-    def test_api_key_created(self, api_stack):
-        """Test API Key is created"""
+    def test_no_api_key(self, api_stack):
+        """Test no API Key remains (auth is Cognito-only)"""
         template = assertions.Template.from_stack(api_stack)
-        
-        template.resource_count_is("AWS::ApiGateway::ApiKey", 1)
-    
-    def test_usage_plan_created(self, api_stack):
-        """Test Usage Plan with rate limiting"""
+
+        template.resource_count_is("AWS::ApiGateway::ApiKey", 0)
+        template.resource_count_is("AWS::ApiGateway::UsagePlan", 0)
+
+    def test_stage_throttling(self, api_stack):
+        """Test stage-level rate limiting"""
         template = assertions.Template.from_stack(api_stack)
-        
-        template.has_resource_properties("AWS::ApiGateway::UsagePlan", {
-            "Throttle": {
-                "RateLimit": 100,
-                "BurstLimit": 200
-            }
+
+        template.has_resource_properties("AWS::ApiGateway::Stage", {
+            "MethodSettings": assertions.Match.array_with([
+                assertions.Match.object_like({
+                    "ThrottlingRateLimit": 100,
+                    "ThrottlingBurstLimit": 200
+                })
+            ])
         })
     
     def test_cors_configuration(self, api_stack):
@@ -254,8 +263,8 @@ class TestApiGatewayStack:
         """Test Lambda functions for API endpoints"""
         template = assertions.Template.from_stack(api_stack)
         
-        # Should have Lambda functions for config, dashboard, preferences, health
-        template.resource_count_is("AWS::Lambda::Function", 4)
+        # Config, dashboard, preferences, health, coach ask, coach stream
+        template.resource_count_is("AWS::Lambda::Function", 6)
 
 
 class TestSecurityCompliance:

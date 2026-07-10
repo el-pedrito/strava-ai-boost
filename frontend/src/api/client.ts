@@ -38,7 +38,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': token } : { 'x-api-key': config.apiGatewayKey }),
+      ...(token ? { 'Authorization': token } : {}),
       ...options?.headers,
     },
   });

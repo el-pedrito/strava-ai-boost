@@ -8,7 +8,6 @@ To run: pytest tests/test_end_to_end.py -v
 """
 
 import pytest
-from .aws_config import get_aws_config
 
 
 @pytest.mark.integration
@@ -117,41 +116,36 @@ class TestAPIGatewayEndpoints:
     def test_api_gateway_discovery(self, aws_config):
         """Test API Gateway can be discovered"""
         api_url = aws_config.get_api_gateway_url()
-        api_key = aws_config.get_api_gateway_key()
-        
-        # At least one should be discoverable
-        assert api_url or api_key, "Could not discover API Gateway URL or Key"
-        
-        if api_url:
-            assert api_url.startswith('https://'), "API Gateway URL should use HTTPS"
-            assert 'execute-api' in api_url, "Should be an API Gateway URL"
-        
-        if api_key:
-            assert len(api_key) > 10, "API Key should be properly configured"
-    
+
+        assert api_url, "Could not discover API Gateway URL"
+        assert api_url.startswith('https://'), "API Gateway URL should use HTTPS"
+        assert 'execute-api' in api_url, "Should be an API Gateway URL"
+
     def test_health_endpoint_if_available(self, aws_config):
         """Test health check endpoint if API Gateway is configured"""
+        import os
+
         api_url = aws_config.get_api_gateway_url()
-        api_key = aws_config.get_api_gateway_key()
-        
-        if not api_url or not api_key:
-            # API Gateway not fully configured - test passes (optional feature)
+        id_token = os.environ.get("COGNITO_ID_TOKEN")
+
+        if not api_url or not id_token:
+            # API Gateway or Cognito token not configured - test passes (optional feature)
             assert True, "API Gateway not configured - skipping HTTP test"
             return
-        
+
         import requests
-        
+
         try:
             response = requests.get(
                 f"{api_url}/health/agentcore",
-                headers={"X-API-Key": api_key},
+                headers={"Authorization": id_token},
                 timeout=10
             )
-            
-            # Should get a response (200=success, 403=auth issue, 503=service unavailable)
+
+            # Should get a response (200=success, 401/403=auth issue, 503=service unavailable)
             # All indicate API Gateway is deployed and accessible
-            assert response.status_code in [200, 403, 503], \
-                f"Expected 200/403/503, got {response.status_code}"
+            assert response.status_code in [200, 401, 403, 503], \
+                f"Expected 200/401/403/503, got {response.status_code}"
         except requests.exceptions.RequestException as e:
             # Connection error - API Gateway might not be accessible
             # This is OK for tests, just log it
