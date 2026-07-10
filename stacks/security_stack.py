@@ -81,8 +81,8 @@ class SecurityStack(Stack):
         
         CfnOutput(
             self, "GuardrailVersion",
-            value="DRAFT",  # Use DRAFT to always get latest changes
-            description="Bedrock Guardrail Version (DRAFT = latest)",
+            value=self.guardrail_version.attr_version,
+            description="Bedrock Guardrail Version (published, immutable)",
             export_name="StravaAIBoost-GuardrailVersion"
         )
         

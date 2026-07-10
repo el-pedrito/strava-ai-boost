@@ -760,20 +760,9 @@ def configure_module(event: Dict[str, Any]) -> Dict[str, Any]:
 
         table.put_item(Item=user_config)
 
-        # Enable/Disable EventBridge Scheduler for Campus Coach if applicable
-        if module_id == 'campus_coach':
-            try:
-                events_client = boto3.client('events')
-                rule_name = 'StravaAIBoost-CampusCoach-DailyExtraction'
-
-                if enabled:
-                    events_client.enable_rule(Name=rule_name)
-                    logger.info("Enabled EventBridge scheduler for Campus Coach")
-                else:
-                    events_client.disable_rule(Name=rule_name)
-                    logger.info("Disabled EventBridge scheduler for Campus Coach")
-            except ClientError as e:
-                logger.warning(f"Failed to update EventBridge scheduler: {str(e)}")
+        # No EventBridge toggle needed: the daily REST sync
+        # (strava-ai-boost-campus-coach-daily-sync) checks module activation
+        # in DynamoDB itself before running.
 
         status_label = "configured" if enabled else "unconfigured"
         logger.info(f"Module {module_id} {status_label} for user {user_id}: enabled={enabled}")

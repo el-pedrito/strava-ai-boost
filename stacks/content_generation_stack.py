@@ -274,34 +274,9 @@ class ContentGenerationStack(Stack):
             }
         )
         
-        # EventBridge Scheduler for daily Campus Coach extraction (DISABLED by default)
-        # Will be enabled/disabled via API when user toggles Campus Coach module
-        from aws_cdk import aws_events as events, aws_events_targets as targets
-        
-        self.campus_coach_schedule = events.Rule(
-            self, "CampusCoachDailySchedule",
-            rule_name="StravaAIBoost-CampusCoach-DailyExtraction",
-            description="Weekly Campus Coach session extraction (Monday 5 UTC = 6-7 AM Paris)",
-            schedule=events.Schedule.cron(
-                minute="0",
-                hour="5",
-                week_day="MON",  # P0.1: weekly instead of daily (plan changes 1x/week)
-                month="*",
-                year="*"
-            ),
-            enabled=False  # DISABLED by default - enabled when user activates module
-        )
-        
-        # Add Lambda target to the rule
-        self.campus_coach_schedule.add_target(
-            targets.LambdaFunction(
-                self.campus_coach_invoker,
-                event=events.RuleTargetInput.from_object({
-                    "action": "extract_sessions",
-                    "source": "eventbridge_scheduler"
-                })
-            )
-        )
+        # Legacy Browser Tool schedule removed: the daily REST sync
+        # (strava-ai-boost-campus-coach-daily-sync, webhook stack) replaced it.
+        # The invoker Lambda is kept for manual fallback invocations only.
 
         # Coach Generator Lambda (parallel branch)
         self.coach_generator = lambda_.Function(

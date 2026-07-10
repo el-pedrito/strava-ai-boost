@@ -98,21 +98,6 @@ class ApiGatewayStack(Stack):
         self.core_stack.intervals_icu_secret.grant_read(self.config_lambda)
         self.core_stack.intervals_icu_secret.grant_write(self.config_lambda)
         
-        # Grant EventBridge permissions to config lambda (for enabling/disabling Campus Coach scheduler)
-        self.config_lambda.add_to_role_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=[
-                    "events:EnableRule",
-                    "events:DisableRule",
-                    "events:DescribeRule"
-                ],
-                resources=[
-                    f"arn:aws:events:{self.region}:{self.account}:rule/StravaAIBoost-CampusCoach-DailyExtraction"
-                ]
-            )
-        )
-
         # Allow config Lambda to set custom:strava_id on Cognito users
         if self.user_pool:
             self.config_lambda.add_to_role_policy(
