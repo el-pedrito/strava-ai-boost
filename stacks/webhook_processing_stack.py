@@ -20,6 +20,9 @@ from aws_cdk import (
     aws_cloudwatch_actions as cw_actions,
     aws_secretsmanager as secretsmanager,
     aws_dynamodb as dynamodb,
+    aws_sns as sns,
+    aws_sns_subscriptions as sns_subscriptions,
+    aws_budgets as budgets,
     Duration
 )
 from constructs import Construct
@@ -261,16 +264,30 @@ class WebhookProcessingStack(Stack):
     def _create_cloudwatch_alarms(self) -> None:
         """
         Create CloudWatch Alarms for monitoring (AWS Best Practice)
-        
+
         AWS recommends creating alarms for:
         - DLQ messages (any message indicates a problem)
         - Old messages in queue (processing delays)
         - Lambda errors
+
+        All alarms notify the alerts SNS topic (email subscription).
         """
-        
+
+        # SNS topic for operational alerts (alarms + budget)
+        self.alerts_topic = sns.Topic(
+            self, "OpsAlertsTopic",
+            topic_name="strava-ai-boost-ops-alerts",
+            display_name="Strava AI Boost Ops Alerts"
+        )
+        alert_email = self.node.try_get_context("alert_email") or "user@example.com"
+        self.alerts_topic.add_subscription(
+            sns_subscriptions.EmailSubscription(alert_email)
+        )
+        alarm_action = cw_actions.SnsAction(self.alerts_topic)
+
         # Alarm on DLQ messages (AWS Best Practice)
         # Reference: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-dead-letter-queues.html
-        cloudwatch.Alarm(
+        dlq_alarm = cloudwatch.Alarm(
             self, "DLQMessagesAlarm",
             alarm_name="strava-ai-boost-dlq-messages",
             alarm_description="Alert when messages appear in the Dead Letter Queue - indicates processing failures",
@@ -280,9 +297,10 @@ class WebhookProcessingStack(Stack):
             comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
             treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING
         )
-        
+        dlq_alarm.add_alarm_action(alarm_action)
+
         # Alarm on old messages in processing queue (AWS Best Practice)
-        cloudwatch.Alarm(
+        old_messages_alarm = cloudwatch.Alarm(
             self, "OldMessagesAlarm",
             alarm_name="strava-ai-boost-old-messages",
             alarm_description="Alert when messages are stuck in queue for too long",
@@ -292,9 +310,10 @@ class WebhookProcessingStack(Stack):
             comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
             treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING
         )
-        
+        old_messages_alarm.add_alarm_action(alarm_action)
+
         # Alarm on Lambda errors (AWS Best Practice)
-        cloudwatch.Alarm(
+        lambda_errors_alarm = cloudwatch.Alarm(
             self, "ActivityProcessorErrorsAlarm",
             alarm_name="strava-ai-boost-lambda-errors",
             alarm_description="Alert when activity processor Lambda has errors",
@@ -305,6 +324,45 @@ class WebhookProcessingStack(Stack):
             evaluation_periods=1,
             comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
             treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING
+        )
+        lambda_errors_alarm.add_alarm_action(alarm_action)
+
+        # Monthly cost budget with email notification at 80% actual and 100% forecasted
+        budget_limit = float(self.node.try_get_context("budget_limit_usd") or 35)
+        budgets.CfnBudget(
+            self, "MonthlyCostBudget",
+            budget=budgets.CfnBudget.BudgetDataProperty(
+                budget_name="strava-ai-boost-monthly",
+                budget_type="COST",
+                time_unit="MONTHLY",
+                budget_limit=budgets.CfnBudget.SpendProperty(
+                    amount=budget_limit, unit="USD"
+                ),
+            ),
+            notifications_with_subscribers=[
+                budgets.CfnBudget.NotificationWithSubscribersProperty(
+                    notification=budgets.CfnBudget.NotificationProperty(
+                        notification_type="ACTUAL",
+                        comparison_operator="GREATER_THAN",
+                        threshold=80,
+                        threshold_type="PERCENTAGE",
+                    ),
+                    subscribers=[budgets.CfnBudget.SubscriberProperty(
+                        subscription_type="EMAIL", address=alert_email
+                    )],
+                ),
+                budgets.CfnBudget.NotificationWithSubscribersProperty(
+                    notification=budgets.CfnBudget.NotificationProperty(
+                        notification_type="FORECASTED",
+                        comparison_operator="GREATER_THAN",
+                        threshold=100,
+                        threshold_type="PERCENTAGE",
+                    ),
+                    subscribers=[budgets.CfnBudget.SubscriberProperty(
+                        subscription_type="EMAIL", address=alert_email
+                    )],
+                ),
+            ],
         )
 
     def _create_webhook_api(self) -> None:
