@@ -1,10 +1,16 @@
 # Roadmap
 
-> Strava AI Boost — direction produit après la refonte UI (mai 2026).
-> Pour le contexte concurrentiel et la justification des priorités, voir [COMPETITIVE-ANALYSIS.md](./COMPETITIVE-ANALYSIS.md).
+> Strava AI Boost — roadmap consolidée le 2026-07-10.
+> **Positionnement tranché : projet perso + publication open-source.**
+> Pas de produit fini, pas de SaaS, pas de monétisation — les items
+> landing/pricing/Stripe/coach-pro/marketplace sont retirés.
+> Deux axes : (1) valeur perso au quotidien, (2) qualité de sample
+> open-source (showcase AgentCore/Bedrock/CDK).
+> Détail agentic : [design/agentcore-agentic-improvements.md](./design/agentcore-agentic-improvements.md).
 
 ## Done
 
+- **Campus Coach : migration Browser Tool → API REST directe** : Lambda `campus_coach_sync.py` (`POST /account/login` + `GET /smart-training` → DynamoDB, 9 semaines / 39 sessions avec intervalles structurés). EventBridge daily 05:00 UTC + on-demand. Futures semaines + athlete context (goal, assiduity, sport profile) injectés dans le contexte coach. Module activation check. Agent Browser Tool conservé en fallback. 26 tests unitaires.
 - **Weekly Audio Recap V1** : Lambda `StravaAIBoost-WeeklyAudioRecap` (Bedrock Sonnet script 200-300 mots → Polly Generative Ambre → MP3 S3 privé). DynamoDB `strava-ai-boost-weekly-recaps` (PK user_id, SK week). EventBridge dimanche 20h UTC + on-demand via POST `/coach/recaps`. Frontend : section "Récaps hebdo" dans Coach page avec AudioPlayer, pagination, bouton "Générer", refresh button + polling (remplace setTimeout). On-demand utilise label date range (17_05-21_05), scheduler utilise ISO week Mon-Sun. AgentCore Memory + user prefs/PRs/pace zones + Campus goal context injectés dans le prompt. Coût estimé ~$0.05/recap.
 - **Recovery State Widget** : card Coach page avec Form/TSB (color-coded frais/neutre/fatigué), VO2max (+delta 7j), FC repos (+delta 7j), Sommeil (moyenne 30j + delta 7j). Données Intervals.icu. InfoTooltip individuel sur chaque métrique + insight narratif contextuel.
 - **Catégorisation fine des activités** : KPI "Séances" affiche les top 2 catégories non-Run (musculation, vélo, nage, rando, marche, yoga) au lieu de "X autre". Backend `other_sessions_breakdown` + frontend groupement par label traduit FR/EN.
@@ -51,49 +57,102 @@
 
 ## Next
 
+> **Par où commencer (ordre suggéré)** : quick wins ops (1 j) → prérequis
+> release OSS (scan sensibilité + CVE + disclaimer + licence, ~2 j) →
+> **publier v0.1.0** → A2a (multi-tour chat, 1 j) → A1 (tools, ~1 sem) →
+> A3 (evals régression) → le reste selon l'envie.
+
+### Quick wins ops (< 1 journée, filet de sécurité)
+
+- [ ] **DLQ monitoring** — alarme CloudWatch `ApproximateNumberOfMessagesVisible > 0` sur la DLQ + notification. Le DLQ existe mais personne ne le lit. (remonté de BACKLOG P2)
+- [ ] **Budget alert** — `aws budgets` avec seuil + SNS. Tags cost allocation déjà en place. (remonté de BACKLOG P2)
+- [ ] **Fix hallucination bloc "Prochaine séance"** — le composant hors-chat hallucine les totaux hebdo. Appliquer le fix `format_weekly_breakdown` (déjà fait pour le chat le 2026-06-23) à l'endpoint qui génère ce bloc. ⚠️ À vérifier d'abord : le commit `a2fc028` (juin) a déjà branché `format_weekly_breakdown` dans `coach_generator.build_historical_summary` — le bug est peut-être déjà résolu. Reproduire avant de coder. (remonté de BACKLOG P2)
+- [ ] **Désactiver rule EventBridge legacy** `StravaAIBoost-CampusCoach-DailyExtraction` (Browser Tool, lundi 05:00 UTC) — doublon du sync REST quotidien. ⚠️ Migrer d'abord la policy IAM Enable/DisableRule de `configuration_api.py` vers la nouvelle rule.
+- [ ] **Publier le Guardrail** `9vaecu56g20r` en version numérotée (actuellement DRAFT).
+
+### Chantier agentic AgentCore (détail : [design/agentcore-agentic-improvements.md](./design/agentcore-agentic-improvements.md))
+
+Validé contre la doc officielle AgentCore + Strands (2026-07-10). Numérotation =
+regroupement thématique, pas ordre d'exécution — l'ordre est celui du « Par où
+commencer » en tête (A2a avant A1 : 1 jour vs 1 semaine) :
+
+- [ ] **A1. Tools Strands pour le coach conversationnel** — `@tool` sur `query_activities`, `get_campus_plan`, `get_pace_zones`, `get_intervals_metrics` ; l'agent va chercher la donnée au lieu du context stuffing figé. Débloquer les questions type « compare mes 6 dernières séances de seuil ». **À coupler avec Strava MCP** (ci-dessous) : Strands consomme les serveurs MCP nativement, même chantier. **Périmètre : mode conversation uniquement** — le mode feedback du pipeline (coach_generator) reste en context stuffing déterministe : reproductible, testable, et le tool-calling y ajouterait latence + variance sans bénéfice (les données nécessaires sont connues d'avance).
+- [ ] **A2a. Multi-tour sur le chat streamé (léger, ~1 j)** — le chat streamé n'a aucun historique (chaque question est indépendante). Fix minimal : lire les derniers tours via memory (`get_last_k_turns`) dans `coach_stream/app.py` avant chaque `converse_stream`. À faire **avant** A2b — résout 80 % du problème utilisateur sans rien réécrire.
+- [ ] **A2b. Streaming unifié via AgentCore Runtime (refonte)** — entrypoint async + `stream_async`, protocole AGUI natif du runtime. Sessions runtime + observabilité GenAI. ⚠️ Honnêteté sur le gain : le navigateur ne peut pas consommer le stream boto3 d'`invoke_agent_runtime` — il faudra **garder un proxy Lambda** devant le runtime ; on ne supprime pas le chemin Starlette, on le remplace par un proxy plus mince. À faire seulement si A1 (tools) rend le chemin `converse_stream` direct intenable (les tool loops ne streament pas via converse_stream simple). Combiné à A4, clôt le sujet « coach multi-tour avec mémoire longue ».
+- [ ] **A3. AgentCore Evaluations** (GA mars 2026) — commencer par l'**on-demand en régression** (jeu de ~10 activités de référence, rejoué à chaque changement de `embedded_prompts.py` / `COACH_AGENT_SYSTEM_PROMPT`) : c'est là qu'est la valeur en mono-user. Custom evaluators pour nos règles maison (anti-em-dash, anti-clichés IA, strava_block orienté tendances, chiffres hebdo réels). L'online eval du trafic prod est secondaire à ~5 activités/semaine — l'activer surtout comme vitrine pour le sample OSS. Rend l'A/B de prompts possible → tire l'externalisation d'`embedded_prompts.py` (BACKLOG P3).
+- [ ] **A4. Stratégie memory sur `coaching_observations`** — EPISODIC (episodes/{sessionId} + reflectionNamespaces) pour consolider au lieu d'accumuler ; searchQuery dynamique selon le type de séance. Nuance : à ~5 activités/semaine, l'accumulation brute ne sature pas avant des mois — l'urgence est faible ; le vrai gain court-terme est la **searchQuery dynamique** (1 h de travail), la stratégie EPISODIC peut attendre A2b.
+- [ ] **A5. Migration toolchain (réactif, pas proactif)** — AWS a lancé le CLI `agentcore` (npm, avril 2026, déploiement CDK) qui remplace à terme `bedrock-agentcore-starter-toolkit` (pip) + `.bedrock_agentcore.yaml`. ⚠️ La « dépréciation » du toolkit pip vient des guides MCP, **pas d'une annonce AWS officielle** — vérifiée le 2026-07-10, pas de notice de dépréciation publique. Le déploiement actuel fonctionne : **ne migrer que si** le toolkit pip casse, ou à l'occasion d'un gros changement d'agent (A2 est le bon moment). Le SDK runtime ne change pas. Occasion d'adopter AgentCore Identity (token vault) au passage.
+- Gateway + Policy (Cedar) : **plus tard**, seulement si multi-tenant ou mutualisation des tools entre agents.
+
 ### Court terme (1-2 semaines)
 
-- [x] **Catégorisation fine des activités "other"** — KPI affiche top 2 catégories (musculation, vélo, etc.)
-- [x] **Recovery state widget Coach Now** — Form/TSB, VO2max, FC repos, Sommeil avec deltas 7j depuis Intervals.icu
-- [x] **Help tooltip systématique sur chaque KPI** — `(?)` Radix Popover sur tous les KPIs (Dashboard, Coach, Quality, Recovery). i18n FR/EN.
-- [x] **Map polyline sur Activity detail** — tracé GPS Leaflet (lazy-loaded, dark mode, auto-fit bounds)
-- [x] **Campus Coach : migration Browser Tool → API REST directe**
-  - `POST api.campus.coach/account/login` + `GET /smart-training?from=...&to=...` retourne toutes les semaines accessibles en JSON structuré
-  - Lambda `campus_coach_sync.py` : login → fetch → store DynamoDB (9 semaines, 39 sessions, structured intervals)
-  - EventBridge daily 05:00 UTC + on-demand
-  - All future weeks injected into coach context
-  - Athlete context (goal, assiduity, sport profile) persisted
-  - Module activation check : ne sync que si campus_coach module activé
-  - Agent Browser Tool conservé comme fallback (non supprimé)
-  - 26 tests unitaires (14 sync + 12 consumers)
 - [ ] **Strava FIT sets data ingestion** — Depuis le 21 mai 2026, Strava ingère les sets structurés (exercice, reps, poids, durée) depuis les fichiers FIT. Lire ces données via l'API pour alimenter `strength_history` automatiquement (plus besoin de parser la description). Rend le tracking muscu 100% automatique et précis.
 - [ ] **Coach Trends : graphiques progression muscu** — Ajouter des charts dans la page Coach Trends pour visualiser les progressions de charges (DC, tractions, etc.) au fil du temps. Données depuis `strength_history`. Même pattern que les charts pace/volume existants.
 - [ ] **Deauthorization endpoint** — Implémenter le nouveau endpoint Strava (1er juin 2026) pour un disconnect propre dans le flow OAuth.
+- [ ] **Détection d'anomalie santé** *(nouveau)* — check déterministe (pas de LLM) sur les données déjà stockées : « FC repos +8 bpm et HRV -20% sur 3 jours → alerte repos ». Haute valeur perso, coût quasi nul. **V1 sans push** : banner/card sur le Dashboard + injection dans le contexte coach (ne pas attendre l'infra notifications du moyen terme).
 
-### Moyen terme (1-2 mois)
+### Release open-source (track dédié — c'est le « produit »)
 
-- [ ] **Race time prediction + plan adaptatif minimum viable** — Strava vient de bundler Runna (-60%) précisément pour combler ce trou (cf [analyse](./COMPETITIVE-ANALYSIS.md)). Devient un standard que les users vont attendre.
-- [x] **Recap audio hebdomadaire type podcast** — déployé 20 mai 2026. Dimanche 20h UTC + on-demand (label date range). Bedrock Sonnet + Polly Generative Ambre. Paginé dans Coach page.
-- [ ] **Mémoire long terme + multi-tour soignée pour le Coach IA** — déjà partiellement câblée (AgentCore Memory). Strava Athlete Intelligence est mono-tour. Si l'UX est soignée, vraie différenciation.
-- [ ] **Strava MCP integration** — Strava a lancé un serveur MCP remote (`https://mcp.strava.com/mcp`) le 1er juin 2026. Read-only, OAuth, accès aux streams per-second, fitness trends, readiness. Réservé aux abonnés Strava. Potentiel pour enrichir le coach conversationnel avec des données qu'on n'a pas aujourd'hui (streams HR per-second, fitness trends natives). Limité : read-only donc on garde l'API pour le write (update title/description).
-- [ ] **API fees mitigation** — Strava introduit un "Subscription required" pour le Standard Tier développeur (1er juin 2026). Pas clair si c'est l'abo athlete classique (~$12/mois), un dev fee séparé ($11.99/mois), ou si les apps single-player existantes sont grandfathered. À surveiller : si l'accès API est coupé, il faudra payer. Actuellement l'app fonctionne sans abo (tier gratuit 1 athlète, 100 reads/15min).
-- [ ] **Landing page publique** (`/`) avant login : value prop, démo, screenshots, FAQ
-- [ ] **Pricing page** Free / Pro / Coach avec Stripe Checkout
-- [ ] **Stripe customer portal** pour gérer abonnement
-- [ ] **Notifications push** quand une activité est enrichie (PWA push API)
+Audit 2026-04-25 (BACKLOG.md) : prêt à ~80 %. Ce qui reste avant publication GitHub :
 
-### Long terme (3-6 mois)
+- [ ] **Disclaimer non-production** en tête de README (« demo/personal-use sample », known issues listées)
+- [ ] **Fichiers OSS standards** — CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md, templates issue/PR
+- [ ] **Bump CVE** — 9 CVE mineures (`pip-audit` 2026-04-25) : cryptography, urllib3, requests, etc. + rebuild layer. À re-scanner, l'audit a 2,5 mois.
+- [ ] **Scan sensibilité** — account IDs, ARNs, `config.json` avec user_id réel, URLs CloudFront/API en dur dans le repo (skill `scan-opensource` avant tout push public)
+- [ ] **Licence** — MIT vs MIT-0 (MIT-0 si alignement aws-samples)
+- [ ] **README** : screenshots + GIF démo (dashboard, avant/après description Strava)
+- [ ] **Threat model 1 page** (`docs/THREAT-MODEL.md`) — skill `threat-model` dispo
+- [ ] **Scan ASH** (Bandit, Semgrep, Checkov, cfn-nag, detect-secrets, cdk-nag, npm-audit) + publier le summary
+- [ ] **Tag v0.1.0 + CHANGELOG.md**
+- [ ] **Blog post** (structure déjà esquissée dans BACKLOG.md)
 
-- [ ] **Coach conversationnel vocal en live (Nova Sonic)** — speech-to-speech bidirectionnel temps réel via Amazon Nova Sonic. L'user parle au coach pendant/après sa séance, le coach répond en voix naturelle avec interruptions possibles. Différenciation forte (aucun concurrent ne le propose en mainstream). Latence ~600ms first-token, plus cher que Polly mais imbattable pour l'expérience conversation. Évolution de la V1 audio Polly : V1 = MP3 statique post-séance / dimanche, V2 = dialogue live.
-- [ ] **Multi-language au-delà de FR/EN** : ES, DE, IT
-- [ ] **Mode "Coach pro"** : un coach humain peut gérer plusieurs athlètes via la même UI
-- [ ] **Intégrations supplémentaires** : Garmin Connect, Polar Flow, Suunto
-- [ ] **API publique** : webhook pour développeurs tiers
-- [ ] **App mobile native** (React Native ou Capacitor)
+**Séquencement (tranché, repris dans l'ordre en tête) : release d'abord.**
+Publier v0.1.0 avec l'état actuel — qui est déjà un bon sample : pipeline
+event-driven, memory, guardrails, streaming AG-UI. Les chantiers A1-A3
+deviennent du contenu de suivi (v0.2, blog post #2). Rationale : la release ne
+doit pas glisser derrière des chantiers de plusieurs semaines — le piège
+classique du « encore une feature avant de publier ».
+
+**Prérequis incompressibles** avant tout push public : scan sensibilité,
+bump CVE, disclaimer, licence. Le reste (threat model, GIF, blog) peut suivre
+la publication.
+
+### Moyen terme — features perso (si l'envie et l'usage le justifient)
+
+- [ ] **Strava MCP integration** — serveur MCP remote Strava (`https://mcp.strava.com/mcp`, 1er juin 2026). Read-only, OAuth, streams per-second, fitness trends, readiness. À faire **dans le même chantier que A1** (Strands branche les serveurs MCP comme des tools). ⚠️ Deux réserves : réservé aux **abonnés Strava** (l'app tourne aujourd'hui sans abo — c'est une dépendance payante nouvelle) et redondance partielle avec Intervals.icu déjà intégré (fitness trends, readiness). La valeur unique réelle : streams per-second. Vérifier le rapport valeur/abo avant de s'engager. Bonus : très bon sujet de blog post.
+- [ ] **Notifications push PWA** — infra générique (activité enrichie, briefing matinal, alerte anomalie). Prérequis des deux suivants.
+- [ ] **Pre-run briefing contextuel** — Form/TSB + séance Campus du jour + météo → push le matin (« Seuil 3×10 min prévu, TSB -15, vise le bas de la fourchette »). Données déjà en DynamoDB.
+- [ ] **Bilan de cycle Campus** — fin de bloc : compliance, progression EF, charges muscu, verdict vs objectif. Même pattern que le weekly recap, une échelle au-dessus.
+- [ ] **Race readiness simple** — prédiction 5K/10K/semi depuis les PRs auto-accumulés + goal Campus (date d'objectif déjà syncée). Version 1-2 jours, carte sur Dashboard. Pas de plan adaptatif maison : Campus fournit déjà le plan.
+- [ ] **Veille Strava API fees** — "Subscription required" Standard Tier (06/2026). L'app tourne en free tier (1 athlète, 100 reads/15min) — surveiller que ça reste vrai ; c'est aussi une contrainte à documenter pour les users du sample OSS.
+
+### Long terme — exploratoire
+
+- [ ] **Coach vocal live (Nova Sonic)** — speech-to-speech temps réel. Prérequis technique : A2b (architecture de session streamée via Runtime). Excellent sujet de démo/blog, à faire pour l'exploration plus que pour le besoin.
+- [ ] **App mobile** — la PWA + push couvre l'essentiel ; natif seulement si le besoin watchOS/WearOS devient réel.
+
+> Retirés de la roadmap (positionnement open-source, pas produit) : landing page,
+> pricing/Stripe, mode coach pro, API publique, multi-langue ES/DE/IT,
+> intégrations Garmin/Polar/Suunto, et les idées growth de l'analyse
+> concurrentielle (badges, partage viral, cohortes, marketplace).
+> [COMPETITIVE-ANALYSIS.md](./COMPETITIVE-ANALYSIS.md) reste comme archive.
 
 ## Tech debt à surveiller
 
+Pertinente pour la crédibilité du sample OSS (un lecteur va juger le repo là-dessus) :
+
+- **CI/CD absent** — `cdk deploy` manuel. GitHub Actions minimal : tests + `cdk diff` sur PR. Quasi indispensable pour un repo public (BACKLOG P2).
+- **cdk-nag absent** — `Aspects.of(app).add(AwsSolutionsChecks())` à activer + trier les findings sur les 8 stacks. Chantier dédié (BACKLOG P2), mais fort signal qualité pour un sample AWS.
+- **Token refresh dupliqué dans 4 Lambdas** — extraire dans `shared/strava_token_manager.py` (BACKLOG P2). Un contributeur le verra tout de suite.
+- **Lambda Layer build manuel** (`LAYER_ASSET_HASH`) — oubli = deps stales. Automatiser dans un script (BACKLOG P2).
+- **`except Exception` génériques** (20+) avec return None silencieux — au minimum les 3 critiques du BACKLOG.
+
+Confort / plus tard :
+
+- Lambda ARM64 (Graviton) — ~20 % de coût en moins, rebuild layer requis
 - Chunks > 500kb (CoachPage, index)
+- CDK feature flags (~35/58) — bruit de warnings à chaque synth
+- Migration config dead code dans `activity_fetcher.py`
+- `@cloudscape-design` toujours en `package.json` (inutilisé) — `npm prune`
+- Vitest setup i18n EN forcé : à ajuster si tests dépendant du FR
 - ATXDocumentation supprimée — si re-générée par Kiro, rester strict
-- `@cloudscape-design` package toujours en `package.json` (pas utilisé) — à retirer au prochain `npm prune`
-- Vitest setup utilise i18n EN forcé : si on ajoute des tests qui dépendent de FR, à ajuster
