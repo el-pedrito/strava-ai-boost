@@ -14,6 +14,14 @@
 
 Strava AI Boost is a modular serverless application that automatically enhances Strava activity titles and descriptions using Amazon Bedrock AI and AgentCore Memory. Built with a clean API Gateway + Lambda architecture, it provides secure, scalable functionality with zero direct AWS SDK dependencies in the frontend.
 
+## Demo
+
+<p align="center">
+  <img src="docs/demo.gif" alt="Strava AI Boost frontend walkthrough" width="300">
+</p>
+
+Full walkthrough of the frontend (Dashboard, Coach, Quality, Configuration, Preferences). The GIF above is a sped-up preview — see the [full-length walkthrough (MP4)](https://github.com/el-pedrito/strava-ai-boost/releases/tag/v0.1.0) attached to the v0.1.0 release.
+
 ## Quick Start
 
 ### Prerequisites
