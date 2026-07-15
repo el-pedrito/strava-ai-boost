@@ -85,8 +85,14 @@ Lambda Web Adapter dupliqué.
 > le runtime directement depuis le frontend (SigV4 déjà en place via Identity
 > Pool). À prototyper avant de supprimer le chemin Starlette.
 
-**Alternative légère** (si on garde la Lambda Starlette) : lire les derniers
-tours via `get_last_k_turns` de la memory avant chaque appel `converse_stream`.
+**Alternative légère** (si on garde la Lambda Starlette) — **étudiée et amendée
+le 2026-07-15** : l'idée initiale (`get_last_k_turns` de la memory avant chaque
+`converse_stream`) est **rejetée** — `write_chat_to_memory` filtre volontairement
+les tours courts (question < 20 chars, réponse < 100 chars, tronquée à 500),
+donc l'historique en memory est lossy et manque précisément les follow-ups.
+Décision : l'historique est fourni par le frontend (qui le construit déjà pour
+le chemin buffered) et normalisé côté serveur. Plan détaillé, contrat du helper
+et analyse sécurité : [a2a-multi-turn-chat.md](./a2a-multi-turn-chat.md).
 
 ## 3. Memory : passer d'événements bruts à une stratégie
 
