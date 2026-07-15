@@ -85,14 +85,38 @@ Lambda Web Adapter dupliqué.
 > le runtime directement depuis le frontend (SigV4 déjà en place via Identity
 > Pool). À prototyper avant de supprimer le chemin Starlette.
 
-**Alternative légère** (si on garde la Lambda Starlette) — **étudiée et amendée
-le 2026-07-15** : l'idée initiale (`get_last_k_turns` de la memory avant chaque
-`converse_stream`) est **rejetée** — `write_chat_to_memory` filtre volontairement
-les tours courts (question < 20 chars, réponse < 100 chars, tronquée à 500),
-donc l'historique en memory est lossy et manque précisément les follow-ups.
-Décision : l'historique est fourni par le frontend (qui le construit déjà pour
-le chemin buffered) et normalisé côté serveur. Plan détaillé, contrat du helper
-et analyse sécurité : [a2a-multi-turn-chat.md](./a2a-multi-turn-chat.md).
+**Alternative légère — A2a (plan validé le 2026-07-15, à faire AVANT la refonte
+Runtime)** : on garde la Lambda Starlette et on rend le chat multi-tour.
+
+L'idée initiale (`get_last_k_turns` de la memory avant chaque `converse_stream`)
+est **rejetée après étude** : `write_chat_to_memory` filtre volontairement les
+tours courts (question < 20 chars, réponse < 100 chars, tronquée à 500 — filtres
+qui protègent la qualité de l'extraction LTM), donc l'historique en memory est
+**lossy** et manque précisément les follow-ups. Décision : **l'historique est
+fourni par le frontend** (qui le construit déjà — `messages.slice(-10)` dans
+`CoachChat.tsx` — mais ne l'envoie aujourd'hui qu'au chemin buffered) et
+**normalisé côté serveur**. `write_chat_to_memory` reste inchangé (rôle LTM).
+
+Plan (5 changements, zéro CDK/IAM) :
+
+1. **`shared/coach_context.py`** — helper pur `build_converse_messages(history,
+   current_question)` : whitelist stricte des rôles `{user, assistant}` (bloque
+   le smuggling de rôle `system` par le client), cap 10 messages, troncature
+   asymétrique 500 chars/user et 2500 chars/assistant, drop du leading
+   assistant + merge des rôles consécutifs (contrainte Converse Claude :
+   1er message `user`, rôles alternés), historique invalide → dégradation
+   silencieuse en single-turn.
+2. **`coach_stream/app.py`** — consommer `body.history` ; contexte athlète
+   déplacé dans le paramètre `system` (données serveur séparées des `messages`
+   client, meilleure isolation anti-injection — cohérent threat model T4).
+3. **`api/coach_ask_api.py`** — `_fallback_bedrock` refactoré sur le même
+   helper (aujourd'hui : aucune validation du `history`, alternance non
+   garantie — bug latent).
+4. **Frontend** (~3 lignes) — ajouter `history` à `CoachStreamRequest`
+   (`coachStream.ts`) et à l'appel dans `CoachChat.tsx`.
+5. **Tests** — unitaires du helper (alternance, merge, drop, troncature, rôles
+   invalides, vide) + non-régression des 3 tests AG-UI de
+   `test_coach_stream.py`.
 
 ## 3. Memory : passer d'événements bruts à une stratégie
 
