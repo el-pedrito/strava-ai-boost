@@ -810,8 +810,8 @@ def invoke(payload, context=None):
         logger.info(f"Activity ID: {activity_id}")
         logger.info(f"User ID: {user_id}")
         logger.info(f"Activity Type: {activity_data.get('type', 'unknown')}")
-        logger.info(f"Distance: {activity_data.get('distance', 0)/1000:.2f} km")
-        logger.info(f"Speed: Avg {activity_data.get('average_speed', 0)*3.6:.1f} km/h, Max {activity_data.get('max_speed', 0)*3.6:.1f} km/h")
+        logger.info(f"Distance: {float(activity_data.get('distance', 0))/1000:.2f} km")
+        logger.info(f"Speed: Avg {float(activity_data.get('average_speed', 0))*3.6:.1f} km/h, Max {float(activity_data.get('max_speed', 0))*3.6:.1f} km/h")
         if activity_data.get('average_cadence'):
             logger.info(f"Cadence: Avg {activity_data.get('average_cadence'):.0f} spm")
         if activity_data.get('average_watts'):
@@ -824,7 +824,7 @@ def invoke(payload, context=None):
         logger.info(f"Campus Coach Session: {'Yes' if campus_coach_session else 'No'}")
         logger.info(f"Enduraw Data: {'Yes' if enduraw_data else 'No'}")
         logger.info(f"Laps Data: {'Yes (' + str(len(laps_data)) + ' laps)' if laps_data else 'No'}")
-        logger.info(f"Workout Classification: {payload.get('workout_classification', {}).get('type', 'unknown')}")
+        logger.info(f"Workout Classification: {(payload.get('workout_classification') or {}).get('type', 'unknown')}")
         logger.info(f"Memory Enabled: {MEMORY_ID is not None}")
         logger.info(f"Achievements: {activity_data.get('achievement_count', 0)}, PRs: {activity_data.get('pr_count', 0)}, Kudos: {activity_data.get('kudos_count', 0)}")
         logger.info(f"Segment Efforts: {len(activity_data.get('segment_efforts', []))}, Best Efforts: {len(activity_data.get('best_efforts', []))}")
@@ -892,10 +892,10 @@ def invoke(payload, context=None):
         
         # Generate prompt for content creation with ALL user preferences
         activity_type = activity_data.get('sport_type', activity_data.get('type', 'Activity'))
-        distance = activity_data.get('distance', 0) / 1000  # km
-        duration = activity_data.get('moving_time', 0) / 60  # minutes
-        elapsed_time = activity_data.get('elapsed_time', 0) / 60  # minutes
-        elevation = activity_data.get('total_elevation_gain', 0)
+        distance = float(activity_data.get('distance', 0)) / 1000  # km
+        duration = float(activity_data.get('moving_time', 0)) / 60  # minutes
+        elapsed_time = float(activity_data.get('elapsed_time', 0)) / 60  # minutes
+        elevation = float(activity_data.get('total_elevation_gain', 0))
         avg_hr = activity_data.get('average_heartrate')
         max_hr = activity_data.get('max_heartrate')
         
@@ -1130,7 +1130,9 @@ Generate content now."""
             pass
 
         # No need to check guardrail intervention on model (we validated inputs separately)
-        # Parse the response directly
+        # Parse the response — handle None message (model timeout/throttle/empty response)
+        if result.message is None:
+            raise RuntimeError("Agent returned no message (possible model throttle or empty response)")
         response_text = result.message.get('content', [{}])[0].get('text', str(result))
         
         logger.info(f"=== Content Generation Completed ===")
