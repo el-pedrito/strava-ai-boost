@@ -1,6 +1,18 @@
 # Strava AI Boost
 
-Strava AI Boost is a production-ready, modular serverless application that automatically enhances Strava activity titles and descriptions using Amazon Bedrock AI and AgentCore Memory. Built with a clean API Gateway + Lambda architecture, it provides secure, scalable functionality with zero direct AWS SDK dependencies in the frontend.
+> **⚠️ Disclaimer — demo / personal-use sample, not production software**
+>
+> This project is a personal-use application published as an **inspiration sample** for building with Amazon Bedrock, AgentCore, and AWS CDK. It is **not intended for production use** and comes with no support or warranty (MIT-0 license). In particular:
+>
+> - **Single-user by design** — built for one athlete (per-user config exists, but no multi-tenant hardening)
+> - **No CI/CD** — deployments are manual via `cdk deploy` and shell scripts for the AgentCore agents (`scripts/deploy_agentcore_agents.sh`)
+> - **Known issues** — AgentCore Browser Tool cold starts (~30% first-call failure, retried), Lambda Layer cross-stack export constraint, cosmetic CDK feature-flag warnings (see [Known Issues](#known-issues))
+> - **External dependencies may break** — Strava API (paid subscription required since 2026), Campus Coach and Intervals.icu integrations rely on undocumented or third-party APIs
+> - **Costs** — deploying this stack incurs AWS charges (Bedrock, AgentCore, Lambda, DynamoDB, Polly, CloudFront). Review before deploying.
+>
+> Use it to learn the patterns (event-driven pipeline, AgentCore Memory, Guardrails, AG-UI streaming), not as a turnkey product.
+
+Strava AI Boost is a modular serverless application that automatically enhances Strava activity titles and descriptions using Amazon Bedrock AI and AgentCore Memory. Built with a clean API Gateway + Lambda architecture, it provides secure, scalable functionality with zero direct AWS SDK dependencies in the frontend.
 
 ## Quick Start
 

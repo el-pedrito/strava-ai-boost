@@ -1,0 +1,50 @@
+name: Bug report
+description: Report a problem with the sample
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! Reminder: this is a personal-use sample maintained best-effort.
+        **Redact any secrets, AWS account IDs, ARNs, or personal data from logs before posting.**
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Deploy with `./scripts/deploy.sh dev`
+        2. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - CDK / infrastructure
+        - Lambda (API)
+        - Lambda (processing pipeline)
+        - Lambda (webhooks)
+        - AgentCore agents
+        - Frontend
+        - Scripts / deployment
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs (redacted)
+      render: shell
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: "Python 3.12, CDK 2.x, region us-east-1"

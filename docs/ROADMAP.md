@@ -97,7 +97,7 @@ commencer » en tête (A2a avant A1 : 1 jour vs 1 semaine) :
 
 Prérequis **faits** (2026-07-10) :
 
-- [x] **Scan sensibilité** (skill `scan-opensource`) — `config.json` untracké + `.example`, `default_user_id`/`alert_email` déplacés dans `cdk.context.json`, proxy Vite via env var, URLs réelles → placeholders dans README/AGENTS/index.html, ref interne a2z.com retirée. Re-scan des fichiers trackés : propre.
+- [x] **Scan sensibilité** (skill `scan-opensource`) — `config.json` untracké + `.example`, `default_user_id`/`alert_email` déplacés dans `cdk.context.json`, proxy Vite via env var, URLs réelles → placeholders dans README/AGENTS/index.html, ref interne (domaine a2z) retirée. Re-scan des fichiers trackés : propre.
 - [x] **Bump CVE** — Python : 0 vuln (pip-audit sur les 2 requirements). Frontend : 9 → 0 (vite/vitest bumpés).
 - [x] **Licence** — MIT-0 déjà en place.
 

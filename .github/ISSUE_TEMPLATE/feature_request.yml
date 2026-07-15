@@ -1,0 +1,26 @@
+name: Feature request
+description: Suggest an improvement or new pattern for the sample
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project is an inspiration sample, not a product. Features that illustrate a new
+        AWS/Bedrock/AgentCore pattern are most likely to be considered.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What are you trying to achieve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

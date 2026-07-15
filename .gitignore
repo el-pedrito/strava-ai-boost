@@ -103,6 +103,9 @@ htmlcov/
 .tox/
 .hypothesis/
 
+# Security scan output (ASH)
+.ash/
+
 # Secrets (should never be committed)
 secrets.json
 credentials.json
