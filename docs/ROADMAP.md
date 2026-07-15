@@ -57,18 +57,20 @@
 
 ## Next
 
-> **Par où commencer (ordre suggéré)** : quick wins ops (1 j) → prérequis
-> release OSS (scan sensibilité + CVE + disclaimer + licence, ~2 j) →
+> **Par où commencer (ordre suggéré)** : ~~quick wins ops~~ ✅ →
+> prérequis release OSS restants (disclaimer, fichiers standards, repo neuf) →
 > **publier v0.1.0** → A2a (multi-tour chat, 1 j) → A1 (tools, ~1 sem) →
 > A3 (evals régression) → le reste selon l'envie.
+> Scan sensibilité + CVE + licence déjà faits.
 
-### Quick wins ops (< 1 journée, filet de sécurité)
+### Quick wins ops — ✅ DONE (2026-07-10)
 
-- [ ] **DLQ monitoring** — alarme CloudWatch `ApproximateNumberOfMessagesVisible > 0` sur la DLQ + notification. Le DLQ existe mais personne ne le lit. (remonté de BACKLOG P2)
-- [ ] **Budget alert** — `aws budgets` avec seuil + SNS. Tags cost allocation déjà en place. (remonté de BACKLOG P2)
-- [ ] **Fix hallucination bloc "Prochaine séance"** — le composant hors-chat hallucine les totaux hebdo. Appliquer le fix `format_weekly_breakdown` (déjà fait pour le chat le 2026-06-23) à l'endpoint qui génère ce bloc. ⚠️ À vérifier d'abord : le commit `a2fc028` (juin) a déjà branché `format_weekly_breakdown` dans `coach_generator.build_historical_summary` — le bug est peut-être déjà résolu. Reproduire avant de coder. (remonté de BACKLOG P2)
-- [ ] **Désactiver rule EventBridge legacy** `StravaAIBoost-CampusCoach-DailyExtraction` (Browser Tool, lundi 05:00 UTC) — doublon du sync REST quotidien. ⚠️ Migrer d'abord la policy IAM Enable/DisableRule de `configuration_api.py` vers la nouvelle rule.
-- [ ] **Publier le Guardrail** `9vaecu56g20r` en version numérotée (actuellement DRAFT).
+- [x] **DLQ monitoring + Lambda/queue alarmes** → topic SNS `strava-ai-boost-ops-alerts` (email). Les 3 alarmes existantes y sont branchées.
+- [x] **Budget alert** — budget mensuel $35 (80% actual + 100% forecasted). ⚠️ Confirmer la subscription email SNS pour activer les notifications.
+- [x] **Bug hallucination "Prochaine séance"** — vérifié : déjà résolu (tally `current_week` calculé serveur-side dans `dashboard_api.py`). Aucun code à écrire.
+- [x] **Rule EventBridge legacy supprimée** — `StravaAIBoost-CampusCoach-DailyExtraction` retirée + toggle IAM nettoyé (le sync REST vérifie l'activation module en DynamoDB).
+- [x] **Guardrail publié en v1** — au passage, corrigé un fail-open silencieux : le runtime `content_gen` pointait sur un guardrail ID inexistant.
+- [x] **Fix crash activités manuelles/indoor** (2026-07-15) — `workout_classification=None` sans laps faisait planter le content agent (`NoneType.get()`). Guard `or {}` + `float()` sur champs numériques string. Testé sur activité 19305772266.
 
 ### Chantier agentic AgentCore (détail : [design/agentcore-agentic-improvements.md](./design/agentcore-agentic-improvements.md))
 
@@ -93,16 +95,20 @@ commencer » en tête (A2a avant A1 : 1 jour vs 1 semaine) :
 
 ### Release open-source (track dédié — c'est le « produit »)
 
-Audit 2026-04-25 (BACKLOG.md) : prêt à ~80 %. Ce qui reste avant publication GitHub :
+Prérequis **faits** (2026-07-10) :
+
+- [x] **Scan sensibilité** (skill `scan-opensource`) — `config.json` untracké + `.example`, `default_user_id`/`alert_email` déplacés dans `cdk.context.json`, proxy Vite via env var, URLs réelles → placeholders dans README/AGENTS/index.html, ref interne a2z.com retirée. Re-scan des fichiers trackés : propre.
+- [x] **Bump CVE** — Python : 0 vuln (pip-audit sur les 2 requirements). Frontend : 9 → 0 (vite/vitest bumpés).
+- [x] **Licence** — MIT-0 déjà en place.
+
+Reste avant publication GitHub :
 
 - [ ] **Disclaimer non-production** en tête de README (« demo/personal-use sample », known issues listées)
 - [ ] **Fichiers OSS standards** — CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md, templates issue/PR
-- [ ] **Bump CVE** — 9 CVE mineures (`pip-audit` 2026-04-25) : cryptography, urllib3, requests, etc. + rebuild layer. À re-scanner, l'audit a 2,5 mois.
-- [ ] **Scan sensibilité** — account IDs, ARNs, `config.json` avec user_id réel, URLs CloudFront/API en dur dans le repo (skill `scan-opensource` avant tout push public)
-- [ ] **Licence** — MIT vs MIT-0 (MIT-0 si alignement aws-samples)
 - [ ] **README** : screenshots + GIF démo (dashboard, avant/après description Strava)
 - [ ] **Threat model 1 page** (`docs/THREAT-MODEL.md`) — skill `threat-model` dispo
 - [ ] **Scan ASH** (Bandit, Semgrep, Checkov, cfn-nag, detect-secrets, cdk-nag, npm-audit) + publier le summary
+- [ ] **Repo public neuf** — ⚠️ l'historique git de `el-pedrito/strava-ai-boost` contient encore user_id/endpoints/account IDs. Publier via un repo neuf (orphan branch ou squash), pas en rendant l'actuel public.
 - [ ] **Tag v0.1.0 + CHANGELOG.md**
 - [ ] **Blog post** (structure déjà esquissée dans BACKLOG.md)
 
