@@ -58,8 +58,10 @@
 ## Next
 
 > **Par où commencer (ordre suggéré)** : ~~quick wins ops~~ ✅ →
-> prérequis release OSS restants (disclaimer, fichiers standards, repo neuf) →
-> **publier v0.1.0** → A2a (multi-tour chat, 1 j) → A1 (tools, ~1 sem) →
+> ~~prérequis release OSS (disclaimer, fichiers standards, threat model, scan ASH,
+> historique git nettoyé, tag v0.1.0)~~ ✅ (2026-07-15) →
+> **reste avant public : screenshots/GIF README + purge cache GitHub** →
+> A2a (multi-tour chat, 1 j) → A1 (tools, ~1 sem) →
 > A3 (evals régression) → le reste selon l'envie.
 > Scan sensibilité + CVE + licence déjà faits.
 
@@ -103,14 +105,16 @@ Prérequis **faits** (2026-07-10) :
 
 Reste avant publication GitHub :
 
-- [ ] **Disclaimer non-production** en tête de README (« demo/personal-use sample », known issues listées)
-- [ ] **Fichiers OSS standards** — CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md, templates issue/PR
+- [x] **Disclaimer non-production** en tête de README (« demo/personal-use sample », known issues listées) — 2026-07-15
+- [x] **Fichiers OSS standards** — CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md, templates issue/PR (`.github/`) — 2026-07-15
 - [ ] **README** : screenshots + GIF démo (dashboard, avant/après description Strava)
-- [ ] **Threat model 1 page** (`docs/THREAT-MODEL.md`) — skill `threat-model` dispo
-- [ ] **Scan ASH** (Bandit, Semgrep, Checkov, cfn-nag, detect-secrets, cdk-nag, npm-audit) + publier le summary
-- [ ] **Repo public neuf** — ⚠️ l'historique git de `el-pedrito/strava-ai-boost` contient encore user_id/endpoints/account IDs. Publier via un repo neuf (orphan branch ou squash), pas en rendant l'actuel public.
-- [ ] **Tag v0.1.0 + CHANGELOG.md**
+- [x] **Threat model 1 page** (`docs/THREAT-MODEL.md`) — STRIDE, 13 menaces T1-T13 + threats de release publique — 2026-07-15
+- [x] **Scan ASH** (Bandit, Semgrep, Checkov, detect-secrets, npm-audit) — 0 finding réel sur code first-party (tout en artefacts build/tests/deps vendorées/faux positifs i18n). Summary : `docs/SECURITY-SCAN.md` — 2026-07-15
+- [x] **Historique git nettoyé (même repo, pas repo neuf)** — `git filter-repo` + mailmap : scrubbé user_id, 3 account IDs (dont 2 hors mapping initial), API key/ID, profils AWS, email interne ; auteur unifié `el-pedrito`→`el-pedrito`. Backup bundle local. Force-push `dev` (seule branche remote). Vérif : 0 chaîne sensible. ⚠️ Purge cache GitHub (ticket support) à faire **avant** de rendre le repo public. — 2026-07-15
+- [x] **Tag v0.1.0 + CHANGELOG.md** — CHANGELOG (Keep a Changelog) + tag annoté poussés — 2026-07-15
 - [ ] **Blog post** (structure déjà esquissée dans BACKLOG.md)
+
+> **Reste avant de rendre le repo public** : (1) screenshots/GIF README, (2) purge du cache GitHub des anciens commits (ticket support — les SHA pré-réécriture restent accessibles par URL directe un temps). Le blog post peut suivre la publication.
 
 **Séquencement (tranché, repris dans l'ordre en tête) : release d'abord.**
 Publier v0.1.0 avec l'état actuel — qui est déjà un bon sample : pipeline
