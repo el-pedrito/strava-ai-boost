@@ -136,3 +136,6 @@ agentcore_build/
 
 # Frontend runtime config (contains real resource IDs) — use config.json.example as template
 frontend/public/config.json
+
+# Playwright MCP test artifacts
+.playwright-mcp/
