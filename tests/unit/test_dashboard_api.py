@@ -16,6 +16,7 @@ from api.dashboard_api import (
     _cache,
     _cache_ttl,
     _build_strength_progression,
+    _detect_health_anomalies,
 )
 
 
@@ -251,3 +252,43 @@ class TestBuildStrengthProgression:
         assert len(pts) == 1  # merged into one day
         assert pts[0]['top_weight_kg'] == 110.0
         assert pts[0]['volume_kg'] == 3 * 5 * 100 + 2 * 3 * 110
+
+
+class TestDetectHealthAnomalies:
+    """Test deterministic health-anomaly rules."""
+
+    def test_none_and_empty(self):
+        assert _detect_health_anomalies(None) == []
+        assert _detect_health_anomalies({}) == []
+
+    def test_no_anomaly_when_stable(self):
+        recovery = {
+            'resting_hr_delta_7d': 1, 'form': -5,
+            'sleep_delta_7d_min': -10, 'vo2max_delta_7d': 0.2,
+        }
+        assert _detect_health_anomalies(recovery) == []
+
+    def test_resting_hr_up_warning(self):
+        result = _detect_health_anomalies({'resting_hr_delta_7d': 6})
+        assert len(result) == 1
+        assert result[0]['id'] == 'resting_hr_up'
+        assert result[0]['severity'] == 'warning'
+
+    def test_form_low_warning(self):
+        result = _detect_health_anomalies({'form': -25})
+        assert any(a['id'] == 'form_low' and a['severity'] == 'warning' for a in result)
+
+    def test_sleep_and_vo2max_info(self):
+        result = _detect_health_anomalies({'sleep_delta_7d_min': -60, 'vo2max_delta_7d': -1.5})
+        ids = {a['id'] for a in result}
+        assert ids == {'sleep_down', 'vo2max_down'}
+        assert all(a['severity'] == 'info' for a in result)
+
+    def test_multiple_anomalies(self):
+        recovery = {'resting_hr_delta_7d': 8, 'form': -30, 'sleep_delta_7d_min': -50}
+        result = _detect_health_anomalies(recovery)
+        assert {a['id'] for a in result} == {'resting_hr_up', 'form_low', 'sleep_down'}
+
+    def test_missing_fields_no_false_positive(self):
+        # Only form present and fine → no anomaly, no crash on missing keys.
+        assert _detect_health_anomalies({'form': 3}) == []

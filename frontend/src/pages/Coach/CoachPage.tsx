@@ -89,6 +89,7 @@ interface CoachSummary {
       points: Array<{ date: string; top_weight_kg: number | null; volume_kg: number | null }>;
       sessions: number;
     }>;
+    health_anomalies?: Array<{ id: string; severity: 'warning' | 'info'; message: string }>;
     recovery?: {
       form: number | null;
       ctl: number | null;
@@ -866,6 +867,16 @@ export function CoachPage() {
                 {t('coach.now.rampWarn', { rate: rampRate })}
               </Alert>
             ) : null}
+
+            {(trends?.health_anomalies?.length ?? 0) > 0 && (
+              <div className="flex flex-col gap-2">
+                {trends!.health_anomalies!.map((a) => (
+                  <Alert key={a.id} variant={a.severity === 'warning' ? 'warning' : 'info'}>
+                    {a.message}
+                  </Alert>
+                ))}
+              </div>
+            )}
 
             {trends?.recovery && (
               <Card variant="default" padding="md">

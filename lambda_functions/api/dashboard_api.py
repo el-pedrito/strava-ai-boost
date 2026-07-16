@@ -513,6 +513,59 @@ def _build_strength_progression(entries: List[Dict[str, Any]]) -> List[Dict[str,
     return progression
 
 
+def _detect_health_anomalies(recovery: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Deterministic health-anomaly rules over the recovery snapshot.
+
+    Pure function on the already-computed Intervals.icu recovery data (no new
+    integration). Returns a list of {id, severity, message} — additive, and
+    empty when data is missing so it never produces false positives on partial
+    data. Thresholds are centralized here for easy tuning.
+    """
+    if not recovery:
+        return []
+
+    anomalies: List[Dict[str, Any]] = []
+
+    rhr_delta = recovery.get('resting_hr_delta_7d')
+    form = recovery.get('form')
+    sleep_delta = recovery.get('sleep_delta_7d_min')
+    vo2_delta = recovery.get('vo2max_delta_7d')
+
+    # Under-recovery: resting HR trending clearly up over the last 7 days.
+    if rhr_delta is not None and rhr_delta >= 5:
+        anomalies.append({
+            'id': 'resting_hr_up',
+            'severity': 'warning',
+            'message': f"FC de repos +{round(rhr_delta)} bpm sur 7 jours — signe de fatigue ou de sous-récupération. Envisage une journée plus calme.",
+        })
+
+    # Overload: very negative form (TSB).
+    if form is not None and form < -20:
+        anomalies.append({
+            'id': 'form_low',
+            'severity': 'warning',
+            'message': f"Forme (TSB) à {round(form)} — charge très élevée par rapport à ta fraîcheur. Prudence sur l'intensité.",
+        })
+
+    # Sleep dropping meaningfully.
+    if sleep_delta is not None and sleep_delta <= -45:
+        anomalies.append({
+            'id': 'sleep_down',
+            'severity': 'info',
+            'message': f"Sommeil en baisse ({round(sleep_delta)} min/nuit sur 7 jours) — la récupération peut en pâtir.",
+        })
+
+    # VO2max trending down.
+    if vo2_delta is not None and vo2_delta <= -1:
+        anomalies.append({
+            'id': 'vo2max_down',
+            'severity': 'info',
+            'message': f"VO2max en baisse ({round(vo2_delta, 1)} sur 7 jours) — à surveiller si ça persiste.",
+        })
+
+    return anomalies
+
+
 def _extract_recovery(activities: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """Extract recovery state from the most recent activity with Intervals.icu data."""
     for a in activities:
@@ -1246,6 +1299,7 @@ def get_coach_summary(user_id: str) -> Dict[str, Any]:
                 'ramp_rate': ramp_rate,
                 'compliance': compliance,
                 'recovery': _extract_recovery(recent),
+                'health_anomalies': _detect_health_anomalies(_extract_recovery(recent)),
                 'strength_history': strength_history[-20:],
                 'strength_progression': _build_strength_progression(strength_history),
             }
