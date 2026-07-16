@@ -50,7 +50,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from strands import Agent, tool
 from strands.models import BedrockModel
 
-from embedded_prompts import COACH_CHAT_SYSTEM_PROMPT
+from prompts import COACH_CHAT_SYSTEM_PROMPT
 
 logging.basicConfig(
     level=logging.INFO,

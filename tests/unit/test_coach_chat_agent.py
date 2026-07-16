@@ -25,7 +25,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src", "agents"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src", "coach_chat"))
 
 
 def _stub_package(top: str, submodules: tuple = ()) -> None:

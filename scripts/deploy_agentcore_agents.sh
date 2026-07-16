@@ -423,10 +423,10 @@ deploy_coach_chat_runtime() {
 
     print_status "Configuring $agent_name (protocol AGUI, audience $client_id)"
     agentcore configure \
-        --entrypoint "src/agents/coach_chat_agent.py" \
+        --entrypoint "src/coach_chat/coach_chat_agent.py" \
         --name "$agent_name" \
         --region "$AWS_REGION" \
-        --requirements-file "src/agents/coach_chat_requirements.txt" \
+        --requirements-file "src/coach_chat/requirements.txt" \
         --deployment-type direct_code_deploy \
         --runtime PYTHON_3_12 \
         --protocol AGUI \
