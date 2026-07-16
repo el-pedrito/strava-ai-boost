@@ -395,6 +395,112 @@ deploy_agent_with_ltm() {
 }
 
 # Main execution
+deploy_coach_chat_runtime() {
+    # Conversational coach on AgentCore Runtime (chantier A1+A2b):
+    # AGUI protocol + Cognito customJWT authorizer + DynamoDB tool permissions.
+    # Fully self-contained: discovers Cognito from CloudFormation outputs.
+    local agent_name="coach_chat"
+    local memory_id="$1"
+
+    print_status ""
+    print_status "🤖 Deploying conversational coach runtime: $agent_name (AGUI + customJWT)..."
+
+    # Discover Cognito User Pool + client from the Frontend stack outputs
+    local pool_id client_id
+    pool_id=$(aws cloudformation describe-stacks --stack-name StravaAIBoost-Frontend \
+        --region "$AWS_REGION" --profile "$AWS_PROFILE" \
+        --query 'Stacks[0].Outputs[?OutputKey==`UserPoolId`].OutputValue' --output text 2>/dev/null)
+    client_id=$(aws cloudformation describe-stacks --stack-name StravaAIBoost-Frontend \
+        --region "$AWS_REGION" --profile "$AWS_PROFILE" \
+        --query 'Stacks[0].Outputs[?OutputKey==`UserPoolClientId`].OutputValue' --output text 2>/dev/null)
+    if [ -z "$pool_id" ] || [ -z "$client_id" ]; then
+        print_error "Could not discover Cognito pool/client from StravaAIBoost-Frontend outputs"
+        return 1
+    fi
+    # The frontend sends the Cognito ID token: validate its `aud` claim
+    # (allowedAudience), NOT client_id (see design doc deploy notes).
+    local authorizer_config="{\"customJWTAuthorizer\":{\"discoveryUrl\":\"https://cognito-idp.${AWS_REGION}.amazonaws.com/${pool_id}/.well-known/openid-configuration\",\"allowedAudience\":[\"${client_id}\"]}}"
+
+    print_status "Configuring $agent_name (protocol AGUI, audience $client_id)"
+    agentcore configure \
+        --entrypoint "src/agents/coach_chat_agent.py" \
+        --name "$agent_name" \
+        --region "$AWS_REGION" \
+        --requirements-file "src/agents/coach_chat_requirements.txt" \
+        --deployment-type direct_code_deploy \
+        --runtime PYTHON_3_12 \
+        --protocol AGUI \
+        --disable-memory \
+        --authorizer-config "$authorizer_config" \
+        --non-interactive || { print_error "Failed to configure $agent_name"; return 1; }
+
+    # Guardrail (same resource as the content pipeline) + default identity
+    local guardrail_id guardrail_version default_user_id
+    guardrail_id=$(grep "^GUARDRAIL_ID=" .env.agentcore 2>/dev/null | cut -d'=' -f2 || echo "")
+    guardrail_version=$(grep "^GUARDRAIL_VERSION=" .env.agentcore 2>/dev/null | cut -d'=' -f2 || echo "1")
+    default_user_id=$(python3 -c "import json;print(json.load(open('cdk.context.json')).get('default_user_id',''))" 2>/dev/null || echo "")
+
+    local deploy_cmd="agentcore deploy --agent $agent_name --auto-update-on-conflict"
+    deploy_cmd="$deploy_cmd --env BEDROCK_AGENTCORE_MEMORY_ID=$memory_id"
+    [ -n "$guardrail_id" ] && deploy_cmd="$deploy_cmd --env GUARDRAIL_ID=$guardrail_id --env GUARDRAIL_VERSION=$guardrail_version"
+    [ -n "$default_user_id" ] && deploy_cmd="$deploy_cmd --env DEFAULT_USER_ID=$default_user_id"
+
+    eval $deploy_cmd || { print_error "Failed to deploy $agent_name"; return 1; }
+
+    # Grant the execution role read access for the agent's data tools
+    # (auto-created policy covers Bedrock/logs but NOT DynamoDB nor Memory data plane).
+    local account_id role_name
+    account_id=$(aws sts get-caller-identity --profile "$AWS_PROFILE" --query Account --output text)
+    role_name=$(grep -A 40 "^  ${agent_name}:" .bedrock_agentcore.yaml | grep "execution_role:" | head -1 | awk -F'role/' '{print $2}')
+    if [ -z "$role_name" ]; then
+        print_error "Could not resolve $agent_name execution role from .bedrock_agentcore.yaml"
+        return 1
+    fi
+    print_status "Attaching tool data-access policy to role: $role_name"
+    aws iam put-role-policy --profile "$AWS_PROFILE" \
+        --role-name "$role_name" \
+        --policy-name "CoachChatToolsDataAccess" \
+        --policy-document "{
+          \"Version\": \"2012-10-17\",
+          \"Statement\": [
+            {
+              \"Sid\": \"ActivitiesRead\",
+              \"Effect\": \"Allow\",
+              \"Action\": [\"dynamodb:Query\"],
+              \"Resource\": [
+                \"arn:aws:dynamodb:${AWS_REGION}:${account_id}:table/strava-ai-boost-activities\",
+                \"arn:aws:dynamodb:${AWS_REGION}:${account_id}:table/strava-ai-boost-activities/index/*\"
+              ]
+            },
+            {
+              \"Sid\": \"UserConfigRead\",
+              \"Effect\": \"Allow\",
+              \"Action\": [\"dynamodb:GetItem\"],
+              \"Resource\": \"arn:aws:dynamodb:${AWS_REGION}:${account_id}:table/strava-ai-boost-user-configuration\"
+            },
+            {
+              \"Sid\": \"CampusSessionsRead\",
+              \"Effect\": \"Allow\",
+              \"Action\": [\"dynamodb:Scan\"],
+              \"Resource\": \"arn:aws:dynamodb:${AWS_REGION}:${account_id}:table/strava-ai-boost-campus-coaching-sessions\"
+            },
+            {
+              \"Sid\": \"MemoryDataPlane\",
+              \"Effect\": \"Allow\",
+              \"Action\": [\"bedrock-agentcore:CreateEvent\", \"bedrock-agentcore:RetrieveMemoryRecords\"],
+              \"Resource\": \"arn:aws:bedrock-agentcore:${AWS_REGION}:${account_id}:memory/${memory_id}\"
+            }
+          ]
+        }" || { print_error "Failed to attach data-access policy"; return 1; }
+
+    local agent_arn
+    agent_arn=$(grep -A 40 "^  ${agent_name}:" .bedrock_agentcore.yaml | grep "agent_arn:" | head -1 | awk '{print $2}')
+    print_success "$agent_name deployed: $agent_arn"
+    print_status "➡️  Frontend activation (phase A): set coachRuntimeArn=\"$agent_arn\" in frontend/public/config.json"
+    echo "$agent_arn"
+}
+
+
 main() {
     print_status "🚀 Starting AgentCore agent deployment with LTM..."
     
@@ -460,6 +566,14 @@ main() {
         print_success "✅ Coach Agent deployed"
     else
         print_error "❌ Coach Agent deployment failed"
+        exit 1
+    fi
+
+    # Conversational coach runtime (A1+A2b): AGUI + customJWT + tool permissions
+    if coach_chat_arn=$(deploy_coach_chat_runtime "$content_mem_id"); then
+        print_success "✅ Coach Chat runtime deployed"
+    else
+        print_error "❌ Coach Chat runtime deployment failed"
         exit 1
     fi
     
