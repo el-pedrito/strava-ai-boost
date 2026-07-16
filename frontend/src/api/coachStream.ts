@@ -165,6 +165,13 @@ async function pumpSse(
   const decoder = new TextDecoder();
   let buffer = '';
 
+  // AgentCore may deliver several SSE events in a single network chunk. Dispatching
+  // them all synchronously makes React batch the state updates into one paint, so
+  // transient states (tool-call indicator, per-token text) never render and the
+  // answer appears as a block. Yielding to a macrotask between events forces a
+  // paint frame, restoring the token-by-token surface regardless of chunk size.
+  const yieldToPaint = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -173,6 +180,7 @@ async function pumpSse(
     buffer = remainder;
     for (const event of events) {
       if (handleEvent(event, callbacks) === 'stop') return;
+      await yieldToPaint();
     }
   }
   // Flush a final frame not terminated by a blank line (non-\n\n-terminated SSE).
@@ -181,6 +189,7 @@ async function pumpSse(
     const [events] = parseSseBuffer(`${tail}\n\n`);
     for (const event of events) {
       if (handleEvent(event, callbacks) === 'stop') return;
+      await yieldToPaint();
     }
   }
   callbacks.onDone?.();

@@ -157,7 +157,10 @@ export function CoachChat() {
             // Surface agent tool loops (Runtime path) so the UI shows progress
             // during the 3-8 s before the first token.
             onToolCallStart: (toolName) => setToolActivity(toolActivityKey(toolName)),
-            onToolCallEnd: () => setToolActivity(null),
+            // Don't clear on END: keep the "analyzing…" label visible through
+            // tool-result processing until the first text token arrives (cleared
+            // by appendDelta). Avoids a flash back to the generic "thinking" state.
+            onToolCallEnd: () => {},
           });
           if (streamed) return;
           // Empty stream: drop the placeholder and fall through to buffered.
