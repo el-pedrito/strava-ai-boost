@@ -56,7 +56,7 @@
     "@aws-cdk/aws-ecs:removeDefaultDeploymentAlarm": false,
     "region": "us-east-1",
     "lambda_web_adapter": {
-      "account": "123456789012",
+      "account": "753240598075",
       "layer_name": "LambdaAdapterLayerX86",
       "version": "28"
     }
