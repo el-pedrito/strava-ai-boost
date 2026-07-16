@@ -203,6 +203,22 @@ def _compact_activity(item: dict) -> dict:
         "avg_hr": data.get("average_heartrate") or item.get("average_heartrate"),
         "max_hr": data.get("max_heartrate") or item.get("max_heartrate"),
     }
+    # Two narrative fields, kept distinct on purpose:
+    #  - description: the athlete's OWN original note (raw Strava input) — the most
+    #    authentic subjective signal (how the session felt, intervals actually done).
+    #  - enhanced_description: the AI-published text. Useful for continuity but is
+    #    generated (avoid the coach reasoning solely on its own prior output).
+    # Both truncated to keep the tool payload bounded across many activities.
+    original = (
+        item.get("original_description")
+        or data.get("description")
+        or ""
+    )
+    enhanced = item.get("enhanced_description") or data.get("enhanced_description") or ""
+    if isinstance(original, str) and original.strip():
+        record["description"] = original.strip()[:500]
+    if isinstance(enhanced, str) and enhanced.strip():
+        record["enhanced_description"] = enhanced.strip()[:500]
     return _jsonable(record)
 
 
@@ -257,6 +273,20 @@ def _query_activities_impl(
         return []
 
     wanted = (activity_type or "").strip().lower()
+    # Map common FR/EN aliases to the Strava canonical type substring: the agent
+    # often passes a natural-language type ("muscu", "course") that would never
+    # match Strava's English types ("WeightTraining", "Run") under substring
+    # matching, silently returning nothing.
+    _TYPE_ALIASES = {
+        "weighttraining": ("muscu", "musculation", "renfo", "renforcement", "force", "poids", "gym", "weight"),
+        "run": ("course", "cap", "running", "footing", "trail"),
+        "ride": ("velo", "vélo", "cyclisme", "bike", "cycling"),
+        "swim": ("natation", "nage", "swim"),
+    }
+    for canonical, aliases in _TYPE_ALIASES.items():
+        if wanted and (wanted == canonical or wanted in aliases):
+            wanted = canonical
+            break
     results = []
     for item in items:
         record = _compact_activity(item)
@@ -416,7 +446,9 @@ async def query_activities(activity_type: str, date_from: str, date_to: str) -> 
     Args:
         activity_type: Filtre par correspondance partielle insensible à la casse
             sur le type Strava, ex. "Run" (matche aussi TrailRun/VirtualRun),
-            "WeightTraining", "Ride". Chaîne vide pour ne pas filtrer.
+            "WeightTraining", "Ride". Les alias français courants sont acceptés
+            ("muscu"/"musculation" → WeightTraining, "course" → Run, "vélo" →
+            Ride, "natation" → Swim). Chaîne vide pour ne pas filtrer.
         date_from: Date de début incluse au format ISO "AAAA-MM-JJ". Vide = 4
             dernières semaines. La fenêtre s'applique à la date de synchronisation
             de l'activité (une activité importée tardivement peut différer de sa
@@ -426,7 +458,11 @@ async def query_activities(activity_type: str, date_from: str, date_to: str) -> 
     Returns:
         Liste d'activités (plus récentes d'abord), chacune avec: activity_id, date,
         type, name, distance_km, duration_min, pace (min/km pour la course), avg_hr,
-        max_hr.
+        max_hr. Quand disponibles (tronqués à 500 caractères) :
+        - description : la note ORIGINALE écrite par l'athlète (ressenti, détail de
+          la séance dans ses propres mots) — signal subjectif le plus fiable.
+        - enhanced_description : le texte publié généré par l'IA (contexte, à
+          pondérer car ce n'est pas la parole directe de l'athlète).
     """
     user_id = _resolve_user_id()
     return await asyncio.to_thread(
@@ -571,6 +607,16 @@ def _build_system_prompt(user_id: str) -> str:
     else is fetched on demand through the tools — the core idea of chantier A1.
     """
     prompt = COACH_CHAT_SYSTEM_PROMPT + _TOOLS_ADDENDUM
+    # The model has no inherent notion of "today" and otherwise guesses the year
+    # (observed: it passed 2025 date filters against 2026 data → empty results).
+    # Anchor all relative date reasoning and tool date arguments to the real date.
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    prompt = (
+        f"{prompt}\n\n## Date du jour\n{today} (UTC). Utilise TOUJOURS cette date "
+        f"(et surtout cette année) pour tout raisonnement temporel — « cette "
+        f"semaine », « début juillet », « 4 dernières semaines » — et pour les "
+        f"arguments date_from/date_to que tu passes aux outils."
+    )
     profile = _fetch_athlete_profile(user_id)
     if profile:
         prompt = f"{prompt}\n\n## Profil athlète (contexte minimal)\n{profile}"

@@ -166,6 +166,22 @@ def test_query_activities_filters_by_type(patch_dynamo):
     assert all("Upper A" != r["name"] for r in result)
 
 
+def test_query_activities_french_alias_matches_strava_type(patch_dynamo):
+    items = [
+        _activity_item("42", "2026-07-10T08:00:00", "Run", "Seuil", 10000, 2400),
+        _activity_item("42", "2026-07-11T18:00:00", "WeightTraining", "Upper A", 0, 3600),
+    ]
+    patch_dynamo(**{cca.ACTIVITIES_TABLE: _FakeTable(query_resp={"Items": items})})
+
+    # "musculation" (FR) must resolve to the Strava "WeightTraining" type.
+    result = cca._query_activities_impl("42", "musculation", "", "")
+
+    assert [r["type"] for r in result] == ["WeightTraining"]
+    # And "course" (FR) must resolve to "Run".
+    result_run = cca._query_activities_impl("42", "course", "", "")
+    assert [r["type"] for r in result_run] == ["Run"]
+
+
 def test_query_activities_no_type_returns_all_sorted_desc(patch_dynamo):
     items = [
         _activity_item("42", "2026-07-10T08:00:00", "Run", "A", 10000, 2400),
@@ -214,6 +230,30 @@ def test_compact_activity_computes_run_pace_and_is_jsonable(patch_dynamo):
     assert rec["duration_min"] == 40
     # 2400s / 10km = 240 s/km = 4:00/km
     assert rec["pace"] == "4:00/km"
+
+
+def test_compact_activity_includes_truncated_description(patch_dynamo):
+    item = _activity_item("42", "2026-07-10T08:00:00", "Run", "Seuil", 10000, 2400)
+    item["original_description"] = "B" * 800  # athlete's own note, over the cap
+    item["enhanced_description"] = "A" * 800  # published AI narrative, over the cap
+    patch_dynamo(**{cca.ACTIVITIES_TABLE: _FakeTable(query_resp={"Items": [item]})})
+
+    (rec,) = cca._query_activities_impl("42", "Run", "", "")
+
+    # Both narrative fields exposed, each truncated to 500 chars, kept distinct.
+    assert rec["description"] == "B" * 500
+    assert rec["enhanced_description"] == "A" * 500
+
+
+def test_compact_activity_omits_empty_description(patch_dynamo):
+    items = [_activity_item("42", "2026-07-10T08:00:00", "Run", "Seuil", 10000, 2400)]
+    patch_dynamo(**{cca.ACTIVITIES_TABLE: _FakeTable(query_resp={"Items": items})})
+
+    (rec,) = cca._query_activities_impl("42", "Run", "", "")
+
+    # No narrative stored → both keys omitted rather than empty strings.
+    assert "description" not in rec
+    assert "enhanced_description" not in rec
 
 
 # --------------------------------------------------------------------------- #
@@ -550,3 +590,14 @@ def test_write_chat_to_memory_truncates_answer(monkeypatch):
     cca.write_chat_to_memory("user1", "q" * 30, "y" * 900)
     stored = client.events[0]["payload"][1]["conversational"]["content"]["text"]
     assert len(stored) == 500
+
+
+def test_system_prompt_includes_current_date(patch_dynamo):
+    from datetime import datetime, timezone
+
+    patch_dynamo(**{cca.USER_CONFIG_TABLE: _FakeTable(item={})})
+    prompt = cca._build_system_prompt("42")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # The model must know the real date (and year) to build correct date filters.
+    assert today in prompt
+    assert "Date du jour" in prompt
