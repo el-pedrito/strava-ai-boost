@@ -20,7 +20,6 @@ logger = get_logger("agentcore_health_check")
 
 # Environment variables
 CONTENT_AGENT_ARN = os.environ.get('CONTENT_GENERATION_AGENT_ARN')
-CAMPUS_AGENT_ARN = os.environ.get('CAMPUS_COACH_AGENT_ARN')
 
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -66,20 +65,11 @@ def check_agentcore_health() -> Dict[str, Any]:
                 'message': 'Agent ARN not configured'
             }
         
-        # Check Campus Coach Agent
-        if CAMPUS_AGENT_ARN:
-            campus_status = test_agent_accessibility(CAMPUS_AGENT_ARN, 'campus_coach')
-            agents_status['campus_coach'] = campus_status
-            if campus_status['status'] != 'healthy':
-                overall_healthy = False
-        else:
-            agents_status['campus_coach'] = {
-                'status': 'not_configured',
-                'message': 'Agent ARN not configured'
-            }
-        
+        # Check Campus Coach: handled by the daily REST sync (campus_coach_sync),
+        # not an AgentCore agent anymore — nothing to health-check here.
+
         # Determine overall status
-        if not CONTENT_AGENT_ARN and not CAMPUS_AGENT_ARN:
+        if not CONTENT_AGENT_ARN:
             overall_status = 'not_configured'
         elif overall_healthy:
             overall_status = 'healthy'

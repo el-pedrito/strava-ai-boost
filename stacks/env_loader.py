@@ -46,7 +46,6 @@ def load_agentcore_agent_arns() -> Dict[str, str]:
     """Load agent ARNs for IAM scoping and Lambda environment."""
     return load_env_agentcore(keys={
         'CONTENT_GENERATION_AGENT_ARN',
-        'CAMPUS_COACH_AGENT_ARN',
     })
 
 

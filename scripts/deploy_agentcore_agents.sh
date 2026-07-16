@@ -19,10 +19,8 @@ AWS_REGION="${AWS_REGION:-us-east-1}"
 
 # Agent and memory names
 CONTENT_AGENT_NAME="content_gen"
-CAMPUS_AGENT_NAME="campus_coach"
 COACH_AGENT_NAME="strava_ai_boost_coach"
 CONTENT_MEMORY_NAME="content_gen_mem"
-CAMPUS_MEMORY_NAME="campus_coach_mem"
 
 # Cost allocation tags
 TAGS_PROJECT="StravaAIBoost"
@@ -522,9 +520,8 @@ main() {
     print_status "🔍 Verifying LTM memories exist..."
     
     local content_mem_id=$(get_memory_id "$CONTENT_MEMORY_NAME")
-    local campus_mem_id=$(get_memory_id "$CAMPUS_MEMORY_NAME")
     
-    if [ -z "$content_mem_id" ] || [ -z "$campus_mem_id" ]; then
+    if [ -z "$content_mem_id" ]; then
         print_error "LTM memories not found!"
         print_status "Please run: ./scripts/create_agentcore_memories.sh first"
         print_status ""
@@ -535,28 +532,18 @@ main() {
     
     print_success "Found LTM memories:"
     print_status "  - $CONTENT_MEMORY_NAME: $content_mem_id"
-    print_status "  - $CAMPUS_MEMORY_NAME: $campus_mem_id"
     
     # Deploy agents
     print_status ""
     print_status "📦 Deploying agents with LTM..."
     
     local content_arn=""
-    local campus_arn=""
     
     # Deploy content generation agent
     if content_arn=$(deploy_agent_with_ltm "$CONTENT_AGENT_NAME" "src/agents/content_agent.py" "$CONTENT_MEMORY_NAME"); then
         print_success "✅ Content Generation Agent deployed"
     else
         print_error "❌ Content Generation Agent deployment failed"
-        exit 1
-    fi
-    
-    # Deploy campus coach agent
-    if campus_arn=$(deploy_agent_with_ltm "$CAMPUS_AGENT_NAME" "src/agents/campus_coach_agent.py" "$CAMPUS_MEMORY_NAME"); then
-        print_success "✅ Campus Coach Agent deployed"
-    else
-        print_error "❌ Campus Coach Agent deployment failed"
         exit 1
     fi
     
@@ -598,7 +585,6 @@ main() {
     print_status "  Memory Type: Long-Term Memory (LTM) with semantic search"
     print_status "  Memory Retention: 365 days"
     print_status "  Content Agent: $content_arn"
-    print_status "  Campus Agent: $campus_arn"
     print_status "  Coach Agent: $coach_arn"
     print_status ""
     print_status "🧠 Memory Features:"

@@ -185,7 +185,7 @@ class ApiGatewayStack(Stack):
         
         # Grant AgentCore permissions - scoped to agent runtime ARNs
         agentcore_resources = []
-        for arn_key in ['CONTENT_GENERATION_AGENT_ARN', 'CAMPUS_COACH_AGENT_ARN']:
+        for arn_key in ['CONTENT_GENERATION_AGENT_ARN']:
             if arn_key in agentcore_env:
                 agentcore_resources.append(agentcore_env[arn_key])
         if not agentcore_resources:

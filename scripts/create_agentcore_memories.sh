@@ -19,7 +19,6 @@ AWS_REGION="${AWS_REGION:-us-east-1}"
 
 # Memory names (must match agent names + "_mem")
 CONTENT_MEMORY_NAME="content_gen_mem"
-CAMPUS_MEMORY_NAME="campus_coach_mem"
 
 # Cost allocation tags
 TAGS_PROJECT="StravaAIBoost"
@@ -158,7 +157,6 @@ main() {
     print_status "📦 Creating LTM memories with semantic search..."
     
     create_ltm_memory "$CONTENT_MEMORY_NAME"
-    create_ltm_memory "$CAMPUS_MEMORY_NAME"
 
     # Tag memories with cost allocation tags
     tag_memories

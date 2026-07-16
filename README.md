@@ -338,7 +338,7 @@ graph TB
 | **19 Lambda Functions** | API, processing, webhooks, support, voice (in role-based packages) |
 | **Coach chat runtime** | dedicated **AgentCore Runtime** `coach_chat` (FastAPI + Strands, AGUI protocol, 4 tools). Browser POSTs the AG-UI SSE straight to the data plane; **customJWT** auth (Cognito ID token), no SigV4, no proxy |
 | **3 DynamoDB Tables** | `activities` (3 GSIs, TTL), `user_config`, `coaching_sessions` |
-| **3 AgentCore Agents** | `content_gen` (LTM memory), `campus_coach` (Browser Tool — fallback only), `coach_agent` (LTM memory) |
+| **2 AgentCore Agents** | `content_gen` (LTM memory), `coach_agent` (LTM memory). Campus Coach uses the direct REST sync Lambda (no agent) |
 | **CloudFront + S3** | Frontend hosting with OAC, private bucket, versioning, encryption |
 | **Cognito User Pool** | JWT authentication, no self-registration, 12+ char password policy |
 | **External APIs** | Strava API, Campus Coach, Intervals.icu, Enduraw (all optional) |

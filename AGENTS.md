@@ -27,7 +27,7 @@ Strava AI Boost is a **serverless AWS application** that automatically enhances 
 ### Key Statistics
 - **~18,000 LOC** in core components
 - **19 Lambda functions** (API, processing, webhooks, support, voice — role-based packages)
-- **3 AgentCore agents** (content_gen, campus_coach, coach_agent) + **1 AgentCore Runtime** (`coach_chat`, agentic conversational coach)
+- **2 AgentCore agents** (content_gen, coach_agent) + **1 AgentCore Runtime** (`coach_chat`, agentic conversational coach)
 - **7 CDK stacks**
 - **255 tests** (211 backend unit + 44 frontend)
 - **Python 3.12** runtime, **React 19 + TypeScript + Vite** frontend
@@ -121,7 +121,6 @@ strava-ai-boost/
 │   ├── webhooks/                       # Event ingestion
 │   │   ├── webhook_handler.py          # Webhook receiver
 │   │   ├── activity_processor.py       # SQS processor
-│   │   ├── campus_coach_invoker.py     # Session retrieval (legacy Browser Tool — fallback only)
 │   │   └── campus_coach_sync.py        # Direct REST API sync (login + GET /smart-training, 9 weeks, 39 sessions)
 │   ├── support/                        # Operational utilities
 │   │   ├── feedback_analyzer.py        # Feedback loop
@@ -138,7 +137,6 @@ strava-ai-boost/
 ├── src/
 │   ├── agents/                 # AgentCore agents (3 agents)
 │   │   ├── content_agent.py            # Content generation agent
-│   │   ├── campus_coach_agent.py       # Campus Coach scraper
 │   │   ├── coach_agent.py              # Training coach agent (pipeline feedback)
 │   │   └── embedded_prompts.py         # Prompt templates
 │   │
@@ -578,7 +576,7 @@ class TestMyModule:
 - Pierre's real writing style examples used as positive anchors in prompts
 - Goal: authentic, personal voice — not generic AI-sounding text
 
-**Campus Coach Agent** (`campus_coach_agent.py`): Extract training sessions via Browser Tool, Claude Sonnet 4.5. Stores sessions in DynamoDB — no analysis, matching is done by the content agent. **NOTE: Replaced by direct API sync (`campus_coach_sync.py`) since May 2026. Agent kept as fallback.**
+**Campus Coach (no AgentCore agent)**: Campus Coach data comes from the direct REST API sync (`campus_coach_sync.py`). The legacy Browser Tool AgentCore agent (`campus_coach_agent.py`) and its fallback invoker Lambda were **decommissioned** (2026-07-16) — the REST sync had fully replaced them for weeks. Matching is done deterministically in `modules_processing.py`.
 
 **Campus Coach Matching** (deterministic, `modules_processing.py`):
 - Sessions scored against activity laps using: activity type, duration match, interval count, interval duration

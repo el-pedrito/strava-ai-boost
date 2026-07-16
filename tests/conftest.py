@@ -50,7 +50,6 @@ def setup_environment():
     
     # AgentCore (generic test ARNs)
     os.environ["CONTENT_GENERATION_AGENT_ARN"] = "arn:aws:bedrock-agentcore:eu-west-1:000000000000:runtime/test-agent"
-    os.environ["CAMPUS_COACH_AGENT_ARN"] = "arn:aws:bedrock-agentcore:eu-west-1:000000000000:runtime/test-agent"
     os.environ["AGENTCORE_AGENTS_AVAILABLE"] = "false"
     
     # User (generic test ID)

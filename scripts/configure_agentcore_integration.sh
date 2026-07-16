@@ -131,8 +131,6 @@ update_lambda_iam_permissions() {
             "Resource": [
                 "$content_arn",
                 "$content_arn/*",
-                "$campus_arn",
-                "$campus_arn/*",
                 "$coach_arn",
                 "$coach_arn/*"
             ]
@@ -871,13 +869,6 @@ create_env_file() {
 # Handles personalized content generation with memory integration
 CONTENT_GENERATION_AGENT_ARN=$content_arn
 CONTENT_GENERATION_AGENT_NAME=$CONTENT_AGENT_NAME
-
-# ============================================================================
-# CAMPUS COACH AGENT
-# ============================================================================
-# Browser Tool agent for Campus Coach session extraction
-CAMPUS_COACH_AGENT_ARN=$campus_arn
-CAMPUS_COACH_AGENT_NAME=$CAMPUS_AGENT_NAME
 
 # ============================================================================
 # STRAVA AI BOOST COACH AGENT

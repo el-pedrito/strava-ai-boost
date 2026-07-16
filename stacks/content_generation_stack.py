@@ -68,13 +68,11 @@ class ContentGenerationStack(Stack):
 
         env_vars = {
             "CONTENT_GENERATION_AGENT_ARN": "",
-            "CAMPUS_COACH_AGENT_ARN": "",
             "COACH_AGENT_ARN": "",
             "BEDROCK_AGENTCORE_MEMORY_ID": "",
             "AGENTCORE_AGENTS_AVAILABLE": "false",
             "AGENTCORE_REGION": Aws.REGION,
             "CONTENT_GENERATION_AGENT_NAME": "",
-            "CAMPUS_COACH_AGENT_NAME": ""
         }
 
         loaded = load_env_agentcore()
@@ -254,29 +252,9 @@ class ContentGenerationStack(Stack):
             }
         )
 
-        # Campus Coach invoker Lambda for AgentCore Browser Tool
-        self.campus_coach_invoker = lambda_.Function(
-            self, "CampusCoachInvoker",
-            function_name="StravaAIBoost-CampusCoachInvoker",
-            runtime=lambda_.Runtime.PYTHON_3_12,
-            handler="webhooks.campus_coach_invoker.handler",
-            code=lambda_.Code.from_asset("lambda_functions"),
-            layers=[self.core_stack.dependencies_layer],
-            timeout=Duration.minutes(2),
-            memory_size=512,
-            role=content_lambda_role,
-            environment={
-                "COACHING_SESSIONS_TABLE": self.core_stack.table_names["coaching_sessions"],
-                "CAMPUS_COACH_SECRET": self.core_stack.campus_coach_secret.secret_name,
-                "BEDROCK_MODEL_ID": get_bedrock_model_id(),
-                # Base environment variables (AgentCore will be populated in Phase 2)
-                **self._get_base_environment_variables()
-            }
-        )
-        
-        # Legacy Browser Tool schedule removed: the daily REST sync
-        # (strava-ai-boost-campus-coach-daily-sync, webhook stack) replaced it.
-        # The invoker Lambda is kept for manual fallback invocations only.
+        # Campus Coach session retrieval is handled by the daily REST sync
+        # (strava-ai-boost-campus-coach-daily-sync, webhook stack). The legacy
+        # AgentCore Browser Tool agent + invoker Lambda were decommissioned.
 
         # Coach Generator Lambda (parallel branch)
         self.coach_generator = lambda_.Function(

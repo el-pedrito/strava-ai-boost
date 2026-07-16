@@ -157,7 +157,6 @@ EXPECTED_FUNCTIONS=(
     "StravaAIBoost-ContentGenerator"
     "StravaAIBoost-ActivityFetcher"
     "StravaAIBoost-StravaUpdater"
-    "StravaAIBoost-CampusCoachInvoker"
     "StravaAIBoost-ConfigurationAPI"
     "StravaAIBoost-DashboardAPI"
     "StravaAIBoost-StatusAPI"
@@ -336,7 +335,6 @@ if command -v agentcore &> /dev/null; then
     # Check AgentCore agents
     print_check "AgentCore Agents"
     CONTENT_AGENT_NAME="contentgen-${ENVIRONMENT}"
-    CAMPUS_AGENT_NAME="campuscoach-${ENVIRONMENT}"
     
     AGENT_LIST=$(agentcore agent list --profile $PROFILE --region $REGION 2>/dev/null || echo "")
     
@@ -344,12 +342,6 @@ if command -v agentcore &> /dev/null; then
         print_pass "Content generation agent $CONTENT_AGENT_NAME exists"
     else
         print_warning "Content generation agent $CONTENT_AGENT_NAME not found"
-    fi
-    
-    if echo "$AGENT_LIST" | grep -q "$CAMPUS_AGENT_NAME"; then
-        print_pass "Campus Coach agent $CAMPUS_AGENT_NAME exists"
-    else
-        print_warning "Campus Coach agent $CAMPUS_AGENT_NAME not found"
     fi
 else
     print_warning "AgentCore CLI not available - skipping AgentCore validation"

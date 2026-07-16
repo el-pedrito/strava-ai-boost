@@ -23,7 +23,6 @@ class TestLambdaStructure:
         'processing/content_generator.py': 'def handler(',
         'processing/activity_fetcher.py': 'def handler(',
         'processing/strava_updater.py': 'def handler(',
-        'webhooks/campus_coach_invoker.py': 'def handler(',
         'api/configuration_api.py': 'def handler(',
         'api/dashboard_api.py': 'def handler(',
         'api/user_preferences_api.py': 'def handler(',
