@@ -34,6 +34,7 @@ export interface CoachStreamRequest {
   question: string;
   user_id: string;
   session_id: string;
+  history: { role: string; content: string }[];
 }
 
 /** True when streaming is configured (Identity Pool + Function URL present). */

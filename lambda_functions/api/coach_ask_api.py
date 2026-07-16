@@ -8,6 +8,7 @@ import boto3
 from typing import Any, Dict
 from shared.logger import get_logger, inject_correlation_id
 from shared.responses import CORS_HEADERS_READ as CORS_HEADERS, create_success_response, create_error_response
+from shared.coach_context import build_converse_messages
 
 logger = get_logger("coach-ask-api")
 
@@ -150,7 +151,7 @@ Contexte athlète:
 
 Règles: tutoiement, réponses concises (3-5 phrases), factuel."""
 
-    messages = [*[{"role": m["role"], "content": [{"text": m["content"]}]} for m in history[-10:]], {"role": "user", "content": [{"text": question}]}]
+    messages = build_converse_messages(history, question)
 
     response = bedrock.converse(
         modelId=model_id,

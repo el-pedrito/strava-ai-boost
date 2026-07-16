@@ -25,6 +25,84 @@ MEMORY_ID = os.environ.get("BEDROCK_AGENTCORE_MEMORY_ID", "")
 
 dynamodb = boto3.resource("dynamodb", region_name=REGION)
 
+# Converse (Claude) history normalization constants.
+_ALLOWED_ROLES = {"user": "user", "assistant": "assistant"}
+_MAX_HISTORY_ENTRIES = 10
+_ROLE_MAX_CHARS = {"user": 500, "assistant": 2500}
+
+
+def build_converse_messages(history: list, current_question: str) -> list[dict]:
+    """Normalize a client-supplied chat history into a Bedrock Converse ``messages`` array.
+
+    Enforces the Converse/Claude contract: the first message must be ``user`` and
+    roles must strictly alternate. This is a PURE function (no I/O, never raises):
+    any invalid input degrades silently to a single-turn message.
+
+    Normalization rules applied in order:
+      * whitelist roles ``{user, assistant}`` (case-insensitive); entries that are
+        not dicts, lack a string ``role``/``content``, carry any other role (e.g.
+        ``system``), or have empty content are dropped silently;
+      * keep only the 10 most recent history entries;
+      * asymmetric truncation: user content -> 500 chars, assistant -> 2500 chars;
+      * drop leading ``assistant`` message(s) so the first message is ``user``;
+      * merge consecutive same-role messages (texts joined with a newline);
+      * always append ``current_question`` as a trailing ``user`` message, merging
+        into the previous message when it is already ``user``.
+
+    Args:
+        history: List of ``{'role': str, 'content': str}`` dicts from the frontend.
+        current_question: The current user question to append last.
+
+    Returns:
+        A list of ``{'role': 'user'|'assistant', 'content': [{'text': str}]}`` dicts.
+    """
+    question = current_question if isinstance(current_question, str) else str(current_question)
+    single_turn: list[dict] = [{"role": "user", "content": [{"text": question}]}]
+
+    if not isinstance(history, list) or not history:
+        return single_turn
+
+    normalized: list[dict] = []
+    for entry in history:
+        if not isinstance(entry, dict):
+            continue
+        raw_role = entry.get("role")
+        if not isinstance(raw_role, str):
+            continue
+        role = _ALLOWED_ROLES.get(raw_role.lower())
+        if role is None:
+            continue
+        content = entry.get("content")
+        if not isinstance(content, str):
+            continue
+        text = content.strip()
+        if not text:
+            continue
+        normalized.append({"role": role, "text": text[: _ROLE_MAX_CHARS[role]]})
+
+    # Keep only the most recent valid entries (whitelist first, then cap).
+    normalized = normalized[-_MAX_HISTORY_ENTRIES:]
+
+    # Drop leading assistant message(s): first message must be user.
+    while normalized and normalized[0]["role"] == "assistant":
+        normalized.pop(0)
+
+    # Merge consecutive same-role messages to keep roles strictly alternating.
+    merged: list[dict] = []
+    for item in normalized:
+        if merged and merged[-1]["role"] == item["role"]:
+            merged[-1]["text"] = f"{merged[-1]['text']}\n{item['text']}"
+        else:
+            merged.append({"role": item["role"], "text": item["text"]})
+
+    # Always append the current question as the last user message.
+    if merged and merged[-1]["role"] == "user":
+        merged[-1]["text"] = f"{merged[-1]['text']}\n{question}"
+    else:
+        merged.append({"role": "user", "text": question})
+
+    return [{"role": m["role"], "content": [{"text": m["text"]}]} for m in merged]
+
 
 def build_user_context(user_id: str) -> list[str]:
     """Build athlete context from DynamoDB.

@@ -13,8 +13,9 @@ AG-UI event sequence per run:
 Starlette (not FastAPI) is used deliberately: it and uvicorn are pure-Python,
 so they vendor into the Lambda asset without Docker bundling (project convention).
 
-This handler is purely additive: the buffered /coach/ask API Gateway handler
-(coach_ask_api.py) remains the fallback and is untouched.
+The buffered /coach/ask API Gateway handler (coach_ask_api.py) remains the
+fallback; both paths share the same history normalization helper
+(shared.coach_context.build_converse_messages).
 """
 
 import json
@@ -30,6 +31,7 @@ from starlette.routing import Route
 
 from shared.coach_context import (
     COACH_CONVERSATION_PROMPT,
+    build_converse_messages,
     build_user_context,
     retrieve_memory_observations,
     write_chat_to_memory,
@@ -52,31 +54,42 @@ def _sse(event_type: str, data: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
-def _build_message(question: str, user_id: str) -> str:
-    """Assemble the user message with athlete context + past observations."""
+def _build_system_context(user_id: str) -> str:
+    """Assemble athlete context (profile, activities, past observations).
+
+    Returned as server-side data kept separate from the client ``messages`` and
+    injected into the Converse ``system`` parameter (better anti-injection
+    isolation, cf. threat model T4).
+    """
     context_parts = build_user_context(user_id)
     memory_context = retrieve_memory_observations(user_id)
     if memory_context:
         context_parts.append(f"Observations passées: {memory_context}")
     if context_parts:
-        return f"[Contexte: {' | '.join(context_parts)}]\n\n{question}"
-    return question
+        return f"[Contexte: {' | '.join(context_parts)}]"
+    return ""
 
 
-async def _event_stream(question: str, user_id: str, message_id: str) -> AsyncIterator[str]:
+async def _event_stream(
+    question: str, user_id: str, message_id: str, history: list | None = None
+) -> AsyncIterator[str]:
     """Produce the AG-UI SSE event stream for a coach answer."""
     run_id = uuid.uuid4().hex
     yield _sse("RUN_STARTED", {"runId": run_id})
 
     answer_parts: list[str] = []
     try:
-        user_message = _build_message(question, user_id)
+        system_context = _build_system_context(user_id)
+        system_prompt = COACH_CONVERSATION_PROMPT
+        if system_context:
+            system_prompt = f"{COACH_CONVERSATION_PROMPT}\n\n{system_context}"
+        messages = build_converse_messages(history or [], question)
 
         bedrock = boto3.client("bedrock-runtime", region_name=REGION)
         response = bedrock.converse_stream(
             modelId=MODEL_ID,
-            messages=[{"role": "user", "content": [{"text": user_message}]}],
-            system=[{"text": COACH_CONVERSATION_PROMPT}],
+            messages=messages,
+            system=[{"text": system_prompt}],
             inferenceConfig={"maxTokens": 800, "temperature": 0.7},
         )
 
@@ -118,11 +131,12 @@ async def ask_stream(request: Request) -> StreamingResponse | JSONResponse:
         )
 
     user_id = body.get("user_id") or DEFAULT_USER_ID
+    history = body.get("history", [])
     message_id = uuid.uuid4().hex
     logger.info(f"Coach stream ask: '{question[:50]}'")
 
     return StreamingResponse(
-        _event_stream(question, user_id, message_id),
+        _event_stream(question, user_id, message_id, history),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

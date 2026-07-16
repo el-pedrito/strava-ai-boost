@@ -49,7 +49,7 @@ def test_event_stream_emits_agui_sequence(stream_module, monkeypatch):
     )
 
     frames = _collect(
-        stream_module._event_stream("Comment je progresse ?", "user1", "msg1")
+        stream_module._event_stream("Comment je progresse ?", "user1", "msg1", [])
     )
     events = [json.loads(f.removeprefix("data: ").strip()) for f in frames]
     types = [e["type"] for e in events]
@@ -67,7 +67,7 @@ def test_event_stream_emits_run_error_on_failure(stream_module, monkeypatch):
 
     monkeypatch.setattr(stream_module.boto3, "client", _boom)
 
-    frames = _collect(stream_module._event_stream("q", "user1", "msg1"))
+    frames = _collect(stream_module._event_stream("q", "user1", "msg1", []))
     events = [json.loads(f.removeprefix("data: ").strip()) for f in frames]
     types = [e["type"] for e in events]
 
@@ -81,3 +81,30 @@ def test_sse_frame_format(stream_module):
     assert frame.endswith("\n\n")
     parsed = json.loads(frame.removeprefix("data: ").strip())
     assert parsed == {"type": "TEXT_MESSAGE_CONTENT", "delta": "héllo"}
+
+
+def test_event_stream_passes_history_and_system_context(stream_module, monkeypatch):
+    """Multi-turn: history reaches converse_stream as messages; athlete context in system only."""
+    captured = {}
+
+    class _CapturingClient:
+        def converse_stream(self, **kwargs):
+            captured.update(kwargs)
+            return {"stream": [{"contentBlockDelta": {"delta": {"text": "ok"}}}]}
+
+    monkeypatch.setattr(stream_module.boto3, "client", lambda *a, **k: _CapturingClient())
+
+    history = [
+        {"role": "user", "content": "Suis-je prêt pour un 10K ?"},
+        {"role": "assistant", "content": "Oui, ton volume est bon."},
+    ]
+    _collect(stream_module._event_stream("Et pour un semi ?", "user1", "msg1", history))
+
+    messages = captured["messages"]
+    assert [m["role"] for m in messages] == ["user", "assistant", "user"]
+    assert messages[-1]["content"][0]["text"] == "Et pour un semi ?"
+
+    # Athlete context lives in system, not duplicated in the client messages.
+    system_text = captured["system"][0]["text"]
+    assert "Profil: test" in system_text
+    assert all("Profil: test" not in m["content"][0]["text"] for m in messages)

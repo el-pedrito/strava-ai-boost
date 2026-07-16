@@ -118,7 +118,7 @@ export function CoachChat() {
         };
         try {
           await streamCoachAnswer(
-            { question: trimmed, user_id: userId, session_id: sessionId },
+            { question: trimmed, user_id: userId, session_id: sessionId, history },
             idToken,
             { onDelta: appendDelta },
           );
