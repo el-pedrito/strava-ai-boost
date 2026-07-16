@@ -214,6 +214,16 @@ agents. Pour un projet solo : confort plus que besoin.
 
 ## 5. Nouvelles briques AgentCore — évaluation de pertinence
 
+> **Re-vérifié le 2026-07-16** contre les dernières annonces, à la lumière de la
+> spec A1+A2b : (1) **Policy** doublement écarté — il intercepte les tool calls
+> *via Gateway*, qu'on n'utilise pas ; (2) **Evaluations** renforcé — l'évaluateur
+> built-in « tools selection » cible exactement la validation du nouvel agent à
+> tools (fait d'A3 la suite naturelle d'A1) ; (3) **Runtime streaming
+> bidirectionnel** débloque les agents vocaux → le « Coach vocal live (Nova
+> Sonic) » du long terme devient faisable sur l'archi coach_chat ; (4) **Identity
+> custom claims** : exiger `custom:strava_id` dans le customJWT authorizer du
+> runtime (défense en profondeur gratuite, à inclure dans l'implémentation A1+A2b).
+
 ### Evaluations — **à prendre** (GA depuis mars 2026)
 
 Répond directement au backlog P1 (« review coach feedback quality », « iterate
