@@ -9,7 +9,7 @@
 [Internet]                          │ Trust boundary: public internet → AWS
   Browser ──HTTPS──> CloudFront ──OAC──> S3 (private, frontend)
   Browser ──JWT────> API Gateway (Cognito authorizer) ──> API Lambdas ──> DynamoDB
-  Browser ──SigV4──> Lambda Function URL (AWS_IAM, coach streaming) ──> Bedrock
+  Browser ──Bearer JWT──> AgentCore Runtime data plane (coach_chat, customJWT) ──> Bedrock
   Strava ──verify_token──> Webhook API ──> SQS ──> Step Functions ──> processing Lambdas
                                     │ Trust boundary: AWS → external APIs
   processing Lambdas ──HTTPS──> Strava API / Campus Coach / Intervals.icu / Enduraw
@@ -24,7 +24,7 @@
 |----|--------|--------|----------|--------|------------|
 | T1 | Forged Strava webhook events trigger processing of arbitrary activity IDs | Spoofing | Medium | ✅ Mitigated | `hub.verify_token` validated at subscription; events only reference activity IDs — data is re-fetched from Strava with the user's OAuth token, so forged payloads cannot inject content |
 | T2 | Unauthorized access to API endpoints (dashboard, config, preferences) | Spoofing / EoP | High | ✅ Mitigated | Cognito authorizer on all API Gateway routes; JWT required; no self-registration (`selfSignUpEnabled: false`); 12+ char password policy |
-| T3 | Unauthenticated access to coach streaming endpoint | Spoofing | High | ✅ Mitigated | Function URL uses `AWS_IAM` (never `NONE`); SigV4 via Cognito Identity Pool (`AllowUnauthenticatedIdentities: false`); role scoped to the coach function only |
+| T3 | Unauthenticated access to the conversational coach | Spoofing | High | ✅ Mitigated | The `coach_chat` AgentCore Runtime uses a **customJWT** authorizer bound to the Cognito User Pool; the browser sends the Cognito ID token as a `Bearer` header and `user_id` is derived from the `custom:strava_id` claim (never trusted from the body). No Function URL, no Identity Pool, no unauthenticated path — unauthenticated calls return HTTP 401 |
 | T4 | Prompt injection via activity title/description (user-controlled Strava text flows into LLM prompts) | Tampering | Medium | ⚠️ Partial | Bedrock Guardrails on agent outputs; single-user design limits attacker to self-injection. Residual: a malicious activity description could still steer generated content — acceptable for personal use, review before multi-tenant |
 | T5 | Secrets leakage (OAuth tokens, Campus Coach password) in code, logs, or git history | Info. Disclosure | Critical | ✅ Mitigated | All credentials in Secrets Manager; CloudWatch Data Protection masks passwords/emails/auth headers in AgentCore logs; repo scanned (`scan-opensource`), git history scrubbed before publication |
 | T6 | Public exposure of frontend S3 bucket or athlete data | Info. Disclosure | High | ✅ Mitigated | S3 `BLOCK_ALL` public access, CloudFront OAC only; DynamoDB AWS-managed encryption; audio files served via 1h presigned URLs |

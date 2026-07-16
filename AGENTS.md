@@ -26,10 +26,10 @@ Strava AI Boost is a **serverless AWS application** that automatically enhances 
 
 ### Key Statistics
 - **~18,000 LOC** in core components
-- **17 Lambda functions** (5 API, 3 processing, 4 webhooks, 2 support, 2 coach, 1 coach streaming)
-- **3 AgentCore agents**
+- **19 Lambda functions** (API, processing, webhooks, support, voice — role-based packages)
+- **3 AgentCore agents** (content_gen, campus_coach, coach_agent) + **1 AgentCore Runtime** (`coach_chat`, agentic conversational coach)
 - **7 CDK stacks**
-- **202 tests** (162 backend + 40 frontend)
+- **255 tests** (211 backend unit + 44 frontend)
 - **Python 3.12** runtime, **React 19 + TypeScript + Vite** frontend
 - **Cognito authentication** (JWT, custom:strava_id attribute, no self-registration)
 - **CloudFront + S3** frontend hosting (OAC)
@@ -55,19 +55,24 @@ Campus Coach API Sync: REST login + GET /smart-training → structured sessions 
 Campus Coach Context: Sessions stored in DynamoDB → scored deterministically against laps in modules_processing.py → best match passed to content_gen agent
 ```
 
-**Conversational Coach:**
+**Conversational Coach (agentic):**
 ```
-Streaming (primary): POST <FunctionURL>/coach/ask/stream → CoachStreamAPI (Starlette + Lambda Web Adapter)
-  → bedrock converse_stream → AG-UI SSE events (RUN_STARTED / TEXT_MESSAGE_* / RUN_FINISHED)
-  Function URL: AWS_IAM + RESPONSE_STREAM. Frontend signs SigV4 via Cognito Identity Pool.
-Buffered (fallback): POST /coach/ask → CoachAskAPI Lambda → AgentCore Runtime session → response
-  Frontend (CoachChat.tsx) tries streaming first, falls back to buffered on any failure.
+Dedicated AgentCore Runtime `coach_chat` (FastAPI + Strands, AGUI protocol):
+  browser POSTs AG-UI RunAgentInput straight to the data plane
+  (bedrock-agentcore.{region}.amazonaws.com/runtimes/{arn}/invocations) — CORS *,
+  no proxy. Auth: customJWT (Cognito ID token as Bearer); user_id from the
+  custom:strava_id claim. Agent runs 4 @tool loops server-side
+  (query_activities, get_campus_plan, get_pace_zones, get_intervals_metrics) and
+  streams RUN_STARTED / TOOL_CALL_* / TEXT_MESSAGE_* / RUN_FINISHED.
+  Sole transport — no buffered fallback; the UI shows an error on failure.
+  Source: src/coach_chat/ (deployed via scripts/deploy_agentcore_agents.sh).
 ```
 
-Both paths build athlete context via `shared/coach_context.py` (`build_user_context` +
-`format_weekly_breakdown` for real per-ISO-week run/km/strength counts — prevents the coach
-from hallucinating weekly session totals). `coach_generator.py` reuses `format_weekly_breakdown`
-in `build_historical_summary` so per-activity feedback also reports real weekly figures.
+The per-activity coach feedback pipeline (`coach_generator.py`) builds athlete
+context via `shared/coach_context.py` (`build_user_context` + `format_weekly_breakdown`
+for real per-ISO-week run/km/strength counts — prevents the coach from hallucinating
+weekly session totals). The conversational agent instead fetches data on demand
+through its tools (chantier A1), so it is not limited to a fixed context dump.
 
 ---
 
@@ -104,12 +109,7 @@ strava-ai-boost/
 │   │   ├── configuration_api.py        # Config API
 │   │   ├── dashboard_api.py            # Dashboard API
 │   │   ├── user_preferences_api.py     # Preferences API
-│   │   ├── agentcore_health_check.py   # Health check
-│   │   └── coach_ask_api.py            # Conversational coach endpoint (buffered fallback)
-│   ├── coach_stream/                   # Streaming coach (AG-UI SSE)
-│   │   ├── app.py                      # Starlette app, bedrock converse_stream → AG-UI events
-│   │   ├── run.sh                      # Lambda Web Adapter startup (uvicorn); handler=coach_stream/run.sh
-│   │   └── requirements.txt            # starlette + uvicorn (pure-python, vendored via build_coach_stream_deps.sh)
+│   │   └── agentcore_health_check.py   # Health check
 │   ├── processing/                     # Content pipeline
 │   │   ├── activity_fetcher.py         # Data fetcher
 │   │   ├── content_generator.py        # AI content generation
@@ -139,8 +139,13 @@ strava-ai-boost/
 │   ├── agents/                 # AgentCore agents (3 agents)
 │   │   ├── content_agent.py            # Content generation agent
 │   │   ├── campus_coach_agent.py       # Campus Coach scraper
-│   │   ├── coach_agent.py              # Training coach agent
+│   │   ├── coach_agent.py              # Training coach agent (pipeline feedback)
 │   │   └── embedded_prompts.py         # Prompt templates
+│   │
+│   ├── coach_chat/             # Conversational coach AgentCore Runtime (agentic)
+│   │   ├── coach_chat_agent.py         # FastAPI + Strands, AGUI protocol, 4 @tool loops
+│   │   ├── prompts.py                  # COACH_CHAT_SYSTEM_PROMPT (tools persona)
+│   │   └── requirements.txt            # ag-ui-strands, fastapi, strands-agents (deploy-only)
 │   │
 │   ├── modules/                # Module system (Enduraw only)
 │   │   ├── base_module.py              # Base class & registry
