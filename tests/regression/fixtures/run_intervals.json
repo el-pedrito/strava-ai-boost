@@ -1,0 +1,80 @@
+{
+  "name": "run_intervals",
+  "eval": { "language": "fr", "max_chars": 1200, "emoji_policy": "minimal" },
+  "agent_input": {
+    "action": "generate_content",
+    "activity_date": "2026-07-14",
+    "activity_iso_week": 29,
+    "activity_time_local": "18h30",
+    "activity_weekday": "mardi",
+    "classification_instruction": null,
+    "workout_classification": {
+      "type": "intervals",
+      "label": "Fractionné",
+      "confidence": 0.9,
+      "stats": { "avg_pace": 5.1, "pace_std": 0.65, "pace_range": 1.9, "avg_hr": 158, "laps_analyzed": 13 }
+    },
+    "activity_data": {
+      "id": 90000000002,
+      "name": "Afternoon Run",
+      "description": "6x400m R1'30",
+      "type": "Run",
+      "sport_type": "Run",
+      "distance": 7400.0,
+      "moving_time": 2280,
+      "elapsed_time": 2820,
+      "total_elevation_gain": 18.0,
+      "average_speed": 3.246,
+      "max_speed": 5.2,
+      "average_heartrate": 158.0,
+      "max_heartrate": 184.0,
+      "average_cadence": 86.0,
+      "calories": 560.0,
+      "start_date": "2026-07-14T16:30:00Z",
+      "start_date_local": "2026-07-14T18:30:00Z",
+      "achievement_count": 1,
+      "pr_count": 1,
+      "kudos_count": 3,
+      "segment_efforts": [],
+      "best_efforts": [ { "name": "400m", "elapsed_time": 78, "pr_rank": 1 } ]
+    },
+    "laps_data": [
+      { "lap_index": 1, "name": "Echauffement", "distance": 2000, "moving_time": 730, "elapsed_time": 730, "average_speed": 2.74, "average_heartrate": 132, "max_heartrate": 145, "average_cadence": 81 },
+      { "lap_index": 2, "name": "400m #1", "distance": 400, "moving_time": 80, "elapsed_time": 80, "average_speed": 5.0, "max_speed": 5.2, "average_heartrate": 168, "max_heartrate": 178, "average_cadence": 92 },
+      { "lap_index": 3, "name": "Recup #1", "distance": 200, "moving_time": 90, "elapsed_time": 90, "average_speed": 2.2, "average_heartrate": 152, "average_cadence": 74 },
+      { "lap_index": 4, "name": "400m #2", "distance": 400, "moving_time": 79, "elapsed_time": 79, "average_speed": 5.06, "max_speed": 5.2, "average_heartrate": 172, "max_heartrate": 181, "average_cadence": 93 },
+      { "lap_index": 5, "name": "Recup #2", "distance": 200, "moving_time": 90, "elapsed_time": 90, "average_speed": 2.2, "average_heartrate": 154, "average_cadence": 74 },
+      { "lap_index": 6, "name": "400m #3", "distance": 400, "moving_time": 80, "elapsed_time": 80, "average_speed": 5.0, "average_heartrate": 174, "max_heartrate": 182, "average_cadence": 92 },
+      { "lap_index": 7, "name": "Recup #3", "distance": 200, "moving_time": 92, "elapsed_time": 92, "average_speed": 2.17, "average_heartrate": 155, "average_cadence": 73 },
+      { "lap_index": 8, "name": "400m #4", "distance": 400, "moving_time": 81, "elapsed_time": 81, "average_speed": 4.94, "average_heartrate": 175, "max_heartrate": 183, "average_cadence": 92 },
+      { "lap_index": 9, "name": "Recup #4", "distance": 200, "moving_time": 93, "elapsed_time": 93, "average_speed": 2.15, "average_heartrate": 156, "average_cadence": 73 },
+      { "lap_index": 10, "name": "400m #5", "distance": 400, "moving_time": 80, "elapsed_time": 80, "average_speed": 5.0, "average_heartrate": 176, "max_heartrate": 184, "average_cadence": 93 },
+      { "lap_index": 11, "name": "Recup #5", "distance": 200, "moving_time": 94, "elapsed_time": 94, "average_speed": 2.13, "average_heartrate": 157, "average_cadence": 72 },
+      { "lap_index": 12, "name": "400m #6", "distance": 400, "moving_time": 78, "elapsed_time": 78, "average_speed": 5.13, "max_speed": 5.2, "average_heartrate": 177, "max_heartrate": 184, "average_cadence": 94 },
+      { "lap_index": 13, "name": "Retour au calme", "distance": 2200, "moving_time": 813, "elapsed_time": 813, "average_speed": 2.71, "average_heartrate": 145, "average_cadence": 80 }
+    ],
+    "athlete_stats": {},
+    "athlete_profile": {},
+    "user_id": "regression_eval",
+    "user_profile": {
+      "age_range": "35-44",
+      "interests": ["running"],
+      "sport_approach": "performance_competition",
+      "content_preferences": {
+        "tone": "authentic_personal",
+        "length": "medium",
+        "technical_detail": "advanced",
+        "emoji_usage": "minimal",
+        "language": "fr"
+      }
+    },
+    "active_modules": [],
+    "campus_coach_session": null,
+    "campus_coach_context": null,
+    "enduraw_data": null,
+    "intervals_icu_data": null,
+    "workout_type": 3,
+    "use_memory": true,
+    "personalization": true
+  }
+}

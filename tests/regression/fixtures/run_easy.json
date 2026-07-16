@@ -1,0 +1,75 @@
+{
+  "name": "run_easy",
+  "eval": { "language": "fr", "max_chars": 1200, "emoji_policy": "minimal" },
+  "agent_input": {
+    "action": "generate_content",
+    "activity_date": "2026-07-13",
+    "activity_iso_week": 29,
+    "activity_time_local": "07h05",
+    "activity_weekday": "lundi",
+    "classification_instruction": "CRITICAL INSTRUCTION — Workout type detected from laps analysis: Footing cool. You MUST generate a title and description that matches this workout type. Do NOT use 'fractionne', 'intervalles', or 'interval' unless the classification type is 'intervals'. Do NOT copy or reproduce the existing activity title — generate a completely new one based on the classification.",
+    "workout_classification": {
+      "type": "easy_run",
+      "label": "Footing cool",
+      "confidence": 0.85,
+      "stats": { "avg_pace": 6.05, "pace_std": 0.08, "pace_range": 0.22, "avg_hr": 138, "laps_analyzed": 8 }
+    },
+    "activity_data": {
+      "id": 90000000001,
+      "name": "Morning Run",
+      "description": "",
+      "type": "Run",
+      "sport_type": "Run",
+      "distance": 8060.0,
+      "moving_time": 2925,
+      "elapsed_time": 2990,
+      "total_elevation_gain": 42.0,
+      "average_speed": 2.755,
+      "max_speed": 3.4,
+      "average_heartrate": 138.0,
+      "max_heartrate": 152.0,
+      "average_cadence": 82.0,
+      "calories": 610.0,
+      "start_date": "2026-07-13T05:05:12Z",
+      "start_date_local": "2026-07-13T07:05:12Z",
+      "achievement_count": 0,
+      "pr_count": 0,
+      "kudos_count": 0,
+      "segment_efforts": [],
+      "best_efforts": []
+    },
+    "laps_data": [
+      { "lap_index": 1, "name": "Lap 1", "distance": 1000, "moving_time": 365, "elapsed_time": 365, "average_speed": 2.74, "max_speed": 3.1, "average_heartrate": 131, "max_heartrate": 140, "average_cadence": 82, "total_elevation_gain": 5 },
+      { "lap_index": 2, "name": "Lap 2", "distance": 1000, "moving_time": 362, "elapsed_time": 362, "average_speed": 2.76, "max_speed": 3.1, "average_heartrate": 136, "max_heartrate": 143, "average_cadence": 82, "total_elevation_gain": 6 },
+      { "lap_index": 3, "name": "Lap 3", "distance": 1000, "moving_time": 364, "elapsed_time": 364, "average_speed": 2.75, "max_speed": 3.2, "average_heartrate": 138, "max_heartrate": 145, "average_cadence": 83, "total_elevation_gain": 4 },
+      { "lap_index": 4, "name": "Lap 4", "distance": 1000, "moving_time": 361, "elapsed_time": 361, "average_speed": 2.77, "max_speed": 3.2, "average_heartrate": 139, "max_heartrate": 146, "average_cadence": 82, "total_elevation_gain": 5 },
+      { "lap_index": 5, "name": "Lap 5", "distance": 1000, "moving_time": 363, "elapsed_time": 363, "average_speed": 2.75, "max_speed": 3.3, "average_heartrate": 140, "max_heartrate": 147, "average_cadence": 83, "total_elevation_gain": 6 },
+      { "lap_index": 6, "name": "Lap 6", "distance": 1000, "moving_time": 365, "elapsed_time": 365, "average_speed": 2.74, "max_speed": 3.2, "average_heartrate": 141, "max_heartrate": 148, "average_cadence": 82, "total_elevation_gain": 5 },
+      { "lap_index": 7, "name": "Lap 7", "distance": 1000, "moving_time": 366, "elapsed_time": 366, "average_speed": 2.73, "max_speed": 3.1, "average_heartrate": 141, "max_heartrate": 149, "average_cadence": 82, "total_elevation_gain": 6 },
+      { "lap_index": 8, "name": "Lap 8", "distance": 1060, "moving_time": 379, "elapsed_time": 384, "average_speed": 2.80, "max_speed": 3.4, "average_heartrate": 143, "max_heartrate": 152, "average_cadence": 83, "total_elevation_gain": 5 }
+    ],
+    "athlete_stats": {},
+    "athlete_profile": {},
+    "user_id": "regression_eval",
+    "user_profile": {
+      "age_range": "35-44",
+      "interests": ["running", "musique"],
+      "sport_approach": "personal_challenge",
+      "content_preferences": {
+        "tone": "authentic_personal",
+        "length": "medium",
+        "technical_detail": "intermediate",
+        "emoji_usage": "minimal",
+        "language": "fr"
+      }
+    },
+    "active_modules": [],
+    "campus_coach_session": null,
+    "campus_coach_context": null,
+    "enduraw_data": null,
+    "intervals_icu_data": null,
+    "workout_type": null,
+    "use_memory": true,
+    "personalization": true
+  }
+}

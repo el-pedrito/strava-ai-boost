@@ -900,22 +900,37 @@ def invoke(payload, context=None):
         max_hr = activity_data.get('max_heartrate')
         
         # Speed metrics
-        avg_speed = activity_data.get('average_speed', 0) * 3.6  # m/s to km/h
-        max_speed = activity_data.get('max_speed', 0) * 3.6  # m/s to km/h
-        
+        avg_speed = float(activity_data.get('average_speed') or 0) * 3.6  # m/s to km/h
+        max_speed = float(activity_data.get('max_speed') or 0) * 3.6  # m/s to km/h
+
+        def _opt_num(key: str):
+            """Optional numeric field: coerce to float, None if absent/invalid.
+
+            DynamoDB/JSON round-trips can turn numbers into strings (see the
+            2026-07-15 manual/indoor crash); the prompt f-strings use :.0f
+            which raises on str/None.
+            """
+            value = activity_data.get(key)
+            if value in (None, ''):
+                return None
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+
         # Cadence metrics
-        avg_cadence = activity_data.get('average_cadence')
-        max_cadence = activity_data.get('max_cadence')
-        
+        avg_cadence = _opt_num('average_cadence')
+        max_cadence = _opt_num('max_cadence')
+
         # Power metrics
-        avg_watts = activity_data.get('average_watts')
-        max_watts = activity_data.get('max_watts')
-        weighted_avg_watts = activity_data.get('weighted_average_watts')
+        avg_watts = _opt_num('average_watts')
+        max_watts = _opt_num('max_watts')
+        weighted_avg_watts = _opt_num('weighted_average_watts')
         device_watts = activity_data.get('device_watts', False)
-        
+
         # Performance metrics
-        calories = activity_data.get('calories')
-        suffer_score = activity_data.get('suffer_score')
+        calories = _opt_num('calories')
+        suffer_score = _opt_num('suffer_score')
         workout_type = activity_data.get('workout_type')
         workout_type_names = {0: 'Default', 1: 'Race', 2: 'Long Run', 3: 'Workout', 10: 'Tempo', 11: 'Intervals', 12: 'Recovery'}
         workout_type_str = workout_type_names.get(workout_type, 'Unknown') if workout_type is not None else None
@@ -1070,8 +1085,8 @@ Description: "{validated_description}"
 - Average Speed: {avg_speed:.1f} km/h
 - Max Speed: {max_speed:.1f} km/h
 - Average HR: {avg_hr} bpm (Max: {max_hr} bpm)
-{f"- Average Cadence: {avg_cadence:.0f} spm (Max: {max_cadence:.0f} spm)" if avg_cadence else ""}
-{f"- Power: Avg {avg_watts:.0f}W, Max {max_watts:.0f}W, Weighted {weighted_avg_watts:.0f}W {'(Device)' if device_watts else '(Estimated)'}" if avg_watts else ""}
+{f"- Average Cadence: {avg_cadence:.0f} spm{f' (Max: {max_cadence:.0f} spm)' if max_cadence else ''}" if avg_cadence else ""}
+{f"- Power: Avg {avg_watts:.0f}W{f', Max {max_watts:.0f}W' if max_watts else ''}{f', Weighted {weighted_avg_watts:.0f}W' if weighted_avg_watts else ''} {'(Device)' if device_watts else '(Estimated)'}" if avg_watts else ""}
 {f"- Calories: {calories:.0f} kcal" if calories else ""}
 {f"- Suffer Score: {suffer_score:.0f}/100" if suffer_score else ""}
 {f"- Workout Type: {workout_type_str}" if workout_type_str else ""}

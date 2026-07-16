@@ -1,0 +1,81 @@
+{
+  "name": "run_campus_matched",
+  "eval": { "language": "fr", "max_chars": 1200, "emoji_policy": "minimal" },
+  "agent_input": {
+    "action": "generate_content",
+    "activity_date": "2026-07-14",
+    "activity_iso_week": 29,
+    "activity_time_local": "12h10",
+    "activity_weekday": "mardi",
+    "classification_instruction": "CRITICAL INSTRUCTION — Workout type detected from laps analysis: Tempo. You MUST generate a title and description that matches this workout type. Do NOT use 'fractionne', 'intervalles', or 'interval' unless the classification type is 'intervals'. Do NOT copy or reproduce the existing activity title — generate a completely new one based on the classification.",
+    "workout_classification": {
+      "type": "tempo",
+      "label": "Tempo",
+      "confidence": 0.82,
+      "stats": { "avg_pace": 5.25, "pace_std": 0.3, "pace_range": 0.9, "avg_hr": 156, "laps_analyzed": 7 }
+    },
+    "activity_data": {
+      "id": 90000000007,
+      "name": "Lunch Run",
+      "description": "",
+      "type": "Run",
+      "sport_type": "Run",
+      "distance": 9050.0,
+      "moving_time": 2850,
+      "elapsed_time": 2940,
+      "total_elevation_gain": 55.0,
+      "average_speed": 3.175,
+      "max_speed": 3.9,
+      "average_heartrate": 156.0,
+      "max_heartrate": 175.0,
+      "average_cadence": 85.0,
+      "calories": 690.0,
+      "start_date": "2026-07-14T10:10:00Z",
+      "start_date_local": "2026-07-14T12:10:00Z",
+      "achievement_count": 0,
+      "pr_count": 0,
+      "kudos_count": 4,
+      "segment_efforts": [],
+      "best_efforts": []
+    },
+    "laps_data": [
+      { "lap_index": 1, "name": "Echauffement", "distance": 2000, "moving_time": 740, "average_speed": 2.7, "average_heartrate": 134, "average_cadence": 81 },
+      { "lap_index": 2, "name": "Tempo 1", "distance": 1500, "moving_time": 465, "average_speed": 3.23, "average_heartrate": 158, "max_heartrate": 168, "average_cadence": 87 },
+      { "lap_index": 3, "name": "Tempo 2", "distance": 1500, "moving_time": 462, "average_speed": 3.25, "average_heartrate": 162, "max_heartrate": 171, "average_cadence": 87 },
+      { "lap_index": 4, "name": "Tempo 3", "distance": 1500, "moving_time": 460, "average_speed": 3.26, "average_heartrate": 165, "max_heartrate": 175, "average_cadence": 88 },
+      { "lap_index": 5, "name": "Retour au calme", "distance": 2550, "moving_time": 723, "average_speed": 2.73, "average_heartrate": 147, "average_cadence": 80 }
+    ],
+    "athlete_stats": {},
+    "athlete_profile": {},
+    "user_id": "regression_eval",
+    "user_profile": {
+      "age_range": "35-44",
+      "interests": ["running"],
+      "sport_approach": "performance_competition",
+      "content_preferences": {
+        "tone": "authentic_personal",
+        "length": "medium",
+        "technical_detail": "advanced",
+        "emoji_usage": "minimal",
+        "language": "fr"
+      }
+    },
+    "active_modules": [ { "id": "campus_coach", "name": "Campus Coach" } ],
+    "campus_coach_session": {
+      "title": "Tempo 3x1500m",
+      "description": "Échauffement 2km, puis 3x1500m allure tempo (4'50-5'10/km) récup 1min, retour au calme.",
+      "matched": true,
+      "match_score": 0.78,
+      "targetedMetrics": { "target_distance_km": 9.0, "target_duration_min": 50 },
+      "intervals": [
+        { "repeat": 3, "distance_m": 1500, "pace_target": "4:50-5:10/km", "recovery": "1min" }
+      ]
+    },
+    "campus_coach_context": { "goal": "10km sous 45min à l'automne", "assiduity": "high", "sport_profile": "coureur intermédiaire" },
+    "enduraw_data": null,
+    "intervals_icu_data": null,
+    "workout_type": 3,
+    "use_memory": true,
+    "personalization": true
+  }
+}

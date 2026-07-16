@@ -35,12 +35,16 @@ les vérifie**, ni en test ni en prod.
    non-déterministes. Le rapport compare au baseline et alerte ; il ne bloque
    pas un commit. Un échec ponctuel sur un critère LLM-dépendant se relance.
    Les critères déterministes (cliché présent = fail) restent binaires.
-3. **Invocation Bedrock directe, pas le runtime déployé.** Invoquer l'agent
-   `content_gen` réel écrirait des events parasites dans l'AgentCore Memory de
-   l'utilisateur réel. Le harnais rend le prompt (mêmes fonctions
-   qu'en prod) et appelle `bedrock.converse` directement. Assumé : on teste
-   **le prompt + le modèle**, pas la config runtime/memory/guardrails (c'est
-   le périmètre voulu : détecter les régressions de prompt).
+3. **Invocation du runtime déployé `content_gen`** (décision utilisateur
+   2026-07-16, remplace l'option « Bedrock direct » du plan initial). On teste
+   ainsi la chaîne réellement déployée (prompt + modèle + config runtime +
+   guardrail input). La crainte de pollution memory est levée après lecture du
+   code : l'agent tourne avec `hooks=[]` (**aucune écriture** memory pendant la
+   génération — writes uniquement via le feedback analyzer) et les lectures
+   sont namespacées par `user_id` → le harnais invoque avec un
+   `user_id="regression_eval"` dédié (lectures vides, isolation totale).
+   Contreparties assumées : nécessite le runtime déployé + credentials AWS,
+   et un changement de prompt doit être **déployé** avant d'être évaluable.
 4. **Pas de refactor du prompt pour partager la liste de clichés.**
    Reconstruire le prompt depuis une constante modifierait son rendu — le
    genre exact de changement qu'on veut détecter, introduit par l'outil censé
@@ -105,9 +109,12 @@ ponctuellement (non-déterminisme).
 
 `./venv/bin/python scripts/run_prompt_regression.py [--fixtures run_easy,...] [--model <id>]`
 
-1. Pour chaque fixture : rendre le prompt avec les fonctions de prod
-   (`embedded_prompts` + le même assemblage que `content_agent.py`), appeler
-   `bedrock.converse` (modèle de prod du content agent), parser.
+1. Pour chaque fixture : construire l'`agent_input` (même forme que
+   `content_generator.py`, `user_id="regression_eval"`), invoquer le runtime
+   déployé via `bedrock-agentcore.invoke_agent_runtime`
+   (`CONTENT_GENERATION_AGENT_ARN` découvert via l'env généré par
+   `configure_agentcore_integration.sh` ou passé en `--agent-arn`), parser via
+   `_process_agent_response`/`_parse_agent_response` (fonctions de prod).
 2. Évaluer tous les critères → rapport JSON + tableau console.
 3. Comparer au `baseline.json` committé : nouveaux `fail` → exit 1 ;
    `--update-baseline` pour accepter un nouvel état après revue humaine.
@@ -141,9 +148,9 @@ ponctuellement (non-déterminisme).
 
 ## Risques & limites assumées
 
-- **Ne teste pas le runtime déployé** (memory, guardrails, config). Un bug
-  d'assemblage côté `content_agent.py` déployé passerait au travers. Mitigé :
-  le harnais réutilise les mêmes fonctions de rendu que l'agent.
+- **Dépend du déploiement** : le harnais évalue le runtime déployé — un
+  changement de prompt doit passer par `deploy_agentcore_agents.sh` avant
+  d'être évaluable. En contrepartie on teste la vraie chaîne de prod.
 - **Non-déterminisme** : un `warn` peut apparaître/disparaître entre runs.
   Les `fail` déterministes sur sortie donnée restent fiables.
 - **Coût** : volontairement on-demand manuel ; pas de scheduling.

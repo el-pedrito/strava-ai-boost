@@ -1,0 +1,63 @@
+{
+  "name": "ride",
+  "eval": { "language": "fr", "max_chars": 1200, "emoji_policy": "minimal" },
+  "agent_input": {
+    "action": "generate_content",
+    "activity_date": "2026-07-11",
+    "activity_iso_week": 28,
+    "activity_time_local": "10h00",
+    "activity_weekday": "samedi",
+    "classification_instruction": null,
+    "workout_classification": null,
+    "activity_data": {
+      "id": 90000000005,
+      "name": "Morning Ride",
+      "description": "",
+      "type": "Ride",
+      "sport_type": "Ride",
+      "distance": 42300.0,
+      "moving_time": 6480,
+      "elapsed_time": 7020,
+      "total_elevation_gain": 480.0,
+      "average_speed": 6.528,
+      "max_speed": 15.8,
+      "average_heartrate": 132.0,
+      "max_heartrate": 168.0,
+      "average_watts": 165.0,
+      "weighted_average_watts": 178.0,
+      "average_cadence": 84.0,
+      "calories": 1050.0,
+      "start_date": "2026-07-11T08:00:00Z",
+      "start_date_local": "2026-07-11T10:00:00Z",
+      "achievement_count": 2,
+      "pr_count": 0,
+      "kudos_count": 5,
+      "segment_efforts": [],
+      "best_efforts": []
+    },
+    "laps_data": [],
+    "athlete_stats": {},
+    "athlete_profile": {},
+    "user_id": "regression_eval",
+    "user_profile": {
+      "age_range": "35-44",
+      "interests": ["running", "vélo"],
+      "sport_approach": "health_wellness",
+      "content_preferences": {
+        "tone": "casual_friendly",
+        "length": "medium",
+        "technical_detail": "basic",
+        "emoji_usage": "minimal",
+        "language": "fr"
+      }
+    },
+    "active_modules": [],
+    "campus_coach_session": null,
+    "campus_coach_context": null,
+    "enduraw_data": null,
+    "intervals_icu_data": null,
+    "workout_type": null,
+    "use_memory": true,
+    "personalization": true
+  }
+}

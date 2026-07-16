@@ -1,0 +1,438 @@
+{
+  "run_at": "2026-07-16T16:02:34.455319+00:00",
+  "agent_arn": "arn:aws:bedrock-agentcore:us-east-1:923561819387:runtime/content_gen-XzXXEV6jZq",
+  "fixtures": {
+    "manual_indoor": {
+      "title": "HIIT maison 💪",
+      "description_chars": 189,
+      "results": [
+        {
+          "criterion": "json_parseable",
+          "severity": "fail",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "no_banned_cliche",
+          "severity": "fail",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "no_forbidden_dashes",
+          "severity": "warn",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "no_spaced_hyphen",
+          "severity": "warn",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "length_within_pref",
+          "severity": "fail",
+          "passed": true,
+          "detail": "189 chars"
+        },
+        {
+          "criterion": "emoji_policy",
+          "severity": "warn",
+          "passed": true,
+          "detail": "2 emojis (policy minimal allows 2)"
+        },
+        {
+          "criterion": "title_not_generic",
+          "severity": "warn",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "language_is_french",
+          "severity": "fail",
+          "passed": true,
+          "detail": "fr_stopwords=5, en_stopwords=0"
+        }
+      ]
+    },
+    "ride": {
+      "title": "Sortie matinale en roues libres 🚴",
+      "description_chars": 669,
+      "results": [
+        {
+          "criterion": "json_parseable",
+          "severity": "fail",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "no_banned_cliche",
+          "severity": "fail",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "no_forbidden_dashes",
+          "severity": "warn",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "no_spaced_hyphen",
+          "severity": "warn",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "length_within_pref",
+          "severity": "fail",
+          "passed": true,
+          "detail": "669 chars"
+        },
+        {
+          "criterion": "emoji_policy",
+          "severity": "warn",
+          "passed": false,
+          "detail": "3 emojis (policy minimal allows 2)"
+        },
+        {
+          "criterion": "title_not_generic",
+          "severity": "warn",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "language_is_french",
+          "severity": "fail",
+          "passed": true,
+          "detail": "fr_stopwords=38, en_stopwords=0"
+        }
+      ]
+    },
+    "run_campus_matched": {
+      "title": "Tempo midi qui déchire 💪",
+      "description_chars": 777,
+      "results": [
+        {
+          "criterion": "json_parseable",
+          "severity": "fail",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "no_banned_cliche",
+          "severity": "fail",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "no_forbidden_dashes",
+          "severity": "warn",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "no_spaced_hyphen",
+          "severity": "warn",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "length_within_pref",
+          "severity": "fail",
+          "passed": true,
+          "detail": "777 chars"
+        },
+        {
+          "criterion": "emoji_policy",
+          "severity": "warn",
+          "passed": false,
+          "detail": "3 emojis (policy minimal allows 2)"
+        },
+        {
+          "criterion": "title_not_generic",
+          "severity": "warn",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "language_is_french",
+          "severity": "fail",
+          "passed": true,
+          "detail": "fr_stopwords=26, en_stopwords=0"
+        }
+      ]
+    },
+    "run_easy": {
+      "title": "Sortie matinale en mode régulo",
+      "description_chars": 678,
+      "results": [
+        {
+          "criterion": "json_parseable",
+          "severity": "fail",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "no_banned_cliche",
+          "severity": "fail",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "no_forbidden_dashes",
+          "severity": "warn",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "no_spaced_hyphen",
+          "severity": "warn",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "length_within_pref",
+          "severity": "fail",
+          "passed": true,
+          "detail": "678 chars"
+        },
+        {
+          "criterion": "emoji_policy",
+          "severity": "warn",
+          "passed": true,
+          "detail": "1 emojis (policy minimal allows 2)"
+        },
+        {
+          "criterion": "title_not_generic",
+          "severity": "warn",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "language_is_french",
+          "severity": "fail",
+          "passed": true,
+          "detail": "fr_stopwords=23, en_stopwords=0"
+        }
+      ]
+    },
+    "run_intervals": {
+      "title": "6x400m - Finish en RP 💥",
+      "description_chars": 787,
+      "results": [
+        {
+          "criterion": "json_parseable",
+          "severity": "fail",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "no_banned_cliche",
+          "severity": "fail",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "no_forbidden_dashes",
+          "severity": "warn",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "no_spaced_hyphen",
+          "severity": "warn",
+          "passed": false,
+          "detail": "1 spaced hyphen(s)"
+        },
+        {
+          "criterion": "length_within_pref",
+          "severity": "fail",
+          "passed": true,
+          "detail": "787 chars"
+        },
+        {
+          "criterion": "emoji_policy",
+          "severity": "warn",
+          "passed": true,
+          "detail": "2 emojis (policy minimal allows 2)"
+        },
+        {
+          "criterion": "title_not_generic",
+          "severity": "warn",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "language_is_french",
+          "severity": "fail",
+          "passed": true,
+          "detail": "fr_stopwords=32, en_stopwords=0"
+        }
+      ]
+    },
+    "run_long": {
+      "title": "Long Run 16K : Régularité Totale",
+      "description_chars": 1119,
+      "results": [
+        {
+          "criterion": "json_parseable",
+          "severity": "fail",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "no_banned_cliche",
+          "severity": "fail",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "no_forbidden_dashes",
+          "severity": "warn",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "no_spaced_hyphen",
+          "severity": "warn",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "length_within_pref",
+          "severity": "fail",
+          "passed": true,
+          "detail": "1119 chars"
+        },
+        {
+          "criterion": "emoji_policy",
+          "severity": "warn",
+          "passed": true,
+          "detail": "1 emojis (policy minimal allows 2)"
+        },
+        {
+          "criterion": "title_not_generic",
+          "severity": "warn",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "language_is_french",
+          "severity": "fail",
+          "passed": true,
+          "detail": "fr_stopwords=51, en_stopwords=0"
+        }
+      ]
+    },
+    "run_no_emoji": {
+      "title": "Sortie matinale régulière",
+      "description_chars": 272,
+      "results": [
+        {
+          "criterion": "json_parseable",
+          "severity": "fail",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "no_banned_cliche",
+          "severity": "fail",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "no_forbidden_dashes",
+          "severity": "warn",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "no_spaced_hyphen",
+          "severity": "warn",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "length_within_pref",
+          "severity": "fail",
+          "passed": true,
+          "detail": "272 chars"
+        },
+        {
+          "criterion": "emoji_policy",
+          "severity": "warn",
+          "passed": true,
+          "detail": "0 emojis (policy none allows 0)"
+        },
+        {
+          "criterion": "title_not_generic",
+          "severity": "warn",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "language_is_french",
+          "severity": "fail",
+          "passed": true,
+          "detail": "fr_stopwords=7, en_stopwords=0"
+        }
+      ]
+    },
+    "weight_training": {
+      "title": "Upper A — DC qui pique 💪",
+      "description_chars": 337,
+      "results": [
+        {
+          "criterion": "json_parseable",
+          "severity": "fail",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "no_banned_cliche",
+          "severity": "fail",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "no_forbidden_dashes",
+          "severity": "warn",
+          "passed": false,
+          "detail": "2 em/en dash(es) in raw output"
+        },
+        {
+          "criterion": "no_spaced_hyphen",
+          "severity": "warn",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "length_within_pref",
+          "severity": "fail",
+          "passed": true,
+          "detail": "337 chars"
+        },
+        {
+          "criterion": "emoji_policy",
+          "severity": "warn",
+          "passed": true,
+          "detail": "2 emojis (policy minimal allows 2)"
+        },
+        {
+          "criterion": "title_not_generic",
+          "severity": "warn",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "criterion": "language_is_french",
+          "severity": "fail",
+          "passed": true,
+          "detail": "fr_stopwords=9, en_stopwords=0"
+        }
+      ]
+    }
+  }
+}

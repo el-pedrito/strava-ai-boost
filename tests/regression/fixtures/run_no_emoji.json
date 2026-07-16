@@ -1,0 +1,72 @@
+{
+  "name": "run_no_emoji",
+  "eval": { "language": "fr", "max_chars": 600, "emoji_policy": "none" },
+  "agent_input": {
+    "action": "generate_content",
+    "activity_date": "2026-07-10",
+    "activity_iso_week": 28,
+    "activity_time_local": "06h45",
+    "activity_weekday": "vendredi",
+    "classification_instruction": "CRITICAL INSTRUCTION — Workout type detected from laps analysis: Footing cool. You MUST generate a title and description that matches this workout type. Do NOT use 'fractionne', 'intervalles', or 'interval' unless the classification type is 'intervals'. Do NOT copy or reproduce the existing activity title — generate a completely new one based on the classification.",
+    "workout_classification": {
+      "type": "easy_run",
+      "label": "Footing cool",
+      "confidence": 0.86,
+      "stats": { "avg_pace": 6.2, "pace_std": 0.07, "pace_range": 0.2, "avg_hr": 134, "laps_analyzed": 5 }
+    },
+    "activity_data": {
+      "id": 90000000008,
+      "name": "Morning Run",
+      "description": "",
+      "type": "Run",
+      "sport_type": "Run",
+      "distance": 5100.0,
+      "moving_time": 1900,
+      "elapsed_time": 1930,
+      "total_elevation_gain": 20.0,
+      "average_speed": 2.684,
+      "max_speed": 3.1,
+      "average_heartrate": 134.0,
+      "max_heartrate": 146.0,
+      "average_cadence": 81.0,
+      "calories": 380.0,
+      "start_date": "2026-07-10T04:45:00Z",
+      "start_date_local": "2026-07-10T06:45:00Z",
+      "achievement_count": 0,
+      "pr_count": 0,
+      "kudos_count": 1,
+      "segment_efforts": [],
+      "best_efforts": []
+    },
+    "laps_data": [
+      { "lap_index": 1, "name": "Lap 1", "distance": 1000, "moving_time": 375, "average_speed": 2.67, "average_heartrate": 128, "average_cadence": 80 },
+      { "lap_index": 2, "name": "Lap 2", "distance": 1000, "moving_time": 372, "average_speed": 2.69, "average_heartrate": 132, "average_cadence": 81 },
+      { "lap_index": 3, "name": "Lap 3", "distance": 1000, "moving_time": 371, "average_speed": 2.7, "average_heartrate": 135, "average_cadence": 81 },
+      { "lap_index": 4, "name": "Lap 4", "distance": 1000, "moving_time": 373, "average_speed": 2.68, "average_heartrate": 137, "average_cadence": 81 },
+      { "lap_index": 5, "name": "Lap 5", "distance": 1100, "moving_time": 409, "average_speed": 2.69, "average_heartrate": 139, "max_heartrate": 146, "average_cadence": 81 }
+    ],
+    "athlete_stats": {},
+    "athlete_profile": {},
+    "user_id": "regression_eval",
+    "user_profile": {
+      "age_range": "35-44",
+      "interests": ["running"],
+      "sport_approach": "health_wellness",
+      "content_preferences": {
+        "tone": "technical_analytical",
+        "length": "short",
+        "technical_detail": "intermediate",
+        "emoji_usage": "none",
+        "language": "fr"
+      }
+    },
+    "active_modules": [],
+    "campus_coach_session": null,
+    "campus_coach_context": null,
+    "enduraw_data": null,
+    "intervals_icu_data": null,
+    "workout_type": null,
+    "use_memory": true,
+    "personalization": true
+  }
+}

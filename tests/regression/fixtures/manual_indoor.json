@@ -1,0 +1,59 @@
+{
+  "name": "manual_indoor",
+  "eval": { "language": "fr", "max_chars": 1200, "emoji_policy": "minimal" },
+  "agent_input": {
+    "action": "generate_content",
+    "activity_date": "2026-07-15",
+    "activity_iso_week": 29,
+    "activity_time_local": "19h00",
+    "activity_weekday": "mercredi",
+    "classification_instruction": null,
+    "workout_classification": null,
+    "activity_data": {
+      "id": 90000000006,
+      "name": "Workout",
+      "description": "Séance HIIT à la maison, 30 min. Burpees, squats, pompes en circuit.",
+      "type": "Workout",
+      "sport_type": "Workout",
+      "distance": 0.0,
+      "moving_time": 1800,
+      "elapsed_time": 1800,
+      "total_elevation_gain": 0.0,
+      "average_speed": "0.0",
+      "max_speed": "0.0",
+      "trainer": true,
+      "manual": true,
+      "start_date": "2026-07-15T17:00:00Z",
+      "start_date_local": "2026-07-15T19:00:00Z",
+      "achievement_count": 0,
+      "pr_count": 0,
+      "kudos_count": 0,
+      "segment_efforts": [],
+      "best_efforts": []
+    },
+    "laps_data": [],
+    "athlete_stats": {},
+    "athlete_profile": {},
+    "user_id": "regression_eval",
+    "user_profile": {
+      "age_range": "35-44",
+      "interests": ["running"],
+      "sport_approach": "health_wellness",
+      "content_preferences": {
+        "tone": "casual_friendly",
+        "length": "short",
+        "technical_detail": "basic",
+        "emoji_usage": "minimal",
+        "language": "fr"
+      }
+    },
+    "active_modules": [],
+    "campus_coach_session": null,
+    "campus_coach_context": null,
+    "enduraw_data": null,
+    "intervals_icu_data": null,
+    "workout_type": null,
+    "use_memory": true,
+    "personalization": true
+  }
+}
