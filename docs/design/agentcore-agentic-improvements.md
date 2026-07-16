@@ -17,6 +17,69 @@ déjà dans le dump de contexte.
 
 ---
 
+## Spec d'implémentation A1+A2b (validée le 2026-07-16, deep dive + tests réels)
+
+> Fusion des chantiers 1 et 2 ci-dessous, décidée après étude doc-first,
+> tests protocolaires réels et challenge. Les sections 1 et 2 restent la
+> motivation ; cette section est la spec d'exécution.
+
+### Décisions (avec preuves)
+
+| Décision | Justification |
+|---|---|
+| **MCP Strava officiel : ÉCARTÉ (watch item)** | Testé en réel : OAuth 2.1 + PKCE obligatoire, DCR fermé (400 sur tous payloads dont SDK), allowlist `client_id` → `{"resource":"MCP Authorize","field":"client_id","code":"invalid"}` avec l'app existante. FAQ officielle : Claude-only volontairement. Re-tester quand Strava ouvrira. |
+| **Gateway : ÉCARTÉ** | Sans MCP externe à fronter, aucun cas d'usage (1 agent, 4 tools, mono-user). Noté : Gateway supporte désormais le 3LO vers targets mcpServer (doc `gateway-target-MCPservers`) — utile le jour où le MCP Strava ouvrira. |
+| **`get_strava_streams` : ÉCARTÉ** | Les laps (DynamoDB) couvrent le besoin coach ; le decoupling vient d'Intervals.icu. Code de fetch streams existant (`enduraw_module.py`) reste dispo si besoin futur. |
+| **Runtime dédié `coach_chat`** (pas de réutilisation du runtime coach) | Conflits vérifiés : 1 protocole par runtime (pipeline=HTTP JSON vs chat=AGUI SSE) et 1 authorizer (pipeline=IAM SigV4 vs navigateur=customJWT). Même codebase, deux ressources. |
+| **Appel navigateur DIRECT au data plane** (pas de proxy Lambda) | CORS testé sur `bedrock-agentcore.us-east-1.amazonaws.com` : `access-control-allow-origin: *`, header `authorization` autorisé, POST OK. Invalide le ⚠️ de la roadmap. |
+| **Région us-east-1** | Runtimes existants déjà en us-east-1 (`.bedrock_agentcore.yaml`), comme Cognito/DynamoDB/frontend. |
+| **Runtime AGUI plutôt que garder la Lambda Starlette** | Les tool loops Strands ne streament pas via `converse_stream` simple (la raison d'être d'A2b dans la roadmap) ; le protocole AGUI est supporté nativement par Runtime avec intégration Strands first-party (`ag-ui-strands`, doc `runtime-agui`) et les événements émis sont exactement ceux que le frontend parse déjà. Bonus : sessions runtime, observabilité GenAI dashboard, suppression du vendoring Starlette/uvicorn. |
+| **Auth navigateur : Bearer JWT Cognito plutôt que SigV4** | Le frontend détient déjà le JWT (login existant) ; le customJWT authorizer du runtime le valide directement. Supprime toute la machinerie SigV4 (Identity Pool, signing @aws-crypto, credentials temporaires) — moins de code, moins de surface d'erreur, mêmes garanties (authentifié, scoped au User Pool). |
+| **Tools plutôt que context stuffing (chat uniquement)** | Le stuffing fige le contexte : « compare mes 6 séances de seuil » échoue car la donnée n'est pas dans le dump. L'agent va chercher exactement ce dont il a besoin, quand il en a besoin. Le pipeline feedback garde le stuffing déterministe (reproductible, testable — principe roadmap inchangé). |
+| **Bascule en 2 phases plutôt que big bang** | Le chat est une feature utilisée au quotidien ; les chemins actuels (Starlette + buffered, tous deux fonctionnels post-A2a) servent de filet pendant la validation réelle du nouveau chemin. Décommission seulement après preuve d'usage. |
+| **Guardrail sur le chat (recommandé)** | Écart documenté au threat model (T4 : le chat passe aujourd'hui par `converse_stream` sans guardrail, contrairement au pipeline content). Le passage par Runtime est l'occasion de le combler à coût quasi nul (le guardrail existe déjà). |
+
+### Architecture
+
+```
+CoachChat.tsx ──POST SSE, Authorization: Bearer <JWT Cognito>──> Runtime coach_chat (--protocol AGUI, customJWT → User Pool existant)
+                                                                   └─ FastAPI :8080 /invocations + /ping (ag-ui-strands, pin version)
+                                                                      └─ Agent Strands (Claude Sonnet 4.5) [+ Guardrail existant — comble T4]
+                                                                         ├─ @tool query_activities / get_campus_plan / get_pace_zones / get_intervals_metrics
+                                                                         └─ Memory coaching_observations (existante) + write_chat_to_memory
+```
+
+- `user_id` extrait du **claim JWT `custom:strava_id`** (plus le body client)
+- Multi-tour : `RunAgentInput.messages` natif AG-UI (transpose A2a côté serveur)
+- Context stuffing minimal (profil) ; le reste via tools — le cœur d'A1
+- **UX tool loops** : le frontend affiche les événements `TOOL_CALL_*`
+  (« analyse de tes activités… ») pour couvrir les 3-8 s avant le premier token
+- Runtime `coach_agent` existant : **inchangé, redevient pipeline-only**
+  (le chat buffered `_invoke_coach_session` migre vers `coach_chat`)
+
+### Plan (3-4 j, bascule en 2 phases)
+
+1. **Agent** (`src/agents/coach_chat_agent.py`, 1 j) : Agent Strands + 4 `@tool`
+   (logique portée de `coach_context.py`/`coach_ask_api.py`) + wrapper
+   `ag-ui-strands` + FastAPI. Test local : `curl -N` SSE sur :8080.
+2. **Deploy** (0.5 j) : `agentcore configure -e … --protocol AGUI` + customJWT
+   (discovery URL User Pool + client id), execution role (DynamoDB read ×3,
+   Secrets Intervals, Bedrock, Memory), intégré à `deploy_agentcore_agents.sh`.
+3. **Frontend** (1 j) : transport SSE direct + Bearer JWT dans `coachStream.ts`
+   (supprime le signing SigV4), payload AG-UI, affichage `TOOL_CALL_*`.
+   Flag config `coachRuntimeArn` — chemins actuels en fallback (phase A).
+4. **Tests réels + tuning prompt** (1 j).
+5. **Phase B — décommission** (0.5 j) : Lambda `coach_stream`, Function URL,
+   Identity Pool SigV4, `coach_ask_api` + nettoyage CDK. Le helper A2a
+   `build_converse_messages` part avec le chemin Starlette (durée de vie
+   courte assumée ; son fix du buffered aura servi toute la phase A).
+
+### Risques assumés
+
+- Cold start runtime (pattern retry connu du projet) ; latence tool loops
+  (mitigée par l'affichage des tool calls) ; coût ×2-4 appels LLM par question
+  (négligeable au volume) ; `ag-ui-strands` v0.1 (pin + tests locaux).
+
 ## 1. Donner des tools au coach conversationnel — **impact le plus fort**
 
 **Problème :** dans `src/agents/coach_agent.py` (mode `conversation`) et
