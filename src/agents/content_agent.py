@@ -411,7 +411,10 @@ def build_preference_instructions(user_profile: Optional[Dict[str, Any]]) -> str
     if max_emoji == 0:
         instructions.append("- EMOJIS: ZERO emojis. No emoji characters at all.")
     else:
-        instructions.append(f"- EMOJIS: Maximum {max_emoji} emojis in description.")
+        instructions.append(
+            f"- EMOJIS: STRICT LIMIT: MAXIMUM {max_emoji} emojis TOTAL, title included. "
+            "Count every emoji in title + description before answering; if over the limit, remove the extras."
+        )
 
     # Content length
     length = prefs.get('length', 'medium')
@@ -1126,6 +1129,8 @@ AVANT DE GÉNÉRER, réfléchis étape par étape (dans un bloc <thinking>):
 2. Comment les données (FC, pace, phases) confirment ou enrichissent ces sensations ?
 3. Quel arc narratif construire autour de ces sensations ?
 Puis génère le JSON.
+
+RAPPEL FINAL NON NÉGOCIABLE : zéro em dash (—/–), et AUCUNE expression de la liste "Expressions bannies (clichés gen-AI sportif)" du system prompt (ex. "la machine", "le corps se réveille", "rythme de croisière", "les kilomètres défilent", ni aucune variante proche). Relis ta réponse et reformule si besoin AVANT de rendre le JSON.
 
 Generate content now."""
         
