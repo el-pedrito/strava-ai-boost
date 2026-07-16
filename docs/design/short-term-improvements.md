@@ -42,8 +42,9 @@ Strava ; l'app Strava les affiche. **Rien** dans le changelog ni dans le modèle
 un partenaire) enregistre dans Strava via l'API publique. L'hypothèse initiale de
 la roadmap (« lire ces données via l'API pour alimenter `strength_history` ») est
 **infirmée**. À revérifier si Strava publie un champ de lecture (surveiller le
-changelog). Test live impossible actuellement : l'app Strava est `Inactive` (pas
-d'abonnement payant) → tout appel renvoie 403.
+changelog). Note (vérifié en live le 2026-07-16) : l'app Strava est **active**
+(abonnement premium) ; le token OAuth stocké avait simplement expiré et se
+rafraîchit sans souci avec le scope complet `activity:read_all activity:write read`.
 
 ### Variante « écriture » (LLM → JSON sets → upload Strava) — ❌ bloquée pour ce workflow
 
@@ -213,8 +214,11 @@ avec le `access_token` (révoque l'accès de notre app à l'athlète).
 dialog de confirmation explicite, opération idempotente, log d'audit, **pas** de
 suppression des données d'activités (seulement les tokens + flag). Réversible via
 un nouveau flow OAuth « Connect with Strava ».
-**Test live impossible** actuellement (app Inactive) → implémenter + tester en
-unitaire (mock Strava), valider le live quand l'abonnement sera actif.
+**Statut : déjà implémenté** (`configuration_api.revoke_oauth_tokens` +
+`DELETE /config/oauth` + `OAuthConnection.tsx` avec dialog de confirmation) ;
+tests unitaires ajoutés le 2026-07-16. L'app Strava est **active** (vérifié en
+live) donc le flow est testable en live, mais l'exécuter déconnecte le vrai
+compte → couvert par des tests mockés plutôt qu'un appel destructif live.
 
 **Effort.** ~½ journée (Lambda + route API + bouton/dialog frontend + tests).
 
