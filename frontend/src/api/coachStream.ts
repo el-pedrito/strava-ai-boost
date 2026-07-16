@@ -1,27 +1,18 @@
 /**
  * Coach streaming client — AG-UI protocol over SSE.
  *
- * Two transports share the same AG-UI event parser and token-by-token surface:
+ * Transport: AgentCore Runtime (agentic). The browser POSTs the AG-UI event
+ * stream directly to the AgentCore data plane
+ * (`bedrock-agentcore.{region}.amazonaws.com/runtimes/{arn}/invocations`) with a
+ * Bearer Cognito ID token (customJWT authorizer, no SigV4). The agent runs tool
+ * loops server-side; `user_id` is derived from the `custom:strava_id` JWT claim,
+ * not the request body.
  *
- *   1. AgentCore Runtime (Phase A, agentic) — when `coachRuntimeArn` is set.
- *      POSTs SSE directly to the AgentCore data plane
- *      (`bedrock-agentcore.{region}.amazonaws.com/runtimes/{arn}/invocations`)
- *      with a Bearer Cognito ID token (customJWT authorizer, no SigV4). The
- *      agent runs tool loops server-side; `user_id` is derived from the
- *      `custom:strava_id` JWT claim, not the request body.
- *
- *   2. Lambda Function URL (legacy fallback) — when only `coachStreamUrl` is
- *      set. Calls the coach Lambda (AWS_IAM auth) using SigV4-signed requests;
- *      temporary IAM credentials come from the Cognito Identity Pool.
- *
- * Both servers emit AG-UI events:
+ * The server emits AG-UI events:
  *   RUN_STARTED → TEXT_MESSAGE_START → TEXT_MESSAGE_CONTENT* → TEXT_MESSAGE_END → RUN_FINISHED
- * (or RUN_ERROR). The Runtime path additionally emits TOOL_CALL_START/END around
- * tool loops, surfaced via callbacks so the UI can show a progress indicator.
+ * (or RUN_ERROR), plus TOOL_CALL_START/END around tool loops, surfaced via
+ * callbacks so the UI can show a progress indicator.
  */
-import { SignatureV4 } from '@aws-sdk/signature-v4';
-import { Sha256 } from '@aws-crypto/sha256-js';
-import { fromCognitoIdentityPool } from '@aws-sdk/credential-provider-cognito-identity';
 import { getConfig } from '../config.ts';
 
 export interface AgUiEvent {
@@ -76,26 +67,8 @@ export function isRuntimeStreamingEnabled(): boolean {
   return Boolean(getConfig().coachRuntimeArn);
 }
 
-/** True when the legacy SigV4 streaming path is configured (Identity Pool + Function URL). */
-export function isStreamingEnabled(): boolean {
-  const config = getConfig();
-  return Boolean(config.identityPoolId && config.coachStreamUrl);
-}
-
 function getRegion(): string {
   return getConfig().cognitoRegion || 'us-east-1';
-}
-
-/** Exchange the Cognito User Pool ID token for temporary IAM credentials. */
-function getCredentials(idToken: string) {
-  const config = getConfig();
-  const region = getRegion();
-  const providerKey = `cognito-idp.${region}.amazonaws.com/${config.cognitoUserPoolId}`;
-  return fromCognitoIdentityPool({
-    clientConfig: { region },
-    identityPoolId: config.identityPoolId!,
-    logins: { [providerKey]: idToken },
-  });
 }
 
 /** Parse a raw SSE text buffer into complete events; returns [events, remainder]. */
@@ -196,10 +169,10 @@ async function pumpSse(
 }
 
 /**
- * Stream a coach answer from the AgentCore Runtime data plane (Phase A path).
+ * Stream a coach answer from the AgentCore Runtime data plane (sole transport).
  * POSTs an AG-UI RunAgentInput with a Bearer Cognito JWT (customJWT authorizer);
  * no SigV4. Resolves when the stream finishes; rejects on transport failure so
- * the caller can fall back to the buffered endpoint.
+ * the caller can surface an error to the user.
  */
 export async function streamCoachAnswerRuntime(
   body: CoachStreamRequest,
@@ -250,47 +223,3 @@ export async function streamCoachAnswerRuntime(
   await pumpSse(response, callbacks, 'Coach runtime stream failed');
 }
 
-/**
- * Stream a coach answer from the legacy Lambda Function URL (SigV4, fallback).
- * Resolves when the stream finishes; rejects on transport or signing failure so
- * the caller can fall back to the buffered endpoint.
- */
-export async function streamCoachAnswer(
-  body: CoachStreamRequest,
-  idToken: string,
-  callbacks: CoachStreamCallbacks,
-  signal?: AbortSignal,
-): Promise<void> {
-  const config = getConfig();
-  const region = getRegion();
-  const url = new URL(config.coachStreamUrl!);
-  const payload = JSON.stringify(body);
-
-  const signer = new SignatureV4({
-    service: 'lambda',
-    region,
-    credentials: getCredentials(idToken),
-    sha256: Sha256,
-  });
-
-  const signed = await signer.sign({
-    method: 'POST',
-    protocol: url.protocol,
-    hostname: url.hostname,
-    path: url.pathname,
-    headers: {
-      host: url.hostname,
-      'content-type': 'application/json',
-    },
-    body: payload,
-  });
-
-  const response = await fetch(url.toString(), {
-    method: 'POST',
-    headers: signed.headers,
-    body: payload,
-    signal,
-  });
-
-  await pumpSse(response, callbacks, 'Coach stream failed');
-}

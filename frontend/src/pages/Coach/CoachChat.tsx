@@ -3,11 +3,9 @@ import { SendHorizonal, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button, Card, Input } from '@/ui';
 import { cn } from '@/lib/cn';
-import { api, getIdToken } from '../../api/client.ts';
+import { getIdToken } from '../../api/client.ts';
 import {
   isRuntimeStreamingEnabled,
-  isStreamingEnabled,
-  streamCoachAnswer,
   streamCoachAnswerRuntime,
   type CoachStreamRequest,
 } from '../../api/coachStream.ts';
@@ -44,11 +42,6 @@ const SUGGESTION_KEYS: string[] = [
 interface ChatHistoryEntry {
   role: 'user' | 'assistant';
   content: string;
-}
-
-interface AskResponse {
-  answer: string;
-  session_id?: string;
 }
 
 function getInitialMessages(): Message[] {
@@ -89,24 +82,6 @@ export function CoachChat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  // Buffered fallback: the original one-shot POST to /coach/ask.
-  const sendBuffered = async (
-    trimmed: string,
-    userId: string,
-    history: ChatHistoryEntry[],
-  ) => {
-    const res = await api.post<AskResponse>('/coach/ask', {
-      question: trimmed,
-      user_id: userId,
-      session_id: sessionId,
-      history,
-    });
-    setMessages((prev) => [
-      ...prev,
-      { role: 'coach', text: res.answer, timestamp: new Date().toLocaleTimeString() },
-    ]);
-  };
-
   const sendQuestion = async (question: string) => {
     const trimmed = question.trim();
     if (!trimmed || loading) return;
@@ -123,69 +98,63 @@ export function CoachChat() {
       content: m.text,
     }));
 
-    try {
-      const idToken = getIdToken();
-      const runtimeOn = isRuntimeStreamingEnabled();
-      const legacyOn = isStreamingEnabled();
-      if (idToken && (runtimeOn || legacyOn)) {
-        // Streaming path: append a coach placeholder, fill it token-by-token.
-        // Runtime path (coachRuntimeArn) takes precedence; legacy SigV4 otherwise.
-        const startedAt = new Date().toLocaleTimeString();
-        let streamed = '';
-        setMessages((prev) => [...prev, { role: 'coach', text: '', timestamp: startedAt }]);
-        const appendDelta = (delta: string) => {
-          // First token arrived: hide the "coach is thinking / working" indicators.
-          setStreaming(true);
-          setToolActivity(null);
-          streamed += delta;
-          setMessages((prev) => {
-            const next = [...prev];
-            next[next.length - 1] = { role: 'coach', text: streamed, timestamp: startedAt };
-            return next;
-          });
-        };
-        const streamRequest: CoachStreamRequest = {
-          question: trimmed,
-          user_id: userId,
-          session_id: sessionId,
-          history,
-        };
-        const streamFn = runtimeOn ? streamCoachAnswerRuntime : streamCoachAnswer;
-        try {
-          await streamFn(streamRequest, idToken, {
-            onDelta: appendDelta,
-            // Surface agent tool loops (Runtime path) so the UI shows progress
-            // during the 3-8 s before the first token.
-            onToolCallStart: (toolName) => setToolActivity(toolActivityKey(toolName)),
-            // Don't clear on END: keep the "analyzing…" label visible through
-            // tool-result processing until the first text token arrives (cleared
-            // by appendDelta). Avoids a flash back to the generic "thinking" state.
-            onToolCallEnd: () => {},
-          });
-          if (streamed) return;
-          // Empty stream: drop the placeholder and fall through to buffered.
-          setMessages((prev) => prev.slice(0, -1));
-        } catch (streamErr) {
-          // Streaming failed: surface the real cause, then fall back to buffered POST.
-          console.error('[coach stream] failed, falling back to /coach/ask:', streamErr);
-          setMessages((prev) => prev.slice(0, -1));
-        } finally {
-          setStreaming(false);
-          setToolActivity(null);
+    const startedAt = new Date().toLocaleTimeString();
+    const showError = () =>
+      setMessages((prev) => {
+        const next = [...prev];
+        // Replace the streaming placeholder if present, else append.
+        if (next.length && next[next.length - 1].role === 'coach' && next[next.length - 1].text === '') {
+          next[next.length - 1] = { role: 'coach', text: t('coach.chat.error'), timestamp: startedAt };
+          return next;
         }
-      }
+        return [...next, { role: 'coach', text: t('coach.chat.error'), timestamp: startedAt }];
+      });
 
-      await sendBuffered(trimmed, userId, history);
-    } catch {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'coach',
-          text: t('coach.chat.error'),
-          timestamp: new Date().toLocaleTimeString(),
-        },
-      ]);
+    const idToken = getIdToken();
+    // AgentCore Runtime is the sole coach chat transport: the browser POSTs the
+    // AG-UI SSE directly to the data plane (customJWT auth). No buffered fallback.
+    if (!idToken || !isRuntimeStreamingEnabled()) {
+      showError();
+      setLoading(false);
+      return;
+    }
+
+    let streamed = '';
+    setMessages((prev) => [...prev, { role: 'coach', text: '', timestamp: startedAt }]);
+    const appendDelta = (delta: string) => {
+      // First token arrived: hide the "coach is thinking / working" indicators.
+      setStreaming(true);
+      setToolActivity(null);
+      streamed += delta;
+      setMessages((prev) => {
+        const next = [...prev];
+        next[next.length - 1] = { role: 'coach', text: streamed, timestamp: startedAt };
+        return next;
+      });
+    };
+    const streamRequest: CoachStreamRequest = {
+      question: trimmed,
+      user_id: userId,
+      session_id: sessionId,
+      history,
+    };
+    try {
+      await streamCoachAnswerRuntime(streamRequest, idToken, {
+        onDelta: appendDelta,
+        // Surface agent tool loops so the UI shows progress before the first token.
+        onToolCallStart: (toolName) => setToolActivity(toolActivityKey(toolName)),
+        // Don't clear on END: keep the "analyzing…" label visible through
+        // tool-result processing until the first text token arrives (cleared
+        // by appendDelta). Avoids a flash back to the generic "thinking" state.
+        onToolCallEnd: () => {},
+      });
+      if (!streamed) showError();
+    } catch (streamErr) {
+      console.error('[coach stream] failed:', streamErr);
+      showError();
     } finally {
+      setStreaming(false);
+      setToolActivity(null);
       setLoading(false);
     }
   };

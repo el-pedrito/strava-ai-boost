@@ -137,58 +137,6 @@ class TestCoachGeneratorCampus:
         assert len(formatted["intervals"]) == 4
 
 
-class TestCoachAskApiCampus:
-    """Test coach_ask_api _fetch_campus_weekly_plan."""
-
-    @patch('boto3.resource')
-    def test_fetch_campus_weekly_plan_returns_formatted_text(self, mock_boto_resource):
-        mock_table = MagicMock()
-        mock_table.scan.return_value = {
-            'Items': [SAMPLE_CURRENT_WEEK_SESSION, SAMPLE_NEXT_WEEK_SESSION]
-        }
-        mock_dynamo = MagicMock()
-        mock_dynamo.Table.return_value = mock_table
-        mock_boto_resource.return_value = mock_dynamo
-
-        with patch('api.coach_ask_api.dynamodb', mock_dynamo):
-            from api.coach_ask_api import _fetch_campus_weekly_plan
-            result = _fetch_campus_weekly_plan('user1')
-
-        assert 'Plan Campus Coach cette semaine' in result
-        assert 'Force + Allure 10km' in result
-        assert 'Plan Campus Coach 2026-W22' in result
-        assert 'Sortie longue' in result
-
-    @patch('boto3.resource')
-    def test_fetch_campus_weekly_plan_current_only(self, mock_boto_resource):
-        mock_table = MagicMock()
-        mock_table.scan.return_value = {'Items': [SAMPLE_CURRENT_WEEK_SESSION]}
-        mock_dynamo = MagicMock()
-        mock_dynamo.Table.return_value = mock_table
-        mock_boto_resource.return_value = mock_dynamo
-
-        with patch('api.coach_ask_api.dynamodb', mock_dynamo):
-            from api.coach_ask_api import _fetch_campus_weekly_plan
-            result = _fetch_campus_weekly_plan('user1')
-
-        assert 'Plan Campus Coach cette semaine' in result
-        assert 'semaine prochaine' not in result
-
-    @patch('boto3.resource')
-    def test_fetch_campus_weekly_plan_empty(self, mock_boto_resource):
-        mock_table = MagicMock()
-        mock_table.scan.return_value = {'Items': []}
-        mock_dynamo = MagicMock()
-        mock_dynamo.Table.return_value = mock_table
-        mock_boto_resource.return_value = mock_dynamo
-
-        with patch('api.coach_ask_api.dynamodb', mock_dynamo):
-            from api.coach_ask_api import _fetch_campus_weekly_plan
-            result = _fetch_campus_weekly_plan('user1')
-
-        assert result == ""
-
-
 class TestModulesProcessingCampus:
     """Test modules_processing Campus Coach functions."""
 
@@ -292,20 +240,6 @@ class TestGracefulDegradation:
             sessions = _get_recent_campus_sessions()
 
         assert sessions == []
-
-    @patch('boto3.resource')
-    def test_coach_ask_api_scan_exception(self, mock_boto_resource):
-        mock_table = MagicMock()
-        mock_table.scan.side_effect = Exception("Access denied")
-        mock_dynamo = MagicMock()
-        mock_dynamo.Table.return_value = mock_table
-        mock_boto_resource.return_value = mock_dynamo
-
-        with patch('api.coach_ask_api.dynamodb', mock_dynamo):
-            from api.coach_ask_api import _fetch_campus_weekly_plan
-            result = _fetch_campus_weekly_plan('user1')
-
-        assert result == ""
 
     @patch('boto3.resource')
     def test_apply_campus_coach_processing_scan_exception(self, mock_boto_resource):

@@ -59,7 +59,7 @@ export AWS_REGION=eu-west-1
 ./scripts/configure_strava_webhook.sh dev --auto-configure
 ```
 
-**What this deploys**: 7 CDK stacks, DynamoDB tables, 17 Lambda functions (grouped in 4 packages, incl. the coach streaming function), Step Functions (parallel execution), Secrets Manager, Bedrock fallback mode (Claude Sonnet 4.5), structured logging with AWS Lambda Powertools, CloudFront-hosted frontend with Cognito authentication (User Pool + Identity Pool). System is immediately functional.
+**What this deploys**: 7 CDK stacks, DynamoDB tables, 19 Lambda functions (grouped in role-based packages), Step Functions (parallel execution), Secrets Manager, Bedrock fallback mode (Claude Sonnet 4.5), structured logging with AWS Lambda Powertools, CloudFront-hosted frontend with Cognito authentication (User Pool). System is immediately functional. The conversational coach chat runs on a dedicated AgentCore Runtime (deployed separately in Phase 2).
 
 ### Phase 2: AgentCore Enhancement (Optional)
 
@@ -104,7 +104,7 @@ The frontend is hosted on CloudFront with Cognito authentication:
 6. Enable modules (Campus Coach, Enduraw, Intervals.icu)
 7. Upload or edit a Strava activity and watch it get enhanced!
 8. Check the **Content Quality** page to track confidence, edit rates, and similarity scores
-9. Check the **Coach** page for training feedback, trends, athlete profile, and conversational coach. The chat streams responses token-by-token in real time (AG-UI protocol over SSE), with automatic fallback to the buffered `/coach/ask` endpoint
+9. Check the **Coach** page for training feedback, trends, athlete profile, and conversational coach. The chat is an **agentic** assistant running on a dedicated AgentCore Runtime: it calls tools to fetch your real activity data on demand and streams the answer token-by-token in real time (AG-UI protocol over SSE)
 
 **Deployment Modes**: Phase 1 only gives a fully functional system with Bedrock fallback. Phase 1 + 2 adds advanced personalization with AgentCore Memory.
 
@@ -156,15 +156,32 @@ Fitness/fatigue context from [Intervals.icu](https://intervals.icu) training ana
    - **HRV**: Heart rate variability when available
    - **Decoupling**: Cardiac drift percentage — aerobic efficiency indicator for long runs
 
-### Conversational Coach (Streaming)
+### Conversational Coach (Agentic, Streaming)
 
-The Coach chat (`Coach` page → `Chat` tab) streams the coach's answer **token-by-token** in real time using the [AG-UI protocol](https://docs.ag-ui.com) over Server-Sent Events.
+The Coach chat (`Coach` page → `Chat` tab) is an **agentic** assistant: it calls
+tools to fetch your real activity data on demand and streams the answer
+**token-by-token** in real time using the [AG-UI protocol](https://docs.ag-ui.com)
+over Server-Sent Events.
 
-- **Backend**: dedicated `coach_stream` Lambda — a Starlette app behind the [AWS Lambda Web Adapter](https://github.com/awslabs/aws-lambda-web-adapter) (Python response streaming), invoking Bedrock `converse_stream`. Emits AG-UI events: `RUN_STARTED → TEXT_MESSAGE_START → TEXT_MESSAGE_CONTENT* → TEXT_MESSAGE_END → RUN_FINISHED` (or `RUN_ERROR`).
-- **Transport**: Lambda Function URL with `InvokeMode=RESPONSE_STREAM` and `AuthType=AWS_IAM` (never `NONE`). CORS scoped to the CloudFront origin.
-- **Auth**: the frontend obtains temporary IAM credentials from a **Cognito Identity Pool** (exchanging the User Pool JWT) and signs each request with **SigV4**. The authenticated role is scoped to `lambda:InvokeFunctionUrl` + `lambda:InvokeFunction` on the coach function only.
-- **Fallback**: if streaming is unavailable (no Identity Pool configured, or any failure), the chat transparently falls back to the buffered `POST /coach/ask` — no regression.
-- **Config**: requires `identityPoolId` and `coachStreamUrl` in the frontend config (`config.json` / `VITE_*`). Absent → fallback only.
+- **Backend**: a dedicated **AgentCore Runtime** (`coach_chat`) — a FastAPI app
+  running a Strands agent (Claude Sonnet 4.5) with the AGUI protocol. The agent
+  exposes 4 tools (`query_activities`, `get_campus_plan`, `get_pace_zones`,
+  `get_intervals_metrics`) and runs the tool loop server-side, so it retrieves
+  exactly the data a question needs instead of relying on a fixed context dump.
+- **Transport**: the browser POSTs the AG-UI event stream **directly** to the
+  AgentCore data plane (`bedrock-agentcore.{region}.amazonaws.com/runtimes/{arn}/invocations`).
+  The data plane returns `access-control-allow-origin: *`, so no proxy Lambda is
+  needed. Emits `RUN_STARTED → TOOL_CALL_* → TEXT_MESSAGE_* → RUN_FINISHED`.
+- **Auth**: the runtime uses a **customJWT** authorizer bound to the Cognito User
+  Pool. The frontend sends the Cognito **ID token** as a `Bearer` header (no SigV4,
+  no Identity Pool). `user_id` is derived server-side from the `custom:strava_id`
+  JWT claim, never trusted from the request body.
+- **Config**: requires `coachRuntimeArn` in the frontend config (`config.json` /
+  `VITE_COACH_RUNTIME_ARN`). This is the sole coach chat transport — there is no
+  buffered fallback; on error the UI surfaces a clear message.
+- **Deploy**: `scripts/deploy_agentcore_agents.sh` provisions the runtime
+  (discovers the Cognito pool/client from CloudFormation outputs, configures the
+  AGUI protocol + customJWT audience, attaches a scoped data-access IAM policy).
 
 > The coach builds athlete context with an explicit **per-week breakdown** (`format_weekly_breakdown` in `shared/coach_context.py`): real run/km/strength counts per ISO week, so it answers "last week" with exact figures instead of extrapolating from a 4-week aggregate.
 
@@ -204,12 +221,12 @@ VITE_API_GATEWAY_URL=https://your-api-id.execute-api.<your-region>.amazonaws.com
 VITE_COGNITO_USER_POOL_ID=us-east-1_XXXXXXXXX
 VITE_COGNITO_CLIENT_ID=your-cognito-app-client-id
 VITE_DEFAULT_USER_ID=YOUR_STRAVA_ATHLETE_ID
-# Optional — enables token-by-token streaming for the coach chat (else buffered fallback)
-VITE_COGNITO_IDENTITY_POOL_ID=us-east-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-VITE_COACH_STREAM_URL=https://xxxx.lambda-url.<your-region>.on.aws/coach/ask/stream
+# Coach chat runtime (agentic AG-UI over SSE). Absent → the chat is disabled.
+VITE_COACH_RUNTIME_ARN=arn:aws:bedrock-agentcore:<your-region>:<account>:runtime/coach_chat-XXXXXXXXXX
 ```
 
-> In production these come from `config.json` (`identityPoolId`, `coachStreamUrl`), populated from the `CoachIdentityPoolId` and `CoachStreamUrl` stack outputs.
+> In production this comes from `config.json` (`coachRuntimeArn`), populated by
+> `scripts/deploy_agentcore_agents.sh` when it provisions the coach chat runtime.
 
 > **Note:** API authentication is handled via Cognito JWT tokens (sent in the `Authorization` header). The frontend automatically manages token refresh after login.
 
@@ -270,7 +287,7 @@ graph TB
 
         subgraph "Content Stack"
             SF[Step Functions<br/>Parallel Workflow]
-            Lambda12[15 Lambda Functions<br/>4 Role-Based Packages]
+            Lambda12[19 Lambda Functions<br/>Role-Based Packages]
         end
 
         subgraph "API Stack"
@@ -318,8 +335,8 @@ graph TB
 | Component | Details |
 |-----------|---------|
 | **7 CDK Stacks** | Core, Security, Webhook, Content, API, Feedback, Frontend |
-| **17 Lambda Functions** | 5 API + 3 processing + 4 webhooks + 2 support + 2 coach + 1 coach streaming (in role-based packages) |
-| **Coach streaming** | `coach_stream` — Starlette + Lambda Web Adapter, Function URL (`AWS_IAM` + `RESPONSE_STREAM`), emits AG-UI SSE events. SigV4-signed from the frontend via a Cognito Identity Pool |
+| **19 Lambda Functions** | API, processing, webhooks, support, voice (in role-based packages) |
+| **Coach chat runtime** | dedicated **AgentCore Runtime** `coach_chat` (FastAPI + Strands, AGUI protocol, 4 tools). Browser POSTs the AG-UI SSE straight to the data plane; **customJWT** auth (Cognito ID token), no SigV4, no proxy |
 | **3 DynamoDB Tables** | `activities` (3 GSIs, TTL), `user_config`, `coaching_sessions` |
 | **3 AgentCore Agents** | `content_gen` (LTM memory), `campus_coach` (Browser Tool — fallback only), `coach_agent` (LTM memory) |
 | **CloudFront + S3** | Frontend hosting with OAC, private bucket, versioning, encryption |
@@ -361,7 +378,7 @@ sequenceDiagram
 
 **Infrastructure**: AWS CDK (Python), Python 3.12, us-east-1 (configurable via `--context region=<region>`)
 
-**AWS Services**: Lambda (15 functions, Powertools), DynamoDB (3 tables, 3 GSIs, TTL), Step Functions, SQS + DLQ, Bedrock (Claude Sonnet 4.5), Secrets Manager, API Gateway (Cognito authorizer), CloudFront + S3 (OAC), Cognito User Pool
+**AWS Services**: Lambda (19 functions, Powertools), DynamoDB (3 tables, 3 GSIs, TTL), Step Functions, SQS + DLQ, Bedrock (Claude Sonnet 4.5), Secrets Manager, API Gateway (Cognito authorizer), CloudFront + S3 (OAC), Cognito User Pool
 
 **AI/ML**: Strands Agents, AgentCore Memory (2 LTM memories), AgentCore Browser Tool, Claude Sonnet 4.5
 
@@ -481,7 +498,7 @@ The Lambda Layer cannot be replaced via CDK due to CloudFormation cross-stack ex
 ## Testing
 
 ```bash
-# Lambda unit tests (165 tests, ~2s — no AWS credentials needed)
+# Lambda unit tests (209 tests, ~2s — no AWS credentials needed)
 pytest tests/unit/ -v
 
 # Infrastructure/integration tests (73 tests — requires AWS credentials)
@@ -495,7 +512,7 @@ cd frontend && npm test
 pytest tests/ -v
 ```
 
-**Test coverage:** 209 total tests (165 backend + 44 frontend).
+**Test coverage:** 253 total tests (209 backend unit + 44 frontend), plus integration tests.
 
 ## Cost Tracking
 
@@ -518,7 +535,7 @@ All resources are tagged for AWS Cost Explorer cost allocation:
 ## Security
 
 - **Cognito Authentication**: All frontend routes and API endpoints protected by Cognito User Pool (JWT tokens in Authorization header). No self-registration — users created via `admin-create-user`. Password policy: 12+ characters.
-- **Coach streaming auth**: the streaming Function URL uses `AWS_IAM` (never `NONE`). The frontend signs requests with SigV4 using temporary credentials from a Cognito Identity Pool (`AllowUnauthenticatedIdentities: false`); the authenticated role is scoped to invoking only the coach function. Unsigned requests are rejected with HTTP 403.
+- **Coach chat auth**: the `coach_chat` AgentCore Runtime uses a **customJWT** authorizer bound to the Cognito User Pool. The frontend sends the Cognito ID token as a `Bearer` header; the runtime validates it and derives `user_id` from the `custom:strava_id` claim (never trusted from the request body). No SigV4, no Identity Pool, no unauthenticated path — unauthenticated calls are rejected with HTTP 401.
 - **Bedrock Guardrails**: AI safety and prompt injection protection
 - **Anti-AI Writing Rules**: Em/en dashes banned, cliché expressions blocked, real style examples as anchors
 - **Data Encryption**: AWS managed encryption for all DynamoDB tables, S3 bucket encrypted with SSE

@@ -55,15 +55,6 @@ class ApiGatewayStack(Stack):
         # Create API Gateway
         self._create_api_gateway()
 
-    def _load_coach_arn(self) -> str:
-        from .env_loader import load_env_agentcore
-        env = load_env_agentcore(keys={"COACH_AGENT_ARN"})
-        return env.get("COACH_AGENT_ARN", "")
-
-    def _load_memory_id(self) -> str:
-        from .env_loader import load_agentcore_memory_id
-        return load_agentcore_memory_id()
-
     def _create_lambda_functions(self) -> None:
         """Create Lambda functions for API endpoints"""
         
@@ -171,166 +162,6 @@ class ApiGatewayStack(Stack):
             }
         )
         
-        # Coach Ask API Lambda
-        self.coach_ask_lambda = lambda_.Function(
-            self, "CoachAskAPI",
-            function_name="StravaAIBoost-CoachAskAPI",
-            runtime=lambda_.Runtime.PYTHON_3_12,
-            handler="api.coach_ask_api.handler",
-            code=lambda_.Code.from_asset("lambda_functions"),
-            layers=[self.core_stack.dependencies_layer],
-            timeout=Duration.seconds(30),
-            memory_size=256,
-            role=self.core_stack.webhook_lambda_role,
-            environment={
-                "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
-                "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
-                "DEFAULT_USER_ID": self.node.try_get_context("default_user_id") or "",
-                "BEDROCK_MODEL_ID": os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
-                "COACH_AGENT_ARN": self._load_coach_arn(),
-                "BEDROCK_AGENTCORE_MEMORY_ID": self._load_memory_id()
-            }
-        )
-
-        # Coach Streaming Lambda (Starlette + Lambda Web Adapter) — emits AG-UI SSE.
-        # Additive: the buffered /coach/ask handler above remains the fallback.
-        # Starlette/uvicorn are pure-Python and vendored into lambda_functions/ by
-        # scripts/build_coach_stream_deps.sh (project convention; see README Known
-        # Issue #2). No Docker bundling — uses the shared asset like every Lambda.
-        coach_stream_code = lambda_.Code.from_asset("lambda_functions")
-
-        # Lambda Web Adapter layer — account/name/version come from cdk.json context
-        # (official AWS Labs publisher, pinned version; nothing hardcoded in the stack).
-        lwa = self.node.try_get_context("lambda_web_adapter") or {}
-        lwa_arn = (
-            f"arn:aws:lambda:{Aws.REGION}:{lwa['account']}:"
-            f"layer:{lwa['layer_name']}:{lwa['version']}"
-        )
-        lwa_layer = lambda_.LayerVersion.from_layer_version_arn(
-            self, "LambdaWebAdapterLayer", lwa_arn,
-        )
-
-        self.coach_stream_lambda = lambda_.Function(
-            self, "CoachStreamAPI",
-            function_name="StravaAIBoost-CoachStreamAPI",
-            runtime=lambda_.Runtime.PYTHON_3_12,
-            handler="coach_stream/run.sh",
-            code=coach_stream_code,
-            # LWA layer + shared deps layer (powertools, requests used by shared/*).
-            layers=[lwa_layer, self.core_stack.dependencies_layer],
-            timeout=Duration.seconds(60),
-            memory_size=512,
-            role=self.core_stack.webhook_lambda_role,
-            environment={
-                "AWS_LAMBDA_EXEC_WRAPPER": "/opt/bootstrap",
-                "AWS_LWA_INVOKE_MODE": "response_stream",
-                "PORT": "8000",
-                "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
-                "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
-                "COACHING_SESSIONS_TABLE": self.core_stack.table_names["coaching_sessions"],
-                "DEFAULT_USER_ID": self.node.try_get_context("default_user_id") or "",
-                "BEDROCK_MODEL_ID": os.environ.get(
-                    "BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
-                ),
-                "BEDROCK_AGENTCORE_MEMORY_ID": self._load_memory_id(),
-            },
-        )
-
-        # Function URL with RESPONSE_STREAM + AWS_IAM (NEVER NONE — security policy §1).
-        # Authz is delegated to IAM; the frontend signs requests with SigV4 using
-        # temporary credentials from the Cognito Identity Pool.
-        cors_origin = f"https://{self.cloudfront_domain}" if self.cloudfront_domain else "*"
-        self.coach_stream_url = self.coach_stream_lambda.add_function_url(
-            auth_type=lambda_.FunctionUrlAuthType.AWS_IAM,
-            invoke_mode=lambda_.InvokeMode.RESPONSE_STREAM,
-            cors=lambda_.FunctionUrlCorsOptions(
-                allowed_origins=[cors_origin],
-                allowed_methods=[lambda_.HttpMethod.POST],
-                allowed_headers=["authorization", "content-type", "x-amz-date",
-                                 "x-amz-security-token", "x-amz-content-sha256"],
-                max_age=Duration.hours(1),
-            ),
-        )
-
-        CfnOutput(
-            self, "CoachStreamUrl",
-            value=self.coach_stream_url.url,
-            description="Coach streaming Function URL (SigV4 / AWS_IAM)",
-        )
-
-        # Cognito Identity Pool — lets authenticated User Pool users obtain temporary
-        # IAM credentials to sign the coach Function URL with SigV4 (security policy:
-        # frontend signs requests with SigV4; no public/NONE endpoints).
-        if self.user_pool and self.user_pool_client:
-            identity_pool = cognito.CfnIdentityPool(
-                self, "CoachIdentityPool",
-                allow_unauthenticated_identities=False,
-                cognito_identity_providers=[
-                    cognito.CfnIdentityPool.CognitoIdentityProviderProperty(
-                        client_id=self.user_pool_client.user_pool_client_id,
-                        provider_name=self.user_pool.user_pool_provider_name,
-                        server_side_token_check=True,
-                    )
-                ],
-            )
-
-            # Authenticated role: scoped to invoking ONLY the coach Function URL.
-            authenticated_role = iam.Role(
-                self, "CoachAuthenticatedRole",
-                assumed_by=iam.FederatedPrincipal(
-                    "cognito-identity.amazonaws.com",
-                    conditions={
-                        "StringEquals": {
-                            "cognito-identity.amazonaws.com:aud": identity_pool.ref
-                        },
-                        "ForAnyValue:StringLike": {
-                            "cognito-identity.amazonaws.com:amr": "authenticated"
-                        },
-                    },
-                    assume_role_action="sts:AssumeRoleWithWebIdentity",
-                ),
-            )
-            # Function URL invocation requires BOTH lambda:InvokeFunctionUrl AND
-            # lambda:InvokeFunction (per AWS docs). The condition only applies to
-            # InvokeFunctionUrl, so InvokeFunction is granted as a separate statement.
-            authenticated_role.add_to_policy(
-                iam.PolicyStatement(
-                    actions=["lambda:InvokeFunctionUrl"],
-                    resources=[self.coach_stream_lambda.function_arn],
-                    conditions={
-                        "StringEquals": {"lambda:FunctionUrlAuthType": "AWS_IAM"}
-                    },
-                )
-            )
-            authenticated_role.add_to_policy(
-                iam.PolicyStatement(
-                    actions=["lambda:InvokeFunction"],
-                    resources=[self.coach_stream_lambda.function_arn],
-                )
-            )
-
-            # Function URLs with AWS_IAM auth require a resource-based policy in
-            # ADDITION to the caller's identity policy. Without this, the scoped
-            # authenticated role gets 403 (only principals with '*' like Admin bypass it).
-            self.coach_stream_lambda.add_permission(
-                "AllowCognitoAuthenticatedInvokeUrl",
-                principal=authenticated_role.grant_principal,
-                action="lambda:InvokeFunctionUrl",
-                function_url_auth_type=lambda_.FunctionUrlAuthType.AWS_IAM,
-            )
-
-            cognito.CfnIdentityPoolRoleAttachment(
-                self, "CoachIdentityPoolRoleAttachment",
-                identity_pool_id=identity_pool.ref,
-                roles={"authenticated": authenticated_role.role_arn},
-            )
-
-            CfnOutput(
-                self, "CoachIdentityPoolId",
-                value=identity_pool.ref,
-                description="Cognito Identity Pool ID for SigV4-signed coach streaming",
-            )
-
         # AgentCore Health Check Lambda
         agentcore_env = {
         }
@@ -537,15 +368,6 @@ class ApiGatewayStack(Stack):
         coach_summary_resource.add_method(
             "GET",
             apigateway.LambdaIntegration(self.dashboard_lambda),
-            authorizer=self.cognito_authorizer,
-            authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
-        )
-
-        # /coach/ask endpoint
-        coach_ask_resource = coach_resource.add_resource("ask")
-        coach_ask_resource.add_method(
-            "POST",
-            apigateway.LambdaIntegration(self.coach_ask_lambda),
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
         )
