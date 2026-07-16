@@ -1,6 +1,8 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, type ReactNode } from 'react';
 import { SendHorizonal, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Button, Card, Input } from '@/ui';
 import { cn } from '@/lib/cn';
 import { getIdToken } from '../../api/client.ts';
@@ -42,6 +44,40 @@ const SUGGESTION_KEYS: string[] = [
 interface ChatHistoryEntry {
   role: 'user' | 'assistant';
   content: string;
+}
+
+/** Render coach messages as markdown (bold, lists, paragraphs) with compact,
+ * chat-friendly spacing. User messages stay plain text. */
+const MD_COMPONENTS = {
+  p: (props: { children?: ReactNode }) => (
+    <p className="mb-2 last:mb-0" {...props} />
+  ),
+  ul: (props: { children?: ReactNode }) => (
+    <ul className="list-disc pl-5 mb-2 last:mb-0 space-y-0.5" {...props} />
+  ),
+  ol: (props: { children?: ReactNode }) => (
+    <ol className="list-decimal pl-5 mb-2 last:mb-0 space-y-0.5" {...props} />
+  ),
+  li: (props: { children?: ReactNode }) => <li {...props} />,
+  strong: (props: { children?: ReactNode }) => (
+    <strong className="font-semibold" {...props} />
+  ),
+  code: (props: { children?: ReactNode }) => (
+    <code className="rounded bg-muted px-1 py-0.5 text-[0.85em]" {...props} />
+  ),
+  a: (props: { children?: ReactNode; href?: string }) => (
+    <a className="underline" target="_blank" rel="noreferrer" {...props} />
+  ),
+};
+
+function CoachMarkdown({ text }: { text: string }) {
+  return (
+    <div className="[&>*:last-child]:mb-0">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
 }
 
 function getInitialMessages(): Message[] {
@@ -226,11 +262,15 @@ export function CoachChat() {
                   )}
                 >
                   {msg.role === 'coach' ? (
-                    <div className="text-xs text-muted-foreground mb-1 font-medium">
-                      {t('coach.chat.coachLabel')}
-                    </div>
-                  ) : null}
-                  <div className="whitespace-pre-wrap">{msg.text}</div>
+                    <>
+                      <div className="text-xs text-muted-foreground mb-1 font-medium">
+                        {t('coach.chat.coachLabel')}
+                      </div>
+                      <CoachMarkdown text={msg.text} />
+                    </>
+                  ) : (
+                    <div className="whitespace-pre-wrap">{msg.text}</div>
+                  )}
                 </div>
               </div>
             ))}
