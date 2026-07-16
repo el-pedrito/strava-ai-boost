@@ -10,6 +10,8 @@
 
 ## Done
 
+- **Court terme muscu + santé + deauth (2026-07-16)** : (1) **extraction LLM des séances muscu** (Haiku/Converse) → `parsed_sets` dans DynamoDB ; (2) **charts progression muscu** dans Coach Trends (charge/volume par exercice) ; (3) **détection d'anomalie santé** déterministe (alertes onglet Coach Now) ; (4) **tests de déautorisation Strava** (flow déjà implémenté). Tout déployé (Content + API + frontend). **Correction factuelle** : l'app Strava est **active** (premium, scope complet vérifié en live) — le « 403 Inactive » précédent était un simple token expiré.
+- **Décommission `campus_coach` (2026-07-16)** : agent Browser Tool + Lambda fallback `campus_coach_invoker` supprimés (runtime AgentCore + mémoire détruits dans AWS, code/CDK/scripts/tests nettoyés). Le sync REST `campus_coach_sync` reste la source unique. Reste 3 runtimes AgentCore (`content_gen`, `coach_agent`, `coach_chat`).
 - **Campus Coach : migration Browser Tool → API REST directe** : Lambda `campus_coach_sync.py` (`POST /account/login` + `GET /smart-training` → DynamoDB, 9 semaines / 39 sessions avec intervalles structurés). EventBridge daily 05:00 UTC + on-demand. Futures semaines + athlete context (goal, assiduity, sport profile) injectés dans le contexte coach. Module activation check. Agent Browser Tool conservé en fallback. 26 tests unitaires.
 - **Weekly Audio Recap V1** : Lambda `StravaAIBoost-WeeklyAudioRecap` (Bedrock Sonnet script 200-300 mots → Polly Generative Ambre → MP3 S3 privé). DynamoDB `strava-ai-boost-weekly-recaps` (PK user_id, SK week). EventBridge dimanche 20h UTC + on-demand via POST `/coach/recaps`. Frontend : section "Récaps hebdo" dans Coach page avec AudioPlayer, pagination, bouton "Générer", refresh button + polling (remplace setTimeout). On-demand utilise label date range (17_05-21_05), scheduler utilise ISO week Mon-Sun. AgentCore Memory + user prefs/PRs/pace zones + Campus goal context injectés dans le prompt. Coût estimé ~$0.05/recap.
 - **Recovery State Widget** : card Coach page avec Form/TSB (color-coded frais/neutre/fatigué), VO2max (+delta 7j), FC repos (+delta 7j), Sommeil (moyenne 30j + delta 7j). Données Intervals.icu. InfoTooltip individuel sur chaque métrique + insight narratif contextuel.
@@ -29,7 +31,7 @@
 - **Code review fixes** : `get_cached_or_compute` return, `useMemo`→`useEffect`, global `user_id` removed, `activity_id` endpoint, polling, audio duration.
 - **All values configurable via env vars** : plus aucune valeur hardcodée (URLs, IDs, limites).
 - **Backward compatibility** : Campus Coach sync backward-compatible with existing DynamoDB schema and consumer Lambdas (content_generator, coach_generator, coach_ask_api).
-- **202 tests** : 162 backend + 40 frontend.
+- **Tests** : 234 backend unit + 44 frontend (au 2026-07-16).
 - **Plan Campus injection coach** : fix indentation `coach_generator.py` qui faisait que le plan n'était jamais injecté dans le contexte coach (sauf fallback WeekNumberIndex).
 - **Coach chat sees Campus weekly plan** : `coach_ask_api.py` fetch maintenant les séances de la semaine + IAM index access via Core stack.
 - **Quality > Memory column** : pastille icône color-coded + tooltip Radix au hover (mobile texte préservé).
@@ -59,10 +61,10 @@
 
 > **Par où commencer (ordre suggéré)** : ~~quick wins ops~~ ✅ →
 > ~~prérequis release OSS (disclaimer, fichiers standards, threat model, scan ASH,
-> historique git nettoyé, tag v0.1.0)~~ ✅ (2026-07-15) →
-> **reste avant public : screenshots/GIF README + purge cache GitHub** →
-> ~~A2a (multi-tour chat)~~ ✅ (2026-07-16) → ~~A1 (tools) + A2b (runtime AGUI)~~ ✅ (2026-07-16) →
-> **A3 (evals régression)** → le reste selon l'envie.
+> historique git nettoyé, tag v0.1.0, screenshots/GIF README)~~ ✅ (2026-07-15) →
+> ~~A2a (multi-tour chat)~~ ✅ → ~~A1 (tools) + A2b (runtime AGUI)~~ ✅ (2026-07-16) →
+> ~~court terme muscu/santé/deauth~~ ✅ (2026-07-16) →
+> **maintenant : (1) rendre le repo public (aucun bloquant technique restant, seul le blog post peut suivre), (2) A3 (evals régression), (3) peupler les charts muscu via reprocessing d'une vraie séance.**
 > Scan sensibilité + CVE + licence déjà faits.
 
 ### Quick wins ops — ✅ DONE (2026-07-10)
@@ -91,12 +93,12 @@ commencer » en tête (A2a avant A1 : 1 jour vs 1 semaine) :
 
 ### Court terme (1-2 semaines) — spec détaillée : [design/short-term-improvements.md](./design/short-term-improvements.md)
 
-- [ ] **Parser muscu structuré** *(ex-« Strava FIT sets »)* — ⚠️ **l'hypothèse API est infirmée** : le changelog Strava (21 mai 2026) montre que Strava *ingère* les sets (exercice/reps/poids) depuis les uploads FIT/JSON, mais **ne les expose pas en lecture** via `GET /activities` (aucun champ dans `DetailedActivity`). On ne peut donc pas alimenter `strength_history` depuis l'API. **Pivot** : l'athlète continue d'écrire ses séances en commentaire (choix assumé) → parser déterministe best-effort des descriptions (`DC 4x8 @80kg` → `{exercise, sets, reps, weight_kg}`), stocké **à côté** de la description brute (jamais à la place). Débloque les charts de progression (#suivant).
-- [ ] **Coach Trends : graphiques progression muscu** — dépend du parser ci-dessus. Aujourd'hui l'onglet Trends **liste** les descriptions brutes (placeholder « graphiques après 3+ séances »). Une fois `parsed_sets` dispo : agréger par exercice (`top_weight_kg`/`total_volume_kg` dans le temps) côté `/coach/summary`, chart recharts (pattern pace/EF) + sélecteur d'exercice + insight auto. Fallback liste brute si < 3 points structurés.
-- [ ] **Détection d'anomalie santé** *(déterministe, additif)* — **données déjà présentes** (`_compute_wellness_trends` : resting_hr/hrv/vo2max/sleep/ctl + delta_7d). Fonction pure `detect_health_anomalies(trends)` avec seuils explicites (ex. FC repos +5 & HRV -10% sur 7j → alerte sous-récup ; TSB < -20 → surcharge). Surfaces V1 **sans push** : banner Dashboard + injection contexte coach. Garde-fou `data_points ≥ 3` (faux positifs). Zéro régression possible.
+- [x] **Parser muscu structuré** *(ex-« Strava FIT sets »)* — ✅ 2026-07-16. Rappel : l'API Strava **n'expose pas** les sets en lecture (`DetailedActivity` n'a aucun champ) et ne permet pas de les écrire sur une activité existante → pivot assumé : l'athlète écrit ses séances en commentaire. Implémenté via **extraction LLM** (Haiku/Converse, JSON, temp 0) plutôt qu'un regex déterministe — gère mieux le texte libre (`DC 4x8 @80kg` → `{exercise, sets, reps, weight_kg}`). Best-effort → `[]` sur toute erreur, stocké dans `strength_history.entries[].parsed_sets` **à côté** de la description brute (jamais à la place). +7 tests. Déployé.
+- [x] **Coach Trends : graphiques progression muscu** — ✅ 2026-07-16. `/coach/summary` agrège `parsed_sets` par exercice (`_build_strength_progression` : charge max + volume total par jour, trié par nb de séances). Composant `StrengthProgression` (recharts LineChart, pattern pace/EF) avec sélecteur d'exercice + toggle charge/volume ; liste brute conservée en fallback si < 3 points structurés. +4 tests. Déployé. ⚠️ Se remplira avec de vraies séances (aucune donnée `parsed_sets` historique pour l'instant — voir « à faire après »).
+- [x] **Détection d'anomalie santé** *(déterministe, additif)* — ✅ 2026-07-16. `_detect_health_anomalies` (fonction pure, `dashboard_api`) sur la recovery Intervals.icu déjà calculée : FC repos +5 bpm/7j & TSB < -20 (warning), sommeil ≤ -45 min/7j & VO2max ≤ -1/7j (info). Exposé en `trends.health_anomalies`, affiché en **alertes dans l'onglet Coach « Now »**. Garde-fous sur champs manquants → aucun faux positif sur données partielles. +7 tests. Déployé. **Écarts vs spec initiale (suivi éventuel)** : surfacé côté Coach et *pas* en banner Dashboard ; *pas encore* injecté dans le contexte coach ; le delta HRV n'est pas dans le payload recovery → règle sous-récup basée sur la seule FC repos (pas HRV -10%).
 - [x] **Endpoint de déautorisation Strava** — **confirmé** (changelog 1 juin 2026). Flow « Déconnecter Strava » : bouton + dialog confirmation → `DELETE /config/oauth` (Cognito) → `POST /oauth/deauthorize` Strava + effacement tokens Secrets Manager. ⚠️ **destructif** (tokens) : idempotent, ne supprime **pas** les données d'activités, réversible via re-OAuth. Déjà implémenté (`revoke_oauth_tokens` + `OAuthConnection.tsx`) ; tests unitaires mockés ajoutés le 2026-07-16 (l'app est active mais tester en live déconnecterait le vrai compte).
 
-**Séquencement** : anomalie santé (additif, sans dépendance) → parser muscu → charts muscu → déautorisation (destructif, à valider en dernier).
+**Séquencement** : ~~anomalie santé → parser muscu → charts muscu → déautorisation~~ ✅ **les 4 items faits + déployés le 2026-07-16.** Reste optionnel en suivi : injection des anomalies santé dans le contexte coach + banner Dashboard ; peupler les charts muscu via reprocessing d'une vraie séance `WeightTraining`.
 
 ### Release open-source (track dédié — c'est le « produit »)
 
