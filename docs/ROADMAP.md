@@ -61,7 +61,7 @@
 > ~~prérequis release OSS (disclaimer, fichiers standards, threat model, scan ASH,
 > historique git nettoyé, tag v0.1.0)~~ ✅ (2026-07-15) →
 > **reste avant public : screenshots/GIF README + purge cache GitHub** →
-> A2a (multi-tour chat, 1 j) → A1 (tools, ~1 sem) →
+> ~~A2a (multi-tour chat)~~ ✅ (2026-07-16) → **A1 (tools, ~1 sem)** →
 > A3 (evals régression) → le reste selon l'envie.
 > Scan sensibilité + CVE + licence déjà faits.
 
