@@ -5,5 +5,6 @@
   "cognitoClientId": "YOUR_COGNITO_CLIENT_ID",
   "cognitoRegion": "us-east-1",
   "identityPoolId": "YOUR_REGION:YOUR_IDENTITY_POOL_ID",
-  "coachStreamUrl": "https://YOUR_FUNCTION_URL.lambda-url.YOUR_REGION.on.aws/coach/ask/stream"
+  "coachStreamUrl": "https://YOUR_FUNCTION_URL.lambda-url.YOUR_REGION.on.aws/coach/ask/stream",
+  "coachRuntimeArn": "arn:aws:bedrock-agentcore:YOUR_REGION:YOUR_ACCOUNT_ID:runtime/coach_chat-XXXXXXXXXX"
 }

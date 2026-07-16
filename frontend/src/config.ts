@@ -13,6 +13,11 @@ export interface AppConfig {
   // back to the buffered /coach/ask endpoint — no regression.
   identityPoolId?: string;
   coachStreamUrl?: string;
+  // Optional (Phase A): direct AgentCore Runtime coach chat (agentic, AG-UI over
+  // SSE with tool loops). When present, CoachChat POSTs straight to the
+  // AgentCore data plane with a Bearer Cognito JWT and takes precedence over
+  // coachStreamUrl. When absent, the current streaming/buffered paths are used.
+  coachRuntimeArn?: string;
 }
 
 let _config: AppConfig | null = null;
@@ -44,6 +49,7 @@ export async function loadConfig(): Promise<AppConfig> {
     cognitoRegion: (import.meta.env.VITE_COGNITO_REGION as string) || 'us-east-1',
     identityPoolId: (import.meta.env.VITE_COGNITO_IDENTITY_POOL_ID as string) || undefined,
     coachStreamUrl: (import.meta.env.VITE_COACH_STREAM_URL as string) || undefined,
+    coachRuntimeArn: (import.meta.env.VITE_COACH_RUNTIME_ARN as string) || undefined,
   };
 
   return _config;

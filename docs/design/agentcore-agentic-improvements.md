@@ -80,6 +80,24 @@ CoachChat.tsx ──POST SSE, Authorization: Bearer <JWT Cognito>──> Runtime
   (mitigée par l'affichage des tool calls) ; coût ×2-4 appels LLM par question
   (négligeable au volume) ; `ag-ui-strands` v0.1 (pin + tests locaux).
 
+### Notes de déploiement (customJWT authorizer — issues de la review)
+
+- Le frontend envoie l'**ID token** Cognito (seul porteur du claim
+  `custom:strava_id`). L'ID token a une claim `aud` (= app client id), pas
+  `client_id` : configurer l'authorizer avec **`allowedAudience`** (et non
+  `allowedClients`).
+- **Exiger le claim `custom:strava_id`** dans l'authorizer (custom claims,
+  cf. §5) : sans cela, tout JWT valide du pool sans le claim retombe
+  silencieusement sur `DEFAULT_USER_ID` (fallback actif en prod, documenté
+  dans le code — acceptable mono-user mais à verrouiller).
+- Env vars du runtime : `GUARDRAIL_ID`/`GUARDRAIL_VERSION` (guardrail branché
+  nativement via Strands `BedrockModel`), tables DynamoDB, `MEMORY_ID`,
+  `DEFAULT_USER_ID`.
+- Comportement fallback frontend (phase A) : si `coachRuntimeArn` est défini et
+  que le runtime échoue, le fallback va **directement au buffered** `/coach/ask`
+  (le chemin SigV4 legacy n'est plus tenté — de facto mort dès que le flag est
+  posé ; sa suppression est la phase B).
+
 ## 1. Donner des tools au coach conversationnel — **impact le plus fort**
 
 **Problème :** dans `src/agents/coach_agent.py` (mode `conversation`) et

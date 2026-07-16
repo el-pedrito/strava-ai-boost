@@ -1,0 +1,19 @@
+# Dependencies for the coach_chat AG-UI runtime (src/agents/coach_chat_agent.py).
+# Dedicated file so it does not collide with the shared requirements.txt used by
+# the content/coach pipeline agents. Point `agentcore configure --protocol AGUI`
+# at this file when deploying the coach_chat runtime.
+#
+# Versions are pinned for reproducible container builds. Re-verify against the
+# latest stable releases and run `pip-audit` before each deploy (deploy is done
+# separately/interactively). `ag-ui-strands` is v0.1 (early) — keep it pinned.
+
+fastapi==0.115.12
+uvicorn==0.34.2
+ag-ui-strands==0.1.0
+strands-agents[otel]==1.10.0
+bedrock-agentcore==1.3.0
+
+# Direct dependency: DynamoDB reads (activities/user_config/coaching_sessions),
+# AgentCore Memory create_event, and Bedrock model access. Also pulled in
+# transitively by bedrock-agentcore/strands-agents, pinned here for clarity.
+boto3==1.40.0

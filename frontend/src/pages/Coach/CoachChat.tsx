@@ -4,8 +4,29 @@ import { useTranslation } from 'react-i18next';
 import { Button, Card, Input } from '@/ui';
 import { cn } from '@/lib/cn';
 import { api, getIdToken } from '../../api/client.ts';
-import { isStreamingEnabled, streamCoachAnswer } from '../../api/coachStream.ts';
+import {
+  isRuntimeStreamingEnabled,
+  isStreamingEnabled,
+  streamCoachAnswer,
+  streamCoachAnswerRuntime,
+  type CoachStreamRequest,
+} from '../../api/coachStream.ts';
 import { getConfig } from '../../config.ts';
+
+/** Known agent tools → i18n key suffix for the "coach is working" indicator. */
+const TOOL_ACTIVITY_KEYS = new Set([
+  'query_activities',
+  'get_campus_plan',
+  'get_pace_zones',
+  'get_intervals_metrics',
+]);
+
+function toolActivityKey(toolName?: string): string {
+  if (toolName && TOOL_ACTIVITY_KEYS.has(toolName)) {
+    return `coach.chat.toolActivity.${toolName}`;
+  }
+  return 'coach.chat.toolActivity.default';
+}
 
 interface Message {
   role: 'user' | 'coach';
@@ -53,6 +74,7 @@ export function CoachChat() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
+  const [toolActivity, setToolActivity] = useState<string | null>(null);
   const [sessionId] = useState<string>(getOrCreateSessionId);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -101,14 +123,18 @@ export function CoachChat() {
 
     try {
       const idToken = getIdToken();
-      if (isStreamingEnabled() && idToken) {
+      const runtimeOn = isRuntimeStreamingEnabled();
+      const legacyOn = isStreamingEnabled();
+      if (idToken && (runtimeOn || legacyOn)) {
         // Streaming path: append a coach placeholder, fill it token-by-token.
+        // Runtime path (coachRuntimeArn) takes precedence; legacy SigV4 otherwise.
         const startedAt = new Date().toLocaleTimeString();
         let streamed = '';
         setMessages((prev) => [...prev, { role: 'coach', text: '', timestamp: startedAt }]);
         const appendDelta = (delta: string) => {
-          // First token arrived: hide the "coach is thinking" indicator.
+          // First token arrived: hide the "coach is thinking / working" indicators.
           setStreaming(true);
+          setToolActivity(null);
           streamed += delta;
           setMessages((prev) => {
             const next = [...prev];
@@ -116,12 +142,21 @@ export function CoachChat() {
             return next;
           });
         };
+        const streamRequest: CoachStreamRequest = {
+          question: trimmed,
+          user_id: userId,
+          session_id: sessionId,
+          history,
+        };
+        const streamFn = runtimeOn ? streamCoachAnswerRuntime : streamCoachAnswer;
         try {
-          await streamCoachAnswer(
-            { question: trimmed, user_id: userId, session_id: sessionId, history },
-            idToken,
-            { onDelta: appendDelta },
-          );
+          await streamFn(streamRequest, idToken, {
+            onDelta: appendDelta,
+            // Surface agent tool loops (Runtime path) so the UI shows progress
+            // during the 3-8 s before the first token.
+            onToolCallStart: (toolName) => setToolActivity(toolActivityKey(toolName)),
+            onToolCallEnd: () => setToolActivity(null),
+          });
           if (streamed) return;
           // Empty stream: drop the placeholder and fall through to buffered.
           setMessages((prev) => prev.slice(0, -1));
@@ -131,6 +166,7 @@ export function CoachChat() {
           setMessages((prev) => prev.slice(0, -1));
         } finally {
           setStreaming(false);
+          setToolActivity(null);
         }
       }
 
@@ -231,7 +267,7 @@ export function CoachChat() {
                     {t('coach.chat.coachLabel')}
                   </div>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <span>{t('coach.chat.thinkingShort')}</span>
+                    <span>{toolActivity ? t(toolActivity) : t('coach.chat.thinkingShort')}</span>
                     <span className="inline-flex gap-1">
                       <span
                         className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse"

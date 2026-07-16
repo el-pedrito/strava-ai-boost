@@ -1,14 +1,23 @@
 /**
  * Coach streaming client — AG-UI protocol over SSE.
  *
- * Calls the coach Lambda Function URL (AWS_IAM auth) using SigV4-signed requests.
- * Temporary IAM credentials are obtained from the Cognito Identity Pool by
- * exchanging the User Pool ID token, per the project security policy
- * (frontend signs requests with SigV4; no unauthenticated endpoints).
+ * Two transports share the same AG-UI event parser and token-by-token surface:
  *
- * The server emits AG-UI events:
+ *   1. AgentCore Runtime (Phase A, agentic) — when `coachRuntimeArn` is set.
+ *      POSTs SSE directly to the AgentCore data plane
+ *      (`bedrock-agentcore.{region}.amazonaws.com/runtimes/{arn}/invocations`)
+ *      with a Bearer Cognito ID token (customJWT authorizer, no SigV4). The
+ *      agent runs tool loops server-side; `user_id` is derived from the
+ *      `custom:strava_id` JWT claim, not the request body.
+ *
+ *   2. Lambda Function URL (legacy fallback) — when only `coachStreamUrl` is
+ *      set. Calls the coach Lambda (AWS_IAM auth) using SigV4-signed requests;
+ *      temporary IAM credentials come from the Cognito Identity Pool.
+ *
+ * Both servers emit AG-UI events:
  *   RUN_STARTED → TEXT_MESSAGE_START → TEXT_MESSAGE_CONTENT* → TEXT_MESSAGE_END → RUN_FINISHED
- * (or RUN_ERROR). We surface text deltas to the caller via callbacks.
+ * (or RUN_ERROR). The Runtime path additionally emits TOOL_CALL_START/END around
+ * tool loops, surfaced via callbacks so the UI can show a progress indicator.
  */
 import { SignatureV4 } from '@aws-sdk/signature-v4';
 import { Sha256 } from '@aws-crypto/sha256-js';
@@ -22,12 +31,19 @@ export interface AgUiEvent {
   messageId?: string;
   runId?: string;
   role?: string;
+  // Tool loop events (AgentCore Runtime path).
+  toolCallId?: string;
+  toolCallName?: string;
 }
 
 export interface CoachStreamCallbacks {
   onDelta: (text: string) => void;
   onError?: (message: string) => void;
   onDone?: () => void;
+  /** Fired on TOOL_CALL_START (Runtime path); `toolName` is the invoked tool. */
+  onToolCallStart?: (toolName?: string) => void;
+  /** Fired on TOOL_CALL_END (Runtime path). */
+  onToolCallEnd?: (toolName?: string) => void;
 }
 
 export interface CoachStreamRequest {
@@ -37,7 +53,30 @@ export interface CoachStreamRequest {
   history: { role: string; content: string }[];
 }
 
-/** True when streaming is configured (Identity Pool + Function URL present). */
+/** AG-UI RunAgentInput message. */
+interface AgUiMessage {
+  id: string;
+  role: string;
+  content: string;
+}
+
+/** AG-UI RunAgentInput payload accepted by the AgentCore Runtime (AGUI protocol). */
+interface RunAgentInput {
+  threadId: string;
+  runId: string;
+  messages: AgUiMessage[];
+  state: Record<string, unknown>;
+  tools: unknown[];
+  context: unknown[];
+  forwardedProps: Record<string, unknown>;
+}
+
+/** True when the agentic AgentCore Runtime chat is configured (Phase A). */
+export function isRuntimeStreamingEnabled(): boolean {
+  return Boolean(getConfig().coachRuntimeArn);
+}
+
+/** True when the legacy SigV4 streaming path is configured (Identity Pool + Function URL). */
 export function isStreamingEnabled(): boolean {
   const config = getConfig();
   return Boolean(config.identityPoolId && config.coachStreamUrl);
@@ -80,9 +119,128 @@ export function parseSseBuffer(buffer: string): [AgUiEvent[], string] {
   return [events, remainder];
 }
 
+/** Dispatch a single AG-UI event to the callbacks. Returns 'stop' to end the stream. */
+function handleEvent(event: AgUiEvent, callbacks: CoachStreamCallbacks): 'continue' | 'stop' {
+  switch (event.type) {
+    case 'TEXT_MESSAGE_CONTENT':
+      if (event.delta) callbacks.onDelta(event.delta);
+      return 'continue';
+    case 'TOOL_CALL_START':
+      callbacks.onToolCallStart?.(event.toolCallName);
+      return 'continue';
+    case 'TOOL_CALL_END':
+      callbacks.onToolCallEnd?.(event.toolCallName);
+      return 'continue';
+    case 'RUN_ERROR':
+      callbacks.onError?.(event.message || 'stream error');
+      return 'stop';
+    case 'RUN_FINISHED':
+      callbacks.onDone?.();
+      return 'stop';
+    default:
+      return 'continue';
+  }
+}
+
 /**
- * Stream a coach answer. Resolves when the stream finishes; rejects on transport
- * or signing failure so the caller can fall back to the buffered endpoint.
+ * Read an SSE response body to completion, dispatching AG-UI events.
+ * Throws on a non-2xx / bodyless response so the caller can fall back.
+ */
+async function pumpSse(
+  response: Response,
+  callbacks: CoachStreamCallbacks,
+  errorPrefix: string,
+): Promise<void> {
+  if (!response.ok || !response.body) {
+    let detail = '';
+    try {
+      detail = await response.text();
+    } catch {
+      /* ignore */
+    }
+    throw new Error(`${errorPrefix}: ${response.status} ${detail}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const [events, remainder] = parseSseBuffer(buffer);
+    buffer = remainder;
+    for (const event of events) {
+      if (handleEvent(event, callbacks) === 'stop') return;
+    }
+  }
+  // Flush a final frame not terminated by a blank line (non-\n\n-terminated SSE).
+  const tail = buffer.trim();
+  if (tail) {
+    const [events] = parseSseBuffer(`${tail}\n\n`);
+    for (const event of events) {
+      if (handleEvent(event, callbacks) === 'stop') return;
+    }
+  }
+  callbacks.onDone?.();
+}
+
+/**
+ * Stream a coach answer from the AgentCore Runtime data plane (Phase A path).
+ * POSTs an AG-UI RunAgentInput with a Bearer Cognito JWT (customJWT authorizer);
+ * no SigV4. Resolves when the stream finishes; rejects on transport failure so
+ * the caller can fall back to the buffered endpoint.
+ */
+export async function streamCoachAnswerRuntime(
+  body: CoachStreamRequest,
+  idToken: string,
+  callbacks: CoachStreamCallbacks,
+  signal?: AbortSignal,
+): Promise<void> {
+  const config = getConfig();
+  const region = getRegion();
+  const arn = config.coachRuntimeArn;
+  if (!arn) throw new Error('coachRuntimeArn not configured');
+  const url =
+    `https://bedrock-agentcore.${region}.amazonaws.com` +
+    `/runtimes/${encodeURIComponent(arn)}/invocations?qualifier=DEFAULT`;
+
+  const messages: AgUiMessage[] = [
+    ...body.history.map((m) => ({ id: crypto.randomUUID(), role: m.role, content: m.content })),
+    { id: crypto.randomUUID(), role: 'user', content: body.question },
+  ];
+
+  const payload: RunAgentInput = {
+    threadId: body.session_id,
+    runId: crypto.randomUUID(),
+    messages,
+    state: {},
+    tools: [],
+    context: [],
+    forwardedProps: {},
+  };
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+      Authorization: `Bearer ${idToken}`,
+      // Runtime session id must be 33+ chars — satisfied by the coach chat session id.
+      'X-Amzn-Bedrock-AgentCore-Runtime-Session-Id': body.session_id,
+    },
+    body: JSON.stringify(payload),
+    signal,
+  });
+
+  await pumpSse(response, callbacks, 'Coach runtime stream failed');
+}
+
+/**
+ * Stream a coach answer from the legacy Lambda Function URL (SigV4, fallback).
+ * Resolves when the stream finishes; rejects on transport or signing failure so
+ * the caller can fall back to the buffered endpoint.
  */
 export async function streamCoachAnswer(
   body: CoachStreamRequest,
@@ -121,37 +279,5 @@ export async function streamCoachAnswer(
     signal,
   });
 
-  if (!response.ok || !response.body) {
-    let detail = '';
-    try {
-      detail = await response.text();
-    } catch {
-      /* ignore */
-    }
-    throw new Error(`Coach stream failed: ${response.status} ${detail}`);
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const [events, remainder] = parseSseBuffer(buffer);
-    buffer = remainder;
-    for (const event of events) {
-      if (event.type === 'TEXT_MESSAGE_CONTENT' && event.delta) {
-        callbacks.onDelta(event.delta);
-      } else if (event.type === 'RUN_ERROR') {
-        callbacks.onError?.(event.message || 'stream error');
-        return;
-      } else if (event.type === 'RUN_FINISHED') {
-        callbacks.onDone?.();
-        return;
-      }
-    }
-  }
-  callbacks.onDone?.();
+  await pumpSse(response, callbacks, 'Coach stream failed');
 }
