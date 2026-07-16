@@ -78,6 +78,17 @@ la réécrit via le champ `description` (autorisé par `PUT /activities/{id}`) +
 garde le `parsed_sets` structuré en interne pour les graphiques de progression.
 Pas de « muscle map » native Strava, mais formatage propre + charts.
 
+### ✅ Décision validée (2026-07-16, avec l'athlète)
+
+- **(A) Reformatage de la description via l'API : ABANDONNÉ.** L'enrichissement de
+  description du pipeline nettoie déjà le texte → inutile de le réécrire.
+- **(B) Extraction structurée par LLM : RETENU.** À chaque séance muscu, un LLM
+  extrait `parsed_sets = [{exercise, sets, reps, weight_kg}]` depuis la description
+  libre (plus robuste que du regex sur du texte libre), stocké **à côté** de la
+  description brute (jamais à la place). Objectif : alimenter les **tendances /
+  progression** de l'onglet Coach Trends (aujourd'hui encore brut : simple liste de
+  descriptions). Aucune écriture vers Strava.
+
 ### Pivot — parser structuré des descriptions
 
 L'athlète **continue d'écrire ses séances en commentaire** (choix explicite). Le

@@ -28,6 +28,23 @@ logger = get_logger("content-generator")
 REGION = os.environ.get('AWS_REGION', 'eu-west-1')
 dynamodb = boto3.resource('dynamodb', region_name=REGION)
 
+# Bedrock client for lightweight structured extraction (strength sets).
+# Haiku is used deliberately: cheap/fast, and the task is a simple parse.
+_bedrock_runtime = None
+STRENGTH_EXTRACTION_MODEL_ID = os.environ.get(
+    "STRENGTH_EXTRACTION_MODEL_ID",
+    os.environ.get("BEDROCK_HAIKU_MODEL_ID", "global.anthropic.claude-haiku-4-5-20251001-v1:0"),
+)
+
+
+def _get_bedrock_runtime():
+    """Lazily create the Bedrock runtime client (keeps cold imports cheap/testable)."""
+    global _bedrock_runtime
+    if _bedrock_runtime is None:
+        _bedrock_runtime = boto3.client("bedrock-runtime", region_name=REGION)
+    return _bedrock_runtime
+
+
 # Environment variables
 ACTIVITIES_TABLE = os.environ.get('ACTIVITIES_TABLE', 'strava-ai-boost-activities')
 USER_CONFIG_TABLE = os.environ.get('USER_CONFIG_TABLE', 'strava-ai-boost-user-configuration')
@@ -648,6 +665,99 @@ def mark_campus_session_done(session: Dict[str, Any], activity_id: str) -> None:
         logger.warning(f"Failed to mark session as Fait: {e}")
 
 
+_STRENGTH_EXTRACTION_SYSTEM_PROMPT = (
+    "You extract structured strength-training sets from a free-text workout description "
+    "written by an athlete (French or English). Return ONLY a JSON array, no prose, no code fences.\n"
+    "Each element is an object: {\"exercise\": string, \"sets\": integer, \"reps\": integer|null, "
+    "\"weight_kg\": number|null}.\n"
+    "Rules:\n"
+    "- exercise: a concise canonical name in French (e.g. 'Développé couché', 'Tractions', 'Squat', "
+    "'Soulevé de terre', 'Développé militaire'). Normalize common abbreviations (DC -> 'Développé couché', "
+    "SDT -> 'Soulevé de terre'). Keep it short.\n"
+    "- sets: number of sets performed for that exercise. If reps are listed per set (e.g. '10,8,6'), "
+    "sets = count of those entries.\n"
+    "- reps: representative reps per set (integer). If it varies, use the most frequent or the first. "
+    "null if unknown.\n"
+    "- weight_kg: load in kilograms as a number. null for bodyweight or unknown. Convert obvious units.\n"
+    "- Ignore warm-up notes, feelings, cardio, and anything that is not a resistance exercise with sets.\n"
+    "- If nothing parseable, return [].\n"
+    "Examples:\n"
+    "'DC 4x8 @80kg, Tractions 4x10, gainage' -> "
+    "[{\"exercise\":\"Développé couché\",\"sets\":4,\"reps\":8,\"weight_kg\":80},"
+    "{\"exercise\":\"Tractions\",\"sets\":4,\"reps\":10,\"weight_kg\":null}]"
+)
+
+
+def _extract_strength_sets(description: str) -> List[Dict[str, Any]]:
+    """Best-effort LLM extraction of structured sets from a free-text muscu description.
+
+    Returns a list of {exercise, sets, reps, weight_kg}. Never raises: on any failure
+    (Bedrock error, malformed JSON, unexpected shape) it returns [] so strength history
+    tracking degrades gracefully to the raw description only.
+    """
+    if not description or len(description.strip()) < 5:
+        return []
+
+    try:
+        response = _get_bedrock_runtime().converse(
+            modelId=STRENGTH_EXTRACTION_MODEL_ID,
+            messages=[{"role": "user", "content": [{"text": description[:2000]}]}],
+            system=[{"text": _STRENGTH_EXTRACTION_SYSTEM_PROMPT}],
+            inferenceConfig={"maxTokens": 800, "temperature": 0.0},
+        )
+    except Exception as e:  # noqa: BLE001 - best-effort, never break the pipeline
+        logger.warning(f"Strength extraction Bedrock call failed: {e}")
+        return []
+
+    output = response.get("output", {}).get("message", {}).get("content", [])
+    text = "".join(block.get("text", "") for block in output).strip()
+    if not text:
+        return []
+
+    # Strip markdown code fences if the model added them despite instructions.
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z]*\n?", "", text)
+        text = re.sub(r"\n?```$", "", text).strip()
+
+    try:
+        parsed = json.loads(text)
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.warning(f"Strength extraction returned non-JSON: {e}")
+        return []
+
+    if not isinstance(parsed, list):
+        return []
+
+    def _to_int(v: Any) -> Optional[int]:
+        try:
+            return int(v) if v is not None else None
+        except (ValueError, TypeError):
+            return None
+
+    def _to_float(v: Any) -> Optional[float]:
+        try:
+            return float(v) if v is not None else None
+        except (ValueError, TypeError):
+            return None
+
+    clean: List[Dict[str, Any]] = []
+    for raw in parsed:
+        if not isinstance(raw, dict):
+            continue
+        exercise = raw.get("exercise")
+        if not exercise or not isinstance(exercise, str):
+            continue
+        clean.append({
+            "exercise": exercise.strip()[:60],
+            "sets": _to_int(raw.get("sets")),
+            "reps": _to_int(raw.get("reps")),
+            "weight_kg": _to_float(raw.get("weight_kg")),
+        })
+
+    logger.info(f"Extracted {len(clean)} structured strength sets from description")
+    return clean
+
+
 def _track_strength_history(user_id: str, activity_id: str, activity_data: Dict[str, Any]) -> None:
     """Parse WeightTraining description and append to strength_history for progression tracking."""
     try:
@@ -670,12 +780,14 @@ def _track_strength_history(user_id: str, activity_id: str, activity_data: Dict[
         duration_min = activity_data.get('moving_time', 0) / 60
 
         # Store raw description as a history entry — the coach LLM will interpret it
-        # against the strength_program to track progressions
+        # against the strength_program to track progressions. In addition, a
+        # best-effort LLM extraction produces structured sets for progression charts.
         entry = {
             'date': activity_date[:10] if activity_date else datetime.now(timezone.utc).strftime('%Y-%m-%d'),
             'activity_id': activity_id,
             'duration_min': int(duration_min),
             'description': description[:1000],
+            'parsed_sets': _extract_strength_sets(description),
         }
 
         table = dynamodb.Table(USER_CONFIG_TABLE)

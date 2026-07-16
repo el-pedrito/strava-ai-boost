@@ -17,6 +17,7 @@ from processing.content_generator import (
     store_generated_content,
     _parse_agent_response,
     _process_agent_response,
+    _extract_strength_sets,
 )
 
 
@@ -411,3 +412,64 @@ class TestStoreGeneratedContent:
         mock_dynamo.Table.return_value.update_item.side_effect = Exception("write error")
         # Should not raise — errors are logged
         store_generated_content('123', {'title': 'x', 'description': 'y'})
+
+
+def _converse_response(text: str) -> dict:
+    """Build a minimal Bedrock Converse response wrapping the given text."""
+    return {"output": {"message": {"content": [{"text": text}]}}}
+
+
+class TestExtractStrengthSets:
+    """Test the best-effort LLM extraction of structured strength sets."""
+
+    @patch('processing.content_generator._get_bedrock_runtime')
+    def test_valid_extraction(self, mock_runtime):
+        mock_runtime.return_value.converse.return_value = _converse_response(
+            '[{"exercise": "Développé couché", "sets": 4, "reps": 8, "weight_kg": 80},'
+            '{"exercise": "Tractions", "sets": 4, "reps": 10, "weight_kg": null}]'
+        )
+        result = _extract_strength_sets("DC 4x8 @80kg, Tractions 4x10")
+        assert len(result) == 2
+        assert result[0] == {"exercise": "Développé couché", "sets": 4, "reps": 8, "weight_kg": 80.0}
+        assert result[1]["weight_kg"] is None
+
+    @patch('processing.content_generator._get_bedrock_runtime')
+    def test_code_fence_stripped(self, mock_runtime):
+        mock_runtime.return_value.converse.return_value = _converse_response(
+            '```json\n[{"exercise": "Squat", "sets": 5, "reps": 5, "weight_kg": 100}]\n```'
+        )
+        result = _extract_strength_sets("Squat 5x5 100kg")
+        assert result == [{"exercise": "Squat", "sets": 5, "reps": 5, "weight_kg": 100.0}]
+
+    @patch('processing.content_generator._get_bedrock_runtime')
+    def test_non_json_returns_empty(self, mock_runtime):
+        mock_runtime.return_value.converse.return_value = _converse_response("désolé, pas de sets")
+        assert _extract_strength_sets("une belle séance") == []
+
+    @patch('processing.content_generator._get_bedrock_runtime')
+    def test_non_list_json_returns_empty(self, mock_runtime):
+        mock_runtime.return_value.converse.return_value = _converse_response('{"exercise": "Squat"}')
+        assert _extract_strength_sets("Squat") == []
+
+    @patch('processing.content_generator._get_bedrock_runtime')
+    def test_bedrock_error_returns_empty(self, mock_runtime):
+        mock_runtime.return_value.converse.side_effect = Exception("throttled")
+        assert _extract_strength_sets("DC 4x8 @80kg") == []
+
+    def test_short_description_skips_call(self):
+        # Too short → no bedrock call, returns [] (no mock needed).
+        assert _extract_strength_sets("") == []
+        assert _extract_strength_sets("hi") == []
+
+    @patch('processing.content_generator._get_bedrock_runtime')
+    def test_malformed_items_filtered_and_coerced(self, mock_runtime):
+        mock_runtime.return_value.converse.return_value = _converse_response(
+            '[{"exercise": "Squat", "sets": "5", "reps": "5", "weight_kg": "100"},'
+            '{"sets": 3},'  # no exercise → skipped
+            '"garbage",'      # not a dict → skipped
+            '{"exercise": "Gainage", "sets": null, "reps": null, "weight_kg": null}]'
+        )
+        result = _extract_strength_sets("Squat 5x5 100kg, gainage")
+        assert len(result) == 2
+        assert result[0] == {"exercise": "Squat", "sets": 5, "reps": 5, "weight_kg": 100.0}
+        assert result[1] == {"exercise": "Gainage", "sets": None, "reps": None, "weight_kg": None}

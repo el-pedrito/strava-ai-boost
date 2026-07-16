@@ -15,6 +15,7 @@ from api.dashboard_api import (
     get_cached_or_compute,
     _cache,
     _cache_ttl,
+    _build_strength_progression,
 )
 
 
@@ -202,3 +203,51 @@ class TestCache:
         result = get_cached_or_compute('test_key', compute)
         assert result == 42
         assert counter['calls'] == 1  # Only called once
+
+
+class TestBuildStrengthProgression:
+    """Test per-exercise strength progression aggregation."""
+
+    def test_empty(self):
+        assert _build_strength_progression([]) == []
+
+    def test_entries_without_parsed_sets_ignored(self):
+        entries = [{'date': '2026-07-01', 'description': 'DC 4x8'}]
+        assert _build_strength_progression(entries) == []
+
+    def test_aggregates_per_exercise_sorted_by_sessions(self):
+        entries = [
+            {'date': '2026-07-01', 'parsed_sets': [
+                {'exercise': 'Développé couché', 'sets': 4, 'reps': 8, 'weight_kg': 80},
+                {'exercise': 'Tractions', 'sets': 4, 'reps': 10, 'weight_kg': None},
+            ]},
+            {'date': '2026-07-08', 'parsed_sets': [
+                {'exercise': 'Développé couché', 'sets': 4, 'reps': 8, 'weight_kg': 82.5},
+            ]},
+        ]
+        result = _build_strength_progression(entries)
+        # DC has 2 sessions, Tractions 1 → DC first
+        assert result[0]['exercise'] == 'Développé couché'
+        assert result[0]['sessions'] == 2
+        assert result[0]['points'][0] == {'date': '2026-07-01', 'top_weight_kg': 80.0, 'volume_kg': 2560.0}
+        assert result[0]['points'][1]['top_weight_kg'] == 82.5
+        # Bodyweight exercise → weight/volume None
+        tractions = next(e for e in result if e['exercise'] == 'Tractions')
+        assert tractions['points'][0]['top_weight_kg'] is None
+        assert tractions['points'][0]['volume_kg'] is None
+
+    def test_same_day_merges_max_weight_and_summed_volume(self):
+        entries = [
+            {'date': '2026-07-01', 'parsed_sets': [
+                {'exercise': 'Squat', 'sets': 3, 'reps': 5, 'weight_kg': 100},
+            ]},
+            {'date': '2026-07-01', 'parsed_sets': [
+                {'exercise': 'Squat', 'sets': 2, 'reps': 3, 'weight_kg': 110},
+            ]},
+        ]
+        result = _build_strength_progression(entries)
+        assert len(result) == 1
+        pts = result[0]['points']
+        assert len(pts) == 1  # merged into one day
+        assert pts[0]['top_weight_kg'] == 110.0
+        assert pts[0]['volume_kg'] == 3 * 5 * 100 + 2 * 3 * 110

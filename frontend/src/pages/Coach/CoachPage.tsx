@@ -84,6 +84,11 @@ interface CoachSummary {
     ramp_rate?: number | null;
     compliance?: { planned: number; completed: number; percentage: number } | null;
     strength_history?: Array<{ date: string; activity_id: string; duration_min: number; description: string }>;
+    strength_progression?: Array<{
+      exercise: string;
+      points: Array<{ date: string; top_weight_kg: number | null; volume_kg: number | null }>;
+      sessions: number;
+    }>;
     recovery?: {
       form: number | null;
       ctl: number | null;
@@ -236,6 +241,154 @@ function useStaggerVariants() {
     container: reduceMotion ? undefined : staggerContainer,
     item: reduceMotion ? undefined : staggerItem,
   };
+}
+
+interface StrengthProgressionEntry {
+  exercise: string;
+  points: Array<{ date: string; top_weight_kg: number | null; volume_kg: number | null }>;
+  sessions: number;
+}
+
+/**
+ * Per-exercise strength progression chart. Shows top weight or total volume
+ * over time for exercises with enough tracked sessions. Renders nothing when
+ * no exercise has >= 3 chartable points (the raw history list handles that).
+ */
+function StrengthProgression({
+  data,
+  locale,
+}: {
+  data: StrengthProgressionEntry[];
+  locale: string;
+}) {
+  const chartTheme = useChartTheme();
+  const [metric, setMetric] = useState<'weight' | 'volume'>('weight');
+  const [selected, setSelected] = useState<string | null>(null);
+
+  const chartable = useMemo(
+    () =>
+      data.filter(
+        (e) =>
+          e.points.filter((p) =>
+            metric === 'weight' ? p.top_weight_kg != null : p.volume_kg != null,
+          ).length >= 3,
+      ),
+    [data, metric],
+  );
+
+  if (chartable.length === 0) return null;
+
+  const active = chartable.find((e) => e.exercise === selected) ?? chartable[0];
+  const chartData = active.points
+    .map((p) => ({
+      date: p.date,
+      value: metric === 'weight' ? p.top_weight_kg : p.volume_kg,
+    }))
+    .filter((p): p is { date: string; value: number } => p.value != null);
+
+  const unitLabel = metric === 'weight' ? 'kg' : 'kg·rép';
+
+  return (
+    <Card variant="default" padding="lg">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold tracking-tight">
+          💪 Progression musculation
+        </h3>
+        <div className="flex gap-1 rounded-md border border-border p-0.5">
+          {(['weight', 'volume'] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMetric(m)}
+              className={cn(
+                'cursor-pointer rounded px-2 py-1 text-xs transition-colors',
+                metric === m
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {m === 'weight' ? 'Charge max' : 'Volume'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        {chartable.slice(0, 6).map((e) => (
+          <button
+            key={e.exercise}
+            type="button"
+            onClick={() => setSelected(e.exercise)}
+            className={cn(
+              'cursor-pointer rounded-full border px-2.5 py-1 text-xs transition-colors',
+              active.exercise === e.exercise
+                ? 'border-primary bg-primary/10 text-primary'
+                : 'border-border text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {e.exercise}
+          </button>
+        ))}
+      </div>
+
+      <ResponsiveContainer width="100%" height={200}>
+        <LineChart
+          data={chartData}
+          margin={{ top: 8, right: 8, bottom: 0, left: -8 }}
+        >
+          <CartesianGrid
+            horizontal
+            vertical={false}
+            strokeDasharray="3 3"
+            stroke={chartTheme.gridColor}
+          />
+          <XAxis
+            dataKey="date"
+            tick={{ fill: chartTheme.axisColor, fontSize: 10, fontFamily: 'var(--font-mono)' }}
+            tickLine={false}
+            axisLine={false}
+            tickFormatter={(v: string) => formatShortDate(v, locale)}
+            minTickGap={16}
+          />
+          <YAxis
+            tick={{ fill: chartTheme.axisColor, fontSize: 10, fontFamily: 'var(--font-mono)' }}
+            tickLine={false}
+            axisLine={false}
+            width={44}
+            domain={['dataMin - 5', 'dataMax + 5']}
+            tickFormatter={(v: number) => `${Math.round(v)}`}
+          />
+          <Tooltip
+            content={
+              <ChartTooltip
+                valueFormatter={(v) =>
+                  typeof v === 'number' ? `${v} ${unitLabel}` : String(v)
+                }
+              />
+            }
+          />
+          <Line
+            type="monotone"
+            dataKey="value"
+            name={active.exercise}
+            stroke={chartTheme.primaryColor}
+            strokeWidth={2.5}
+            dot={{ r: 4, fill: chartTheme.primaryColor }}
+            activeDot={{ r: 6, fill: chartTheme.primaryColor }}
+            connectNulls
+            animationDuration={600}
+            animationEasing="ease-out"
+            isAnimationActive
+          />
+        </LineChart>
+      </ResponsiveContainer>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {metric === 'weight'
+          ? 'Charge maximale par séance (kg).'
+          : 'Volume total par séance (séries × reps × charge).'}
+      </p>
+    </Card>
+  );
 }
 
 export function CoachPage() {
@@ -1420,6 +1573,14 @@ export function CoachPage() {
                     ) : null}
                   </div>
                 ) : null}
+
+                {/* Strength progression charts (per exercise, weight/volume) */}
+                {(trends?.strength_progression?.length ?? 0) > 0 && (
+                  <StrengthProgression
+                    data={trends!.strength_progression!}
+                    locale={locale}
+                  />
+                )}
 
                 {/* Strength History */}
                 {(trends?.strength_history?.length ?? 0) > 0 && (

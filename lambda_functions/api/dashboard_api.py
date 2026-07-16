@@ -450,6 +450,69 @@ def get_activity_processing_stats(start_date: datetime, user_id: str) -> Dict[st
             }
 
 
+def _build_strength_progression(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Aggregate strength_history entries into per-exercise progression series.
+
+    Each entry may carry `parsed_sets` = [{exercise, sets, reps, weight_kg}].
+    For every (day, exercise) we compute the top weight and the total volume
+    (sets*reps*weight). Returns a list of exercises ordered by number of tracked
+    sessions (most tracked first) so the frontend can surface the top ones:
+
+        [{"exercise": str,
+          "points": [{"date": "YYYY-MM-DD", "top_weight_kg": float|None, "volume_kg": float|None}],
+          "sessions": int}]
+    """
+    by_exercise: Dict[str, List[Dict[str, Any]]] = {}
+    for entry in entries:
+        date = (entry.get('date') or '')[:10]
+        parsed = entry.get('parsed_sets') or []
+        if not date or not isinstance(parsed, list):
+            continue
+        for s in parsed:
+            if not isinstance(s, dict):
+                continue
+            name = s.get('exercise')
+            if not name:
+                continue
+            weight = s.get('weight_kg')
+            sets = s.get('sets') or 0
+            reps = s.get('reps') or 0
+            volume = None
+            if weight is not None and sets and reps:
+                volume = round(float(weight) * int(sets) * int(reps), 1)
+            point = {
+                'date': date,
+                'top_weight_kg': float(weight) if weight is not None else None,
+                'volume_kg': volume,
+            }
+            by_exercise.setdefault(name, []).append(point)
+
+    progression: List[Dict[str, Any]] = []
+    for name, points in by_exercise.items():
+        # One point per day: keep the max top_weight / summed volume if several
+        # entries share a date (e.g. an exercise split across the description).
+        per_day: Dict[str, Dict[str, Any]] = {}
+        for p in points:
+            d = p['date']
+            cur = per_day.get(d)
+            if cur is None:
+                per_day[d] = dict(p)
+                continue
+            if p['top_weight_kg'] is not None:
+                cur['top_weight_kg'] = max(cur['top_weight_kg'] or 0, p['top_weight_kg'])
+            if p['volume_kg'] is not None:
+                cur['volume_kg'] = round((cur['volume_kg'] or 0) + p['volume_kg'], 1)
+        merged = sorted(per_day.values(), key=lambda x: x['date'])
+        progression.append({
+            'exercise': name,
+            'points': merged,
+            'sessions': len(merged),
+        })
+
+    progression.sort(key=lambda e: e['sessions'], reverse=True)
+    return progression
+
+
 def _extract_recovery(activities: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """Extract recovery state from the most recent activity with Intervals.icu data."""
     for a in activities:
@@ -1184,6 +1247,7 @@ def get_coach_summary(user_id: str) -> Dict[str, Any]:
                 'compliance': compliance,
                 'recovery': _extract_recovery(recent),
                 'strength_history': strength_history[-20:],
+                'strength_progression': _build_strength_progression(strength_history),
             }
         }
 
