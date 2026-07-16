@@ -45,6 +45,39 @@ la roadmap (« lire ces données via l'API pour alimenter `strength_history` »)
 changelog). Test live impossible actuellement : l'app Strava est `Inactive` (pas
 d'abonnement payant) → tout appel renvoie 403.
 
+### Variante « écriture » (LLM → JSON sets → upload Strava) — ❌ bloquée pour ce workflow
+
+Idée : parser la description en LLM, formater au schéma JSON strength de Strava,
+et **écrire** la donnée structurée dans Strava (chemin upload, pas lecture).
+
+Le schéma est entièrement documenté (`developers.strava.com/docs/uploads`) :
+`POST /uploads` avec `data_type: json`, corps `{version:"1.0", start_time,
+utc_offset, elapsed_time, sets:[{exercise_type, repetitions, weight, duration}]}`,
+énum d'exercices exhaustif (BARBELL_BENCH_PRESS, PULL_UP_GENERIC, SQUAT_GENERIC…).
+Le formatage LLM serait trivial.
+
+**Blocage structurel (vérifié).** `POST /uploads` **crée une nouvelle activité** —
+il n'existe aucun moyen d'attacher des sets à une activité **existante** :
+- `PUT /activities/{id}` ne met à jour que name/description/type/gear/commute ;
+- l'endpoint *delete activity* a été retiré (changelog 17 jan 2017) ; le community
+  hub confirme « remove/update activity by API : not available » ;
+- upload au même `start_time` → rejet `400 "duplicate of activity X"`.
+
+Or l'athlète **enregistre** sa séance (montre/app → l'activité existe déjà) puis
+écrit la description. Un upload JSON produirait donc soit un **doublon**, soit un
+rejet duplicate. Impossible d'enrichir l'activité existante avec des sets natifs.
+
+**Seul workflow où ça marcherait** : l'athlète **cesse d'enregistrer** la muscu sur
+sa montre et nous laisse **créer** l'activité depuis le JSON (avec sets). Tradeoff :
+perte des streams montre (FC/calories/durée) sauf à les fournir, et changement
+d'habitude. Non retenu (l'athlète veut garder son enregistrement + commentaire).
+
+**Alternative faisable qui sert l'intention** : LLM qui **reformate proprement** la
+description libre (noms d'exercices normalisés, tableau sets/reps/poids lisible) et
+la réécrit via le champ `description` (autorisé par `PUT /activities/{id}`) + on
+garde le `parsed_sets` structuré en interne pour les graphiques de progression.
+Pas de « muscle map » native Strava, mais formatage propre + charts.
+
 ### Pivot — parser structuré des descriptions
 
 L'athlète **continue d'écrire ses séances en commentaire** (choix explicite). Le
