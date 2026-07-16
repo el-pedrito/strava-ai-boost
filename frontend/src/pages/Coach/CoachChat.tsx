@@ -62,7 +62,9 @@ function getInitialMessages(): Message[] {
 
 function getOrCreateSessionId(): string {
   const existing = localStorage.getItem('coach_chat_session');
-  if (existing) return existing;
+  // AgentCore Runtime requires runtimeSessionId >= 33 chars: regenerate legacy
+  // short ids stored before this format (the buffered API tolerated them).
+  if (existing && existing.length >= 33) return existing;
   const id = `coach-chat-session-${crypto.randomUUID()}`;
   localStorage.setItem('coach_chat_session', id);
   return id;

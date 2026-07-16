@@ -228,7 +228,11 @@ export async function streamCoachAnswerRuntime(
       Accept: 'text/event-stream',
       Authorization: `Bearer ${idToken}`,
       // Runtime session id must be 33+ chars — satisfied by the coach chat session id.
-      'X-Amzn-Bedrock-AgentCore-Runtime-Session-Id': body.session_id,
+      // Runtime constraint: runtimeSessionId must be >= 33 chars.
+      'X-Amzn-Bedrock-AgentCore-Runtime-Session-Id':
+        body.session_id.length >= 33
+          ? body.session_id
+          : `${body.session_id}-${crypto.randomUUID()}`,
     },
     body: JSON.stringify(payload),
     signal,
