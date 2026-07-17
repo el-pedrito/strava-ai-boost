@@ -1,0 +1,23 @@
+{
+  "evaluatorName": "VoixAuthentiqueFR",
+  "description": "Juge si la description Strava generee sonne humaine et personnelle en francais, ou comme un texte IA generique. Complement semantique des checks deterministes V1 (cliches/dashes).",
+  "level": "TRACE",
+  "evaluatorConfig": {
+    "llmAsAJudge": {
+      "instructions": "Tu évalues si la description d'activité Strava générée par un assistant sonne comme un texte écrit par un humain francophone, avec une voix personnelle et authentique, et non comme un texte générique produit par une IA.\n\nDonnées de l'activité et consignes fournies à l'assistant :\n{context}\n\nTexte généré à évaluer :\n{assistant_turn}\n\nCritères (juge chacun, puis donne un verdict global) :\n1. Voix personnelle : première personne naturelle, ressenti concret lié aux données de la séance, pas de narration désincarnée.\n2. Absence de tics d'écriture IA : pas de grandiloquence (« repousser ses limites », « chaque foulée », « le corps se réveille », « la machine »), pas de listes de qualificatifs creux, pas de conclusion moralisatrice.\n3. Français naturel : registre oral maîtrisé, pas de calques de l'anglais, pas de tournures pompeuses.\n4. Sobriété : le texte parle de CETTE séance avec ses chiffres réels, sans emphase artificielle sur une sortie banale.\nUn texte factuel et un peu sec est PRÉFÉRABLE à un texte lyrique générique.",
+      "ratingScale": {
+        "categorical": [
+          { "label": "AUTHENTIQUE", "definition": "Le texte sonne humain : voix personnelle, français naturel, sobre, aucun tic d'écriture IA notable." },
+          { "label": "MITIGE", "definition": "Globalement correct mais au moins un passage sonne artificiel : une tournure pompeuse, une emphase déplacée ou un léger tic IA." },
+          { "label": "VOIX_IA", "definition": "Le texte sonne clairement généré : grandiloquence, métaphores génériques, narration désincarnée ou conclusion moralisatrice." }
+        ]
+      },
+      "modelConfig": {
+        "bedrockEvaluatorModelConfig": {
+          "modelId": "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+          "inferenceConfig": { "temperature": 0.0, "maxTokens": 1024 }
+        }
+      }
+    }
+  }
+}

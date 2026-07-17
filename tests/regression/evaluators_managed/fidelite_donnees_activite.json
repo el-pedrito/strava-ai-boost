@@ -1,0 +1,23 @@
+{
+  "evaluatorName": "FideliteDonneesActivite",
+  "description": "Verifie que chaque valeur chiffree du texte genere est tracable aux donnees d'activite fournies (anti-hallucination de chiffres). Complement dur de Builtin.Faithfulness.",
+  "level": "TRACE",
+  "evaluatorConfig": {
+    "llmAsAJudge": {
+      "instructions": "Tu vérifies que chaque valeur chiffrée du texte généré (distance, allure, temps, fréquence cardiaque, dénivelé, nombre de répétitions, charges) est traçable aux données d'activité fournies en entrée, à l'arrondi près.\n\nDonnées d'entrée : {context}\nTexte généré : {assistant_turn}\n\nRelève chaque chiffre du texte, retrouve sa source dans les données, et signale tout chiffre inventé, déformé ou attribué au mauvais lap. Les calculs dérivés corrects (allure moyenne déduite de distance/temps, conversions m/s vers min/km) sont acceptés.",
+      "ratingScale": {
+        "numerical": [
+          { "value": 1.0, "label": "TOUT_TRACABLE", "definition": "Tous les chiffres du texte sont traçables aux données d'entrée, à l'arrondi ou au calcul dérivé près." },
+          { "value": 0.5, "label": "IMPRECISION_MINEURE", "definition": "Un chiffre est imprécis ou arrondi de façon discutable, mais aucun chiffre n'est inventé." },
+          { "value": 0.0, "label": "CHIFFRE_INVENTE", "definition": "Au moins un chiffre du texte est inventé, déformé de façon significative ou attribué à la mauvaise partie de la séance." }
+        ]
+      },
+      "modelConfig": {
+        "bedrockEvaluatorModelConfig": {
+          "modelId": "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+          "inferenceConfig": { "temperature": 0.0, "maxTokens": 1024 }
+        }
+      }
+    }
+  }
+}

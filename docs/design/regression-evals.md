@@ -138,10 +138,21 @@ ponctuellement (non-déterminisme).
 
 ## V2 — AgentCore Evaluations managé (détaillé)
 
-> Statut : **spec documentaire, non engagée**. Basée sur la doc AWS vérifiée le
-> 2026-07-16 (voir références en fin de section). Objectif principal : vitrine
-> OSS du repo (pattern « regression evals managées sur un agent Strands
-> déployé ») + blog post. La valeur mono-user reste marginale vs le harnais V1.
+> Statut : **implémenté le 2026-07-17** (`scripts/create_managed_evaluators.py`,
+> `scripts/build_eval_dataset.py`, `scripts/run_managed_evals.py`,
+> `.regression/baseline_managed.json` — 0 fail / 11 warn).
+> Findings du run live : (1) le spike « `agent_input` volumineux comme
+> `turns[].input` » est **validé** (dict de 21 clés avec laps accepté,
+> `schema_type` = `AGENTCORE_EVALUATION_PREDEFINED_V1`) ; (2) la mise en garde
+> « juge LLM = signal, pas gate » est **confirmée empiriquement** : le juge
+> `FideliteDonneesActivite` a produit un faux « CHIFFRE_INVENTE » en calculant
+> une allure sur 1000 m pour un lap de 1100 m — les customs sont donc mappés
+> **warn au maximum**, jamais fail ; les gates restent les checks
+> déterministes V1. (3) `StravaBlockTendances` non créé (attend les fixtures
+> coach). Prérequis compte : Transaction Search était déjà ACTIVE ;
+> SDK `bedrock-agentcore` ≥ 1.18 requis pour les runners (upgradé depuis 1.4.3).
+> Objectif principal : vitrine OSS du repo + blog post. La valeur mono-user
+> reste marginale vs le harnais V1.
 
 ### Ce que le service fait (vérifié doc AWS)
 

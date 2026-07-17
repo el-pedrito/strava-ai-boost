@@ -1,0 +1,1276 @@
+{
+  "scenarios": [
+    {
+      "schema_type": "AGENTCORE_EVALUATION_PREDEFINED_V1",
+      "scenario_id": "manual_indoor",
+      "turns": [
+        {
+          "input": {
+            "action": "generate_content",
+            "activity_date": "2026-07-15",
+            "activity_iso_week": 29,
+            "activity_time_local": "19h00",
+            "activity_weekday": "mercredi",
+            "classification_instruction": null,
+            "workout_classification": null,
+            "activity_data": {
+              "id": 90000000006,
+              "name": "Workout",
+              "description": "Séance HIIT à la maison, 30 min. Burpees, squats, pompes en circuit.",
+              "type": "Workout",
+              "sport_type": "Workout",
+              "distance": 0.0,
+              "moving_time": 1800,
+              "elapsed_time": 1800,
+              "total_elevation_gain": 0.0,
+              "average_speed": "0.0",
+              "max_speed": "0.0",
+              "trainer": true,
+              "manual": true,
+              "start_date": "2026-07-15T17:00:00Z",
+              "start_date_local": "2026-07-15T19:00:00Z",
+              "achievement_count": 0,
+              "pr_count": 0,
+              "kudos_count": 0,
+              "segment_efforts": [],
+              "best_efforts": []
+            },
+            "laps_data": [],
+            "athlete_stats": {},
+            "athlete_profile": {},
+            "user_id": "regression_eval",
+            "user_profile": {
+              "age_range": "35-44",
+              "interests": [
+                "running"
+              ],
+              "sport_approach": "health_wellness",
+              "content_preferences": {
+                "tone": "casual_friendly",
+                "length": "short",
+                "technical_detail": "basic",
+                "emoji_usage": "minimal",
+                "language": "fr"
+              }
+            },
+            "active_modules": [],
+            "campus_coach_session": null,
+            "campus_coach_context": null,
+            "enduraw_data": null,
+            "intervals_icu_data": null,
+            "workout_type": null,
+            "use_memory": true,
+            "personalization": true
+          }
+        }
+      ],
+      "assertions": [
+        "La réponse est un JSON avec un titre et une description d'activité Strava.",
+        "Le titre et la description sont rédigés en français.",
+        "La description fait au maximum 1200 caractères.",
+        "La réponse contient au maximum 2 emojis au total, titre inclus."
+      ],
+      "metadata": {
+        "fixture": "manual_indoor",
+        "source": "tests/regression/fixtures",
+        "eval": {
+          "language": "fr",
+          "max_chars": 1200,
+          "emoji_policy": "minimal"
+        }
+      }
+    },
+    {
+      "schema_type": "AGENTCORE_EVALUATION_PREDEFINED_V1",
+      "scenario_id": "ride",
+      "turns": [
+        {
+          "input": {
+            "action": "generate_content",
+            "activity_date": "2026-07-11",
+            "activity_iso_week": 28,
+            "activity_time_local": "10h00",
+            "activity_weekday": "samedi",
+            "classification_instruction": null,
+            "workout_classification": null,
+            "activity_data": {
+              "id": 90000000005,
+              "name": "Morning Ride",
+              "description": "",
+              "type": "Ride",
+              "sport_type": "Ride",
+              "distance": 42300.0,
+              "moving_time": 6480,
+              "elapsed_time": 7020,
+              "total_elevation_gain": 480.0,
+              "average_speed": 6.528,
+              "max_speed": 15.8,
+              "average_heartrate": 132.0,
+              "max_heartrate": 168.0,
+              "average_watts": 165.0,
+              "weighted_average_watts": 178.0,
+              "average_cadence": 84.0,
+              "calories": 1050.0,
+              "start_date": "2026-07-11T08:00:00Z",
+              "start_date_local": "2026-07-11T10:00:00Z",
+              "achievement_count": 2,
+              "pr_count": 0,
+              "kudos_count": 5,
+              "segment_efforts": [],
+              "best_efforts": []
+            },
+            "laps_data": [],
+            "athlete_stats": {},
+            "athlete_profile": {},
+            "user_id": "regression_eval",
+            "user_profile": {
+              "age_range": "35-44",
+              "interests": [
+                "running",
+                "vélo"
+              ],
+              "sport_approach": "health_wellness",
+              "content_preferences": {
+                "tone": "casual_friendly",
+                "length": "medium",
+                "technical_detail": "basic",
+                "emoji_usage": "minimal",
+                "language": "fr"
+              }
+            },
+            "active_modules": [],
+            "campus_coach_session": null,
+            "campus_coach_context": null,
+            "enduraw_data": null,
+            "intervals_icu_data": null,
+            "workout_type": null,
+            "use_memory": true,
+            "personalization": true
+          }
+        }
+      ],
+      "assertions": [
+        "La réponse est un JSON avec un titre et une description d'activité Strava.",
+        "Le titre et la description sont rédigés en français.",
+        "La description fait au maximum 1200 caractères.",
+        "La réponse contient au maximum 2 emojis au total, titre inclus."
+      ],
+      "metadata": {
+        "fixture": "ride",
+        "source": "tests/regression/fixtures",
+        "eval": {
+          "language": "fr",
+          "max_chars": 1200,
+          "emoji_policy": "minimal"
+        }
+      }
+    },
+    {
+      "schema_type": "AGENTCORE_EVALUATION_PREDEFINED_V1",
+      "scenario_id": "run_campus_matched",
+      "turns": [
+        {
+          "input": {
+            "action": "generate_content",
+            "activity_date": "2026-07-14",
+            "activity_iso_week": 29,
+            "activity_time_local": "12h10",
+            "activity_weekday": "mardi",
+            "classification_instruction": "CRITICAL INSTRUCTION — Workout type detected from laps analysis: Tempo. You MUST generate a title and description that matches this workout type. Do NOT use 'fractionne', 'intervalles', or 'interval' unless the classification type is 'intervals'. Do NOT copy or reproduce the existing activity title — generate a completely new one based on the classification.",
+            "workout_classification": {
+              "type": "tempo",
+              "label": "Tempo",
+              "confidence": 0.82,
+              "stats": {
+                "avg_pace": 5.25,
+                "pace_std": 0.3,
+                "pace_range": 0.9,
+                "avg_hr": 156,
+                "laps_analyzed": 7
+              }
+            },
+            "activity_data": {
+              "id": 90000000007,
+              "name": "Lunch Run",
+              "description": "",
+              "type": "Run",
+              "sport_type": "Run",
+              "distance": 9050.0,
+              "moving_time": 2850,
+              "elapsed_time": 2940,
+              "total_elevation_gain": 55.0,
+              "average_speed": 3.175,
+              "max_speed": 3.9,
+              "average_heartrate": 156.0,
+              "max_heartrate": 175.0,
+              "average_cadence": 85.0,
+              "calories": 690.0,
+              "start_date": "2026-07-14T10:10:00Z",
+              "start_date_local": "2026-07-14T12:10:00Z",
+              "achievement_count": 0,
+              "pr_count": 0,
+              "kudos_count": 4,
+              "segment_efforts": [],
+              "best_efforts": []
+            },
+            "laps_data": [
+              {
+                "lap_index": 1,
+                "name": "Echauffement",
+                "distance": 2000,
+                "moving_time": 740,
+                "average_speed": 2.7,
+                "average_heartrate": 134,
+                "average_cadence": 81
+              },
+              {
+                "lap_index": 2,
+                "name": "Tempo 1",
+                "distance": 1500,
+                "moving_time": 465,
+                "average_speed": 3.23,
+                "average_heartrate": 158,
+                "max_heartrate": 168,
+                "average_cadence": 87
+              },
+              {
+                "lap_index": 3,
+                "name": "Tempo 2",
+                "distance": 1500,
+                "moving_time": 462,
+                "average_speed": 3.25,
+                "average_heartrate": 162,
+                "max_heartrate": 171,
+                "average_cadence": 87
+              },
+              {
+                "lap_index": 4,
+                "name": "Tempo 3",
+                "distance": 1500,
+                "moving_time": 460,
+                "average_speed": 3.26,
+                "average_heartrate": 165,
+                "max_heartrate": 175,
+                "average_cadence": 88
+              },
+              {
+                "lap_index": 5,
+                "name": "Retour au calme",
+                "distance": 2550,
+                "moving_time": 723,
+                "average_speed": 2.73,
+                "average_heartrate": 147,
+                "average_cadence": 80
+              }
+            ],
+            "athlete_stats": {},
+            "athlete_profile": {},
+            "user_id": "regression_eval",
+            "user_profile": {
+              "age_range": "35-44",
+              "interests": [
+                "running"
+              ],
+              "sport_approach": "performance_competition",
+              "content_preferences": {
+                "tone": "authentic_personal",
+                "length": "medium",
+                "technical_detail": "advanced",
+                "emoji_usage": "minimal",
+                "language": "fr"
+              }
+            },
+            "active_modules": [
+              {
+                "id": "campus_coach",
+                "name": "Campus Coach"
+              }
+            ],
+            "campus_coach_session": {
+              "title": "Tempo 3x1500m",
+              "description": "Échauffement 2km, puis 3x1500m allure tempo (4'50-5'10/km) récup 1min, retour au calme.",
+              "matched": true,
+              "match_score": 0.78,
+              "targetedMetrics": {
+                "target_distance_km": 9.0,
+                "target_duration_min": 50
+              },
+              "intervals": [
+                {
+                  "repeat": 3,
+                  "distance_m": 1500,
+                  "pace_target": "4:50-5:10/km",
+                  "recovery": "1min"
+                }
+              ]
+            },
+            "campus_coach_context": {
+              "goal": "10km sous 45min à l'automne",
+              "assiduity": "high",
+              "sport_profile": "coureur intermédiaire"
+            },
+            "enduraw_data": null,
+            "intervals_icu_data": null,
+            "workout_type": 3,
+            "use_memory": true,
+            "personalization": true
+          }
+        }
+      ],
+      "assertions": [
+        "La réponse est un JSON avec un titre et une description d'activité Strava.",
+        "Le titre et la description sont rédigés en français.",
+        "La description fait au maximum 1200 caractères.",
+        "La réponse contient au maximum 2 emojis au total, titre inclus.",
+        "Le titre et la description décrivent une séance de type « Tempo » et n'utilisent pas les mots « fractionné » ou « intervalles » sauf si ce type est un fractionné."
+      ],
+      "metadata": {
+        "fixture": "run_campus_matched",
+        "source": "tests/regression/fixtures",
+        "eval": {
+          "language": "fr",
+          "max_chars": 1200,
+          "emoji_policy": "minimal"
+        }
+      }
+    },
+    {
+      "schema_type": "AGENTCORE_EVALUATION_PREDEFINED_V1",
+      "scenario_id": "run_easy",
+      "turns": [
+        {
+          "input": {
+            "action": "generate_content",
+            "activity_date": "2026-07-13",
+            "activity_iso_week": 29,
+            "activity_time_local": "07h05",
+            "activity_weekday": "lundi",
+            "classification_instruction": "CRITICAL INSTRUCTION — Workout type detected from laps analysis: Footing cool. You MUST generate a title and description that matches this workout type. Do NOT use 'fractionne', 'intervalles', or 'interval' unless the classification type is 'intervals'. Do NOT copy or reproduce the existing activity title — generate a completely new one based on the classification.",
+            "workout_classification": {
+              "type": "easy_run",
+              "label": "Footing cool",
+              "confidence": 0.85,
+              "stats": {
+                "avg_pace": 6.05,
+                "pace_std": 0.08,
+                "pace_range": 0.22,
+                "avg_hr": 138,
+                "laps_analyzed": 8
+              }
+            },
+            "activity_data": {
+              "id": 90000000001,
+              "name": "Morning Run",
+              "description": "",
+              "type": "Run",
+              "sport_type": "Run",
+              "distance": 8060.0,
+              "moving_time": 2925,
+              "elapsed_time": 2990,
+              "total_elevation_gain": 42.0,
+              "average_speed": 2.755,
+              "max_speed": 3.4,
+              "average_heartrate": 138.0,
+              "max_heartrate": 152.0,
+              "average_cadence": 82.0,
+              "calories": 610.0,
+              "start_date": "2026-07-13T05:05:12Z",
+              "start_date_local": "2026-07-13T07:05:12Z",
+              "achievement_count": 0,
+              "pr_count": 0,
+              "kudos_count": 0,
+              "segment_efforts": [],
+              "best_efforts": []
+            },
+            "laps_data": [
+              {
+                "lap_index": 1,
+                "name": "Lap 1",
+                "distance": 1000,
+                "moving_time": 365,
+                "elapsed_time": 365,
+                "average_speed": 2.74,
+                "max_speed": 3.1,
+                "average_heartrate": 131,
+                "max_heartrate": 140,
+                "average_cadence": 82,
+                "total_elevation_gain": 5
+              },
+              {
+                "lap_index": 2,
+                "name": "Lap 2",
+                "distance": 1000,
+                "moving_time": 362,
+                "elapsed_time": 362,
+                "average_speed": 2.76,
+                "max_speed": 3.1,
+                "average_heartrate": 136,
+                "max_heartrate": 143,
+                "average_cadence": 82,
+                "total_elevation_gain": 6
+              },
+              {
+                "lap_index": 3,
+                "name": "Lap 3",
+                "distance": 1000,
+                "moving_time": 364,
+                "elapsed_time": 364,
+                "average_speed": 2.75,
+                "max_speed": 3.2,
+                "average_heartrate": 138,
+                "max_heartrate": 145,
+                "average_cadence": 83,
+                "total_elevation_gain": 4
+              },
+              {
+                "lap_index": 4,
+                "name": "Lap 4",
+                "distance": 1000,
+                "moving_time": 361,
+                "elapsed_time": 361,
+                "average_speed": 2.77,
+                "max_speed": 3.2,
+                "average_heartrate": 139,
+                "max_heartrate": 146,
+                "average_cadence": 82,
+                "total_elevation_gain": 5
+              },
+              {
+                "lap_index": 5,
+                "name": "Lap 5",
+                "distance": 1000,
+                "moving_time": 363,
+                "elapsed_time": 363,
+                "average_speed": 2.75,
+                "max_speed": 3.3,
+                "average_heartrate": 140,
+                "max_heartrate": 147,
+                "average_cadence": 83,
+                "total_elevation_gain": 6
+              },
+              {
+                "lap_index": 6,
+                "name": "Lap 6",
+                "distance": 1000,
+                "moving_time": 365,
+                "elapsed_time": 365,
+                "average_speed": 2.74,
+                "max_speed": 3.2,
+                "average_heartrate": 141,
+                "max_heartrate": 148,
+                "average_cadence": 82,
+                "total_elevation_gain": 5
+              },
+              {
+                "lap_index": 7,
+                "name": "Lap 7",
+                "distance": 1000,
+                "moving_time": 366,
+                "elapsed_time": 366,
+                "average_speed": 2.73,
+                "max_speed": 3.1,
+                "average_heartrate": 141,
+                "max_heartrate": 149,
+                "average_cadence": 82,
+                "total_elevation_gain": 6
+              },
+              {
+                "lap_index": 8,
+                "name": "Lap 8",
+                "distance": 1060,
+                "moving_time": 379,
+                "elapsed_time": 384,
+                "average_speed": 2.8,
+                "max_speed": 3.4,
+                "average_heartrate": 143,
+                "max_heartrate": 152,
+                "average_cadence": 83,
+                "total_elevation_gain": 5
+              }
+            ],
+            "athlete_stats": {},
+            "athlete_profile": {},
+            "user_id": "regression_eval",
+            "user_profile": {
+              "age_range": "35-44",
+              "interests": [
+                "running",
+                "musique"
+              ],
+              "sport_approach": "personal_challenge",
+              "content_preferences": {
+                "tone": "authentic_personal",
+                "length": "medium",
+                "technical_detail": "intermediate",
+                "emoji_usage": "minimal",
+                "language": "fr"
+              }
+            },
+            "active_modules": [],
+            "campus_coach_session": null,
+            "campus_coach_context": null,
+            "enduraw_data": null,
+            "intervals_icu_data": null,
+            "workout_type": null,
+            "use_memory": true,
+            "personalization": true
+          }
+        }
+      ],
+      "assertions": [
+        "La réponse est un JSON avec un titre et une description d'activité Strava.",
+        "Le titre et la description sont rédigés en français.",
+        "La description fait au maximum 1200 caractères.",
+        "La réponse contient au maximum 2 emojis au total, titre inclus.",
+        "Le titre et la description décrivent une séance de type « Footing cool » et n'utilisent pas les mots « fractionné » ou « intervalles » sauf si ce type est un fractionné."
+      ],
+      "metadata": {
+        "fixture": "run_easy",
+        "source": "tests/regression/fixtures",
+        "eval": {
+          "language": "fr",
+          "max_chars": 1200,
+          "emoji_policy": "minimal"
+        }
+      }
+    },
+    {
+      "schema_type": "AGENTCORE_EVALUATION_PREDEFINED_V1",
+      "scenario_id": "run_intervals",
+      "turns": [
+        {
+          "input": {
+            "action": "generate_content",
+            "activity_date": "2026-07-14",
+            "activity_iso_week": 29,
+            "activity_time_local": "18h30",
+            "activity_weekday": "mardi",
+            "classification_instruction": null,
+            "workout_classification": {
+              "type": "intervals",
+              "label": "Fractionné",
+              "confidence": 0.9,
+              "stats": {
+                "avg_pace": 5.1,
+                "pace_std": 0.65,
+                "pace_range": 1.9,
+                "avg_hr": 158,
+                "laps_analyzed": 13
+              }
+            },
+            "activity_data": {
+              "id": 90000000002,
+              "name": "Afternoon Run",
+              "description": "6x400m R1'30",
+              "type": "Run",
+              "sport_type": "Run",
+              "distance": 7400.0,
+              "moving_time": 2280,
+              "elapsed_time": 2820,
+              "total_elevation_gain": 18.0,
+              "average_speed": 3.246,
+              "max_speed": 5.2,
+              "average_heartrate": 158.0,
+              "max_heartrate": 184.0,
+              "average_cadence": 86.0,
+              "calories": 560.0,
+              "start_date": "2026-07-14T16:30:00Z",
+              "start_date_local": "2026-07-14T18:30:00Z",
+              "achievement_count": 1,
+              "pr_count": 1,
+              "kudos_count": 3,
+              "segment_efforts": [],
+              "best_efforts": [
+                {
+                  "name": "400m",
+                  "elapsed_time": 78,
+                  "pr_rank": 1
+                }
+              ]
+            },
+            "laps_data": [
+              {
+                "lap_index": 1,
+                "name": "Echauffement",
+                "distance": 2000,
+                "moving_time": 730,
+                "elapsed_time": 730,
+                "average_speed": 2.74,
+                "average_heartrate": 132,
+                "max_heartrate": 145,
+                "average_cadence": 81
+              },
+              {
+                "lap_index": 2,
+                "name": "400m #1",
+                "distance": 400,
+                "moving_time": 80,
+                "elapsed_time": 80,
+                "average_speed": 5.0,
+                "max_speed": 5.2,
+                "average_heartrate": 168,
+                "max_heartrate": 178,
+                "average_cadence": 92
+              },
+              {
+                "lap_index": 3,
+                "name": "Recup #1",
+                "distance": 200,
+                "moving_time": 90,
+                "elapsed_time": 90,
+                "average_speed": 2.2,
+                "average_heartrate": 152,
+                "average_cadence": 74
+              },
+              {
+                "lap_index": 4,
+                "name": "400m #2",
+                "distance": 400,
+                "moving_time": 79,
+                "elapsed_time": 79,
+                "average_speed": 5.06,
+                "max_speed": 5.2,
+                "average_heartrate": 172,
+                "max_heartrate": 181,
+                "average_cadence": 93
+              },
+              {
+                "lap_index": 5,
+                "name": "Recup #2",
+                "distance": 200,
+                "moving_time": 90,
+                "elapsed_time": 90,
+                "average_speed": 2.2,
+                "average_heartrate": 154,
+                "average_cadence": 74
+              },
+              {
+                "lap_index": 6,
+                "name": "400m #3",
+                "distance": 400,
+                "moving_time": 80,
+                "elapsed_time": 80,
+                "average_speed": 5.0,
+                "average_heartrate": 174,
+                "max_heartrate": 182,
+                "average_cadence": 92
+              },
+              {
+                "lap_index": 7,
+                "name": "Recup #3",
+                "distance": 200,
+                "moving_time": 92,
+                "elapsed_time": 92,
+                "average_speed": 2.17,
+                "average_heartrate": 155,
+                "average_cadence": 73
+              },
+              {
+                "lap_index": 8,
+                "name": "400m #4",
+                "distance": 400,
+                "moving_time": 81,
+                "elapsed_time": 81,
+                "average_speed": 4.94,
+                "average_heartrate": 175,
+                "max_heartrate": 183,
+                "average_cadence": 92
+              },
+              {
+                "lap_index": 9,
+                "name": "Recup #4",
+                "distance": 200,
+                "moving_time": 93,
+                "elapsed_time": 93,
+                "average_speed": 2.15,
+                "average_heartrate": 156,
+                "average_cadence": 73
+              },
+              {
+                "lap_index": 10,
+                "name": "400m #5",
+                "distance": 400,
+                "moving_time": 80,
+                "elapsed_time": 80,
+                "average_speed": 5.0,
+                "average_heartrate": 176,
+                "max_heartrate": 184,
+                "average_cadence": 93
+              },
+              {
+                "lap_index": 11,
+                "name": "Recup #5",
+                "distance": 200,
+                "moving_time": 94,
+                "elapsed_time": 94,
+                "average_speed": 2.13,
+                "average_heartrate": 157,
+                "average_cadence": 72
+              },
+              {
+                "lap_index": 12,
+                "name": "400m #6",
+                "distance": 400,
+                "moving_time": 78,
+                "elapsed_time": 78,
+                "average_speed": 5.13,
+                "max_speed": 5.2,
+                "average_heartrate": 177,
+                "max_heartrate": 184,
+                "average_cadence": 94
+              },
+              {
+                "lap_index": 13,
+                "name": "Retour au calme",
+                "distance": 2200,
+                "moving_time": 813,
+                "elapsed_time": 813,
+                "average_speed": 2.71,
+                "average_heartrate": 145,
+                "average_cadence": 80
+              }
+            ],
+            "athlete_stats": {},
+            "athlete_profile": {},
+            "user_id": "regression_eval",
+            "user_profile": {
+              "age_range": "35-44",
+              "interests": [
+                "running"
+              ],
+              "sport_approach": "performance_competition",
+              "content_preferences": {
+                "tone": "authentic_personal",
+                "length": "medium",
+                "technical_detail": "advanced",
+                "emoji_usage": "minimal",
+                "language": "fr"
+              }
+            },
+            "active_modules": [],
+            "campus_coach_session": null,
+            "campus_coach_context": null,
+            "enduraw_data": null,
+            "intervals_icu_data": null,
+            "workout_type": 3,
+            "use_memory": true,
+            "personalization": true
+          }
+        }
+      ],
+      "assertions": [
+        "La réponse est un JSON avec un titre et une description d'activité Strava.",
+        "Le titre et la description sont rédigés en français.",
+        "La description fait au maximum 1200 caractères.",
+        "La réponse contient au maximum 2 emojis au total, titre inclus.",
+        "Le titre et la description décrivent une séance de type « Fractionné » et n'utilisent pas les mots « fractionné » ou « intervalles » sauf si ce type est un fractionné."
+      ],
+      "metadata": {
+        "fixture": "run_intervals",
+        "source": "tests/regression/fixtures",
+        "eval": {
+          "language": "fr",
+          "max_chars": 1200,
+          "emoji_policy": "minimal"
+        }
+      }
+    },
+    {
+      "schema_type": "AGENTCORE_EVALUATION_PREDEFINED_V1",
+      "scenario_id": "run_long",
+      "turns": [
+        {
+          "input": {
+            "action": "generate_content",
+            "activity_date": "2026-07-12",
+            "activity_iso_week": 28,
+            "activity_time_local": "09h00",
+            "activity_weekday": "dimanche",
+            "classification_instruction": "CRITICAL INSTRUCTION — Workout type detected from laps analysis: Sortie longue. You MUST generate a title and description that matches this workout type. Do NOT use 'fractionne', 'intervalles', or 'interval' unless the classification type is 'intervals'. Do NOT copy or reproduce the existing activity title — generate a completely new one based on the classification.",
+            "workout_classification": {
+              "type": "long_run",
+              "label": "Sortie longue",
+              "confidence": 0.88,
+              "stats": {
+                "avg_pace": 6.3,
+                "pace_std": 0.12,
+                "pace_range": 0.35,
+                "avg_hr": 145,
+                "laps_analyzed": 16
+              }
+            },
+            "activity_data": {
+              "id": 90000000003,
+              "name": "Sunday Long Run",
+              "description": "",
+              "type": "Run",
+              "sport_type": "Run",
+              "distance": 16200.0,
+              "moving_time": 6130,
+              "elapsed_time": 6300,
+              "total_elevation_gain": 145.0,
+              "average_speed": 2.643,
+              "max_speed": 3.3,
+              "average_heartrate": 145.0,
+              "max_heartrate": 162.0,
+              "average_cadence": 81.0,
+              "calories": 1230.0,
+              "start_date": "2026-07-12T07:00:00Z",
+              "start_date_local": "2026-07-12T09:00:00Z",
+              "achievement_count": 0,
+              "pr_count": 0,
+              "kudos_count": 7,
+              "segment_efforts": [],
+              "best_efforts": []
+            },
+            "laps_data": [
+              {
+                "lap_index": 1,
+                "name": "Lap 1",
+                "distance": 1000,
+                "moving_time": 385,
+                "average_speed": 2.6,
+                "average_heartrate": 132,
+                "average_cadence": 80
+              },
+              {
+                "lap_index": 2,
+                "name": "Lap 2",
+                "distance": 1000,
+                "moving_time": 380,
+                "average_speed": 2.63,
+                "average_heartrate": 138,
+                "average_cadence": 81
+              },
+              {
+                "lap_index": 3,
+                "name": "Lap 3",
+                "distance": 1000,
+                "moving_time": 379,
+                "average_speed": 2.64,
+                "average_heartrate": 141,
+                "average_cadence": 81
+              },
+              {
+                "lap_index": 4,
+                "name": "Lap 4",
+                "distance": 1000,
+                "moving_time": 378,
+                "average_speed": 2.65,
+                "average_heartrate": 143,
+                "average_cadence": 81
+              },
+              {
+                "lap_index": 5,
+                "name": "Lap 5",
+                "distance": 1000,
+                "moving_time": 377,
+                "average_speed": 2.65,
+                "average_heartrate": 144,
+                "average_cadence": 82
+              },
+              {
+                "lap_index": 6,
+                "name": "Lap 6",
+                "distance": 1000,
+                "moving_time": 378,
+                "average_speed": 2.65,
+                "average_heartrate": 145,
+                "average_cadence": 81
+              },
+              {
+                "lap_index": 7,
+                "name": "Lap 7",
+                "distance": 1000,
+                "moving_time": 380,
+                "average_speed": 2.63,
+                "average_heartrate": 146,
+                "average_cadence": 81
+              },
+              {
+                "lap_index": 8,
+                "name": "Lap 8",
+                "distance": 1000,
+                "moving_time": 381,
+                "average_speed": 2.62,
+                "average_heartrate": 147,
+                "average_cadence": 81
+              },
+              {
+                "lap_index": 9,
+                "name": "Lap 9",
+                "distance": 1000,
+                "moving_time": 379,
+                "average_speed": 2.64,
+                "average_heartrate": 148,
+                "average_cadence": 81
+              },
+              {
+                "lap_index": 10,
+                "name": "Lap 10",
+                "distance": 1000,
+                "moving_time": 382,
+                "average_speed": 2.62,
+                "average_heartrate": 149,
+                "average_cadence": 80
+              },
+              {
+                "lap_index": 11,
+                "name": "Lap 11",
+                "distance": 1000,
+                "moving_time": 383,
+                "average_speed": 2.61,
+                "average_heartrate": 150,
+                "average_cadence": 80
+              },
+              {
+                "lap_index": 12,
+                "name": "Lap 12",
+                "distance": 1000,
+                "moving_time": 384,
+                "average_speed": 2.6,
+                "average_heartrate": 151,
+                "average_cadence": 80
+              },
+              {
+                "lap_index": 13,
+                "name": "Lap 13",
+                "distance": 1000,
+                "moving_time": 386,
+                "average_speed": 2.59,
+                "average_heartrate": 152,
+                "average_cadence": 80
+              },
+              {
+                "lap_index": 14,
+                "name": "Lap 14",
+                "distance": 1000,
+                "moving_time": 387,
+                "average_speed": 2.58,
+                "average_heartrate": 153,
+                "average_cadence": 79
+              },
+              {
+                "lap_index": 15,
+                "name": "Lap 15",
+                "distance": 1000,
+                "moving_time": 388,
+                "average_speed": 2.58,
+                "average_heartrate": 154,
+                "average_cadence": 79
+              },
+              {
+                "lap_index": 16,
+                "name": "Lap 16",
+                "distance": 1200,
+                "moving_time": 483,
+                "average_speed": 2.48,
+                "average_heartrate": 156,
+                "max_heartrate": 162,
+                "average_cadence": 79
+              }
+            ],
+            "athlete_stats": {},
+            "athlete_profile": {},
+            "user_id": "regression_eval",
+            "user_profile": {
+              "age_range": "35-44",
+              "interests": [
+                "running",
+                "trail"
+              ],
+              "sport_approach": "personal_challenge",
+              "content_preferences": {
+                "tone": "authentic_personal",
+                "length": "detailed",
+                "technical_detail": "advanced",
+                "emoji_usage": "minimal",
+                "language": "fr"
+              }
+            },
+            "active_modules": [
+              {
+                "id": "intervals_icu",
+                "name": "Intervals.icu"
+              }
+            ],
+            "campus_coach_session": null,
+            "campus_coach_context": null,
+            "enduraw_data": null,
+            "intervals_icu_data": {
+              "ctl": 42.5,
+              "atl": 55.2,
+              "form": -12.7,
+              "training_load": 148,
+              "decoupling": 6.8,
+              "intensity": 78
+            },
+            "workout_type": 2,
+            "use_memory": true,
+            "personalization": true
+          }
+        }
+      ],
+      "assertions": [
+        "La réponse est un JSON avec un titre et une description d'activité Strava.",
+        "Le titre et la description sont rédigés en français.",
+        "La description fait au maximum 2800 caractères.",
+        "La réponse contient au maximum 2 emojis au total, titre inclus.",
+        "Le titre et la description décrivent une séance de type « Sortie longue » et n'utilisent pas les mots « fractionné » ou « intervalles » sauf si ce type est un fractionné."
+      ],
+      "metadata": {
+        "fixture": "run_long",
+        "source": "tests/regression/fixtures",
+        "eval": {
+          "language": "fr",
+          "max_chars": 2800,
+          "emoji_policy": "minimal"
+        }
+      }
+    },
+    {
+      "schema_type": "AGENTCORE_EVALUATION_PREDEFINED_V1",
+      "scenario_id": "run_no_emoji",
+      "turns": [
+        {
+          "input": {
+            "action": "generate_content",
+            "activity_date": "2026-07-10",
+            "activity_iso_week": 28,
+            "activity_time_local": "06h45",
+            "activity_weekday": "vendredi",
+            "classification_instruction": "CRITICAL INSTRUCTION — Workout type detected from laps analysis: Footing cool. You MUST generate a title and description that matches this workout type. Do NOT use 'fractionne', 'intervalles', or 'interval' unless the classification type is 'intervals'. Do NOT copy or reproduce the existing activity title — generate a completely new one based on the classification.",
+            "workout_classification": {
+              "type": "easy_run",
+              "label": "Footing cool",
+              "confidence": 0.86,
+              "stats": {
+                "avg_pace": 6.2,
+                "pace_std": 0.07,
+                "pace_range": 0.2,
+                "avg_hr": 134,
+                "laps_analyzed": 5
+              }
+            },
+            "activity_data": {
+              "id": 90000000008,
+              "name": "Morning Run",
+              "description": "",
+              "type": "Run",
+              "sport_type": "Run",
+              "distance": 5100.0,
+              "moving_time": 1900,
+              "elapsed_time": 1930,
+              "total_elevation_gain": 20.0,
+              "average_speed": 2.684,
+              "max_speed": 3.1,
+              "average_heartrate": 134.0,
+              "max_heartrate": 146.0,
+              "average_cadence": 81.0,
+              "calories": 380.0,
+              "start_date": "2026-07-10T04:45:00Z",
+              "start_date_local": "2026-07-10T06:45:00Z",
+              "achievement_count": 0,
+              "pr_count": 0,
+              "kudos_count": 1,
+              "segment_efforts": [],
+              "best_efforts": []
+            },
+            "laps_data": [
+              {
+                "lap_index": 1,
+                "name": "Lap 1",
+                "distance": 1000,
+                "moving_time": 375,
+                "average_speed": 2.67,
+                "average_heartrate": 128,
+                "average_cadence": 80
+              },
+              {
+                "lap_index": 2,
+                "name": "Lap 2",
+                "distance": 1000,
+                "moving_time": 372,
+                "average_speed": 2.69,
+                "average_heartrate": 132,
+                "average_cadence": 81
+              },
+              {
+                "lap_index": 3,
+                "name": "Lap 3",
+                "distance": 1000,
+                "moving_time": 371,
+                "average_speed": 2.7,
+                "average_heartrate": 135,
+                "average_cadence": 81
+              },
+              {
+                "lap_index": 4,
+                "name": "Lap 4",
+                "distance": 1000,
+                "moving_time": 373,
+                "average_speed": 2.68,
+                "average_heartrate": 137,
+                "average_cadence": 81
+              },
+              {
+                "lap_index": 5,
+                "name": "Lap 5",
+                "distance": 1100,
+                "moving_time": 409,
+                "average_speed": 2.69,
+                "average_heartrate": 139,
+                "max_heartrate": 146,
+                "average_cadence": 81
+              }
+            ],
+            "athlete_stats": {},
+            "athlete_profile": {},
+            "user_id": "regression_eval",
+            "user_profile": {
+              "age_range": "35-44",
+              "interests": [
+                "running"
+              ],
+              "sport_approach": "health_wellness",
+              "content_preferences": {
+                "tone": "technical_analytical",
+                "length": "short",
+                "technical_detail": "intermediate",
+                "emoji_usage": "none",
+                "language": "fr"
+              }
+            },
+            "active_modules": [],
+            "campus_coach_session": null,
+            "campus_coach_context": null,
+            "enduraw_data": null,
+            "intervals_icu_data": null,
+            "workout_type": null,
+            "use_memory": true,
+            "personalization": true
+          }
+        }
+      ],
+      "assertions": [
+        "La réponse est un JSON avec un titre et une description d'activité Strava.",
+        "Le titre et la description sont rédigés en français.",
+        "La description fait au maximum 600 caractères.",
+        "La réponse ne contient aucun emoji.",
+        "Le titre et la description décrivent une séance de type « Footing cool » et n'utilisent pas les mots « fractionné » ou « intervalles » sauf si ce type est un fractionné."
+      ],
+      "metadata": {
+        "fixture": "run_no_emoji",
+        "source": "tests/regression/fixtures",
+        "eval": {
+          "language": "fr",
+          "max_chars": 600,
+          "emoji_policy": "none"
+        }
+      }
+    },
+    {
+      "schema_type": "AGENTCORE_EVALUATION_PREDEFINED_V1",
+      "scenario_id": "weight_training",
+      "turns": [
+        {
+          "input": {
+            "action": "generate_content",
+            "activity_date": "2026-07-15",
+            "activity_iso_week": 29,
+            "activity_time_local": "12h15",
+            "activity_weekday": "mercredi",
+            "classification_instruction": null,
+            "workout_classification": null,
+            "activity_data": {
+              "id": 90000000004,
+              "name": "Séance muscu",
+              "description": "Upper A. Développé couché 4x8 @70kg, tractions 4x8 lestées 5kg, développé militaire 3x10 @35kg, rowing barre 4x10 @50kg. Gainage 3x1min pour finir. Dernière série de DC compliquée.",
+              "type": "WeightTraining",
+              "sport_type": "WeightTraining",
+              "distance": 0.0,
+              "moving_time": 3300,
+              "elapsed_time": 3420,
+              "total_elevation_gain": 0.0,
+              "average_speed": 0.0,
+              "max_speed": 0.0,
+              "average_heartrate": 112.0,
+              "max_heartrate": 141.0,
+              "calories": 320.0,
+              "start_date": "2026-07-15T10:15:00Z",
+              "start_date_local": "2026-07-15T12:15:00Z",
+              "achievement_count": 0,
+              "pr_count": 0,
+              "kudos_count": 2,
+              "segment_efforts": [],
+              "best_efforts": []
+            },
+            "laps_data": [],
+            "athlete_stats": {},
+            "athlete_profile": {},
+            "user_id": "regression_eval",
+            "user_profile": {
+              "age_range": "35-44",
+              "interests": [
+                "running",
+                "musculation"
+              ],
+              "sport_approach": "personal_challenge",
+              "content_preferences": {
+                "tone": "authentic_personal",
+                "length": "short",
+                "technical_detail": "intermediate",
+                "emoji_usage": "minimal",
+                "language": "fr"
+              },
+              "strength_program": {
+                "sessions": [
+                  {
+                    "name": "Upper A",
+                    "exercises": [
+                      "Développé couché 4x8",
+                      "Tractions 4x8",
+                      "Développé militaire 3x10",
+                      "Rowing barre 4x10"
+                    ]
+                  },
+                  {
+                    "name": "Upper B",
+                    "exercises": [
+                      "Dips 4x10",
+                      "Curl 3x12",
+                      "Élévations latérales 3x15"
+                    ]
+                  }
+                ]
+              }
+            },
+            "active_modules": [],
+            "campus_coach_session": null,
+            "campus_coach_context": null,
+            "enduraw_data": null,
+            "intervals_icu_data": null,
+            "workout_type": null,
+            "use_memory": true,
+            "personalization": true
+          }
+        }
+      ],
+      "assertions": [
+        "La réponse est un JSON avec un titre et une description d'activité Strava.",
+        "Le titre et la description sont rédigés en français.",
+        "La description fait au maximum 1200 caractères.",
+        "La réponse contient au maximum 2 emojis au total, titre inclus."
+      ],
+      "metadata": {
+        "fixture": "weight_training",
+        "source": "tests/regression/fixtures",
+        "eval": {
+          "language": "fr",
+          "max_chars": 1200,
+          "emoji_policy": "minimal"
+        }
+      }
+    }
+  ]
+}

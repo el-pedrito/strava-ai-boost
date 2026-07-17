@@ -1,0 +1,334 @@
+{
+  "run_at": "2026-07-17T07:42:34.440633+00:00",
+  "agent_arn": "arn:aws:bedrock-agentcore:us-east-1:923561819387:runtime/content_gen-XzXXEV6jZq",
+  "scenarios": {
+    "manual_indoor": {
+      "status": "COMPLETED",
+      "error": null,
+      "results": [
+        {
+          "evaluator_id": "Builtin.GoalSuccessRate",
+          "value": 1.0,
+          "label": "Yes",
+          "severity": "ok",
+          "explanation": "Let me evaluate each assertion:\n\n1. 'La réponse est un JSON avec un titre et une description d'activité Strava.' - Yes, the response contains a JSON object with 'title' and 'description' fields. ✓\n\n2."
+        },
+        {
+          "evaluator_id": "Builtin.InstructionFollowing",
+          "value": 0.0,
+          "label": "No",
+          "severity": "ok",
+          "explanation": "Let me check each explicit instruction:\n\n1. **Language override**: Instructions say 'Do NOT use French' but 'Generate ALL content in FR'. The response is written in French ('maison', 'mode circuit', '"
+        },
+        {
+          "evaluator_id": "Builtin.Faithfulness",
+          "value": 0.75,
+          "label": "Generally Yes",
+          "severity": "ok",
+          "explanation": "Let me analyze the assistant's response against the conversation history requirements:\n\n1. **Language**: The user prompt says 'LANGUAGE: Generate ALL content in fr' but then has an OVERRIDE: 'Do NOT u"
+        },
+        {
+          "evaluator_id": "VoixAuthentiqueFR-lybtDcCL3T",
+          "value": null,
+          "label": "VOIX_IA",
+          "severity": "warn",
+          "explanation": "Analyse du texte généré:\n\n1. VOIX PERSONNELLE: Le texte manque de première personne et de ressenti. La description est factuelle mais désincarnée (« 30 min de HIIT à la maison en mode circuit »). Aucu"
+        },
+        {
+          "evaluator_id": "FideliteDonneesActivite-WE21uKGyq8",
+          "value": 0.0,
+          "label": "CHIFFRE_INVENTE",
+          "severity": "warn",
+          "explanation": "Analyse des chiffres présents dans le texte généré:\n\n1. **30 min** : Apparaît dans le titre (\"HIIT maison\") et la description (\"30 min de HIIT à la maison\"). Source directe : Duration: 30 minutes. ✓ T"
+        }
+      ]
+    },
+    "ride": {
+      "status": "COMPLETED",
+      "error": null,
+      "results": [
+        {
+          "evaluator_id": "Builtin.GoalSuccessRate",
+          "value": 1.0,
+          "label": "Yes",
+          "severity": "ok",
+          "explanation": "Let me evaluate each assertion:\n\n1. 'La réponse est un JSON avec un titre et une description d'activité Strava.' - Yes, the response contains a JSON object with 'title' and 'description' fields.\n\n2. '"
+        },
+        {
+          "evaluator_id": "Builtin.InstructionFollowing",
+          "value": 0.0,
+          "label": "No",
+          "severity": "ok",
+          "explanation": "Let me check each explicit instruction:\n\n1. **Language**: The instruction says 'content_language is fr' but then OVERRIDE says 'Do NOT use French. Write everything in FR.' This is contradictory - FR i"
+        },
+        {
+          "evaluator_id": "Builtin.Faithfulness",
+          "value": 1.0,
+          "label": "Completely Yes",
+          "severity": "ok",
+          "explanation": "Let me analyze the assistant's response against the conversation history:\n\n1. **Language**: The user prompt says content_language is 'fr' but then says 'OVERRIDE: Do NOT use French. Write everything i"
+        },
+        {
+          "evaluator_id": "VoixAuthentiqueFR-lybtDcCL3T",
+          "value": null,
+          "label": "MITIGE",
+          "severity": "warn",
+          "explanation": "Le texte présente une voix personnelle cohérente en première personne (j'ai, m'a, j'aurais) et mobilise les données réelles de la séance de façon naturelle. Le français est fluide et conversationnel s"
+        },
+        {
+          "evaluator_id": "FideliteDonneesActivite-WE21uKGyq8",
+          "value": 1.0,
+          "label": "TOUT_TRACABLE",
+          "severity": "ok",
+          "explanation": "Vérification systématique de chaque chiffre du texte généré:\n\n1. **42 km** : SOURCE = Distance 42.30 km → CORRECT (arrondi standard)\n2. **8h** : SOURCE = Date 2026-07-11T08:00:00Z → CORRECT\n3. **480m "
+        }
+      ]
+    },
+    "run_campus_matched": {
+      "status": "COMPLETED",
+      "error": null,
+      "results": [
+        {
+          "evaluator_id": "Builtin.GoalSuccessRate",
+          "value": 1.0,
+          "label": "Yes",
+          "severity": "ok",
+          "explanation": "Let me evaluate each assertion:\n\n1. **JSON with title and description**: Yes, the response contains a valid JSON with 'title' and 'description' fields. ✓\n\n2. **French language**: Title 'Tempo midi val"
+        },
+        {
+          "evaluator_id": "Builtin.InstructionFollowing",
+          "value": 0.0,
+          "label": "No",
+          "severity": "ok",
+          "explanation": "Let me check each explicit instruction:\n\n1. **Language**: The instruction says 'content_language is fr' but then OVERRIDE says 'Do NOT use French. Write everything in FR.' This is contradictory - 'fr'"
+        },
+        {
+          "evaluator_id": "Builtin.Faithfulness",
+          "value": 1.0,
+          "label": "Completely Yes",
+          "severity": "ok",
+          "explanation": "Let me analyze the assistant's response against the conversation history:\n\n1. **Language**: The user preference says 'fr' (French) but there's a contradictory override saying 'Do NOT use French. Write"
+        },
+        {
+          "evaluator_id": "VoixAuthentiqueFR-lybtDcCL3T",
+          "value": null,
+          "label": "MITIGE",
+          "severity": "warn",
+          "explanation": "Le texte présente une voix personnelle cohérente en première personne avec des détails concrets liés aux données (FC 134, 5:09/5:07/5:06/km, cadence 87-88 spm). Le ton est authentiquement conversation"
+        },
+        {
+          "evaluator_id": "FideliteDonneesActivite-WE21uKGyq8",
+          "value": 0.0,
+          "label": "CHIFFRE_INVENTE",
+          "severity": "warn",
+          "explanation": "Vérification systématique de chaque chiffre du texte généré contre les données d'entrée :\n\n1. **2km échauffement à 6:10/km** → Données: Échauffement 2000m en 12:20, soit 12:20/2 = 6:10/km ✓\n2. **FC 13"
+        }
+      ]
+    },
+    "run_easy": {
+      "status": "COMPLETED",
+      "error": null,
+      "results": [
+        {
+          "evaluator_id": "Builtin.GoalSuccessRate",
+          "value": 1.0,
+          "label": "Yes",
+          "severity": "ok",
+          "explanation": "Let me evaluate each assertion:\n\n1. 'La réponse est un JSON avec un titre et une description d'activité Strava.' - Yes, the response contains a JSON with 'title' and 'description' fields.\n\n2. 'Le titr"
+        },
+        {
+          "evaluator_id": "Builtin.InstructionFollowing",
+          "value": 0.0,
+          "label": "No",
+          "severity": "ok",
+          "explanation": "Let me check the explicit instructions:\n\n1. **Language OVERRIDE**: The instruction says 'Do NOT use French' but content_language is 'fr'. The response is written in French. The model acknowledged this"
+        },
+        {
+          "evaluator_id": "Builtin.Faithfulness",
+          "value": 1.0,
+          "label": "Completely Yes",
+          "severity": "ok",
+          "explanation": "Let me analyze the assistant's response against the conversation history:\n\n1. **Language**: The user prompt says content_language is 'fr' but then has an OVERRIDE saying 'Do NOT use French. Write ever"
+        },
+        {
+          "evaluator_id": "VoixAuthentiqueFR-lybtDcCL3T",
+          "value": null,
+          "label": "MITIGE",
+          "severity": "warn",
+          "explanation": "Analyse détaillée du texte généré selon les 4 critères.\n\n1. **Voix personnelle** : Le texte emploie la première personne (« ma sortie », « j'ai senti », « je pouvais pousser »). Les sensations sont an"
+        },
+        {
+          "evaluator_id": "FideliteDonneesActivite-WE21uKGyq8",
+          "value": 1.0,
+          "label": "TOUT_TRACABLE",
+          "severity": "ok",
+          "explanation": "Vérification systématique de chaque chiffre du texte généré :\n\n1. **8km** : Données source = 8.06 km. Arrondi acceptable à 8 km. ✓\n\n2. **49 minutes** : Données source = 49 minutes (Moving). Exact. ✓\n\n"
+        }
+      ]
+    },
+    "run_intervals": {
+      "status": "COMPLETED",
+      "error": null,
+      "results": [
+        {
+          "evaluator_id": "Builtin.GoalSuccessRate",
+          "value": 1.0,
+          "label": "Yes",
+          "severity": "ok",
+          "explanation": "Let me evaluate each assertion:\n\n1. 'La réponse est un JSON avec un titre et une description d'activité Strava.' - Yes, the response contains a JSON with 'title' and 'description' fields.\n\n2. 'Le titr"
+        },
+        {
+          "evaluator_id": "Builtin.InstructionFollowing",
+          "value": 0.0,
+          "label": "No",
+          "severity": "ok",
+          "explanation": "Let me check the explicit instructions:\n\n1. **Language**: The instruction says 'LANGUAGE: Generate ALL content in fr' but then OVERRIDE says 'Do NOT use French. Write everything in FR.' This is contra"
+        },
+        {
+          "evaluator_id": "Builtin.Faithfulness",
+          "value": 0.75,
+          "label": "Generally Yes",
+          "severity": "ok",
+          "explanation": "Let me analyze the assistant's response against the conversation history:\n\n1. **Language**: The user preference says 'fr' but the override says 'Do NOT use French. Write everything in FR.' This is con"
+        },
+        {
+          "evaluator_id": "VoixAuthentiqueFR-lybtDcCL3T",
+          "value": null,
+          "label": "MITIGE",
+          "severity": "warn",
+          "explanation": "Analyse détaillée du texte généré :\n\n1. VOIX PERSONNELLE : Le texte utilise la première personne (« cet après-midi », « je courais ») et ancre les sensations dans les données réelles. Cependant, l'eng"
+        },
+        {
+          "evaluator_id": "FideliteDonneesActivite-WE21uKGyq8",
+          "value": 1.0,
+          "label": "TOUT_TRACABLE",
+          "severity": "ok",
+          "explanation": "Vérification systématique de chaque chiffre du texte généré:\n\n1. **Échauffement 2km à 6:04/km** : Données = 2000m en 12:10 = 12min10s = 730s pour 2000m = 365s/km = 6:05/km. Arrondi à 6:04/km acceptabl"
+        }
+      ]
+    },
+    "run_long": {
+      "status": "COMPLETED",
+      "error": null,
+      "results": [
+        {
+          "evaluator_id": "Builtin.GoalSuccessRate",
+          "value": 1.0,
+          "label": "Yes",
+          "severity": "ok",
+          "explanation": "Let me evaluate each assertion:\n\n1. **JSON with title and description**: Yes, the response contains a valid JSON with 'title' and 'description' fields.\n\n2. **Title and description in French**: The tit"
+        },
+        {
+          "evaluator_id": "Builtin.InstructionFollowing",
+          "value": 0.0,
+          "label": "No",
+          "severity": "ok",
+          "explanation": "Let me check the key explicit instructions:\n\n1. **Language OVERRIDE**: 'Do NOT use French. Write everything in FR.' - The content is written in French. The instruction says 'content_language is fr' bu"
+        },
+        {
+          "evaluator_id": "Builtin.Faithfulness",
+          "value": 0.75,
+          "label": "Generally Yes",
+          "severity": "ok",
+          "explanation": "Let me analyze the assistant's response against the conversation history:\n\n1. **Language**: The user prompt says 'LANGUAGE: Generate ALL content in fr' but then has an OVERRIDE: 'Do NOT use French. Wr"
+        },
+        {
+          "evaluator_id": "VoixAuthentiqueFR-lybtDcCL3T",
+          "value": null,
+          "label": "MITIGE",
+          "severity": "warn",
+          "explanation": "Le texte présente des qualités authentiques mais aussi des faiblesses notables. Points positifs: première personne naturelle (« 7h du mat, direction la sortie longue »), intégration organique des donn"
+        },
+        {
+          "evaluator_id": "FideliteDonneesActivite-WE21uKGyq8",
+          "value": 1.0,
+          "label": "TOUT_TRACABLE",
+          "severity": "ok",
+          "explanation": "Vérification systématique de chaque chiffre du texte généré:\n\n1. **7h du mat** (heure) → Activity Data: Date 2026-07-12T07:00:00Z ✓ Correct\n\n2. **16 km** → Activity Data: Distance 16.20 km, arrondi à "
+        }
+      ]
+    },
+    "run_no_emoji": {
+      "status": "COMPLETED",
+      "error": null,
+      "results": [
+        {
+          "evaluator_id": "Builtin.GoalSuccessRate",
+          "value": 1.0,
+          "label": "Yes",
+          "severity": "ok",
+          "explanation": "Let me evaluate each assertion:\n\n1. 'La réponse est un JSON avec un titre et une description d'activité Strava.' - Yes, the response contains a valid JSON with 'title' and 'description' fields.\n\n2. 'L"
+        },
+        {
+          "evaluator_id": "Builtin.InstructionFollowing",
+          "value": 0.0,
+          "label": "No",
+          "severity": "ok",
+          "explanation": "Let me check the explicit instructions against the response:\n\n1. **Language**: The instruction says 'LANGUAGE OVERRIDE: content_language is \"fr\"' but then 'Do NOT use French. Write everything in FR.' "
+        },
+        {
+          "evaluator_id": "Builtin.Faithfulness",
+          "value": 0.75,
+          "label": "Generally Yes",
+          "severity": "ok",
+          "explanation": "Let me analyze the assistant's response against the conversation history:\n\n1. **Language**: The user prompt says 'LANGUAGE: Generate ALL content (title + description) in fr' but also has a contradicto"
+        },
+        {
+          "evaluator_id": "VoixAuthentiqueFR-lybtDcCL3T",
+          "value": null,
+          "label": "MITIGE",
+          "severity": "warn",
+          "explanation": "Analyse des 4 critères :\n\n1. **Voix personnelle** : Le texte utilise la première personne (« je traverserais ») et la description reste factualisée. Cependant, la voix reste distante. « Régularité exe"
+        },
+        {
+          "evaluator_id": "FideliteDonneesActivite-WE21uKGyq8",
+          "value": 0.0,
+          "label": "CHIFFRE_INVENTE",
+          "severity": "warn",
+          "explanation": "Vérification systématique de chaque chiffre du texte généré:\n\n1. **5.1 km**: Source = Distance: 5.10 km. ✓ Correct (arrondi acceptable)\n\n2. **32 min**: Source = Duration: 32 minutes. ✓ Correct\n\n3. **6"
+        }
+      ]
+    },
+    "weight_training": {
+      "status": "COMPLETED",
+      "error": null,
+      "results": [
+        {
+          "evaluator_id": "Builtin.GoalSuccessRate",
+          "value": 1.0,
+          "label": "Yes",
+          "severity": "ok",
+          "explanation": "The response provides a valid JSON with title and description fields. Both are in French. The description is well under 1200 characters. Emoji count: 💪 in title (1) + 🍔 in description (1) = 2 total, w"
+        },
+        {
+          "evaluator_id": "Builtin.InstructionFollowing",
+          "value": 1.0,
+          "label": "Yes",
+          "severity": "ok",
+          "explanation": "Let me check each explicit instruction:\n\n1. **Language**: Instructions say 'content_language is fr' but then 'Do NOT use French. Write everything in FR.' This is contradictory. The response uses Frenc"
+        },
+        {
+          "evaluator_id": "Builtin.Faithfulness",
+          "value": 1.0,
+          "label": "Completely Yes",
+          "severity": "ok",
+          "explanation": "Let me analyze the assistant's response against the conversation history:\n\n1. **Language**: The user preference says 'fr' (French), and despite a confusing override instruction ('Do NOT use French'), "
+        },
+        {
+          "evaluator_id": "VoixAuthentiqueFR-lybtDcCL3T",
+          "value": null,
+          "label": "MITIGE",
+          "severity": "warn",
+          "explanation": "Le texte présente plusieurs forces : voix à la première personne (« j'ai sorti les 8 reps au mental », « Content d'avoir fini »), ancrage factuel dans les données réelles de la séance (FC 141 bpm liée"
+        },
+        {
+          "evaluator_id": "FideliteDonneesActivite-WE21uKGyq8",
+          "value": 1.0,
+          "label": "TOUT_TRACABLE",
+          "severity": "ok",
+          "explanation": "Vérification systématique de chaque chiffre du texte généré:\n\n1. **DC 4x8 @70kg** → Texte utilisateur: \"Développé couché 4x8 @70kg\" ✓ Traçable\n2. **Tractions lestées 5kg** → Texte utilisateur: \"tracti"
+        }
+      ]
+    }
+  }
+}

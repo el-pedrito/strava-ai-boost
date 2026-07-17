@@ -161,3 +161,31 @@ class TestFixtures:
         activity = agent_input["activity_data"]
         assert activity["id"] >= 90000000000, "fixtures must use synthetic activity ids"
         assert "start_date_local" in activity
+
+
+class TestManagedDatasetConversion:
+    """The fixtures→dataset conversion must produce a valid SDK dataset (free check)."""
+
+    def test_dataset_validates_against_sdk_schema(self, tmp_path):
+        evaluation = pytest.importorskip(
+            "bedrock_agentcore.evaluation",
+            reason="managed evals need bedrock-agentcore>=1.18",
+        )
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "build_eval_dataset", REPO_ROOT / "scripts" / "build_eval_dataset.py"
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        dataset_file = tmp_path / "dataset.json"
+        dataset_file.write_text(json.dumps(mod.build_dataset(), ensure_ascii=False))
+        dataset = evaluation.FileDatasetProvider(str(dataset_file)).get_dataset()
+        assert len(dataset.scenarios) >= 6
+        for scenario in dataset.scenarios:
+            assert type(scenario).__name__ == "PredefinedScenario"
+            assert len(scenario.turns) == 1
+            assert isinstance(scenario.turns[0].input, dict)
+            assert scenario.turns[0].input["user_id"] == "regression_eval"
+            assert scenario.assertions and len(scenario.assertions) >= 3
