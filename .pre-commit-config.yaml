@@ -27,6 +27,8 @@ repos:
     hooks:
       - id: check-added-large-files
         args: ["--maxkb=500"]
+        # .drawio.svg exports embed the editable diagram XML (~1-2 MB) — allowed.
+        exclude: '\.drawio\.svg$|^docs/demo\.gif$'
       - id: check-merge-conflict
       - id: detect-private-key
       - id: end-of-file-fixer
