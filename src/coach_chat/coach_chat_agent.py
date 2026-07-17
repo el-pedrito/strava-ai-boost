@@ -22,7 +22,7 @@ Design notes:
       is never blocked and the injected identity is always visible to the tool.
     * Multi-turn is handled natively by AG-UI ``RunAgentInput.messages`` via the
       ``ag-ui-strands`` wrapper.
-    * AgentCore Memory (namespace ``coaching_observations``) is preserved: the run
+    * AgentCore Memory writes (session ``coach-chat-{user_id}``) are preserved: the run
       writes the exchange with :func:`write_chat_to_memory` at the end.
 
 Deployment (IAM + ``agentcore configure --protocol AGUI``) is handled separately.
@@ -583,7 +583,7 @@ async def get_coach_observations(topic: str) -> list:
     return await asyncio.to_thread(_get_coach_observations_impl, user_id, topic)
 
 
-# --- Memory (preserve existing coaching_observations namespace) ---------------
+# --- Memory (writes feed the extraction strategies; reads via get_coach_observations tool) ---
 
 
 def write_chat_to_memory(user_id: str, question: str, answer: str) -> None:

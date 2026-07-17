@@ -612,7 +612,7 @@ class TestMyModule:
 
 **Campus Coach Sync** (`lambda_functions/webhooks/campus_coach_sync.py`): Direct REST API integration replacing Browser Tool. Login via `POST /account/login` + `GET /smart-training?from=...&to=...` fetches all accessible weeks (1-9 depending on billing cycle). Stores structured sessions in DynamoDB with `is_current_week`/`is_future` flags, including intervals and targets. EventBridge daily 05:00 UTC. Only runs if campus_coach module is enabled. Athlete context (goal, assiduity, sport profile) persisted. All future weeks injected into coach context.
 
-**Coach Agent** (`coach_agent.py`): Training feedback agent using Claude Sonnet 4.5 with LTM memory (`coaching_observations` namespace). Analyzes activity in context of athlete profile (objectives, history, experience, pace zones, personal records, FCmax), recent training trends (4 weeks via GSI query with EF pace@HR, CTL/Form, segment PRs), and historical observations. Produces training feedback focused on **progression and trends** (not session recap). Runs in parallel with content generation.
+**Coach Agent** (`coach_agent.py`): Training feedback agent using Claude Sonnet 4.5 with LTM memory (`coaching_observations` write session; observations are extracted by the memory strategies and read back via the unified `/strategies/` namespaces with a session-type-aware query). Analyzes activity in context of athlete profile (objectives, history, experience, pace zones, personal records, FCmax), recent training trends (4 weeks via GSI query with EF pace@HR, CTL/Form, segment PRs), and historical observations. Produces training feedback focused on **progression and trends** (not session recap). Runs in parallel with content generation.
 
 **Coach Context (injected):**
 - Athlete profile + pace zones + personal records + FCmax
@@ -642,17 +642,30 @@ class TestMyModule:
 
 ### Memory Strategy
 
-The content generation memory (`content_gen_mem`) uses 2 strategies:
-- **Semantic** (`ComprehensiveLearning`): Semantic search over conversation history
-- **UserPreference** (`StravaContentPreferences`): Automatic extraction/consolidation of user content preferences from feedback diffs
+The content generation memory (`content_gen_mem`) uses 3 strategies, all on the
+unified namespace convention `/strategies/{memoryStrategyId}/actors/{actorId}/`
+(see `docs/design/memory-improvements.md`):
+- **Semantic** (`ComprehensiveLearning`): semantic extraction over conversation history — the source of the coach's long-term observations
+- **UserPreference** (`StravaContentPreferences`): automatic extraction/consolidation of user content preferences from feedback diffs
+- **Episodic** (`CoachingEpisodes`): per-session episodes + actor-level reflections (periodic consolidated insights)
 
-The coach agent uses the same memory resource with a dedicated `coaching_observations` namespace for storing training observations, trends, and athlete progression data.
+All readers share one pattern: `RetrieveMemoryRecords` with the `/strategies/`
+namespace **prefix** + a per-user `/actors/{userId}/` filter, and a
+session-type-aware search query (a strength session retrieves strength
+progression records, an interval session retrieves interval records). Readers:
+the coach agent (past observations in feedback), the weekly recap Lambda
+(trend observations for the audio script), the coach chat `get_coach_observations`
+tool (continuity in conversation), and the content agent (learned preferences).
 
-The feedback analyzer writes before/after diffs as conversational events (ASSISTANT=generated, USER=edited). Modification detection threshold: **99.5% similarity** (even minor edits trigger memory writes). The UserPreferenceStrategy automatically extracts preferences (length, tone, emojis, structure, technical detail) and consolidates them over time.
+The feedback analyzer writes before/after diffs as conversational events
+(ASSISTANT=generated, USER=edited). Modification detection threshold: **99.5%
+similarity** (even minor edits trigger memory writes). The UserPreferenceStrategy
+automatically extracts preferences (length, tone, emojis, structure, technical
+detail) and consolidates them over time.
 
-The content agent reads preferences via `RetrieveMemoryRecords` semantic search across user-specific namespaces.
-
-The weekly recap Lambda also reads AgentCore Memory (user preferences, PRs, pace zones) and Campus Coach goal context to personalize the audio script.
+The whole strategy setup is reproducible and idempotent via
+`scripts/configure_memory_strategy.py` (creates/updates the strategies and
+migrates any records left in legacy namespaces).
 
 ### Deployment
 
