@@ -1,82 +1,76 @@
-"""
-LLM Configuration for Strava AI Boost
+"""Central Bedrock model registry for Strava AI Boost.
 
-Centralized configuration for all LLM models used across the application.
+SINGLE SOURCE OF TRUTH for every model ID in the project. To change a model,
+edit the two constants below (or set the env vars) — CDK stacks, deploy
+scripts, and managed evaluator configs all read from here. Lambda runtime
+fallbacks live in lambda_functions/shared/llm_models.py (bundled separately)
+and MUST mirror these values; the sync test in
+tests/regression/test_llm_registry.py enforces it.
+
+Roles:
+- SONNET: main generation (content agent, coach agent, coach chat,
+  weekly synthesis, weekly audio recap script).
+- HAIKU: cheap structured/short tasks (voice debrief script, strength-set
+  extraction, memory preference extraction, LLM-as-a-Judge evaluators).
+
+The `global.` prefix is the cross-region inference profile — the deliberate
+choice everywhere (do not reintroduce `us.` variants).
 """
 
 import os
-from typing import Dict, Any
 
-# Default LLM Model Configuration
-DEFAULT_BEDROCK_MODEL_ID = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
-DEFAULT_ANTHROPIC_VERSION = "bedrock-2023-05-31"
-DEFAULT_MAX_TOKENS = 4096  # Ensure full descriptions with fun facts are never truncated
-DEFAULT_TEMPERATURE = 0.7
+# ---------------------------------------------------------------------------
+# The registry. Change models HERE. (Env vars override at deploy/run time.)
+# ---------------------------------------------------------------------------
+DEFAULT_SONNET_MODEL_ID = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
+DEFAULT_HAIKU_MODEL_ID = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
 
-class LLMConfig:
-    """Centralized LLM configuration for consistent model usage across the application"""
-    
-    def __init__(self):
-        """Initialize LLM configuration from environment variables"""
-        
-        # Primary model configuration
-        self.bedrock_model_id = os.getenv('BEDROCK_MODEL_ID', DEFAULT_BEDROCK_MODEL_ID)
-        self.anthropic_version = os.getenv('ANTHROPIC_VERSION', DEFAULT_ANTHROPIC_VERSION)
-        
-        # Model parameters
-        self.max_tokens = int(os.getenv('LLM_MAX_TOKENS', str(DEFAULT_MAX_TOKENS)))
-        self.temperature = float(os.getenv('LLM_TEMPERATURE', str(DEFAULT_TEMPERATURE)))
-        
-        # AWS region for Bedrock
-        self.aws_region = os.getenv('AWS_REGION', 'eu-west-1')
-        
-        # Validate configuration
-        self._validate_config()
-    
-    def _validate_config(self):
-        """Validate LLM configuration parameters"""
-        if not self.bedrock_model_id:
-            raise ValueError("BEDROCK_MODEL_ID cannot be empty")
-        
-        if self.max_tokens <= 0 or self.max_tokens > 8192:
-            raise ValueError("LLM_MAX_TOKENS must be between 1 and 8192")
-        
-        if self.temperature < 0 or self.temperature > 1:
-            raise ValueError("LLM_TEMPERATURE must be between 0 and 1")
-    
-    def get_bedrock_params(self) -> Dict[str, Any]:
-        """Get standardized Bedrock invocation parameters"""
-        return {
-            'modelId': self.bedrock_model_id,
-            'body': {
-                'anthropic_version': self.anthropic_version,
-                'max_tokens': self.max_tokens,
-                'temperature': self.temperature
-            }
-        }
-    
-    def get_iam_model_arn(self, region: str = None) -> str:
-        """Get IAM ARN for the configured model"""
-        region = region or self.aws_region
-        return f"arn:aws:bedrock:{region}::foundation-model/{self.bedrock_model_id}"
-    
-    def __str__(self) -> str:
-        """String representation of configuration"""
-        return f"LLMConfig(model={self.bedrock_model_id}, region={self.aws_region})"
+SONNET_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", DEFAULT_SONNET_MODEL_ID)
+HAIKU_MODEL_ID = os.getenv("BEDROCK_HAIKU_MODEL_ID", DEFAULT_HAIKU_MODEL_ID)
+
+# All model IDs the project is allowed to reference (used by the sync test).
+ALL_MODEL_IDS = [SONNET_MODEL_ID, HAIKU_MODEL_ID]
+DEFAULT_MODEL_IDS = [DEFAULT_SONNET_MODEL_ID, DEFAULT_HAIKU_MODEL_ID]
 
 
-# Global configuration instance
-llm_config = LLMConfig()
+def _foundation_model_id(model_id: str) -> str:
+    """Strip the inference-profile prefix (global./us./eu.) for IAM ARNs."""
+    for prefix in ("global.", "us.", "eu.", "apac."):
+        if model_id.startswith(prefix):
+            return model_id[len(prefix):]
+    return model_id
 
-# Convenience functions for backward compatibility
+
+def iam_resources_for(model_id: str, region: str = "*", account: str = "*") -> list:
+    """IAM resource ARNs required to invoke a model via its inference profile.
+
+    Invoking a cross-region profile requires BOTH the inference-profile ARN
+    and the underlying foundation-model ARN (any region).
+    """
+    return [
+        f"arn:aws:bedrock:{region}:{account}:inference-profile/{model_id}",
+        f"arn:aws:bedrock:*::foundation-model/{_foundation_model_id(model_id)}",
+    ]
+
+
+def all_iam_resources(region: str = "*", account: str = "*") -> list:
+    """IAM resources for every registry model (for shared Lambda roles)."""
+    resources: list = []
+    for model_id in ALL_MODEL_IDS:
+        for arn in iam_resources_for(model_id, region, account):
+            if arn not in resources:
+                resources.append(arn)
+    return resources
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatible helpers (existing stack imports).
+# ---------------------------------------------------------------------------
 def get_bedrock_model_id() -> str:
-    """Get the configured Bedrock model ID"""
-    return llm_config.bedrock_model_id
+    """Main generation model ID (Sonnet)."""
+    return SONNET_MODEL_ID
 
-def get_bedrock_params() -> Dict[str, Any]:
-    """Get standardized Bedrock invocation parameters"""
-    return llm_config.get_bedrock_params()
 
-def get_model_arn(region: str = None) -> str:
-    """Get IAM ARN for the configured model"""
-    return llm_config.get_iam_model_arn(region)
+def get_haiku_model_id() -> str:
+    """Cheap structured-task model ID (Haiku)."""
+    return HAIKU_MODEL_ID

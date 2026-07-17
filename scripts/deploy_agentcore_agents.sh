@@ -22,6 +22,18 @@ CONTENT_AGENT_NAME="content_gen"
 COACH_AGENT_NAME="strava_ai_boost_coach"
 CONTENT_MEMORY_NAME="content_gen_mem"
 
+# Central Bedrock model registry (src/config/llm_config.py) — single source
+# of truth. Injected into every runtime as BEDROCK_MODEL_ID.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BEDROCK_MODEL_ID_CENTRAL=$(python3 -c "
+import sys; sys.path.insert(0, '$SCRIPT_DIR/../src')
+from config.llm_config import get_bedrock_model_id
+print(get_bedrock_model_id())" 2>/dev/null || echo "")
+if [ -z "$BEDROCK_MODEL_ID_CENTRAL" ]; then
+    echo "ERROR: could not read the model registry (src/config/llm_config.py)" >&2
+    exit 1
+fi
+
 # Cost allocation tags
 TAGS_PROJECT="StravaAIBoost"
 TAGS_ENVIRONMENT="${ENVIRONMENT:-dev}"
@@ -354,6 +366,9 @@ deploy_agent_with_ltm() {
     
     # Build agentcore deploy command with environment variables
     DEPLOY_CMD="agentcore deploy --agent $agent_name --auto-update-on-conflict"
+
+    # Central model registry
+    DEPLOY_CMD="$DEPLOY_CMD --env BEDROCK_MODEL_ID=$BEDROCK_MODEL_ID_CENTRAL"
     
     # Add memory ID
     DEPLOY_CMD="$DEPLOY_CMD --env BEDROCK_AGENTCORE_MEMORY_ID=$memory_id"
@@ -439,6 +454,7 @@ deploy_coach_chat_runtime() {
     default_user_id=$(python3 -c "import json;print(json.load(open('cdk.context.json')).get('default_user_id',''))" 2>/dev/null || echo "")
 
     local deploy_cmd="agentcore deploy --agent $agent_name --auto-update-on-conflict"
+    deploy_cmd="$deploy_cmd --env BEDROCK_MODEL_ID=$BEDROCK_MODEL_ID_CENTRAL"
     deploy_cmd="$deploy_cmd --env BEDROCK_AGENTCORE_MEMORY_ID=$memory_id"
     [ -n "$guardrail_id" ] && deploy_cmd="$deploy_cmd --env GUARDRAIL_ID=$guardrail_id --env GUARDRAIL_VERSION=$guardrail_version"
     [ -n "$default_user_id" ] && deploy_cmd="$deploy_cmd --env DEFAULT_USER_ID=$default_user_id"

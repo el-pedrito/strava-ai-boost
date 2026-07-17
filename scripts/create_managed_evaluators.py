@@ -12,12 +12,24 @@ Usage:
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import boto3
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIGS_DIR = REPO_ROOT / "tests" / "regression" / "evaluators_managed"
+
+sys.path.insert(0, str(REPO_ROOT / "src"))
+from config.llm_config import get_bedrock_model_id, get_haiku_model_id  # noqa: E402
+
+
+def _load_config(path: Path) -> dict:
+    """Load an evaluator config, substituting registry model placeholders."""
+    text = path.read_text(encoding="utf-8")
+    text = text.replace("{HAIKU_MODEL_ID}", get_haiku_model_id())
+    text = text.replace("{SONNET_MODEL_ID}", get_bedrock_model_id())
+    return json.loads(text)
 
 
 def main() -> None:
@@ -39,7 +51,7 @@ def main() -> None:
             break
 
     for path in sorted(CONFIGS_DIR.glob("*.json")):
-        config = json.loads(path.read_text(encoding="utf-8"))
+        config = _load_config(path)
         name = config["evaluatorName"]
         if name in existing:
             evaluator_id = existing[name]

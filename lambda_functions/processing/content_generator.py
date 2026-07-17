@@ -31,10 +31,9 @@ dynamodb = boto3.resource('dynamodb', region_name=REGION)
 # Bedrock client for lightweight structured extraction (strength sets).
 # Haiku is used deliberately: cheap/fast, and the task is a simple parse.
 _bedrock_runtime = None
-STRENGTH_EXTRACTION_MODEL_ID = os.environ.get(
-    "STRENGTH_EXTRACTION_MODEL_ID",
-    os.environ.get("BEDROCK_HAIKU_MODEL_ID", "global.anthropic.claude-haiku-4-5-20251001-v1:0"),
-)
+from shared.llm_models import resolve_haiku_model_id
+
+STRENGTH_EXTRACTION_MODEL_ID = os.environ.get("STRENGTH_EXTRACTION_MODEL_ID") or resolve_haiku_model_id()
 
 
 def _get_bedrock_runtime():

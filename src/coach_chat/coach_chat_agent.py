@@ -62,8 +62,10 @@ logger.setLevel(logging.INFO)
 # --- Configuration (environment) ---------------------------------------------
 
 REGION = os.environ.get("AWS_REGION", "us-east-1")
+# Model ID: injected at deploy time from the central registry
+# (src/config/llm_config.py via scripts/deploy_agentcore_agents.sh).
 MODEL_ID = os.environ.get(
-    "BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    "BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
 )
 # Existing Bedrock Guardrail (same resource as the content pipeline). When set,
 # it is applied natively by Strands' BedrockModel — closes threat-model T4.

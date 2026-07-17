@@ -30,6 +30,14 @@ from constructs import Construct
 
 from .core_infrastructure_stack import CoreInfrastructureStack
 
+import os
+import sys
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
+
+# Central Bedrock model registry — single source of truth for model IDs.
+from config.llm_config import get_bedrock_model_id, get_haiku_model_id, iam_resources_for
+
 
 class VoiceDebriefStack(Stack):
     """Audio debrief infrastructure (Polly + private S3 + DynamoDB stream trigger)."""
@@ -161,10 +169,7 @@ class VoiceDebriefStack(Stack):
                     "bedrock:InvokeModel",
                     "bedrock:InvokeModelWithResponseStream",
                 ],
-                resources=[
-                    f"arn:aws:bedrock:{Aws.REGION}:{Aws.ACCOUNT_ID}:inference-profile/global.anthropic.claude-haiku-4-5-20251001-v1:0",
-                    "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
-                ],
+                resources=iam_resources_for(get_haiku_model_id(), region=Aws.REGION, account=Aws.ACCOUNT_ID),
             )
         )
 
@@ -201,7 +206,7 @@ class VoiceDebriefStack(Stack):
                 "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
                 "AUDIO_DEBRIEF_BUCKET": self.audio_bucket.bucket_name,
-                "BEDROCK_MODEL_ID": "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+                "BEDROCK_MODEL_ID": get_haiku_model_id(),
                 "POLLY_VOICE_FR": "Ambre",
                 "POLLY_VOICE_EN": "Joanna",
                 "POLLY_ENGINE": "generative",
@@ -339,10 +344,7 @@ class VoiceDebriefStack(Stack):
         # Bedrock Sonnet (higher quality for recap)
         role.add_to_policy(iam.PolicyStatement(
             actions=["bedrock:InvokeModel"],
-            resources=[
-                f"arn:aws:bedrock:{Aws.REGION}:{Aws.ACCOUNT_ID}:inference-profile/global.anthropic.claude-sonnet-4-5-20250929-v1:0",
-                "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
-            ],
+            resources=iam_resources_for(get_bedrock_model_id(), region=Aws.REGION, account=Aws.ACCOUNT_ID),
         ))
 
         # Polly
@@ -373,7 +375,7 @@ class VoiceDebriefStack(Stack):
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
                 "RECAP_TABLE": "strava-ai-boost-weekly-recaps",
                 "AUDIO_DEBRIEF_BUCKET": self.audio_bucket.bucket_name,
-                "BEDROCK_MODEL_ID": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                "BEDROCK_MODEL_ID": get_bedrock_model_id(),
                 "POLLY_VOICE_FR": "Ambre",
                 "POLLY_VOICE_EN": "Joanna",
                 "DEFAULT_USER_ID": self.node.try_get_context("default_user_id") or "",

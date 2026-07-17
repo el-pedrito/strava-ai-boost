@@ -27,15 +27,8 @@ import sys
 # Add src directory to path for config imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-try:
-    from config.llm_config import llm_config, get_model_arn
-except ImportError:
-    # Fallback for development
-    def get_model_arn(region: str = None) -> str:
-        import os
-        region = region or "eu-west-1"
-        model_id = os.environ.get('BEDROCK_MODEL_ID', 'global.anthropic.claude-sonnet-4-5-20250929-v1:0')
-        return f"arn:aws:bedrock:{region}::foundation-model/{model_id}"
+# Central Bedrock model registry — single source of truth for model IDs.
+from config.llm_config import all_iam_resources
 
 
 class CoreInfrastructureStack(Stack):
@@ -293,7 +286,7 @@ class CoreInfrastructureStack(Stack):
                     "bedrock:InvokeModelWithResponseStream"
                 ],
                 resources=[
-                    get_model_arn(self.region),
+                    *all_iam_resources(region=self.region, account=Aws.ACCOUNT_ID),
                     f"arn:aws:bedrock:{self.region}:{Aws.ACCOUNT_ID}:inference-profile/*",
                     "arn:aws:bedrock:*::foundation-model/*"
                 ]

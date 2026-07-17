@@ -32,7 +32,9 @@ ACTIVITIES_TABLE = os.environ["ACTIVITIES_TABLE"]
 USER_CONFIG_TABLE = os.environ["USER_CONFIG_TABLE"]
 AUDIO_BUCKET = os.environ["AUDIO_DEBRIEF_BUCKET"]
 RECAP_TABLE = os.environ.get("RECAP_TABLE", ACTIVITIES_TABLE)
-MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-4-5-20250929-v1:0")
+from shared.llm_models import resolve_sonnet_model_id
+
+MODEL_ID = resolve_sonnet_model_id()
 MEMORY_ID = os.environ.get("BEDROCK_AGENTCORE_MEMORY_ID") or os.environ.get("MEMORY_ID")
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 POLLY_VOICE_FR = os.environ.get("POLLY_VOICE_FR", "Lea")

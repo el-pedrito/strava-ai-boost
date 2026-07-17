@@ -17,6 +17,12 @@ from aws_cdk import (
 )
 from constructs import Construct
 import os
+import sys
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
+
+# Central Bedrock model registry — single source of truth for model IDs.
+from config.llm_config import get_bedrock_model_id, iam_resources_for
 
 
 class FeedbackLoopStack(Stack):
@@ -138,7 +144,7 @@ class FeedbackLoopStack(Stack):
                 "ACTIVITIES_TABLE": activities_table.table_name,
                 "USER_CONFIG_TABLE": "strava-ai-boost-user-configuration",
                 "DEFAULT_USER_ID": self.node.try_get_context("default_user_id") or "",
-                "BEDROCK_MODEL_ID": os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0")
+                "BEDROCK_MODEL_ID": get_bedrock_model_id()
             }
         )
         activities_table.grant_read_data(self.weekly_synthesis)
@@ -150,7 +156,7 @@ class FeedbackLoopStack(Stack):
         ))
         self.weekly_synthesis.add_to_role_policy(iam.PolicyStatement(
             actions=["bedrock:InvokeModel"],
-            resources=["arn:aws:bedrock:*::foundation-model/*"]
+            resources=iam_resources_for(get_bedrock_model_id(), region=Aws.REGION, account=Aws.ACCOUNT_ID)
         ))
 
         # EventBridge rule: every Sunday at 20:00 UTC

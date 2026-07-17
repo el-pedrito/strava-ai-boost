@@ -71,9 +71,9 @@ REGION = os.environ.get("AWS_REGION", "us-east-1")
 ACTIVITIES_TABLE = os.environ.get("ACTIVITIES_TABLE", "strava-ai-boost-activities")
 USER_CONFIG_TABLE = os.environ.get("USER_CONFIG_TABLE", "strava-ai-boost-user-configuration")
 AUDIO_BUCKET = os.environ.get("AUDIO_DEBRIEF_BUCKET", "")
-BEDROCK_MODEL_ID = os.environ.get(
-    "BEDROCK_MODEL_ID", "global.anthropic.claude-haiku-4-5-20251001-v1:0"
-)
+from shared.llm_models import resolve_haiku_model_id
+
+BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID") or resolve_haiku_model_id()
 POLLY_VOICE_FR = os.environ.get("POLLY_VOICE_FR", "Lea")
 POLLY_VOICE_EN = os.environ.get("POLLY_VOICE_EN", "Joanna")
 POLLY_ENGINE = os.environ.get("POLLY_ENGINE", "neural")

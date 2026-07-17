@@ -26,18 +26,12 @@ import sys
 # Add src directory to path for config imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-try:
-    from config.llm_config import llm_config, get_model_arn, get_bedrock_model_id
-except ImportError:
-    # Fallback for development
-    def get_model_arn(region: str = None) -> str:
-        import os
-        region = region or "eu-west-1"
-        model_id = os.environ.get('BEDROCK_MODEL_ID', 'global.anthropic.claude-sonnet-4-5-20250929-v1:0')
-        return f"arn:aws:bedrock:{region}::foundation-model/{model_id}"
-    def get_bedrock_model_id() -> str:
-        import os
-        return os.environ.get('BEDROCK_MODEL_ID', 'global.anthropic.claude-sonnet-4-5-20250929-v1:0')
+# Central Bedrock model registry — single source of truth for model IDs.
+from config.llm_config import (
+    get_bedrock_model_id,
+    get_haiku_model_id,
+    all_iam_resources,
+)
 
 
 class ContentGenerationStack(Stack):
@@ -71,6 +65,8 @@ class ContentGenerationStack(Stack):
             "COACH_AGENT_ARN": "",
             "BEDROCK_AGENTCORE_MEMORY_ID": "",
             "AGENTCORE_AGENTS_AVAILABLE": "false",
+            # Central model registry (src/config/llm_config.py)
+            "BEDROCK_HAIKU_MODEL_ID": get_haiku_model_id(),
             "AGENTCORE_REGION": Aws.REGION,
             "CONTENT_GENERATION_AGENT_NAME": "",
         }
@@ -126,14 +122,7 @@ class ContentGenerationStack(Stack):
                     "bedrock:InvokeModel",
                     "bedrock:InvokeModelWithResponseStream"
                 ],
-                resources=[
-                    # Global inference profiles (what the code actually invokes via modelId)
-                    f"arn:aws:bedrock:{Aws.REGION}:{Aws.ACCOUNT_ID}:inference-profile/global.anthropic.claude-sonnet-4-5-20250929-v1:0",
-                    f"arn:aws:bedrock:{Aws.REGION}:{Aws.ACCOUNT_ID}:inference-profile/global.anthropic.claude-haiku-4-5-20251001-v1:0",
-                    # Underlying foundation models routed to by those inference profiles (cross-region)
-                    "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
-                    "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
-                ]
+                resources=all_iam_resources(region=Aws.REGION, account=Aws.ACCOUNT_ID)
             )
         )
 

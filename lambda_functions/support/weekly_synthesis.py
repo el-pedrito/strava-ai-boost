@@ -13,7 +13,9 @@ REGION = os.environ.get("AWS_REGION", "us-east-1")
 ACTIVITIES_TABLE = os.environ.get("ACTIVITIES_TABLE", "strava-ai-boost-activities")
 USER_CONFIG_TABLE = os.environ.get("USER_CONFIG_TABLE", "strava-ai-boost-user-configuration")
 DEFAULT_USER_ID = os.environ.get("DEFAULT_USER_ID", "")
-BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0")
+from shared.llm_models import resolve_sonnet_model_id
+
+BEDROCK_MODEL_ID = resolve_sonnet_model_id()
 
 dynamodb = boto3.resource("dynamodb", region_name=REGION)
 

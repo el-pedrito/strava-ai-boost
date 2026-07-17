@@ -14,7 +14,7 @@
       },
       "modelConfig": {
         "bedrockEvaluatorModelConfig": {
-          "modelId": "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+          "modelId": "{HAIKU_MODEL_ID}",
           "inferenceConfig": { "temperature": 0.0, "maxTokens": 1024 }
         }
       }

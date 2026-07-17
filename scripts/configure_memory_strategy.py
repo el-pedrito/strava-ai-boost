@@ -60,11 +60,11 @@ Preferences should be concise and actionable. Each preference should directly in
 
 # P2.3: Use Haiku 4.5 for extraction/consolidation (~4x cheaper than Sonnet).
 # The memory strategy prompts are simple classification tasks that don't need Sonnet.
-# Override with EXTRACTION_MODEL_ID env var if needed.
-EXTRACTION_MODEL_ID = os.environ.get(
-    'MEMORY_STRATEGY_MODEL_ID',
-    'global.anthropic.claude-haiku-4-5-20251001-v1:0'
-)
+# Override with MEMORY_STRATEGY_MODEL_ID env var if needed.
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+from config.llm_config import get_haiku_model_id  # noqa: E402
+
+EXTRACTION_MODEL_ID = os.environ.get('MEMORY_STRATEGY_MODEL_ID') or get_haiku_model_id()
 
 
 def main():
