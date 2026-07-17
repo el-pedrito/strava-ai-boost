@@ -4,9 +4,11 @@
 > deployed, single-athlete application used daily, built to exercise the
 > AgentCore building blocks on a concrete problem. This page is the map.
 >
-> Editable diagrams: [`high-level.drawio`](architecture/high-level.drawio) ·
-> [`detailed.drawio`](architecture/detailed.drawio) (open with
-> [draw.io](https://app.diagrams.net/)).
+> Editable diagrams: the `.drawio.svg` files below render on GitHub **and**
+> stay fully editable — open them directly in
+> [draw.io](https://app.diagrams.net/) (the SVG embeds the diagram XML).
+> Raw sources: [`high-level.drawio`](architecture/high-level.drawio) ·
+> [`detailed.drawio`](architecture/detailed.drawio).
 
 ## The AgentCore building blocks used here
 
@@ -24,8 +26,9 @@ candidates for future lab iterations.
 
 ## High-level view
 
-![High-level architecture](architecture/high-level.drawio) *(open in draw.io;
-a rendered mermaid equivalent lives in the [README](../README.md#system-components))*
+![High-level architecture](architecture/high-level.drawio.svg)
+
+*(A mermaid equivalent lives in the [README](../README.md#system-components).)*
 
 Three planes:
 
@@ -44,9 +47,11 @@ Three planes:
 
 ## Detailed view
 
-See [`detailed.drawio`](architecture/detailed.drawio): 8 CDK stacks,
-18 Lambdas by role (api / processing / webhooks / support / voice), the 3
-runtimes, memory strategies and namespaces, evals loop, model registry.
+![Detailed architecture](architecture/detailed.drawio.svg)
+
+8 CDK stacks, 18 Lambdas by role (api / processing / webhooks / support /
+voice), the 3 runtimes, memory strategies and namespaces, evals loop, model
+registry.
 
 Key implementation choices worth stealing:
 
@@ -69,7 +74,9 @@ Key implementation choices worth stealing:
 
 To keep this repo trustworthy for readers, docs follow a contract enforced by
 `tests/regression/test_docs_sync.py` (counts and key claims are checked
-against the code):
+against the code). It runs in the test suite and as a Kiro `stop` hook
+(`scripts/check_docs_sync.sh`) that warns at the end of every AI-assisted
+working turn when docs drift:
 
 | Doc | Role | Freshness rule |
 |---|---|---|
