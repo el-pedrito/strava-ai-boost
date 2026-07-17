@@ -12,6 +12,7 @@ os.environ.setdefault("PROCESSING_QUEUE_URL", "https://sqs.eu-west-1.amazonaws.c
 os.environ.setdefault("DLQ_URL", "https://sqs.eu-west-1.amazonaws.com/000000000000/test-dlq")
 os.environ.setdefault("STRAVA_OAUTH_SECRET", "test-oauth-secret")
 os.environ.setdefault("CAMPUS_COACH_SECRET", "test-campus-secret")
+os.environ.setdefault("AUDIO_DEBRIEF_BUCKET", "test-audio-bucket")
 os.environ.setdefault("BEDROCK_MODEL_ID", "anthropic.claude-v2")
 os.environ.setdefault("CONTENT_GENERATION_AGENT_ARN", "arn:aws:bedrock-agentcore:eu-west-1:000000000000:runtime/test")
 os.environ.setdefault("MEMORY_ID", "test-memory-id")

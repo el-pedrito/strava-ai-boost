@@ -341,6 +341,14 @@ class VoiceDebriefStack(Stack):
             resources=[self.recap_table.table_arn],
         ))
 
+        # AgentCore Memory read (personalize the recap with LTM observations).
+        # The role previously had NO bedrock-agentcore action: the memory read
+        # failed silently since day one (see docs/design/memory-improvements.md).
+        role.add_to_policy(iam.PolicyStatement(
+            actions=["bedrock-agentcore:RetrieveMemoryRecords"],
+            resources=[f"arn:aws:bedrock-agentcore:{Aws.REGION}:{Aws.ACCOUNT_ID}:memory/*"],
+        ))
+
         # Bedrock Sonnet (higher quality for recap)
         role.add_to_policy(iam.PolicyStatement(
             actions=["bedrock:InvokeModel"],

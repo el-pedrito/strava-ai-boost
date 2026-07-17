@@ -186,21 +186,37 @@ def _get_campus_goal_context() -> str:
 
 
 def _retrieve_memory_observations(user_id: str) -> str:
-    """Retrieve recent coaching observations from AgentCore Memory."""
+    """Retrieve recent coaching observations from AgentCore Memory.
+
+    Fixed 2026-07-17 (docs/design/memory-improvements.md): the previous
+    implementation used a raw user_id namespace and the pre-GA API shape
+    (semanticSearch/memoryRecords) — it silently returned nothing. Long-term
+    records live under /strategies/{strategyId}/actors/{actorId}/; the
+    "/strategies/" prefix + the actor filter in searchQuery is account-safe
+    (no hardcoded strategy id).
+    """
     if not MEMORY_ID or not user_id:
         return ""
     try:
         client = boto3.client("bedrock-agentcore", region_name=REGION)
         response = client.retrieve_memory_records(
             memoryId=MEMORY_ID,
-            namespace=user_id,
-            searchCriteria={"semanticSearch": {"query": "weekly training progression trends fatigue recovery observations"}},
-            maxResults=5,
+            namespace="/strategies/",
+            searchCriteria={
+                "searchQuery": "weekly training progression trends fatigue recovery observations",
+                "topK": 5,
+            },
         )
-        records = response.get("memoryRecords", [])
-        if records:
-            texts = [r.get("content", {}).get("text", "") for r in records if r.get("content")]
-            return " | ".join(t[:200] for t in texts if t)
+        records = response.get("memoryRecordSummaries", [])
+        # Prefix match spans all strategies/actors: keep only this user's records.
+        texts = [
+            r.get("content", {}).get("text", "")
+            for r in records
+            if r.get("content", {}).get("text")
+            and any(f"/actors/{user_id}/" in ns for ns in (r.get("namespaces") or []))
+        ]
+        if texts:
+            return " | ".join(t[:200] for t in texts)
     except Exception as e:
         logger.warning(f"Failed to retrieve memory for recap: {e}")
     return ""

@@ -23,23 +23,90 @@ REGION = os.environ.get("AWS_REGION", "eu-west-1")
 MEMORY_ID = os.environ.get("BEDROCK_AGENTCORE_MEMORY_ID")
 
 
-def retrieve_coaching_observations(memory_id: str, user_id: str) -> List[str]:
-    """Retrieve past coaching observations from AgentCore Memory."""
+def retrieve_coaching_observations(
+    memory_id: str, user_id: str, activity_data: Optional[Dict[str, Any]] = None
+) -> List[str]:
+    """Retrieve past coaching observations from AgentCore Memory.
+
+    Long-term records are extracted by the SEMANTIC strategy into
+    /strategies/{strategyId}/actors/{actorId}/ — NOT into a
+    "coaching_observations" namespace (which never existed; reading it
+    returned 0 records since day one — fixed 2026-07-17, see
+    docs/design/memory-improvements.md). The strategy id is account-specific,
+    so it is discovered once via GetMemory and cached.
+
+    The search query is built from the activity type/classification so that a
+    strength session retrieves strength progression records instead of
+    generic plan records (relevance verified live).
+    """
     try:
         client = boto3.client("bedrock-agentcore", region_name=REGION)
-        response = client.retrieve_memory_records(
-            memoryId=memory_id,
-            namespace=f"coaching_observations/{user_id}",
-            searchCriteria={
-                "searchQuery": "recent coaching observations and athlete patterns",
+        kwargs: Dict[str, Any] = {
+            "memoryId": memory_id,
+            "searchCriteria": {
+                "searchQuery": _build_observation_query(activity_data),
                 "topK": 5,
             },
-        )
+        }
+        strategy_id = _get_semantic_strategy_id(memory_id)
+        if strategy_id:
+            kwargs["namespace"] = f"/strategies/{strategy_id}/actors/{user_id}/"
+        else:
+            # Fallback: prefix match across strategies (still account-safe).
+            kwargs["namespace"] = "/strategies/"
+        response = client.retrieve_memory_records(**kwargs)
         records = response.get("memoryRecordSummaries", [])
         return [r["content"]["text"] for r in records if r.get("content", {}).get("text")]
     except Exception as e:
         logger.warning(f"Failed to retrieve coaching observations: {e}")
         return []
+
+
+_SEMANTIC_STRATEGY_ID: Optional[str] = None
+
+
+def _get_semantic_strategy_id(memory_id: str) -> Optional[str]:
+    """Discover (once) the SEMANTIC strategy id of the memory resource."""
+    global _SEMANTIC_STRATEGY_ID
+    if _SEMANTIC_STRATEGY_ID is not None:
+        return _SEMANTIC_STRATEGY_ID or None
+    try:
+        control = boto3.client("bedrock-agentcore-control", region_name=REGION)
+        memory = control.get_memory(memoryId=memory_id)["memory"]
+        for strategy in memory.get("strategies", []):
+            if strategy.get("type") == "SEMANTIC":
+                _SEMANTIC_STRATEGY_ID = (
+                    strategy.get("strategyId") or strategy.get("memoryStrategyId") or ""
+                )
+                return _SEMANTIC_STRATEGY_ID or None
+        _SEMANTIC_STRATEGY_ID = ""
+    except Exception as e:
+        logger.warning(f"Strategy discovery failed (fallback to prefix): {e}")
+        _SEMANTIC_STRATEGY_ID = ""
+    return None
+
+
+def _build_observation_query(activity_data: Optional[Dict[str, Any]]) -> str:
+    """Build a session-type-aware semantic query (FR/EN keywords match records)."""
+    base = "coaching observations athlete progression patterns"
+    if not activity_data:
+        return base
+    sport = (activity_data.get("sport_type") or activity_data.get("type") or "").lower()
+    if "weight" in sport or "workout" in sport:
+        return "musculation force charges progression développé séries répétitions strength training"
+    if "ride" in sport or "bike" in sport or "velo" in sport:
+        return "vélo cyclisme puissance endurance sortie ride cycling " + base
+    if "run" in sport:
+        wc = activity_data.get("workout_classification") or {}
+        wc_type = (wc.get("type") or "").lower() if isinstance(wc, dict) else ""
+        if "interval" in wc_type:
+            return "fractionné intervalles VMA allure rapide répétitions récupération running intervals " + base
+        if "long" in wc_type:
+            return "sortie longue endurance fondamentale dérive cardiaque long run " + base
+        if "tempo" in wc_type or "seuil" in wc_type:
+            return "tempo seuil allure soutenue threshold " + base
+        return "course à pied endurance allure fréquence cardiaque progression running " + base
+    return base
 
 
 def _build_prompt_parts(
@@ -69,7 +136,7 @@ def _build_prompt_parts(
     past_observations = ""
     if memory_id:
         user_id = user_config.get("user_id", "")
-        obs = retrieve_coaching_observations(memory_id, user_id)
+        obs = retrieve_coaching_observations(memory_id, user_id, activity_data)
         if obs:
             past_observations = "\n\n## OBSERVATIONS PASSÉES\n" + "\n---\n".join(obs[:5])
 
