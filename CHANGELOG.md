@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.2.0] - 2026-07-17
+
 ### Changed
 
 - **Campus Coach: Browser Tool decommissioned** — the legacy AgentCore Browser
@@ -17,11 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Coach chat: 5th tool** — added `get_coach_observations` to the `coach_chat`
   runtime so the conversational coach reads long-term memory observations for
   continuity across conversations.
-- **Memory fixes** — coach feedback loop no longer re-ingests its own outputs;
-  added the Episodic strategy (`CoachingEpisodes`) and migrated all readers to
-  the unified `/strategies/{memoryStrategyId}/actors/{actorId}/` namespaces on
-  the single shared memory (`content_gen_mem`, 3 strategies); the leftover
-  coach-specific memory was deleted (2026-07-17).
+- **Memory fixes** — the coach read a namespace no strategy ever wrote to
+  (zero observations retrieved since day one) and the weekly recap memory
+  read was triple-broken (invalid namespace, pre-GA API shape, missing IAM):
+  both fixed, with a session-type-aware search query. Added the Episodic
+  strategy (`CoachingEpisodes`) and migrated all readers to the unified
+  `/strategies/{memoryStrategyId}/actors/{actorId}/` namespaces on the single
+  shared memory (`content_gen_mem`, 3 strategies); legacy preference records
+  migrated (28 + 19 orphans); the leftover empty coach memory was deleted.
 
 ### Added
 
@@ -39,6 +46,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Centralized LLM registry** — all Bedrock model IDs come from
   `src/config/llm_config.py` (mirrored for Lambda bundling), with an anti-drift
   sync test forbidding model-id literals elsewhere.
+
+- **Architecture documentation** — `docs/architecture.md` (AgentCore building
+  blocks, three planes, docs freshness contract) with three editable draw.io
+  diagrams exported as GitHub-rendered `.drawio.svg` (high-level, detailed,
+  AWS services with official icons).
+- **Docs anti-drift guard** — `tests/regression/test_docs_sync.py` checks doc
+  claims (stack/Lambda counts, single memory, no decommissioned components
+  presented as current) against the code; also wired as a Kiro `stop` hook
+  (`scripts/check_docs_sync.sh`).
+- **Strava deauthorization test coverage** — the existing
+  `DELETE /config/oauth` flow (Strava deauthorize + token wipe) covered by
+  mocked unit tests.
+
+### Fixed
+
+- **Agent crashes caught by the regression harness** — `max_cadence` formatting
+  crash (field never returned by the Strava API) and `average_speed`-as-string
+  TypeError on manual/indoor activities.
+- **Self-contradicting prompt examples** — four positive examples in the
+  content/coach prompts contained banned AI clichés; the model was following
+  them. Baseline now 0 fail.
+- **Weekly synthesis IAM** — the role could never authorize its own inference
+  profile invocation (missing inference-profile ARN); fixed via the central
+  registry helpers.
+- **Documentation accuracy pass** — all 21 tracked markdown files audited and
+  corrected against verified ground truth (8 stacks, 18 Lambdas, single
+  memory, MIT-0, current chat architecture in SECURITY.md/CHANGELOG).
 
 ## [0.1.0] - 2026-07-15
 
@@ -86,5 +120,6 @@ for production use (see the disclaimer in the README).
 - Git history scrubbed of account IDs, user IDs, credentials, and internal
   identifiers prior to release; dependency audits (`pip-audit`, `npm audit`) clean.
 
-[Unreleased]: https://github.com/el-pedrito/strava-ai-boost/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/el-pedrito/strava-ai-boost/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/el-pedrito/strava-ai-boost/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/el-pedrito/strava-ai-boost/releases/tag/v0.1.0
