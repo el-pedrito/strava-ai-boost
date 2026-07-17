@@ -158,13 +158,17 @@ la publication.
 
 Pertinente pour la crédibilité du sample OSS (un lecteur va juger le repo là-dessus) :
 
-- **CI/CD absent** — `cdk deploy` manuel. GitHub Actions minimal : tests + `cdk diff` sur PR. Quasi indispensable pour un repo public (BACKLOG P2).
+- **CI/CD absent** — `cdk deploy` manuel. GitHub Actions minimal : tests + `cdk diff` sur PR. Quasi indispensable pour un repo public (BACKLOG P2). En bonus : workflow `workflow_dispatch` manuel pour les évals de régression live (secret AWS requis, jamais sur PR publique — cf. spec regression-evals).
 - **cdk-nag absent** — `Aspects.of(app).add(AwsSolutionsChecks())` à activer + trier les findings sur les 8 stacks. Chantier dédié (BACKLOG P2), mais fort signal qualité pour un sample AWS.
 - **Token refresh dupliqué dans 4 Lambdas** — extraire dans `shared/strava_token_manager.py` (BACKLOG P2). Un contributeur le verra tout de suite.
 - **Lambda Layer build manuel** (`LAYER_ASSET_HASH`) — oubli = deps stales. Automatiser dans un script (BACKLOG P2).
 - **`except Exception` génériques** (20+) avec return None silencieux — au minimum les 3 critiques du BACKLOG.
 
 Confort / plus tard :
+
+- **Vérifier weekly_synthesis en live** — son rôle IAM ne pouvait pas autoriser l'invocation de son inference profile (corrigé le 2026-07-17 avec la centralisation LLM) : la Lambda était probablement silencieusement cassée. À confirmer au prochain run planifié (dimanche 20:00 UTC) ou par un déclenchement manuel.
+- **Nettoyer la plomberie campus inerte de `configure_agentcore_integration.sh`** — le script (~1000 lignes) garde des arguments positionnels `campus_arn` résolus à vide (sans effet). Laissé volontairement au décommission (risque de dé-threading disproportionné) ; à faire à l'occasion d'un refactor du script.
+- **Purger les records mémoire orphelins de l'actor legacy `default_user`** (19 records de préférences pré-multi-user) — inoffensifs (jamais matchés par les lectures filtrées par user réel), mais du bruit pour le topK des recherches prefix ; suppression triviale via `batch_delete_memory_records`.
 
 - Lambda ARM64 (Graviton) — ~20 % de coût en moins, rebuild layer requis
 - Chunks > 500kb (CoachPage, index)
