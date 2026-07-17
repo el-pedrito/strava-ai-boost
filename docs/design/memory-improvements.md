@@ -67,11 +67,13 @@ Non fait en V1 (assumé) : suppression du namespace legacy dans coach_chat
 > Avancement 2026-07-17 après-midi (V2) : pistes 2 et 4 traitées, spike fait
 > sur la 3.
 
-1. **Stratégie EPISODIC + reflection** sur les observations coach — confirmé
-   dispo dans l'API (`episodicMemoryStrategy` + `reflectionConfiguration`).
-   Consolide (réflexions périodiques) au lieu d'accumuler des records
-   par-séance. À ~5 activités/semaine, urgence faible ; à faire quand le
-   volume de records gêne la pertinence du topK.
+1. ✅ **Stratégie EPISODIC + reflection** (fait 2026-07-17) — stratégie
+   `CoachingEpisodes` ajoutée (ACTIVE) : épisodes par session + **réflexions
+   au niveau actor** (pas cross-actor — avertissement privacy de la doc AWS).
+   Namespaces sur la convention unifiée → les 3 lecteurs prefix-based
+   (coach, recap, tool chat) verront épisodes et réflexions **sans changement
+   de code**. Note : n'extrait que les **nouveaux** events ; les records
+   SEMANTIC existants restent la source principale au début.
 2. ✅ **coach_chat lit les observations** (fait 2026-07-17) — 5e tool
    `get_coach_observations(topic)` : prefix `/strategies/` + filtre par
    utilisateur (le rôle SDK du runtime n'a que `RetrieveMemoryRecords`, pas
@@ -91,8 +93,19 @@ Non fait en V1 (assumé) : suppression du namespace legacy dans coach_chat
    Trouvé au passage : des records d'avril sous l'actor legacy
    `default_user` (pré-multi-user), orphelins inoffensifs (jamais matchés
    par les lectures filtrées par user_id réel).
-5. **Unifier `/strategy/` vs `/strategies/`** — le namespace custom de
-   `StravaContentPreferences` (singulier, configuré manuellement) diverge de
-   la convention du service ; fonctionne mais piège tout futur lecteur.
-   Migration = recréer la stratégie (records à re-extraire) → coupler avec la
-   piste 1.
+5. ✅ **Unifier `/strategy/` vs `/strategies/`** (fait 2026-07-17) — pas
+   besoin de recréer la stratégie : `modifyMemoryStrategies` change les
+   `namespaceTemplates` **in-place** (ID préservé). Exécuté :
+   `StravaContentPreferences` → `/strategies/{memoryStrategyId}/actors/{actorId}/`
+   + **migration des 28 records existants** (copy-then-delete via
+   `batch_create_memory_records`, vérif `failedRecords` in-band avant
+   suppression, idempotent par `requestIdentifier`). Vérifié : 0 record
+   restant en legacy, 28 dans le nouveau namespace (9 user réel + 19 actor
+   legacy `default_user`), lecteurs OK (5 prefs récupérées, coach 4 obs,
+   smoke régression 0 fail). Piège rencontré : `list_memory_records` juste
+   après migration montre des comptes partiels (**cohérence éventuelle** de
+   l'index) — recompter avec pagination complète avant de conclure.
+   Lecteurs alignés sur un pattern unique « prefix `/strategies/` + filtre
+   `/actors/{uid}/` » (coach simplifié, content_agent garde le namespace
+   legacy en 2e essai pour les forks non migrés). Toute la config est
+   rejouable via `scripts/configure_memory_strategy.py` (idempotent).

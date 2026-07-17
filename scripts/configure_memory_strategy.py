@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 """
-Configure UserPreferenceStrategy with custom override on AgentCore Memory.
+Configure the AgentCore Memory strategies (idempotent).
 
-This script updates the existing memory resource to add a UserPreferenceStrategy
-that automatically extracts and consolidates user content preferences from
-feedback diffs (generated vs user-modified Strava descriptions).
+Manages the strategies on content_gen_mem:
+1. StravaContentPreferences (CUSTOM/userPreference): extraction/consolidation of
+   content preferences from feedback diffs. Ensures its namespace follows the
+   unified '/strategies/{memoryStrategyId}/actors/{actorId}/' convention
+   (was '/strategy/<name>/...' singular — see docs/design/memory-improvements.md
+   piste 5) and migrates existing records to the new namespace.
+2. CoachingEpisodes (EPISODIC): episodes per actor + periodic reflections
+   (consolidated insights) — piste 1. Namespaces aligned on the unified
+   '/strategies/' prefix so all prefix-based readers (coach, recap, chat tool)
+   see episodes and reflections without code changes.
 
 Prerequisites:
 - Memory execution role deployed (SecurityStack)
@@ -23,6 +30,10 @@ import boto3
 # Load config
 YAML_PATH = os.path.join(os.path.dirname(__file__), '..', '.bedrock_agentcore.yaml')
 REGION = os.environ.get('AWS_REGION', 'eu-west-1')
+
+# Unified namespace convention for every strategy (see memory-improvements.md).
+UNIFIED_NAMESPACE_TEMPLATE = '/strategies/{memoryStrategyId}/actors/{actorId}/'
+LEGACY_PREFS_NAMESPACE_PREFIX = '/strategy/StravaContentPreferences/actors/'
 
 # Custom extraction prompt for Strava content preferences
 EXTRACTION_PROMPT = """\
@@ -99,89 +110,140 @@ def main():
 
     print(f"Memory Execution Role: {role_arn}")
 
-    # Update memory with UserPreferenceStrategy (idempotent)
     agentcore_cp = boto3.client('bedrock-agentcore-control', region_name=REGION)
+    agentcore_dp = boto3.client('bedrock-agentcore', region_name=REGION)
 
-    # Check if StravaContentPreferences already exists → modify, else add
-    existing_id = None
-    try:
-        mem = agentcore_cp.get_memory(memoryId=memory_id)
-        for s in mem.get('memory', {}).get('strategies', []):
-            if s.get('name') == 'StravaContentPreferences':
-                existing_id = s.get('strategyId') or s.get('id')
-                break
-    except Exception as e:
-        print(f"Warning: could not read existing strategies: {e}")
+    mem = agentcore_cp.get_memory(memoryId=memory_id).get('memory', {})
+    strategies_by_name = {
+        s.get('name'): s for s in mem.get('strategies', [])
+    }
 
+    _ensure_preferences_strategy(agentcore_cp, memory_id, role_arn, strategies_by_name)
+    _migrate_legacy_preference_records(agentcore_dp, agentcore_cp, memory_id, strategies_by_name)
+    _ensure_episodic_strategy(agentcore_cp, memory_id, role_arn, strategies_by_name)
+    print("\nDone.")
+
+
+def _strategy_id(strategy: dict) -> str:
+    return strategy.get('strategyId') or strategy.get('memoryStrategyId') or strategy.get('id') or ''
+
+
+def _ensure_preferences_strategy(cp, memory_id: str, role_arn: str, strategies_by_name: dict) -> None:
+    """Create or update StravaContentPreferences with the unified namespace."""
+    existing = strategies_by_name.get('StravaContentPreferences')
     try:
-        if existing_id:
-            print(f"Strategy exists ({existing_id}) — updating modelId to {EXTRACTION_MODEL_ID}")
-            strategies = {
-                'modifyMemoryStrategies': [
-                    {
-                        'memoryStrategyId': existing_id,
-                        'configuration': {
-                            'extraction': {
-                                'customExtractionConfiguration': {
-                                    'userPreferenceExtractionOverride': {
-                                        'appendToPrompt': EXTRACTION_PROMPT,
-                                        'modelId': EXTRACTION_MODEL_ID
-                                    }
-                                }
-                            },
-                            'consolidation': {
-                                'customConsolidationConfiguration': {
-                                    'userPreferenceConsolidationOverride': {
-                                        'appendToPrompt': CONSOLIDATION_PROMPT,
-                                        'modelId': EXTRACTION_MODEL_ID
-                                    }
-                                }
-                            }
-                        }
-                    }
-                ]
+        if existing:
+            sid = _strategy_id(existing)
+            namespaces = existing.get('namespaces') or []
+            needs_ns_fix = any(ns.startswith(LEGACY_PREFS_NAMESPACE_PREFIX) for ns in namespaces)
+            modify = {
+                'memoryStrategyId': sid,
+                'configuration': {
+                    'extraction': {'customExtractionConfiguration': {
+                        'userPreferenceExtractionOverride': {
+                            'appendToPrompt': EXTRACTION_PROMPT, 'modelId': EXTRACTION_MODEL_ID}}},
+                    'consolidation': {'customConsolidationConfiguration': {
+                        'userPreferenceConsolidationOverride': {
+                            'appendToPrompt': CONSOLIDATION_PROMPT, 'modelId': EXTRACTION_MODEL_ID}}},
+                },
             }
+            if needs_ns_fix:
+                modify['namespaceTemplates'] = [UNIFIED_NAMESPACE_TEMPLATE]
+                print(f"StravaContentPreferences ({sid}): unifying namespace -> {UNIFIED_NAMESPACE_TEMPLATE}")
+            else:
+                print(f"StravaContentPreferences ({sid}): namespace already unified, refreshing prompts/model")
+            cp.update_memory(memoryId=memory_id, memoryExecutionRoleArn=role_arn,
+                             memoryStrategies={'modifyMemoryStrategies': [modify]})
         else:
-            print(f"Creating StravaContentPreferences strategy with modelId {EXTRACTION_MODEL_ID}")
-            strategies = {
-                'addMemoryStrategies': [
-                    {
-                        'customMemoryStrategy': {
-                            'name': 'StravaContentPreferences',
-                            'namespaces': ['/strategy/StravaContentPreferences/actors/{actorId}/'],
-                            'configuration': {
-                                'userPreferenceOverride': {
-                                    'extraction': {
-                                        'appendToPrompt': EXTRACTION_PROMPT,
-                                        'modelId': EXTRACTION_MODEL_ID
-                                    },
-                                    'consolidation': {
-                                        'appendToPrompt': CONSOLIDATION_PROMPT,
-                                        'modelId': EXTRACTION_MODEL_ID
-                                    }
-                                }
-                            }
-                        }
-                    }
-                ]
-            }
-
-        response = agentcore_cp.update_memory(
-            memoryId=memory_id,
-            memoryExecutionRoleArn=role_arn,
-            memoryStrategies=strategies
-        )
-        print(f"\nMemory updated successfully!")
-        print(f"Response: {json.dumps(response.get('ResponseMetadata', {}), indent=2)}")
-
-    except agentcore_cp.exceptions.ResourceNotFoundException:
-        print(f"\nERROR: Memory resource {memory_id} not found.")
-        print("Create it first via: agentcore memory create")
-        sys.exit(1)
+            print("Creating StravaContentPreferences strategy (unified namespace)")
+            cp.update_memory(memoryId=memory_id, memoryExecutionRoleArn=role_arn, memoryStrategies={
+                'addMemoryStrategies': [{'customMemoryStrategy': {
+                    'name': 'StravaContentPreferences',
+                    'namespaceTemplates': [UNIFIED_NAMESPACE_TEMPLATE],
+                    'configuration': {'userPreferenceOverride': {
+                        'extraction': {'appendToPrompt': EXTRACTION_PROMPT, 'modelId': EXTRACTION_MODEL_ID},
+                        'consolidation': {'appendToPrompt': CONSOLIDATION_PROMPT, 'modelId': EXTRACTION_MODEL_ID},
+                    }},
+                }}]})
+        print("  preferences strategy OK")
     except Exception as e:
-        print(f"\nERROR: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"ERROR (preferences strategy): {e}")
+        sys.exit(1)
+
+
+def _migrate_legacy_preference_records(dp, cp, memory_id: str, strategies_by_name: dict) -> None:
+    """Copy records from the legacy '/strategy/...' namespace to the unified one.
+
+    Copy-then-delete, verified: originals are only deleted after the copy of
+    the SAME record succeeded. Idempotent via requestIdentifier=memoryRecordId.
+    """
+    existing = strategies_by_name.get('StravaContentPreferences')
+    if not existing:
+        return
+    sid = _strategy_id(existing)
+    new_ns_prefix = f"/strategies/{sid}/actors/"
+
+    migrated = 0
+    token = None
+    while True:
+        kwargs = {'memoryId': memory_id, 'namespace': LEGACY_PREFS_NAMESPACE_PREFIX, 'maxResults': 50}
+        if token:
+            kwargs['nextToken'] = token
+        try:
+            resp = dp.list_memory_records(**kwargs)
+        except Exception as e:
+            print(f"  migration: could not list legacy records ({e}) — skipping")
+            return
+        records = resp.get('memoryRecordSummaries', [])
+        for rec in records:
+            old_ns = (rec.get('namespaces') or [''])[0]
+            actor = old_ns[len(LEGACY_PREFS_NAMESPACE_PREFIX):].strip('/')
+            if not actor:
+                continue
+            new_ns = f"{new_ns_prefix}{actor}/"
+            text = rec.get('content', {}).get('text', '')
+            if not text:
+                continue
+            try:
+                created = dp.batch_create_memory_records(memoryId=memory_id, records=[{
+                    'requestIdentifier': rec['memoryRecordId'][:80],
+                    'namespaces': [new_ns],
+                    'content': {'text': text},
+                    'timestamp': rec.get('createdAt'),
+                    'memoryStrategyId': sid,
+                }])
+                if created.get('failedRecords'):
+                    print(f"  migration: record {rec['memoryRecordId']} copy FAILED in-band "
+                          f"({created['failedRecords'][0].get('errorMessage', '?')}) — original kept")
+                    continue
+                dp.delete_memory_record(memoryId=memory_id, memoryRecordId=rec['memoryRecordId'])
+                migrated += 1
+            except Exception as e:
+                print(f"  migration: record {rec['memoryRecordId']} failed ({e}) — original kept")
+        token = resp.get('nextToken')
+        if not token:
+            break
+    print(f"  migrated {migrated} legacy preference record(s) -> {new_ns_prefix}...")
+
+
+def _ensure_episodic_strategy(cp, memory_id: str, role_arn: str, strategies_by_name: dict) -> None:
+    """Add the EPISODIC strategy (episodes + actor-level reflections)."""
+    if 'CoachingEpisodes' in strategies_by_name:
+        print(f"CoachingEpisodes: already exists ({_strategy_id(strategies_by_name['CoachingEpisodes'])})")
+        return
+    print("Creating CoachingEpisodes EPISODIC strategy (episodes + actor-level reflections)")
+    try:
+        cp.update_memory(memoryId=memory_id, memoryExecutionRoleArn=role_arn, memoryStrategies={
+            'addMemoryStrategies': [{'episodicMemoryStrategy': {
+                'name': 'CoachingEpisodes',
+                'description': 'Per-session training episodes consolidated into periodic actor-level reflections (progression, patterns).',
+                'namespaceTemplates': [UNIFIED_NAMESPACE_TEMPLATE],
+                # Reflections at ACTOR level (not cross-actor: privacy note in AWS docs).
+                'reflectionConfiguration': {'namespaceTemplates': [UNIFIED_NAMESPACE_TEMPLATE]},
+            }}]})
+        print("  episodic strategy created")
+    except Exception as e:
+        print(f"ERROR (episodic strategy): {e}")
         sys.exit(1)
 
 

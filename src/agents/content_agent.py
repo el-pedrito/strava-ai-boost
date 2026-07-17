@@ -65,18 +65,19 @@ def retrieve_user_preferences(user_id: str, query: str, max_results: int = 10) -
     """
     Retrieve user preferences from AgentCore Memory using semantic search.
 
-    Uses RetrieveMemoryRecords to find preferences relevant to the current
-    activity context, instead of fetching all preferences with get_last_k_turns.
+    Namespaces follow the unified '/strategies/{strategyId}/actors/{actorId}/'
+    convention (docs/design/memory-improvements.md piste 5). We search the
+    '/strategies/' prefix and keep only this user's records; the legacy
+    '/strategy/StravaContentPreferences/...' namespace is tried second during
+    the transition (records are migrated by configure_memory_strategy.py).
     """
     if not MEMORY_ID or not agentcore_client:
         return []
 
     try:
-        # Try with strategy-specific namespace first, then broader namespace
-        for namespace in [
-            f"/strategy/StravaContentPreferences/actors/{user_id}/",
-            f"/actors/{user_id}/",
-            "/"
+        for namespace, needs_user_filter in [
+            ("/strategies/", True),
+            (f"/strategy/StravaContentPreferences/actors/{user_id}/", False),
         ]:
             try:
                 response = agentcore_client.retrieve_memory_records(
@@ -89,6 +90,11 @@ def retrieve_user_preferences(user_id: str, query: str, max_results: int = 10) -
                 )
 
                 records = response.get('memoryRecordSummaries', [])
+                if needs_user_filter:
+                    records = [
+                        r for r in records
+                        if any(f"/actors/{user_id}/" in ns for ns in (r.get('namespaces') or []))
+                    ]
                 if records:
                     logger.info(f"Retrieved {len(records)} preference records (namespace={namespace})")
                     for i, record in enumerate(records[:5]):

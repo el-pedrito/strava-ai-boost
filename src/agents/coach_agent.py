@@ -28,62 +28,36 @@ def retrieve_coaching_observations(
 ) -> List[str]:
     """Retrieve past coaching observations from AgentCore Memory.
 
-    Long-term records are extracted by the SEMANTIC strategy into
-    /strategies/{strategyId}/actors/{actorId}/ — NOT into a
-    "coaching_observations" namespace (which never existed; reading it
-    returned 0 records since day one — fixed 2026-07-17, see
-    docs/design/memory-improvements.md). The strategy id is account-specific,
-    so it is discovered once via GetMemory and cached.
+    Long-term records live under the unified
+    /strategies/{strategyId}/actors/{actorId}/ namespaces (semantic
+    observations, episodic episodes and reflections, preferences — see
+    docs/design/memory-improvements.md). We search the '/strategies/' prefix
+    and keep only this user's records: the session-type-aware query does the
+    relevance ranking, and new strategies are picked up without code changes.
 
-    The search query is built from the activity type/classification so that a
-    strength session retrieves strength progression records instead of
-    generic plan records (relevance verified live).
+    (History: until 2026-07-17 this read 'coaching_observations/{uid}', a
+    namespace no strategy ever wrote to — 0 records since day one.)
     """
     try:
         client = boto3.client("bedrock-agentcore", region_name=REGION)
-        kwargs: Dict[str, Any] = {
-            "memoryId": memory_id,
-            "searchCriteria": {
+        response = client.retrieve_memory_records(
+            memoryId=memory_id,
+            namespace="/strategies/",
+            searchCriteria={
                 "searchQuery": _build_observation_query(activity_data),
-                "topK": 5,
+                "topK": 8,
             },
-        }
-        strategy_id = _get_semantic_strategy_id(memory_id)
-        if strategy_id:
-            kwargs["namespace"] = f"/strategies/{strategy_id}/actors/{user_id}/"
-        else:
-            # Fallback: prefix match across strategies (still account-safe).
-            kwargs["namespace"] = "/strategies/"
-        response = client.retrieve_memory_records(**kwargs)
+        )
         records = response.get("memoryRecordSummaries", [])
-        return [r["content"]["text"] for r in records if r.get("content", {}).get("text")]
+        return [
+            r["content"]["text"]
+            for r in records
+            if r.get("content", {}).get("text")
+            and any(f"/actors/{user_id}/" in ns for ns in (r.get("namespaces") or []))
+        ][:5]
     except Exception as e:
         logger.warning(f"Failed to retrieve coaching observations: {e}")
         return []
-
-
-_SEMANTIC_STRATEGY_ID: Optional[str] = None
-
-
-def _get_semantic_strategy_id(memory_id: str) -> Optional[str]:
-    """Discover (once) the SEMANTIC strategy id of the memory resource."""
-    global _SEMANTIC_STRATEGY_ID
-    if _SEMANTIC_STRATEGY_ID is not None:
-        return _SEMANTIC_STRATEGY_ID or None
-    try:
-        control = boto3.client("bedrock-agentcore-control", region_name=REGION)
-        memory = control.get_memory(memoryId=memory_id)["memory"]
-        for strategy in memory.get("strategies", []):
-            if strategy.get("type") == "SEMANTIC":
-                _SEMANTIC_STRATEGY_ID = (
-                    strategy.get("strategyId") or strategy.get("memoryStrategyId") or ""
-                )
-                return _SEMANTIC_STRATEGY_ID or None
-        _SEMANTIC_STRATEGY_ID = ""
-    except Exception as e:
-        logger.warning(f"Strategy discovery failed (fallback to prefix): {e}")
-        _SEMANTIC_STRATEGY_ID = ""
-    return None
 
 
 def _build_observation_query(activity_data: Optional[Dict[str, Any]]) -> str:

@@ -51,46 +51,37 @@ class TestBuildObservationQuery:
 
 
 class TestRetrieveCoachingObservations:
-    def setup_method(self):
-        coach_agent._SEMANTIC_STRATEGY_ID = None  # reset the discovery cache
-
     @patch.object(coach_agent, "boto3")
-    def test_uses_discovered_strategy_namespace(self, mock_boto3):
-        control = MagicMock()
-        control.get_memory.return_value = {
-            "memory": {"strategies": [{"type": "SEMANTIC", "strategyId": "Comp-abc123"}]}
+    def test_prefix_namespace_user_filter_and_dynamic_query(self, mock_boto3):
+        client = MagicMock()
+        client.retrieve_memory_records.return_value = {
+            "memoryRecordSummaries": [
+                {"content": {"text": "mine"}, "namespaces": ["/strategies/S-1/actors/user42/"]},
+                {"content": {"text": "other"}, "namespaces": ["/strategies/S-1/actors/other/"]},
+            ]
         }
-        data_plane = MagicMock()
-        data_plane.retrieve_memory_records.return_value = {
-            "memoryRecordSummaries": [{"content": {"text": "obs1"}}]
-        }
-        mock_boto3.client.side_effect = lambda svc, **kw: (
-            control if svc == "bedrock-agentcore-control" else data_plane
-        )
+        mock_boto3.client.return_value = client
 
         result = coach_agent.retrieve_coaching_observations(
             "mem-1", "user42", {"sport_type": "WeightTraining"}
         )
 
-        assert result == ["obs1"]
-        kwargs = data_plane.retrieve_memory_records.call_args.kwargs
-        assert kwargs["namespace"] == "/strategies/Comp-abc123/actors/user42/"
+        assert result == ["mine"]
+        kwargs = client.retrieve_memory_records.call_args.kwargs
+        assert kwargs["namespace"] == "/strategies/"
         assert "musculation" in kwargs["searchCriteria"]["searchQuery"]
 
     @patch.object(coach_agent, "boto3")
-    def test_falls_back_to_prefix_when_discovery_fails(self, mock_boto3):
-        control = MagicMock()
-        control.get_memory.side_effect = Exception("denied")
-        data_plane = MagicMock()
-        data_plane.retrieve_memory_records.return_value = {"memoryRecordSummaries": []}
-        mock_boto3.client.side_effect = lambda svc, **kw: (
-            control if svc == "bedrock-agentcore-control" else data_plane
-        )
-
-        result = coach_agent.retrieve_coaching_observations("mem-1", "user42")
-
-        assert result == []
-        assert data_plane.retrieve_memory_records.call_args.kwargs["namespace"] == "/strategies/"
+    def test_caps_at_five(self, mock_boto3):
+        client = MagicMock()
+        client.retrieve_memory_records.return_value = {
+            "memoryRecordSummaries": [
+                {"content": {"text": f"obs{i}"}, "namespaces": ["/strategies/S/actors/user42/"]}
+                for i in range(8)
+            ]
+        }
+        mock_boto3.client.return_value = client
+        assert len(coach_agent.retrieve_coaching_observations("mem-1", "user42")) == 5
 
     @patch.object(coach_agent, "boto3")
     def test_returns_empty_on_error(self, mock_boto3):
