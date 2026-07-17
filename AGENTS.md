@@ -29,7 +29,8 @@ Strava AI Boost is a **serverless AWS application** that automatically enhances 
 - **19 Lambda functions** (API, processing, webhooks, support, voice — role-based packages)
 - **2 AgentCore agents** (content_gen, coach_agent) + **1 AgentCore Runtime** (`coach_chat`, agentic conversational coach)
 - **7 CDK stacks**
-- **255 tests** (211 backend unit + 44 frontend)
+- **314 tests** (234 backend unit + 36 regression evaluators + 44 frontend) + on-demand prompt regression harness (deterministic V1 + managed AgentCore Evaluations V2)
+- **Centralized LLM registry** — all Bedrock model IDs come from `src/config/llm_config.py` (mirrored in `lambda_functions/shared/llm_models.py` for Lambda bundling); anti-drift sync test
 - **Python 3.12** runtime, **React 19 + TypeScript + Vite** frontend
 - **Cognito authentication** (JWT, custom:strava_id attribute, no self-registration)
 - **CloudFront + S3** frontend hosting (OAC)
@@ -80,12 +81,16 @@ through its tools (chantier A1), so it is not limited to a fixed context dump.
 
 ```
 strava-ai-boost/
-├── scripts/                    # Deployment and maintenance (12 scripts)
+├── scripts/                    # Deployment and maintenance
 │   ├── deploy.sh              # Main CDK deployment
-│   ├── deploy_agentcore_agents.sh
+│   ├── deploy_agentcore_agents.sh    # Injects BEDROCK_MODEL_ID from the central registry
 │   ├── configure_agentcore_integration.sh
 │   ├── create_agentcore_memories.sh
 │   ├── configure_memory_strategy.py  # Memory UserPreferenceStrategy config
+│   ├── run_prompt_regression.py      # V1 deterministic prompt regression (deployed runtime, ~0.20$/run)
+│   ├── run_managed_evals.py          # V2 managed AgentCore Evaluations (LLM-as-a-Judge, ~1.2$/run)
+│   ├── build_eval_dataset.py         # Fixtures → AgentCore Evaluations dataset
+│   ├── create_managed_evaluators.py  # Custom judge evaluators (idempotent)
 │   ├── configure_strava_webhook.sh
 │   ├── setup_local_env.sh
 │   ├── validate_deployment.sh
@@ -171,12 +176,19 @@ strava-ai-boost/
 │   └── vite.config.ts                  # Vite + Vitest configuration
 │
 ├── tests/                      # Test suite
-│   ├── unit/                           # Lambda unit tests (162 tests)
+│   ├── unit/                           # Lambda unit tests (234 tests)
 │   │   ├── conftest.py                 # Env vars for Lambda imports
-│   │   ├── test_webhook_handler.py     # 30 tests: validation, routing, signature
-│   │   ├── test_content_generator.py   # 36 tests: DynamoDB, parsing, storage
+│   │   ├── test_webhook_handler.py     # Validation, routing, signature
+│   │   ├── test_content_generator.py   # DynamoDB, parsing, storage, strength extraction
 │   │   ├── test_workout_analysis.py    # Laps classification, pace zones, Enduraw extraction
-│   │   └── test_dashboard_api.py       # 27 tests: validation, routing, caching
+│   │   ├── test_dashboard_api.py       # Validation, routing, caching, health anomalies
+│   │   └── test_configuration_api.py   # Strava deauthorization flow
+│   ├── regression/                     # Prompt regression harness (36 tests + live runners)
+│   │   ├── fixtures/                   # 8 synthetic activities (shared by V1 + V2 evals)
+│   │   ├── evaluators.py               # Deterministic criteria + BANNED_CLICHES (sync-tested vs prompt)
+│   │   ├── evaluators_managed/         # Custom LLM-as-a-Judge configs (AgentCore Evaluations)
+│   │   ├── test_evaluators.py          # Criteria unit tests + prompt/dataset sync
+│   │   └── test_llm_registry.py        # Anti-drift: no model-id literal outside the registry
 │   ├── test_cdk_infrastructure.py      # Stack tests
 │   ├── test_api_gateway.py             # API tests
 │   ├── test_lambda_functions.py        # Lambda tests
@@ -387,9 +399,22 @@ class MyModule(BaseModule):
 
 ### Running Tests
 
-**Lambda Unit Tests (162 tests, ~1s):**
+**Lambda Unit Tests (234 tests, ~2s):**
 ```bash
 pytest tests/unit/ -v
+```
+
+**Regression evaluators + LLM registry sync (36 tests, free, no AWS):**
+```bash
+pytest tests/regression/ -v
+```
+
+**Prompt regression — live, on-demand (run after changing `embedded_prompts.py` + deploying):**
+```bash
+# V1 deterministic harness (~0.20$/run, invokes the deployed content_gen runtime)
+./venv/bin/python scripts/run_prompt_regression.py [--update-baseline]
+# V2 managed AgentCore Evaluations (~1.2$/run, LLM-as-a-Judge on traces)
+./venv/bin/python scripts/run_managed_evals.py [--update-baseline]
 ```
 
 **Infrastructure/Integration Tests (73 tests):**
@@ -398,7 +423,7 @@ export AWS_PROFILE=your-aws-profile
 pytest tests/ -v --ignore=tests/unit/
 ```
 
-**Frontend Tests (40 tests, ~4s):**
+**Frontend Tests (44 tests, ~4s):**
 ```bash
 cd frontend && npm test
 ```

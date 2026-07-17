@@ -2,6 +2,10 @@
 
 Modern test suite with 100% pass rate and dynamic AWS resource discovery.
 
+> This README covers the **integration suite** (live AWS). Two other suites live alongside:
+> - `tests/unit/` — 234 mocked Lambda unit tests, no AWS credentials (`pytest tests/unit/`)
+> - `tests/regression/` — 36 prompt-regression evaluator tests + live runners (see `docs/design/regression-evals.md`)
+
 ## Test Files
 
 | File | Tests | Description |

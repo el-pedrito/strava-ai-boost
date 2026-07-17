@@ -6,7 +6,7 @@
 >
 > - **Single-user by design** — built for one athlete (per-user config exists, but no multi-tenant hardening)
 > - **No CI/CD** — deployments are manual via `cdk deploy` and shell scripts for the AgentCore agents (`scripts/deploy_agentcore_agents.sh`)
-> - **Known issues** — AgentCore Browser Tool cold starts (~30% first-call failure, retried), Lambda Layer cross-stack export constraint, cosmetic CDK feature-flag warnings (see [Known Issues](#known-issues))
+> - **Known issues** — Lambda Layer cross-stack export constraint, cosmetic CDK feature-flag warnings (see [Known Issues](#known-issues))
 > - **External dependencies may break** — Strava API (paid subscription required since 2026), Campus Coach and Intervals.icu integrations rely on undocumented or third-party APIs
 > - **Costs** — deploying this stack incurs AWS charges (Bedrock, AgentCore, Lambda, DynamoDB, Polly, CloudFront). Review before deploying.
 >
@@ -380,7 +380,7 @@ sequenceDiagram
 
 **AWS Services**: Lambda (19 functions, Powertools), DynamoDB (3 tables, 3 GSIs, TTL), Step Functions, SQS + DLQ, Bedrock (Claude Sonnet 4.5), Secrets Manager, API Gateway (Cognito authorizer), CloudFront + S3 (OAC), Cognito User Pool
 
-**AI/ML**: Strands Agents, AgentCore Memory (2 LTM memories), AgentCore Browser Tool, Claude Sonnet 4.5
+**AI/ML**: Strands Agents, AgentCore Memory (2 LTM memories), AgentCore Evaluations (prompt regression), Claude Sonnet 4.5 + Haiku 4.5 (central model registry)
 
 ### Performance Targets
 
@@ -481,15 +481,11 @@ Strava sends `update` webhooks when activities are modified. The system prevents
 
 ## Known Issues
 
-### 1. AgentCore Browser Tool - Cold Start (~30% first-call failure)
-
-AgentCore Browser Tool experiences cold start delays. Exponential backoff retry (3 attempts) is implemented. Success rate: ~90% after retries.
-
-### 2. Lambda Layer Cross-Stack Export Constraint
+### 1. Lambda Layer Cross-Stack Export Constraint
 
 The Lambda Layer cannot be replaced via CDK due to CloudFormation cross-stack export limitations. New dependencies are installed directly into `lambda_functions/` via `pip install -t` and bundled with `Code.from_asset`. The Layer still provides original dependencies.
 
-### 3. CDK Feature Flags Warning (Cosmetic)
+### 2. CDK Feature Flags Warning (Cosmetic)
 
 58 unconfigured feature flags generate warnings during CDK operations. No functional impact. Run `cdk flags` to review.
 
@@ -498,8 +494,11 @@ The Lambda Layer cannot be replaced via CDK due to CloudFormation cross-stack ex
 ## Testing
 
 ```bash
-# Lambda unit tests (211 tests, ~2s — no AWS credentials needed)
+# Lambda unit tests (234 tests, ~2s — no AWS credentials needed)
 pytest tests/unit/ -v
+
+# Prompt regression evaluators + LLM registry sync (36 tests, free)
+pytest tests/regression/ -v
 
 # Infrastructure/integration tests (73 tests — requires AWS credentials)
 export AWS_PROFILE=<your-aws-profile>
@@ -512,7 +511,19 @@ cd frontend && npm test
 pytest tests/ -v
 ```
 
-**Test coverage:** 255 total tests (211 backend unit + 44 frontend), plus integration tests.
+**Test coverage:** 314 total tests (234 backend unit + 36 regression evaluators + 44 frontend), plus integration tests.
+
+**Prompt regression (on-demand, live):** after changing prompts and redeploying the agents, replay 8 synthetic reference activities against the deployed runtime:
+
+```bash
+# V1 — deterministic checks (banned AI clichés, dashes, length, emoji policy…), ~$0.20/run
+./venv/bin/python scripts/run_prompt_regression.py [--update-baseline]
+
+# V2 — managed AgentCore Evaluations (built-in + custom LLM-as-a-Judge evaluators), ~$1.2/run
+./venv/bin/python scripts/run_managed_evals.py [--update-baseline]
+```
+
+Design and findings: [`docs/design/regression-evals.md`](docs/design/regression-evals.md).
 
 ## Cost Tracking
 

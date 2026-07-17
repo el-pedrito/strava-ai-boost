@@ -15,7 +15,7 @@ export AWS_PROFILE=your-aws-profile
 
 ```bash
 ./scripts/create_agentcore_memories.sh                       # Create LTM memories (~3 min)
-./scripts/deploy_agentcore_agents.sh                         # Deploy content_gen + campus_coach agents
+./scripts/deploy_agentcore_agents.sh                         # Deploy content_gen + coach + coach_chat agents
 ./scripts/configure_agentcore_integration.sh                 # IAM permissions + Lambda env vars
 python scripts/configure_memory_strategy.py                  # UserPreferenceStrategy setup
 ./scripts/deploy_agentcore_agents.sh                         # Redeploy with guardrails
@@ -60,7 +60,11 @@ Uninstall order: Webhook > AgentCore agents > AgentCore memories > CDK stacks (M
 | `configure_strava_webhook.sh` | Strava webhook subscription | `--auto-configure`, `--validate-only`, `--cleanup` |
 | `validate_deployment.sh` | Post-deploy validation | `[dev\|prod]` |
 | `create_agentcore_memories.sh` | AgentCore LTM memories (semantic search, 365d) | |
-| `deploy_agentcore_agents.sh` | Deploy agents (content_gen, campus_coach) | |
+| `deploy_agentcore_agents.sh` | Deploy agents (content_gen, strava_ai_boost_coach, coach_chat) — injects `BEDROCK_MODEL_ID` from the central registry | |
+| `run_prompt_regression.py` | V1 deterministic prompt regression against the deployed content_gen runtime (~$0.20/run) | `--fixtures`, `--update-baseline`, `--agent-arn` |
+| `run_managed_evals.py` | V2 managed AgentCore Evaluations (built-ins + custom LLM-as-a-Judge, ~$1.2/run) | `--scenarios`, `--update-baseline` |
+| `build_eval_dataset.py` | Convert regression fixtures → AgentCore Evaluations dataset | `--output` |
+| `create_managed_evaluators.py` | Create/update custom judge evaluators (idempotent, registry-substituted model IDs) | `--region` |
 | `tag_agentcore_resources.sh` | Tag runtimes + memories + IAM execution roles for cost allocation | |
 | `configure_agentcore_integration.sh` | IAM policies + Lambda env vars for AgentCore | |
 | `configure_memory_strategy.py` | UserPreferenceStrategy on content_gen memory | |
@@ -72,8 +76,8 @@ Uninstall order: Webhook > AgentCore agents > AgentCore memories > CDK stacks (M
 ### Key environment variables set by `configure_agentcore_integration.sh`
 
 ```bash
-CONTENT_GENERATION_AGENT_ARN=arn:aws:bedrock-agentcore:eu-west-1:xxx:runtime/content_gen-xxx
-CAMPUS_COACH_AGENT_ARN=arn:aws:bedrock-agentcore:eu-west-1:xxx:runtime/campus_coach-xxx
+CONTENT_GENERATION_AGENT_ARN=arn:aws:bedrock-agentcore:us-east-1:xxx:runtime/content_gen-xxx
+COACH_AGENT_ARN=arn:aws:bedrock-agentcore:us-east-1:xxx:runtime/strava_ai_boost_coach-xxx
 AGENTCORE_AGENTS_AVAILABLE=true
 AGENTCORE_MEMORY_ENABLED=true
 ```
