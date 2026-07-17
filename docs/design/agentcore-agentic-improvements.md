@@ -1,7 +1,7 @@
 # AgentCore — Améliorations de l'aspect agentic
 
 **Date :** 2026-07-10 (validé contre doc officielle AgentCore + Strands le 2026-07-10)
-**Statut :** Proposition (aucune implémentation démarrée)
+**Statut :** Implémenté pour A1/A2a/A2b/A2b-bis/A3/A4 (mis à jour le 2026-07-17) — voir [ROADMAP.md](../ROADMAP.md) § Chantier agentic. Ce document reste la trace des études et décisions.
 **Contexte :** Revue des 3 agents AgentCore (`content_gen`, `strava_ai_boost_coach`, `campus_coach`) et des deux chemins conversationnels (buffered `/coach/ask` + streaming AG-UI).
 
 ---
@@ -48,6 +48,12 @@ CoachChat.tsx ──POST SSE, Authorization: Bearer <JWT Cognito>──> Runtime
                                                                          ├─ @tool query_activities / get_campus_plan / get_pace_zones / get_intervals_metrics
                                                                          └─ Memory coaching_observations (existante) + write_chat_to_memory
 ```
+
+> **As-built (2026-07-17)** : 5 tools au final (`get_coach_observations`
+> ajouté pour la continuité chat↔pipeline) ; la lecture memory ne passe pas
+> par le namespace `coaching_observations` (jamais alimenté — cf. audit
+> [memory-improvements.md](./memory-improvements.md)) mais par les namespaces
+> unifiés `/strategies/{strategyId}/actors/{actorId}/`.
 
 - `user_id` extrait du **claim JWT `custom:strava_id`** (plus le body client)
 - Multi-tour : `RunAgentInput.messages` natif AG-UI (transpose A2a côté serveur)
@@ -288,31 +294,27 @@ viendrait naturellement à ce moment-là.
 
 ## Hygiène relevée au passage
 
-- **Guardrail `9vaecu56g20r` en version `DRAFT`** — à publier en version numérotée.
-- **Rule EventBridge legacy `StravaAIBoost-CampusCoach-DailyExtraction`**
-  (lundi 05:00 UTC, Browser Tool) tourne encore en parallèle du sync REST
-  quotidien `strava-ai-boost-campus-coach-daily-sync`. À désactiver si le
-  fallback Browser Tool n'est plus nécessaire.
-  ⚠️ `configuration_api.py` a une policy IAM Enable/DisableRule sur cette rule
-  (toggle du module Campus Coach) — à migrer vers la nouvelle rule avant suppression.
-- **Runtime `campus_coach`** conservé en fallback alors qu'il n'est plus invoqué
-  par le flux nominal (remplacé par `campus_coach_sync.py` depuis mai 2026).
-- **⚠️ Toolchain déprécié** : le projet utilise
-  `bedrock-agentcore-starter-toolkit` (pip) + `.bedrock_agentcore.yaml`
-  (`requirements.txt`, `scripts/deploy_agentcore_agents.sh`). AWS l'a déprécié
-  au profit du CLI `agentcore` (npm `@aws/agentcore`, config
-  `agentcore/agentcore.json`, déploiement CDK). Le SDK runtime
-  `bedrock-agentcore` (utilisé dans `src/agents/*.py`) reste inchangé — seule
-  la partie scaffolding/déploiement migre. À planifier avant que le toolkit
-  pip ne casse.
+> **Mise à jour 2026-07-17 : les 4 items ci-dessous sont résolus** (détail dans la ROADMAP).
+
+- ✅ **Guardrail `<GUARDRAIL_ID>` en version `DRAFT`** — **résolu** : publié en v1 (quick wins 2026-07-10, avec fix au passage d'un fail-open silencieux : le runtime `content_gen` pointait sur un guardrail ID inexistant).
+- ✅ **Rule EventBridge legacy `StravaAIBoost-CampusCoach-DailyExtraction`** — **résolue** : supprimée (quick wins 2026-07-10), toggle IAM nettoyé (le sync REST vérifie l'activation module en DynamoDB).
+- ✅ **Runtime `campus_coach`** conservé en fallback — **résolu** : décommissionné le 2026-07-16 (runtime + mémoire détruits, Lambda `campus_coach_invoker` supprimée, code/CDK/scripts/tests nettoyés).
+- ✅ **« Toolchain déprécié »** — **infirmé** : la « dépréciation » du `bedrock-agentcore-starter-toolkit` (pip) venait des guides MCP, **pas d'une annonce AWS officielle** (vérifié le 2026-07-10, aucune notice publique). Migration vers le CLI `agentcore` (npm) désormais **réactive** seulement (ROADMAP item A5).
 
 ---
 
 ## Recommandation
 
-Priorisation détaillée et séquencement : voir [ROADMAP.md](../ROADMAP.md)
-(section « Chantier agentic AgentCore », items A1-A5). En résumé : release
-open-source v0.1.0 d'abord, puis l'alternative légère du point 2
-(`get_last_k_turns`, ~1 j), puis les tools (point 1, ~1 sem), puis
-Evaluations en régression. La refonte streaming complète (point 2) et la
-stratégie memory (point 3) seulement si le besoin se confirme après les tools.
+Priorisation détaillée, séquencement et état d'avancement : voir
+[ROADMAP.md](../ROADMAP.md) (section « Chantier agentic AgentCore »,
+items A1-A5). Le séquencement initialement recommandé ici a été **entièrement
+réalisé** (2026-07-16/17), avec un amendement : la reco d'origine
+« alternative légère via `get_last_k_turns` » était contredite par l'étude du
+§2 lui-même (historique memory lossy par design → rejetée) ; A2a a été livré
+avec l'historique fourni par le frontend et normalisé serveur-side
+(`build_converse_messages`). Ont suivi : tools + runtime AGUI (A1+A2b),
+décommission legacy (A2b bis), évals de régression V1+V2 (A3), et l'audit/fix
+mémoire (point 3 → réalisé en A4, cf.
+[memory-improvements.md](./memory-improvements.md) : 5 tools au final avec
+`get_coach_observations`, lecture memory via les namespaces unifiés
+`/strategies/`, stratégie EPISODIC ajoutée).

@@ -1,6 +1,6 @@
 # Test Suite for Strava AI Boost
 
-Modern test suite with 100% pass rate and dynamic AWS resource discovery.
+Integration test suite with dynamic AWS resource discovery.
 
 > This README covers the **integration suite** (live AWS). Two other suites live alongside:
 > - `tests/unit/` — 234 mocked Lambda unit tests, no AWS credentials (`pytest tests/unit/`)
@@ -17,7 +17,7 @@ Modern test suite with 100% pass rate and dynamic AWS resource discovery.
 | `test_lambda_functions.py` | 10 | Lambda function structure |
 | `test_end_to_end.py` | 10 | Integration tests with deployed AWS |
 
-**Total: 73 tests - 100% pass rate** ✅
+**Total: 73 tests**
 
 ## Quick Start
 
@@ -77,10 +77,10 @@ open htmlcov/index.html
 
 **Infrastructure (CDK)**
 - ✅ DynamoDB tables (3 tables, encryption, GSI, TTL)
-- ✅ Lambda functions (13 functions, configuration)
+- ✅ Lambda functions (per-stack resource counts, configuration)
 - ✅ SQS queues (main + DLQ, encryption)
 - ✅ Step Functions (workflow, error handling)
-- ✅ API Gateway (REST API, API Key, Usage Plan)
+- ✅ API Gateway (REST API, Cognito authorizer)
 - ✅ Secrets Manager (4 secrets, encryption)
 - ✅ IAM roles and policies
 - ✅ CloudWatch alarms
@@ -97,7 +97,7 @@ open htmlcov/index.html
 
 **Advanced Testing**
 - ✅ Error handling (404, 403, 405)
-- ✅ API Key validation (valid/invalid/missing)
+- ✅ Cognito JWT validation (valid/invalid/missing token)
 - ✅ Performance (response times <5-10s)
 - ✅ Data structure validation
 - ✅ CORS configuration
@@ -118,17 +118,20 @@ config = get_aws_config()
 tables = config.get_dynamodb_tables()
 lambdas = config.get_lambda_functions()
 api_url = config.get_api_gateway_url()
-api_key = config.get_api_gateway_key()
 
 # Print summary
 config.print_summary()
 ```
 
+> Live API Gateway tests authenticate with a Cognito JWT: set the
+> `COGNITO_ID_TOKEN` environment variable (ID token from a logged-in user);
+> tests are skipped if it is absent.
+
 ### Benefits
 
 - ✅ **No hardcoded values** - Works on any environment
 - ✅ **Automatic discovery** - Finds resources via CloudFormation/AWS APIs
-- ✅ **Dynamic API Key** - Retrieves actual API Gateway key
+- ✅ **Cognito auth** - Live API tests use a real Cognito JWT (`COGNITO_ID_TOKEN`)
 - ✅ **Profile support** - Uses configured AWS profile
 
 ## Test Categories
@@ -195,34 +198,6 @@ def test_new_workflow(self, aws_session):
     assert response['Status'] == 'Success'
 ```
 
-## CI/CD Integration
-
-### GitHub Actions
-
-```yaml
-name: Tests
-on: [push, pull_request]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-python@v2
-        with:
-          python-version: '3.12'
-      
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install pytest pytest-cov moto boto3 requests
-      
-      - name: Run tests
-        env:
-          AWS_PROFILE: ${{ secrets.AWS_PROFILE }}
-        run: pytest tests/ -v --cov=. --cov-report=xml
-```
-
 ## Troubleshooting
 
 ### API Gateway Tests Fail
@@ -231,11 +206,11 @@ jobs:
 # Verify API Gateway is deployed
 aws apigateway get-rest-apis --profile your-aws-profile
 
-# Check API Key
+# Check resource discovery
 python tests/aws_config.py
 
-# Test manually
-curl -H "X-API-Key: YOUR_KEY" "https://YOUR_API_ID.execute-api.eu-west-1.amazonaws.com/prod/health/agentcore"
+# Test manually (Cognito JWT in the Authorization header)
+curl -H "Authorization: $COGNITO_ID_TOKEN" "https://YOUR_API_ID.execute-api.us-east-1.amazonaws.com/prod/health/agentcore"
 ```
 
 ### CDK Tests Fail
@@ -268,10 +243,7 @@ aws cloudformation list-stacks --profile your-aws-profile
 
 ## Next Steps
 
-To improve coverage further:
+Done since this suite was written: **Lambda unit tests** (234 mocked tests in `tests/unit/`) and **agent prompt tests** (regression harness in `tests/regression/` + live V1/V2 runners). Remaining ideas:
 
-1. **Lambda unit tests** - Add mocked tests for Lambda handlers
-2. **Agent tests** - Test agent prompts and logic
-3. **Module tests** - Test Campus Coach and Enduraw modules
-4. **Load tests** - Test API Gateway under load
-5. **Security tests** - Penetration testing for API endpoints
+1. **Load tests** - Test API Gateway under load
+2. **Security tests** - Penetration testing for API endpoints

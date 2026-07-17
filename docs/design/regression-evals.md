@@ -1,6 +1,6 @@
 # Spec — Évals de régression des prompts (A3)
 
-> Statut : **spec validée à challenger avec l'utilisateur avant implémentation**.
+> Statut : **implémenté** (V1 le 2026-07-16, V2 managée le 2026-07-17).
 > Date : 2026-07-16. Contexte : ROADMAP § Chantier agentic, item A3.
 
 ## Problème
@@ -74,14 +74,15 @@ les vérifie**, ni en test ni en prod.
 
 ```
 tests/regression/
-├── fixtures/               # ~8-10 activités synthétiques (JSON)
+├── fixtures/               # 8 activités synthétiques (JSON)
 │   ├── run_easy.json       # footing cool
 │   ├── run_intervals.json  # fractionné avec laps
 │   ├── run_long.json       # sortie longue + décrochage cardiaque
+│   ├── run_no_emoji.json   # préférence zéro emoji
+│   ├── run_campus_matched.json # séance matchée au plan Campus
 │   ├── weight_training.json# muscu avec description exercices
 │   ├── ride.json           # vélo
-│   ├── manual_indoor.json  # activité manuelle sans laps (cas du crash 07/15)
-│   └── ...
+│   └── manual_indoor.json  # activité manuelle sans laps (cas du crash 07/15)
 ├── evaluators.py           # critères déterministes purs (unit-testés)
 └── conftest.py
 scripts/run_prompt_regression.py   # runner live (Bedrock converse)
@@ -140,7 +141,8 @@ ponctuellement (non-déterminisme).
 
 > Statut : **implémenté le 2026-07-17** (`scripts/create_managed_evaluators.py`,
 > `scripts/build_eval_dataset.py`, `scripts/run_managed_evals.py`,
-> `.regression/baseline_managed.json` — 0 fail / 11 warn).
+> `.regression/baseline_managed.json` — **0 fail / 8 warn** ; le premier run
+> donnait 11 warn, ramenés à 8 après l'ajout des exemples few-shot au prompt).
 > Findings du run live : (1) le spike « `agent_input` volumineux comme
 > `turns[].input` » est **validé** (dict de 21 clés avec laps accepté,
 > `schema_type` = `AGENTCORE_EVALUATION_PREDEFINED_V1`) ; (2) la mise en garde
@@ -401,10 +403,10 @@ réduire les built-ins à `GoalSuccessRate` seul (~0,45 $/run).
   prérequis supplémentaire à documenter pour les forks du repo.
 - **Pas de bypass sans agent** : impossible d'évaluer un prompt non déployé
   (même contrainte que V1 décision #3, aggravée : il faut runtime + télémétrie).
-- **Point non vérifié** : le passage d'un `agent_input` volumineux (dict
-  complet avec laps) comme `turns[].input` est conforme au type documenté
-  (« String or Object ») mais les exemples doc ne montrent que des prompts
-  courts — à valider par un spike avant d'engager l'implémentation.
+- ~~**Point non vérifié** : le passage d'un `agent_input` volumineux (dict
+  complet avec laps) comme `turns[].input`~~ → **validé au run live du
+  2026-07-17** (dict de 21 clés avec laps accepté, cf. note de statut en tête
+  de section) ; conforme au type documenté (« String or Object »).
 
 ### Références (doc AWS vérifiée 2026-07-16)
 

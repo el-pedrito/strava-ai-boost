@@ -1,0 +1,105 @@
+<mxfile host="app.diagrams.net" modified="2026-07-17T12:00:00.000Z" agent="strava-ai-boost" version="24.0.0">
+  <diagram id="high-level" name="High-level architecture">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="Strava AI Boost — High-level architecture (AgentCore lab)" style="text;html=1;fontSize=20;fontStyle=1;align=center;" vertex="1" parent="1">
+          <mxGeometry x="320" y="10" width="760" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Athlete / Browser -->
+        <mxCell id="athlete" value="Athlete" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="90" width="40" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="browser" value="Web browser&#10;(React 19 PWA)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="40" y="210" width="140" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Frontend hosting -->
+        <mxCell id="frontend" value="Frontend (CloudFront + private S3, OAC)&#10;Cognito User Pool (JWT, no self-signup)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="240" y="90" width="260" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- API Gateway -->
+        <mxCell id="apigw" value="API Gateway (Cognito authorizer)&#10;+ 5 API Lambdas&#10;dashboard / config / preferences / audio / health" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="240" y="210" width="260" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Event pipeline -->
+        <mxCell id="pipeline" value="Event-driven enrichment pipeline" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;verticalAlign=top;fontStyle=1;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="240" y="340" width="500" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="webhook" value="Webhook λ&#10;→ SQS (+DLQ)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;" vertex="1" parent="pipeline">
+          <mxGeometry x="20" y="40" width="110" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="sfn" value="Step Functions&#10;(parallel)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;" vertex="1" parent="pipeline">
+          <mxGeometry x="150" y="40" width="110" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="fetcher" value="Activity Fetcher λ" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;" vertex="1" parent="pipeline">
+          <mxGeometry x="280" y="20" width="130" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="contentgen" value="Content + Coach λ&#10;(invoke AgentCore runtimes)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;" vertex="1" parent="pipeline">
+          <mxGeometry x="280" y="66" width="130" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="assembly" value="Assembly λ&#10;→ Strava update" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;" vertex="1" parent="pipeline">
+          <mxGeometry x="280" y="122" width="130" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="voice" value="Voice λs&#10;(Bedrock → Polly MP3)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff9e6;strokeColor=#d6b656;" vertex="1" parent="pipeline">
+          <mxGeometry x="20" y="110" width="150" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- AgentCore platform (the lab) -->
+        <mxCell id="agentcore" value="Amazon Bedrock AgentCore — the lab ⭐" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffcc99;strokeColor=#ff9900;strokeWidth=3;verticalAlign=top;fontStyle=1;fontSize=14;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="800" y="90" width="540" height="430" as="geometry" />
+        </mxCell>
+        <mxCell id="rt_content" value="Runtime&#10;content_gen&#10;(Strands + Guardrails)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe0b3;strokeColor=#ff9900;" vertex="1" parent="agentcore">
+          <mxGeometry x="20" y="40" width="150" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="rt_coach" value="Runtime&#10;strava_ai_boost_coach&#10;(feedback pipeline)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe0b3;strokeColor=#ff9900;" vertex="1" parent="agentcore">
+          <mxGeometry x="195" y="40" width="150" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="rt_chat" value="Runtime coach_chat&#10;FastAPI + Strands, AG-UI SSE&#10;customJWT · 5 tools" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe0b3;strokeColor=#ff9900;strokeWidth=2;" vertex="1" parent="agentcore">
+          <mxGeometry x="370" y="40" width="150" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="memory" value="Memory content_gen_mem (shared)&#10;3 strategies: SEMANTIC · USER_PREFERENCE · EPISODIC&#10;unified namespaces /strategies/{id}/actors/{actorId}/" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe0b3;strokeColor=#ff9900;" vertex="1" parent="agentcore">
+          <mxGeometry x="20" y="130" width="500" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="evals" value="Evaluations&#10;3 built-ins + 2 custom LLM-as-a-Judge&#10;(VoixAuthentiqueFR, FideliteDonneesActivite)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe0b3;strokeColor=#ff9900;" vertex="1" parent="agentcore">
+          <mxGeometry x="20" y="220" width="240" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="obs" value="Observability&#10;GenAI dashboard, OTel traces,&#10;CloudWatch Transaction Search" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe0b3;strokeColor=#ff9900;" vertex="1" parent="agentcore">
+          <mxGeometry x="280" y="220" width="240" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="bedrock" value="Bedrock models — central registry (llm_config.py)&#10;Claude Sonnet 4.5 (generation) · Haiku 4.5 (extraction, judges)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="agentcore">
+          <mxGeometry x="20" y="320" width="500" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="ac_note" value="Not used (yet): Gateway · Identity vault · Code Interpreter · Policy" style="text;html=1;fontSize=10;fontColor=#666666;" vertex="1" parent="agentcore">
+          <mxGeometry x="20" y="385" width="500" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- Data -->
+        <mxCell id="data" value="DynamoDB (3 tables, 3 GSIs)&#10;Secrets Manager · S3 audio" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;boundedLbl=1;" vertex="1" parent="1">
+          <mxGeometry x="540" y="200" width="180" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- External -->
+        <mxCell id="external" value="External: Strava API (webhooks + OAuth) · Campus Coach REST · Intervals.icu · Enduraw · Open-Meteo" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="240" y="560" width="500" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Edges -->
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;html=1;" edge="1" parent="1" source="athlete" target="browser"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e2" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;html=1;" edge="1" parent="1" source="browser" target="frontend"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e3" value="JWT" style="edgeStyle=orthogonalEdgeStyle;html=1;" edge="1" parent="1" source="browser" target="apigw"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e4" value="AG-UI SSE direct to data plane (customJWT, no proxy)" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ff9900;strokeWidth=3;fontColor=#ff6600;fontStyle=1;exitX=1;exitY=0.25;" edge="1" parent="1" source="browser" target="rt_chat"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="200" y="60" /><mxPoint x="1245" y="60" /></Array></mxGeometry></mxCell>
+        <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;html=1;" edge="1" parent="1" source="apigw" target="data"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e6" value="webhook" style="edgeStyle=orthogonalEdgeStyle;html=1;dashed=1;" edge="1" parent="1" source="external" target="pipeline"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e7" value="InvokeAgentRuntime" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ff9900;strokeWidth=2;" edge="1" parent="1" source="pipeline" target="agentcore"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e8" style="edgeStyle=orthogonalEdgeStyle;html=1;" edge="1" parent="1" source="pipeline" target="data"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

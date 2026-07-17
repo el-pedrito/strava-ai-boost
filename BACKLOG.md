@@ -1,46 +1,43 @@
 # Backlog
 
+> Document de travail interne (en français). Pour l'état à jour du projet et la
+> liste consolidée des chantiers réalisés, la **source de vérité est
+> [docs/ROADMAP.md](docs/ROADMAP.md)**. Ce fichier ne garde que la dette
+> technique et les idées encore ouvertes.
+
 ## Etat du projet
 
 Le projet est fonctionnel et en production (dev). Toute la chaine fonctionne end-to-end :
 - Webhook Strava → Step Functions → AI content generation → update Strava activity
-- Campus Coach scraping automatique (weekly via EventBridge, session status sync on match)
-- Frontend React avec configuration modules, profil utilisateur, feedback loop
-- 163 unit tests (Lambda + frontend)
+- Campus Coach sync REST direct (daily 05:00 UTC via EventBridge, session status sync on match)
+- Frontend React (CloudFront + Cognito) avec configuration modules, profil utilisateur, feedback loop
+- 314 tests (234 backend unit + 36 évaluateurs de régression + 44 frontend) + 73 tests d'intégration
 - Observability (X-Ray + CloudWatch), cost allocation tags, DLQ error handling
-- Security : Secrets Manager, HMAC-SHA1 webhook verification, API Gateway auth, DynamoDB encryption, no public endpoints
+- Security : Secrets Manager, HMAC-SHA1 webhook verification, Cognito auth (API Gateway + coach chat customJWT), DynamoDB encryption, no public endpoints
 
-**Stack :** CDK (Python) / Lambda / Step Functions / DynamoDB / API Gateway / Bedrock (Claude) / AgentCore (Browser Tool + LTM) / React + TypeScript
+**Stack :** CDK (Python) / Lambda / Step Functions / DynamoDB / API Gateway / Bedrock (Claude) / AgentCore (3 Runtimes + Memory) / React + TypeScript
 
 ## Done
+
+Voir [docs/ROADMAP.md](docs/ROADMAP.md) pour la liste complète et datée. Rappels notables issus de ce backlog :
 
 - Fichiers sensibles dans Git history — `git rm --cached` + `.gitignore`
 - Erreur exposee au client — Message generique dans `content_agent.py`
 - Webhook API sans auth — Documente (exigence Strava, HMAC-SHA1)
 - Logger inconsistant — Harmonise sur `shared.logger.get_logger()`
 - Cost allocation tags — CDK + AgentCore resources + IAM execution roles (per-agent Bedrock cost via CUR 2.0)
-- **Cost optimization pass (April 2026)** — $513/mo -> ~$26/mo (Campus Coach weekly cron + Haiku, Bedrock prompt caching, MaxToolCountsHook, MonitoringStack supprimé).
-  - Campus Coach cron weekly (was daily) + mark session done on match
-  - Campus Coach + Memory Strategy -> Haiku 4.5 (was Sonnet)
-  - Bedrock prompt caching on content_gen system prompt
-  - `MaxToolCountsHook` prevents infinite loops on Campus Coach
-  - `MonitoringStack` removed — rely on AgentCore Observability + default AWS namespaces
+- **Cost optimization pass (April 2026)** — $513/mo -> ~$26/mo (Campus Coach cron + Haiku, Bedrock prompt caching, MaxToolCountsHook, MonitoringStack supprimé).
 - **Credentials leak in AgentCore logs** — CloudWatch Data Protection Policy masks `Password:`, `EmailAddress`, `AwsSecretKey`, `Authorization:` in all AgentCore runtime log groups. Applied by `scripts/tag_agentcore_resources.py`.
-- **Campus Coach scraping reliability** — Diagnosed Axeptio cookies popup blocking Playwright `networkidle` (upstream bug microsoft/playwright#19835). Fixed via prompt-level instruction.
-- **Campus Coach fire-and-forget fix (2026-04-27)** — Lambda invoker timeout 120s systematique : `asyncio.create_task` dans `@app.entrypoint` gardait la coroutine attachee au worker loop AgentCore, bloquant la reponse HTTP. Fix : `threading.Thread` + `asyncio.run()` dans le handler. Lambda retourne maintenant en <15s. Commit `69486ef`.
+- **Campus Coach fire-and-forget fix (2026-04-27)** — `threading.Thread` + `asyncio.run()` dans le handler de la Lambda invoker (timeout 120s systematique). Commit `69486ef`. *(Composant depuis décommissionné.)*
+- **Deploy Frontend CloudFront + S3 + Cognito** — fait : S3 + CloudFront (OAC), Cognito User Pool (`selfSignUpEnabled: false`), auth JWT Cognito (l'API key a été remplacée), HTTPS everywhere.
+- **Campus Coach API REST** — fait : `campus_coach_sync.py` (login + `GET /smart-training`) remplace le scraping Browser Tool. Agent Browser Tool + Lambda invoker **décommissionnés le 2026-07-16**.
+- **Programme Muscu structuré** — fait : `user_preferences.strength_program` (Upper A/B, Rappel), extraction LLM des séances (`parsed_sets`), charts progression dans Coach Trends, injection coach (vision globale hebdo + progressions charges).
+- **Budget Alert + DLQ Monitoring** — fait : alarme CloudWatch DLQ → SNS + monthly budget alert (cf. CHANGELOG v0.1.0).
+- **Open-Source Release Readiness (audit 2026-04-25)** — fait : disclaimer non-production, CONTRIBUTING/CODE_OF_CONDUCT/SECURITY/`.github/ISSUE_TEMPLATE`, licence **MIT-0** appliquée, GIF démo dans le README, `docs/THREAT-MODEL.md`, scan ASH (`docs/SECURITY-SCAN.md`), bump des dépendances CVE, tag **v0.1.0 + CHANGELOG** (release publiée le 2026-07-15). Non-goals confirmés : pas de PCSR, pas de CI/CD à la publication initiale.
 
 ---
 
 ## P1 — High
-
-### Deploy Frontend CloudFront + S3 + Cognito
-Le plus gros chantier restant. Debloque l'acces mobile et supprime la dependance localhost.
-- Host React app sur S3 avec CloudFront (OAC, pas OAI)
-- Cognito User Pool avec `selfSignUpEnabled: false`
-- Remplacer API Key auth par Cognito tokens (SigV4)
-- HTTPS everywhere, security headers (HSTS, CSP, X-Frame-Options)
-- WAF sur CloudFront pour OWASP protection
-- Prerequis : fix OAuth redirect URI hardcode (`StravaAppSetup.tsx:32`, `OAuthConnection.tsx:45` — `localhost:3000` → `import.meta.env.VITE_OAUTH_REDIRECT_URI`)
 
 ### IAM trop large
 - `content_generation_stack.py:131` — Bedrock `foundation-model/*` au lieu du modele specifique
@@ -48,40 +45,10 @@ Le plus gros chantier restant. Debloque l'acces mobile et supprime la dependance
 
 ### Exception handling generique
 20+ `except Exception` avec return None silencieux. Critiques :
-- `campus_coach_invoker.py:75` — variable `client` potentiellement non definie
 - `stepfunctions_error_handler.py:90,129,165`
 - `webhook_handler.py:234,357,413`
 
 ## P2 — Medium
-
-### Programme Muscu structuré (Coach vision globale)
-Le coach n'a pas de visibilité structurée sur les séances muscu — il lit le profil athlète (texte libre) mais ne peut pas matcher/tracker les progressions.
-
-**Objectif :** Stocker le programme muscu de référence, matcher les activités WeightTraining, tracker les progressions de charges.
-
-**Spec :**
-- Nouveau champ `user_preferences.strength_program` dans DynamoDB :
-  ```json
-  {
-    "sessions": [
-      {"id": "upper_a", "name": "Upper A — Dos dominant", "frequency": "1x/semaine",
-       "exercises": [
-         {"name": "Tractions", "sets": "4×8-10", "load": "BW (+5kg s1)", "rest": "2min"},
-         {"name": "Low row machine convergente", "sets": "4×10", "load": "80-82.5kg", "rest": "2min"},
-         ...
-       ]},
-      {"id": "upper_b", "name": "Upper B — Pec dominant", ...},
-      {"id": "rappel_upper", "name": "Rappel upper (post renfo Campus)", ...}
-    ]
-  }
-  ```
-- Page frontend "Programme Muscu" (CRUD, éditable)
-- Injection dans le prompt coach : programme de référence + total semaine (course + muscu)
-- Matching activité WeightTraining : le coach lit la description Strava pour identifier Upper A/B/Rappel. Si description vide → fallback sur le programme de référence.
-- Tracking progressions : comparer charges/volumes d'une semaine à l'autre (ex: "DC passé de 80kg 4x8 à 85kg 4x8 en 3 semaines")
-- `recommendation_next` intègre la charge globale : "Cette semaine : 5 séances course Campus + 2 Upper + 1 Rappel = 8 séances total"
-
-**Note :** La description Strava prime toujours sur le programme de référence (l'athlète adapte en fonction des machines dispo, de l'envie, etc.)
 
 ### RemovalPolicy.DESTROY sur DynamoDB
 `core_infrastructure_stack.py:78,109,129` — 3 tables + 4 secrets en DESTROY. Acceptable en dev, a passer en RETAIN avant prod.
@@ -99,116 +66,42 @@ Duplique dans 4 fichiers : `strava_updater.py`, `feedback_analyzer.py`, `activit
 ### Strava Rate Limiting & Retry
 `strava_updater.py` catch le 429 mais ne retry pas. Ajouter exponential backoff ou re-queue dans Step Functions.
 
-### Credentials dans le prompt Campus Coach — partiellement résolu
-`campus_coach_agent.py` — username/password sont toujours injectes dans le prompt f-string, mais la fuite dans CloudWatch Logs est maintenant bloquee par CloudWatch Data Protection Policy.
-- **Reste pour multi-users/prod :** Browser Profiles AWS pour auth persistante via cookies (évite de passer les credentials à chaque invocation).
-- **Note :** Cet agent est fragile — sensible a la casse et au format de la page Campus Coach. Un changement cote Campus Coach peut casser l'extraction.
-
 ### CI/CD Pipeline
 Pas de pipeline — `cdk deploy` manuel. GitHub Actions avec `cdk diff` sur PR + deploy on merge.
 
-### Budget Alert
-Tags cost allocation en place mais pas d'alerte. Ajouter `aws budgets` avec seuil + notification SNS.
-
-### DLQ Monitoring
-Le DLQ existe mais personne ne le lit. Alarme CloudWatch sur `ApproximateNumberOfMessagesVisible > 0`.
-
 ### Lambda Layer build automation
-Dette technique #1+#4 : hash `LAYER_ASSET_HASH` et build du layer sont manuels. Oubli = deps stales ou cross-stack export cassé. Makefile ou `scripts/build_layer.sh` qui rebuild + update le hash automatiquement.
+Dette technique : hash `LAYER_ASSET_HASH` et build du layer sont manuels. Oubli = deps stales ou cross-stack export cassé. Makefile ou wrapper autour de `lambda_layer/build_layer.sh` qui rebuild + update le hash automatiquement.
 
 ### CDK Feature Flags manquants
-Dette technique #2 : ~35/58 flags configurés dans `cdk.json` — warnings a chaque `cdk synth/deploy`. Bruit log + risque comportement par defaut legacy sur upgrade CDK. Passer `cdk flags` puis aligner.
+~35/58 flags configurés dans `cdk.json` — warnings a chaque `cdk synth/deploy`. Bruit log + risque comportement par defaut legacy sur upgrade CDK. Passer `cdk flags` puis aligner.
 
 ### Hallucination résumé hebdo hors-chat (bloc "Prochaine séance")
 Le composant frontend affichant "Prochaine séance / Total semaine en cours : X séances" hallucine les chiffres (ex: "5 séances cette semaine" alors que 0 activité réelle cette semaine). Bug distinct du chat coach — le chat a été corrigé via `format_weekly_breakdown` (découpage hebdo explicite dans le contexte) le 2026-06-23. Appliquer le même type de fix au composant/endpoint qui génère ce bloc (probablement /coach/summary ou /coach/trends, ou le coach_feedback généré à l'enhancement). Localiser le composant frontend puis injecter les vrais chiffres hebdo au lieu de laisser le LLM extrapoler.
 
 ### cdk-nag absent (chantier dédié)
-Aucune intégration cdk-nag dans le projet (`Aspects.of(app).add(AwsSolutionsChecks())` absent de `app.py`). Le skill `check-cdk-security` le flagge comme requis pour les projets CDK. À traiter dans un chantier dédié car l'activation app-wide fera remonter des findings sur les 7 stacks existants (à trier + supprimer avec justification). Détecté le 2026-06-23 lors de l'ajout du coach streaming (AG-UI). Le nouveau code (Function URL AWS_IAM + RESPONSE_STREAM, Identity Pool sans accès non-authentifié, rôle scopé) passe l'audit manuel — c'est l'outillage automatisé qui manque, pas la conformité.
+Aucune intégration cdk-nag dans le projet (`Aspects.of(app).add(AwsSolutionsChecks())` absent de `app.py`). Le skill `check-cdk-security` le flagge comme requis pour les projets CDK. À traiter dans un chantier dédié car l'activation app-wide fera remonter des findings sur les 8 stacks existants (à trier + supprimer avec justification). Détecté le 2026-06-23. Le code du coach chat (runtime AgentCore customJWT, rôle scopé) passe l'audit manuel — c'est l'outillage automatisé qui manque, pas la conformité.
 
 ## P3 — Low
 
-### Campus Coach API
-Pas d'API disponible a date. Surveiller si Campus Coach expose une API — remplacerait le scraping browser (plus rapide, fiable, moins cher).
-
 ### Migration config dead code
-Dette technique #7 : `activity_fetcher.py` fait une migration old→new format de config a chaque fetch. Tous les users sont migrés depuis longtemps. Retirer le code.
+Dette technique : `activity_fetcher.py` fait une migration old→new format de config a chaque fetch. Tous les users sont migrés depuis longtemps. Retirer le code.
 
 ### Embedded prompts externalization
-Dette technique #6 : `embedded_prompts.py` = ~20k chars, difficile a reviewer/A-B tester. Externaliser (S3 + version) pour decoupler du cycle de deploy de l'agent. Low priority car fonctionne.
+Dette technique : `embedded_prompts.py` = ~20k chars, difficile a reviewer/A-B tester. Externaliser (S3 + version) pour decoupler du cycle de deploy de l'agent. Low priority car fonctionne.
 
----
+### Catch vides frontend
+`ModuleConfiguration.tsx:56-58` — `catch {}` sans feedback utilisateur.
 
-## Open-Source Release Readiness
+### Type hints manquants
+~40 fonctions sans type hints sur Lambda handlers et fonctions publiques.
 
-Audit (2026-04-25) : projet prêt à **~80%**. À traiter avant publication GitHub + blog post.
+### Verify Observability Stack
+- Checker traces dans CloudWatch GenAI Observability dashboard
+- Verifier X-Ray custom resources et CloudWatch Logs resource policy
+- Si pas de traces : checker OpenTelemetry enabled dans AgentCore runtime
 
-### P0 — Bloquants pour un sample OSS "propre"
-
-#### Disclaimer non-production dans README
-Le README présente le projet comme production-ready à plusieurs endroits,
-mais il a des known issues (AgentCore Browser cold starts, Lambda timeout
-120s, pas de CI/CD). Ajouter un bloc "Non-Production Sample" en tête :
-
-> This is a demo/personal-use sample. Not meant to be deployed to production
-> as-is. Known issues: ... (liste courte).
-
-#### Fichiers OSS standards absents
-- `CONTRIBUTING.md` — comment contribuer, format PR, tests requis
-- `CODE_OF_CONDUCT.md` — Contributor Covenant standard
-- `SECURITY.md` — comment reporter une vuln
-- `.github/ISSUE_TEMPLATE.md` + `.github/pull_request_template.md`
-
-#### Dépendances avec CVE connues
-`pip-audit` (2026-04-25) liste 9 CVE mineures :
-- cryptography 46.0.5 → 46.0.7 (CVE-2026-34073, CVE-2026-39892)
-- urllib3, requests, pytest, pygments, lxml, pillow, pip
-Aucune critique mais visible pour les contributeurs. Bump via `requirements.txt`
-+ `lambda_layer/requirements.txt` + rebuild du layer.
-
-### P1 — Nice to have pour lancement propre
-
-#### Licence MIT → MIT-0 (si alignement aws-samples)
-AWS samples publics utilisent MIT-0 (MIT No Attribution). À décider selon
-stratégie de publication.
-
-#### Screenshots + GIF démo dans README
-Un GIF du frontend (dashboard + configuration) + 1 exemple avant/après
-de description Strava enrichie. Beaucoup plus parlant qu'un texte seul.
-
-#### Threat model simple
-`docs/THREAT-MODEL.md` : 1 page listant les 5-10 menaces principales
-(prompt injection sur credentials, webhook spoofing, secrets leak,
-fork-based attack, etc.) avec les mitigations en place.
-
-#### Scan ASH (Automated Security Helper)
-`ash --mode local --source-dir .` — passe Bandit, Semgrep, Checkov,
-cfn-nag, detect-secrets, cdk-nag, npm-audit en un seul shot. Publier
-le rapport summary pour transparence.
-
-### P2 — Pour plus tard
-
-#### Tag v0.1.0 + CHANGELOG.md
-Créer une première release avec tag Git et CHANGELOG listant les
-milestones (v0 = fonctionnalité initiale, v0.1 = optimisation cost).
-
-#### Architecture diagram officiel
-Le mermaid du README est bien. Un PNG haute résolution généré via
-`aws-diagram-mcp-server` serait plus "professionnel" pour le blog post.
-
-#### Blog post
-Structure proposée :
-- **Problème** : enrichir ses activités Strava de façon personnalisée et authentique
-- **Approche** : serverless + AgentCore + Strands + feedback loop
-- **Cost story** : $513/mo → $26/mo, leçons apprises sur AgentCore Browser
-- **Open questions** : cold starts, personnalisation progressive, multi-tenant
-
-### Non-goals (décidés le 2026-04-25)
-
-- **Pas de soumission PCSR** (Public Code Security Review Amazon) — ce n'est
-  pas un sample AWS officiel mais un projet perso open-source. MIT + bonnes
-  pratiques + disclaimer suffisent.
-- **Pas de CI/CD pipeline** à la publication initiale — cdk deploy manuel
-  documenté. GitHub Actions peut venir après les premiers retours utilisateurs.
+### A2UI — generative UI pour le coach (évolution future)
+Le coach streame aujourd'hui du texte via AG-UI (SSE : runtime AgentCore `coach_chat`, POST direct du navigateur vers le data plane, auth customJWT). A2UI (`a2ui-project`, Google/ADK, preview v0.9.1) est **complémentaire** : il définit un format JSON déclaratif d'UI que l'agent génère, et utilise **AG-UI comme transport** — le socle SSE déjà en place. Pertinent SI on veut des artefacts riches générés à la volée (graphe de charge interactif, formulaire d'objectifs dynamique) plutôt que du texte. Pas prioritaire : (1) le coach renvoie du texte conversationnel, pas d'UI dynamique ; (2) A2UI pas encore v1.0 (policy §10) ; (3) rendu couplé à CopilotKit/Lit, alors qu'on a un design system maison. À reconsidérer quand un besoin de generative UI concret apparaît. Détecté 2026-06-23.
 
 ---
 
@@ -302,19 +195,3 @@ vide = comportement actuel.
   description de l'activité que l'utilisateur a lui-même publiée.
 - **Pas un nouveau module activable** — le coaching est une extension
   naturelle du `content_gen` existant, pas une case à cocher de plus.
-
----
-
-### Catch vides frontend
-`ModuleConfiguration.tsx:56-58` — `catch {}` sans feedback utilisateur.
-
-### Type hints manquants
-~40 fonctions sans type hints sur Lambda handlers et fonctions publiques.
-
-### Verify Observability Stack
-- Checker traces dans CloudWatch GenAI Observability dashboard
-- Verifier X-Ray custom resources et CloudWatch Logs resource policy
-
-### A2UI — generative UI pour le coach (évolution future)
-Le coach streame aujourd'hui du texte via AG-UI (SSE : Function URL `RESPONSE_STREAM`/`AWS_IAM` + SigV4 Identity Pool, `coach_stream/app.py` Starlette + Lambda Web Adapter). A2UI (`a2ui-project`, Google/ADK, preview v0.9.1) est **complémentaire** : il définit un format JSON déclaratif d'UI que l'agent génère, et utilise **AG-UI comme transport** — le socle SSE déjà en place. Pertinent SI on veut des artefacts riches générés à la volée (graphe de charge interactif, formulaire d'objectifs dynamique) plutôt que du texte. Pas prioritaire : (1) le coach renvoie du texte conversationnel, pas d'UI dynamique ; (2) A2UI pas encore v1.0 (policy §10) ; (3) rendu couplé à CopilotKit/Lit, alors qu'on a un design system maison. À reconsidérer quand un besoin de generative UI concret apparaît. Détecté 2026-06-23.
-- Si pas de traces : checker OpenTelemetry enabled dans AgentCore runtime

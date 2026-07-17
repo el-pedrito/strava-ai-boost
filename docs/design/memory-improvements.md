@@ -62,6 +62,14 @@ gain de la query dynamique est réel et vérifié.
 Non fait en V1 (assumé) : suppression du namespace legacy dans coach_chat
 (commentaires seulement, aucun call), migration EPISODIC (voir pistes).
 
+## Post-scriptum (2026-07-17 après-midi)
+
+- **Mémoire reliquat supprimée** : `strava_ai_boost_coach_mem` (créée le
+  2026-05-10) était vide (0 stratégie, 0 record, 0 actor) et référencée nulle
+  part — le runtime coach utilise `content_gen_mem`. Supprimée ; le projet a
+  **une seule** AgentCore Memory.
+- **Records orphelins `default_user`** : migrés vers l'actor réel (cf. piste 4).
+
 ## Pistes suivantes (tracées en ROADMAP)
 
 > Avancement 2026-07-17 après-midi (V2) : pistes 2 et 4 traitées, spike fait

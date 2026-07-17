@@ -30,7 +30,7 @@ Full walkthrough of the frontend (Dashboard, Coach, Quality, Configuration, Pref
 - Python 3.12+, Node.js (for CDK)
 - AgentCore CLI (for Phase 2 only)
 - Strava Account with API application registered
-- **Paid Strava subscription (required since 2026)** — Strava now gates all API access behind an active subscription. Without it, your API application is set to `Inactive` and every call returns `403 Forbidden` (`Application Status: Inactive`), so no activities can be read or enhanced. See [Strava OAuth Setup](#strava-oauth-setup).
+- **Paid Strava subscription (required since 2026)** — Strava now gates all API access behind an active subscription. Accounts **without** a subscription have their API application deactivated (`403 Forbidden`, `Application Status: Inactive`), so no activities can be read or enhanced. Note: in our own deployment (with an active subscription, app staying `Active`) the exact symptom we hit during this policy change was an expired/downgraded OAuth token — fixed by a normal token refresh. See [Strava OAuth Setup](#strava-oauth-setup).
 
 ### Phase 1: Infrastructure Deployment (Required)
 
@@ -59,14 +59,14 @@ export AWS_REGION=eu-west-1
 ./scripts/configure_strava_webhook.sh dev --auto-configure
 ```
 
-**What this deploys**: 7 CDK stacks, DynamoDB tables, 19 Lambda functions (grouped in role-based packages), Step Functions (parallel execution), Secrets Manager, Bedrock fallback mode (Claude Sonnet 4.5), structured logging with AWS Lambda Powertools, CloudFront-hosted frontend with Cognito authentication (User Pool). System is immediately functional. The conversational coach chat runs on a dedicated AgentCore Runtime (deployed separately in Phase 2).
+**What this deploys**: 8 CDK stacks, DynamoDB tables, 18 Lambda functions (grouped in role-based packages), Step Functions (parallel execution), Secrets Manager, Bedrock fallback mode (Claude Sonnet 4.5), structured logging with AWS Lambda Powertools, CloudFront-hosted frontend with Cognito authentication (User Pool). System is immediately functional. The conversational coach chat runs on a dedicated AgentCore Runtime (deployed separately in Phase 2).
 
 ### Phase 2: AgentCore Enhancement (Optional)
 
 Add advanced personalization with Long-Term Memory:
 
 ```bash
-# 1. Create AgentCore Memories (~3 min)
+# 1. Create AgentCore Memory (~3 min)
 ./scripts/create_agentcore_memories.sh
 
 # 2. Deploy AgentCore Agents (~5-10 min)
@@ -114,7 +114,7 @@ The frontend is hosted on CloudFront with Cognito authentication:
 
 ### Strava OAuth Setup
 
-> **⚠️ Strava subscription required (policy change, 2026).** Strava moved API access to subscriber-only: *"We're updating API access to be subscriber-only. Start a subscription to maintain your access."* An account without an active paid subscription has its API application forced to `Inactive`, and **every** API call (read *and* write, including `GET /athlete`) returns `403 Forbidden` with body `{"resource":"Application","field":"Status","code":"Inactive"}`. A secondary symptom is the OAuth token scope being downgraded to `read` only (losing `activity:read_all` and `activity:write`). Subscribe at https://www.strava.com/subscribe to restore access; once the app is `Active`, a normal token refresh recovers the full `activity:read_all activity:write read` scope automatically. Note: the *"Upgrade your API"* option on the dashboard (higher rate limits / more athletes) is unrelated and **not** required for a personal single-athlete deployment.
+> **⚠️ Strava subscription required (policy change, 2026).** Strava moved API access to subscriber-only: *"We're updating API access to be subscriber-only. Start a subscription to maintain your access."* Accounts **without** an active paid subscription have their API application forced to `Inactive`, and API calls return `403 Forbidden` — subscribe at https://www.strava.com/subscribe to restore access. In our own deployment (active subscription, app staying `Active`), the exact symptom observed during this policy change was an **expired/downgraded OAuth token** (scope reduced to `read` only, losing `activity:read_all` and `activity:write`); a normal token refresh recovered the full `activity:read_all activity:write read` scope automatically. Note: the *"Upgrade your API"* option on the dashboard (higher rate limits / more athletes) is unrelated and **not** required for a personal single-athlete deployment.
 
 1. Go to https://www.strava.com/settings/api and create an app
 2. Set **Authorization Callback Domain** to your CloudFront domain (e.g., `dXXXXXXXXXXXXX.cloudfront.net`) — no http://, no path
@@ -206,7 +206,7 @@ Customize AI content generation in Configuration > Personal Profile:
 | **Athlete Profile** | Free-text field for objectives, training history, experience level |
 | **FC Max** | Manual or calculated (Tanaka: 208 - 0.7 × age). Auto-updated if activity shows higher HR |
 | **Personal Records** | Manual PRs with distance, time, date, event. Auto-calculates pace & speed |
-| **Strength Program** | Structured muscu sessions (Upper A, Upper B, Rappel). Exercises with sets/load/rest. Auto-tracked from Strava descriptions. Coach uses it for global weekly vision and progression tracking |
+| **Strength Program** | Structured strength sessions (Upper A, Upper B, Rappel). Exercises with sets/load/rest. Auto-tracked from Strava descriptions. Coach uses it for global weekly vision and progression tracking |
 
 ### Enhancement Control
 
@@ -261,84 +261,89 @@ VITE_COACH_RUNTIME_ARN=arn:aws:bedrock-agentcore:<your-region>:<account>:runtime
 ```mermaid
 graph TB
     subgraph "User Layer"
-        Browser[Web Browser<br/>CloudFront CDN]
+        Browser[Web Browser<br/>React 19 PWA]
     end
 
-    subgraph "AWS Infrastructure - 7 CDK Stacks"
+    subgraph "AWS Infrastructure - 8 CDK Stacks"
         subgraph "Frontend Stack"
-            S3[S3 Bucket<br/>Private + OAC]
-            CF[CloudFront<br/>Distribution]
-            Cognito[Cognito User Pool<br/>Authentication]
+            CF[CloudFront + S3<br/>Private, OAC]
+            Cognito[Cognito User Pool<br/>JWT, no self-signup]
         end
 
-        subgraph "Core Stack"
-            DDB[(DynamoDB<br/>3 Tables)]
-            Secrets[Secrets Manager<br/>OAuth & Credentials]
+        subgraph "Core / Security Stacks"
+            DDB[(DynamoDB<br/>3 Tables, 3 GSIs)]
+            Secrets[Secrets Manager]
+            Guardrails[Bedrock Guardrails]
         end
 
-        subgraph "Security Stack"
-            Guardrails[Bedrock Guardrails<br/>AI Safety]
+        subgraph "Webhook + Content Stacks"
+            WebhookAPI[Webhook Handler]
+            SQS[SQS + DLQ]
+            SF[Step Functions<br/>Parallel Branches]
         end
 
-        subgraph "Webhook Stack"
-            WebhookAPI[Webhook API<br/>Strava Events]
-            SQS[SQS Queue<br/>+ DLQ]
-        end
-
-        subgraph "Content Stack"
-            SF[Step Functions<br/>Parallel Workflow]
-            Lambda12[19 Lambda Functions<br/>Role-Based Packages]
-        end
-
-        subgraph "API Stack"
+        subgraph "VoiceDebrief / API / Feedback Stacks"
+            Voice[Voice Lambdas<br/>Bedrock → Polly MP3]
             APIGW[API Gateway<br/>Cognito Authorizer]
+            FB[Feedback Analyzer<br/>Nightly Learning Loop]
         end
 
-        subgraph "Feedback Stack"
-            FB[Feedback Analyzer<br/>EventBridge Schedule]
-        end
+        Lambdas[18 Lambda Functions<br/>Role-Based Packages]
     end
 
-    subgraph "AI Services"
-        AgentCore[AgentCore<br/>3 Agents + 2 Memories]
-        Bedrock[Bedrock<br/>Claude Sonnet 4.5]
+    subgraph "Amazon Bedrock AgentCore ⭐"
+        RTContent[Runtime content_gen<br/>Strands + Guardrails]
+        RTCoach[Runtime coach<br/>Trends Feedback]
+        RTChat[Runtime coach_chat<br/>AG-UI, customJWT, 5 tools]
+        Memory[Memory content_gen_mem<br/>3 Strategies: Semantic,<br/>UserPreference, Episodic]
+        Evals[Evaluations<br/>Built-ins + 2 Custom Judges]
+        Bedrock[Claude Sonnet 4.5 + Haiku 4.5<br/>Central Model Registry]
     end
 
     subgraph "External Services"
         Strava[Strava API]
-        Campus[Campus Coach]
+        Campus[Campus Coach REST]
+        ICU[Intervals.icu]
     end
 
     Browser --> CF
-    CF --> S3
     Browser --> Cognito
-    Cognito --> APIGW
-    APIGW --> Lambda12
-    Lambda12 --> DDB
-    Lambda12 --> Secrets
+    Browser -->|JWT| APIGW
+    Browser ==>|AG-UI SSE direct<br/>no proxy| RTChat
+    APIGW --> Lambdas
+    Lambdas --> DDB
+    Lambdas --> Secrets
 
     Strava --> WebhookAPI
     WebhookAPI --> SQS
     SQS --> SF
-    SF --> Lambda12
-
-    Lambda12 --> Guardrails
-    Guardrails --> Bedrock
-    Lambda12 --> AgentCore
-    Lambda12 --> Strava
-    Lambda12 --> Campus
-
+    SF --> Lambdas
+    Lambdas -->|InvokeAgentRuntime| RTContent
+    Lambdas -->|InvokeAgentRuntime| RTCoach
+    RTContent --> Memory
+    RTCoach --> Memory
+    RTChat --> Memory
+    RTChat -.->|tools| DDB
+    RTContent --> Bedrock
+    RTCoach --> Bedrock
+    RTChat --> Bedrock
+    Evals -.->|regression replays| RTContent
+    FB -->|feedback diffs| Memory
+    Lambdas --> Strava
+    Campus --> Lambdas
+    ICU --> Lambdas
+    Voice --> DDB
 ```
 
 ### Infrastructure Components
 
 | Component | Details |
 |-----------|---------|
-| **7 CDK Stacks** | Core, Security, Webhook, Content, API, Feedback, Frontend |
-| **19 Lambda Functions** | API, processing, webhooks, support, voice (in role-based packages) |
+| **8 CDK Stacks** | Core, Security, Webhook, Content, VoiceDebrief, API, Feedback, Frontend |
+| **18 Lambda Functions** | API, processing, webhooks, support, voice (in role-based packages) |
 | **Coach chat runtime** | dedicated **AgentCore Runtime** `coach_chat` (FastAPI + Strands, AGUI protocol, 5 tools). Browser POSTs the AG-UI SSE straight to the data plane; **customJWT** auth (Cognito ID token), no SigV4, no proxy |
 | **3 DynamoDB Tables** | `activities` (3 GSIs, TTL), `user_config`, `coaching_sessions` |
-| **2 AgentCore Agents** | `content_gen` (LTM memory), `coach_agent` (LTM memory). Campus Coach uses the direct REST sync Lambda (no agent) |
+| **3 AgentCore Runtimes** | `content_gen`, `strava_ai_boost_coach` (coach), `coach_chat` — sharing a single AgentCore Memory (`content_gen_mem`, 3 strategies). Campus Coach uses the direct REST sync Lambda (no agent) |
 | **CloudFront + S3** | Frontend hosting with OAC, private bucket, versioning, encryption |
 | **Cognito User Pool** | JWT authentication, no self-registration, 12+ char password policy |
 | **External APIs** | Strava API, Campus Coach, Intervals.icu, Enduraw (all optional) |
@@ -378,9 +383,9 @@ sequenceDiagram
 
 **Infrastructure**: AWS CDK (Python), Python 3.12, us-east-1 (configurable via `--context region=<region>`)
 
-**AWS Services**: Lambda (19 functions, Powertools), DynamoDB (3 tables, 3 GSIs, TTL), Step Functions, SQS + DLQ, Bedrock (Claude Sonnet 4.5), Secrets Manager, API Gateway (Cognito authorizer), CloudFront + S3 (OAC), Cognito User Pool
+**AWS Services**: Lambda (18 functions, Powertools), DynamoDB (3 tables, 3 GSIs, TTL), Step Functions, SQS + DLQ, Bedrock (Claude Sonnet 4.5), Secrets Manager, API Gateway (Cognito authorizer), CloudFront + S3 (OAC), Cognito User Pool
 
-**AI/ML**: Strands Agents, AgentCore Memory (2 LTM memories), AgentCore Evaluations (prompt regression), Claude Sonnet 4.5 + Haiku 4.5 (central model registry)
+**AI/ML**: Strands Agents, AgentCore Memory (1 shared LTM memory, 3 strategies), AgentCore Evaluations (prompt regression), Claude Sonnet 4.5 + Haiku 4.5 (central model registry)
 
 ### Performance Targets
 
@@ -436,7 +441,7 @@ aws logs filter-log-events \
 - Check enhancement is not paused (Dashboard > Resume Enhancement)
 - Verify webhook: `./scripts/configure_strava_webhook.sh dev --validate-only`
 - Check SQS queue and DLQ for stuck messages
-- **Strava 403 `Application Status: Inactive`** — the Strava API application has been deactivated because the account lacks an active paid subscription (see [Strava OAuth Setup](#strava-oauth-setup)). Step Functions executions fail with `403 Client Error: Forbidden` and messages land in the DLQ. Fix: subscribe at https://www.strava.com/subscribe, confirm the app is `Active` (a token refresh restores the full scope automatically), then reprocess the DLQ.
+- **Strava 403 Forbidden** — Step Functions executions fail with `403 Client Error: Forbidden` and messages land in the DLQ. Two known causes since Strava's 2026 subscriber-only policy (see [Strava OAuth Setup](#strava-oauth-setup)): (1) the account lacks an active paid subscription, in which case the API application is deactivated (`Application Status: Inactive`) — subscribe at https://www.strava.com/subscribe and confirm the app is `Active`; (2) an expired/downgraded OAuth token even though the app stays `Active` (the case we actually observed with an active subscription) — a normal token refresh restores the full scope automatically. Then reprocess the DLQ.
 
 **Modules showing disabled after OAuth refresh**
 - Fixed in v2.4.0: `user_id` is now persisted at top level during OAuth callback
@@ -539,7 +544,7 @@ All resources are tagged for AWS Cost Explorer cost allocation:
 
 **Coverage:**
 - **CDK resources** (Lambda, DynamoDB, SQS, Step Functions, API Gateway, Secrets Manager, CloudWatch, Guardrails, IAM): Tagged automatically via `cdk.Tags.of(app)` in `app.py`
-- **AgentCore resources** (3 runtimes, 2 memories, IAM execution roles): Tagged via `scripts/tag_agentcore_resources.sh` (called automatically by `deploy_agentcore_agents.sh`, also runnable standalone). IAM role tagging enables per-agent Bedrock cost attribution via CUR 2.0 IAM Principal data.
+- **AgentCore resources** (3 runtimes, 1 memory, IAM execution roles): Tagged via `scripts/tag_agentcore_resources.sh` (called automatically by `deploy_agentcore_agents.sh`, also runnable standalone). IAM role tagging enables per-agent Bedrock cost attribution via CUR 2.0 IAM Principal data.
 
 **To activate in Cost Explorer:** Billing console → Cost Allocation Tags → select `Project`, `Environment`, `Owner`, `CostCenter`, `ManagedBy` → Activate (takes ~24h to propagate).
 
@@ -560,7 +565,9 @@ All resources are tagged for AWS Cost Explorer cost allocation:
 
 ## Documentation
 
+- **[Architecture](docs/architecture.md)** - AgentCore building blocks, planes, draw.io diagrams (high-level + detailed), docs freshness contract
 - **[AGENTS.md](AGENTS.md)** - Complete development guide for AI assistants
+- **[Roadmap](docs/ROADMAP.md)** - Status and plans (single source of truth)
 - **[Scripts](scripts/README.md)** - Deployment and maintenance scripts
 - **[Tests](tests/README.md)** - Test suite documentation
 
@@ -572,4 +579,4 @@ All resources are tagged for AWS Cost Explorer cost allocation:
 
 ## License
 
-This project is licensed under the MIT License.
+This project is licensed under the MIT-0 License (MIT No Attribution). See [LICENSE](LICENSE).

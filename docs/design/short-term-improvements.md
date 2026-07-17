@@ -1,6 +1,6 @@
 # Design spec — Chantier court terme (muscu, Coach Trends, anomalie santé, déautorisation)
 
-**Statut :** spec (2026-07-16) — recherche + faisabilité faites, décisions prises, implémentation à valider.
+**Statut :** livré — les 4 items implémentés et déployés le 2026-07-16 (état as-built et écarts : [ROADMAP](../ROADMAP.md) § Court terme). Spec conservée avec ses décisions et pivots.
 **Méthode :** doc-first (changelog Strava + API reference + Intervals.icu) → challenge → décision par item.
 
 Ce doc couvre les 4 items « court terme » de la [ROADMAP](../ROADMAP.md). Il corrige
@@ -188,6 +188,11 @@ Déterministe, testable à 100 %, additif (aucune régression possible).
 **Effort.** ~1 journée (fonction + seuils + tests exhaustifs + expo API + banner
 frontend + injection contexte coach).
 
+> **As-built (2026-07-16)** — écarts vs la spec ci-dessus (détail ROADMAP) :
+> surfacé en **alertes dans l'onglet Coach « Now »** (pas de banner Dashboard) ;
+> pas encore injecté dans le contexte coach ; le delta HRV n'est pas dans le
+> payload recovery → la règle sous-récupération repose sur la seule FC repos.
+
 ---
 
 ## Item 4 — Endpoint de déautorisation Strava
@@ -226,16 +231,21 @@ compte → couvert par des tests mockés plutôt qu'un appel destructif live.
 
 ## Séquencement recommandé
 
+> ✅ Réalisé : les 4 items sont implémentés et déployés le 2026-07-16.
+
 1. **Item 3 (anomalie santé)** — additif, données présentes, zéro dépendance, zéro
    régression possible. Bon premier pas.
 2. **Item 1 (parser muscu)** — débloque #2 ; touche le pipeline content (tests).
 3. **Item 2 (charts muscu)** — dépend de #1 ; frontend + agrégation.
-4. **Item 4 (déautorisation)** — bien cadré mais destructif (tokens) et non
-   testable live pour l'instant ; à faire en dernier, avec confirmation.
+4. **Item 4 (déautorisation)** — bien cadré mais destructif (tokens) ; l'app
+   Strava étant **active** (abonnement premium), le flow est testable en live,
+   mais l'exécuter déconnecterait le vrai compte → couvert par des tests mockés.
 
-**Points de décision à valider avant implémentation :**
-- Item 1 : confirmer le pivot (parser descriptions) puisque l'API ne fournit pas
-  les sets. Parser **déterministe** (proposé) vs extraction LLM (plus robuste au
-  texte libre mais coût/latence + non déterministe).
-- Item 4 : valider la stratégie de nettoyage des tokens (effacement vs état vide)
-  et le fait qu'on ne supprime pas les données d'activités.
+**Points de décision — tranchés (2026-07-16) :**
+- Item 1 : pivot « parser descriptions » confirmé (l'API ne fournit pas les sets
+  en lecture). **Extraction LLM retenue** (Haiku/Converse, plus robuste au texte
+  libre que le parser déterministe initialement proposé) — cf. « ✅ Décision
+  validée » plus haut. Implémenté ainsi.
+- Item 4 : stratégie actée — révocation Strava + effacement des tokens dans
+  Secrets Manager, **sans** suppression des données d'activités ; implémenté et
+  couvert par des tests mockés.

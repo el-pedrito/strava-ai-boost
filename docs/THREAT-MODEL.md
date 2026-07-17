@@ -1,7 +1,7 @@
 # Threat Model — Strava AI Boost
 
 > One-page STRIDE threat model for the sample. Scope: single-user personal deployment on AWS.
-> Last updated: 2026-07-15. See [SECURITY.md](../SECURITY.md) for reporting vulnerabilities.
+> Last updated: 2026-07-17. See [SECURITY.md](../SECURITY.md) for reporting vulnerabilities.
 
 ## System Overview & Trust Boundaries
 

@@ -7,17 +7,17 @@ export AWS_PROFILE=your-aws-profile
 
 ./scripts/deploy.sh dev                                     # Deploy all CDK stacks (~10-15 min)
 ./scripts/validate_deployment.sh dev                         # Validate deployment
-./scripts/setup_local_env.sh                                 # Get API Gateway URL + key for frontend
+./scripts/setup_local_env.sh                                 # Generate frontend .env.local (API Gateway URL + Cognito config)
 ./scripts/configure_strava_webhook.sh dev --auto-configure   # Setup Strava webhook
 ```
 
 ## Phase 2: AgentCore (Optional)
 
 ```bash
-./scripts/create_agentcore_memories.sh                       # Create LTM memories (~3 min)
+./scripts/create_agentcore_memories.sh                       # Create the LTM memory content_gen_mem (~3 min)
 ./scripts/deploy_agentcore_agents.sh                         # Deploy content_gen + coach + coach_chat agents
 ./scripts/configure_agentcore_integration.sh                 # IAM permissions + Lambda env vars
-python scripts/configure_memory_strategy.py                  # UserPreferenceStrategy setup
+python scripts/configure_memory_strategy.py                  # Configure the 3 memory strategies
 ./scripts/deploy_agentcore_agents.sh                         # Redeploy with guardrails
 cdk deploy --all --profile your-aws-profile --require-approval never  # Final CDK update
 ```
@@ -47,7 +47,7 @@ cdk deploy --all --profile your-aws-profile --require-approval never  # Final CD
 ./scripts/verify_uninstall.sh dev                             # Verify clean removal
 ```
 
-Uninstall order: Webhook > AgentCore agents > AgentCore memories > CDK stacks (Monitoring > API > Webhook > Content > Core) > orphan resources > data.
+Uninstall order: Webhook > AgentCore agents > AgentCore memory > CDK stacks (Frontend > Feedback > API > VoiceDebrief > Content > Webhook > Security > Core) > orphan resources > data.
 
 ---
 
@@ -55,19 +55,20 @@ Uninstall order: Webhook > AgentCore agents > AgentCore memories > CDK stacks (M
 
 | Script | Description | Options |
 |--------|-------------|---------|
-| `deploy.sh` | CDK infrastructure (7 stacks) | `[dev\|prod]` |
+| `deploy.sh` | CDK infrastructure (8 stacks) | `[dev\|prod]` |
 | `setup_local_env.sh` | Generate frontend `.env.local` from CloudFormation | |
 | `configure_strava_webhook.sh` | Strava webhook subscription | `--auto-configure`, `--validate-only`, `--cleanup` |
 | `validate_deployment.sh` | Post-deploy validation | `[dev\|prod]` |
-| `create_agentcore_memories.sh` | AgentCore LTM memories (semantic search, 365d) | |
+| `create_agentcore_memories.sh` | AgentCore LTM memory `content_gen_mem` (semantic search, 365d) | |
 | `deploy_agentcore_agents.sh` | Deploy agents (content_gen, strava_ai_boost_coach, coach_chat) — injects `BEDROCK_MODEL_ID` from the central registry | |
 | `run_prompt_regression.py` | V1 deterministic prompt regression against the deployed content_gen runtime (~$0.20/run) | `--fixtures`, `--update-baseline`, `--agent-arn` |
 | `run_managed_evals.py` | V2 managed AgentCore Evaluations (built-ins + custom LLM-as-a-Judge, ~$1.2/run) | `--scenarios`, `--update-baseline` |
 | `build_eval_dataset.py` | Convert regression fixtures → AgentCore Evaluations dataset | `--output` |
 | `create_managed_evaluators.py` | Create/update custom judge evaluators (idempotent, registry-substituted model IDs) | `--region` |
-| `tag_agentcore_resources.sh` | Tag runtimes + memories + IAM execution roles for cost allocation | |
+| `tag_agentcore_resources.sh` | Tag runtimes + memory + IAM execution roles for cost allocation (wraps `tag_agentcore_resources.py`, which also applies the CloudWatch Data Protection policy) | |
+| `enable_agentcore_observability.sh` | Enable AgentCore runtime metrics/traces → CloudWatch GenAI dashboard (auto-run by `deploy_agentcore_agents.sh`) | |
 | `configure_agentcore_integration.sh` | IAM policies + Lambda env vars for AgentCore | |
-| `configure_memory_strategy.py` | UserPreferenceStrategy on content_gen memory | |
+| `configure_memory_strategy.py` | Configure the 3 memory strategies (Semantic, UserPreference, Episodic) on the content_gen memory — idempotent | |
 | `reprocess_dlq.sh` | Reprocess DLQ messages | `--dry-run`, `--max-messages N`, `--delete-after` |
 | `cleanup_strava_webhook.sh` | Remove Strava webhooks | `[dev\|prod]` |
 | `uninstall.sh` | Complete system removal | `--force`, `--backup`, `--keep-data` |
@@ -111,8 +112,8 @@ aws logs tail /aws/bedrock-agentcore/runtimes/content_gen-* --follow --profile y
 aws cloudformation describe-stack-events --stack-name StravaAIBoost-Core --profile your-aws-profile --max-items 20
 
 # AgentCore status
-agentcore agent list --region eu-west-1
-agentcore memory list --region eu-west-1
+agentcore agent list --region us-east-1
+agentcore memory list --region us-east-1
 
 # DLQ diagnosis
 ./scripts/reprocess_dlq.sh dev --dry-run

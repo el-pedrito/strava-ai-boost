@@ -1,7 +1,7 @@
 # AGENTS.md - AI Assistant Context for Strava AI Boost
 
-**Version:** 4.1.0
-**Last Updated:** 2026-05-21
+**Version:** 4.2.0
+**Last Updated:** 2026-07-17
 **Purpose:** Comprehensive context for AI coding assistants
 
 ---
@@ -26,9 +26,9 @@ Strava AI Boost is a **serverless AWS application** that automatically enhances 
 
 ### Key Statistics
 - **~18,000 LOC** in core components
-- **19 Lambda functions** (API, processing, webhooks, support, voice — role-based packages)
-- **2 AgentCore agents** (content_gen, coach_agent) + **1 AgentCore Runtime** (`coach_chat`, agentic conversational coach)
-- **7 CDK stacks**
+- **18 Lambda functions** (API, processing, webhooks, support, voice — role-based packages)
+- **3 AgentCore Runtimes** — `content_gen`, `strava_ai_boost_coach` (coach), `coach_chat` (agentic conversational coach): 2 agent definitions in `src/agents/` + 1 chat runtime in `src/coach_chat/`, sharing a single AgentCore Memory (`content_gen_mem`, 3 strategies)
+- **8 CDK stacks**
 - **314 tests** (234 backend unit + 36 regression evaluators + 44 frontend) + on-demand prompt regression harness (deterministic V1 + managed AgentCore Evaluations V2)
 - **Centralized LLM registry** — all Bedrock model IDs come from `src/config/llm_config.py` (mirrored in `lambda_functions/shared/llm_models.py` for Lambda bundling); anti-drift sync test
 - **Python 3.12** runtime, **React 19 + TypeScript + Vite** frontend
@@ -87,7 +87,7 @@ strava-ai-boost/
 │   ├── deploy_agentcore_agents.sh    # Injects BEDROCK_MODEL_ID from the central registry
 │   ├── configure_agentcore_integration.sh
 │   ├── create_agentcore_memories.sh
-│   ├── configure_memory_strategy.py  # Memory UserPreferenceStrategy config
+│   ├── configure_memory_strategy.py  # Configures the 3 memory strategies (idempotent)
 │   ├── run_prompt_regression.py      # V1 deterministic prompt regression (deployed runtime, ~0.20$/run)
 │   ├── run_managed_evals.py          # V2 managed AgentCore Evaluations (LLM-as-a-Judge, ~1.2$/run)
 │   ├── build_eval_dataset.py         # Fixtures → AgentCore Evaluations dataset
@@ -100,11 +100,12 @@ strava-ai-boost/
 │   ├── uninstall.sh
 │   └── verify_uninstall.sh
 │
-├── stacks/                     # CDK infrastructure (7 stacks)
+├── stacks/                     # CDK infrastructure (8 stacks)
 │   ├── core_infrastructure_stack.py    # DynamoDB, Secrets, Layer
 │   ├── security_stack.py               # Guardrails, Memory Execution Role, Observability
 │   ├── webhook_processing_stack.py     # Webhook, SQS, Processor
 │   ├── content_generation_stack.py     # Step Functions, Lambdas
+│   ├── voice_debrief_stack.py          # Voice debrief (Polly, S3 audio, audio API)
 │   ├── api_gateway_stack.py            # REST API, Cognito Authorizer, API Lambdas
 # monitoring_stack.py REMOVED (overkill for personal project)
 │   ├── feedback_loop_stack.py          # Feedback analyzer
@@ -115,6 +116,7 @@ strava-ai-boost/
 │   │   ├── configuration_api.py        # Config API
 │   │   ├── dashboard_api.py            # Dashboard API
 │   │   ├── user_preferences_api.py     # Preferences API
+│   │   ├── audio_debrief_api.py        # Audio debrief API (presigned MP3 URLs)
 │   │   └── agentcore_health_check.py   # Health check
 │   ├── processing/                     # Content pipeline
 │   │   ├── activity_fetcher.py         # Data fetcher
@@ -122,6 +124,7 @@ strava-ai-boost/
 │   │   ├── coach_generator.py          # AI coaching feedback generation
 │   │   ├── assembly_lambda.py          # Merge content + coach → Strava update
 │   │   ├── strava_updater.py           # Strava API updater
+│   │   ├── voice_debrief_generator.py  # Per-activity audio debrief (Bedrock Haiku → Polly)
 │   │   ├── workout_analysis.py         # Workout classification from laps, Enduraw extraction
 │   │   └── modules_processing.py       # Module discovery, Campus Coach session retrieval
 │   ├── webhooks/                       # Event ingestion
@@ -131,6 +134,7 @@ strava-ai-boost/
 │   ├── support/                        # Operational utilities
 │   │   ├── feedback_analyzer.py        # Feedback loop
 │   │   ├── weekly_synthesis.py         # Weekly training synthesis (EventBridge Sunday 20:00 UTC + on-demand, AgentCore Memory + user prefs/PRs/pace zones + Campus goal context)
+│   │   ├── weekly_audio_recap.py       # Weekly audio recap (Bedrock Sonnet script → Polly Generative → MP3)
 │   │   └── stepfunctions_error_handler.py  # Error handler
 │   └── shared/                         # Shared utilities module
 │       ├── __init__.py
@@ -141,7 +145,7 @@ strava-ai-boost/
 │       └── strava_oauth.py             # OAuth token management
 │
 ├── src/
-│   ├── agents/                 # AgentCore agents (3 agents)
+│   ├── agents/                 # AgentCore agents (2 agents)
 │   │   ├── content_agent.py            # Content generation agent
 │   │   ├── coach_agent.py              # Training coach agent (pipeline feedback)
 │   │   └── embedded_prompts.py         # Prompt templates
@@ -204,18 +208,6 @@ strava-ai-boost/
 ├── docs/                       # Project docs
 │   ├── ROADMAP.md                     # Forward-looking roadmap
 │   └── design/                        # Design specs
-│
-├── .agents/                    # AI assistant documentation
-│   └── summary/
-│       ├── index.md                    # Knowledge base index
-│       ├── codebase_info.md
-│       ├── architecture.md
-│       ├── components.md
-│       ├── interfaces.md
-│       ├── data_models.md
-│       ├── workflows.md
-│       ├── dependencies.md
-│       └── review_notes.md
 │
 ├── app.py                      # CDK application entry point
 ├── cdk.json                    # CDK configuration
@@ -670,10 +662,10 @@ migrates any records left in legacy namespaces).
 ### Deployment
 
 ```bash
-./scripts/create_agentcore_memories.sh          # Step 1: Create LTM memories
+./scripts/create_agentcore_memories.sh          # Step 1: Create the LTM memory (content_gen_mem)
 ./scripts/deploy_agentcore_agents.sh            # Step 2: Deploy agents
 ./scripts/configure_agentcore_integration.sh    # Step 3: Configure IAM + Lambda
-python scripts/configure_memory_strategy.py     # Step 4: Configure UserPreferenceStrategy
+python scripts/configure_memory_strategy.py     # Step 4: Configure the 3 memory strategies
 ```
 
 ---
@@ -947,7 +939,7 @@ aws stepfunctions describe-execution \
 - [x] Frontend Coach page: display 'Prochaine séance recommandée' from coach output
 - [x] Frontend Preferences: display auto-accumulated PRs from best_efforts
 - [x] Add ramp rate explicit alert (flag >10%/week)
-- [x] Conversational mode: `/coach/ask` endpoint + chat widget on Coach page
+- [x] Conversational mode: chat widget on Coach page (initially a `/coach/ask` endpoint, since replaced by the `coach_chat` AgentCore Runtime)
 
 ### P3 — Long Term
 - [ ] Morning briefing (pre-run guidance based on Form/fatigue/plan)
@@ -970,4 +962,4 @@ aws stepfunctions describe-execution \
 ### External Links
 - **AWS CDK:** https://docs.aws.amazon.com/cdk/
 - **Strava API:** https://developers.strava.com/
-- **AgentCore:** https://docs.aws.amazon.com/bedrock/latest/userguide/agents-core.html
+- **AgentCore:** https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/

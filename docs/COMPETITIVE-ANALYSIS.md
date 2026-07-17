@@ -1,5 +1,9 @@
 # Competitive analysis & feature ideas
 
+> 🗄️ **Document d'archive (analyse d'avril 2026).** Le positionnement retenu est
+> open-source personnel — les pistes produit/monétisation ci-dessous ne sont
+> **PAS** poursuivies. Voir [docs/ROADMAP.md](./ROADMAP.md).
+
 > Mai 2026 — analyse concurrentielle pour orienter la roadmap. Tarifs collectés depuis les sites publics, "as of May 2026" sauf indication contraire. Focus running, mais lecture multi-sport pour repérer les angles morts.
 
 ## Concurrents inspectés

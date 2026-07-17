@@ -26,7 +26,7 @@ You can expect an acknowledgment within a week, best-effort.
 
 If you deploy this sample, be aware of its security posture (see also [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md)):
 
-- **Authentication**: Cognito User Pool with self-registration disabled — users must be created by an admin. The coach streaming Function URL uses `AWS_IAM` auth (SigV4-signed via Cognito Identity Pool).
+- **Authentication**: Cognito User Pool with self-registration disabled — users must be created by an admin. The coach chat AgentCore Runtime uses a customJWT authorizer bound to the Cognito User Pool: the frontend sends the Cognito ID token as a Bearer header to the AgentCore data plane, and `user_id` is derived server-side from the `custom:strava_id` claim (never trusted from the request body).
 - **Secrets**: all credentials (Strava OAuth, Campus Coach, Intervals.icu) live in AWS Secrets Manager — never commit them.
 - **Data**: DynamoDB tables use AWS-managed encryption; the frontend S3 bucket is private (CloudFront OAC only).
 - **AI safety**: Bedrock Guardrails are applied to agent outputs; CloudWatch Data Protection masks credentials in AgentCore logs.

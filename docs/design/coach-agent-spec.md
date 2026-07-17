@@ -1,8 +1,14 @@
 # Coach Agent — Design Specification
 
+> ⚠️ **Spec d'origine (2026-05), conservée comme document historique.**
+> L'implémentation livrée diverge : une seule AgentCore Memory partagée
+> (`content_gen_mem`, namespaces unifiés), invoker campus décommissionné,
+> model IDs via le registre central `src/config/llm_config.py`.
+> État courant : [AGENTS.md](../../AGENTS.md) + [docs/ROADMAP.md](../ROADMAP.md).
+
 **Version:** 1.0.0
-**Date:** 2025-05-10
-**Status:** Draft
+**Date:** 2026-05-10
+**Status:** Delivered (as-built divergences ci-dessus)
 **Author:** AI-assisted design
 
 ---
@@ -259,7 +265,7 @@ Strategies:
       "ramp_rate": 3.2,
       "weekly_volume_km": 47
     },
-    "generated_at": "2025-05-10T14:30:00Z",
+    "generated_at": "2026-05-10T14:30:00Z",
     "model_id": "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
   }
 }
@@ -642,7 +648,7 @@ ELSE:
 
 ## 9. Inspiration from Research
 
-### 8.1 Patterns Borrowed
+### 9.1 Patterns Borrowed
 
 | Pattern | Source | Application |
 |---------|--------|-------------|
@@ -655,7 +661,7 @@ ELSE:
 | Tolerance bands (±3bpm, ±1%) | section-11 | Avoid false positives in drift detection |
 | Structured JSON output | All three projects | Consistent parsing, frontend display |
 
-### 8.2 What We're NOT Doing (and Why)
+### 9.2 What We're NOT Doing (and Why)
 
 | Feature | Why Not |
 |---------|---------|
@@ -666,7 +672,7 @@ ELSE:
 | Multi-sport periodization | Keep it simple — running focus first, extend later |
 | Push notifications | No mobile app. Feedback lives in Strava description + frontend |
 
-### 8.3 Key Differentiators from Research Projects
+### 9.3 Key Differentiators from Research Projects
 
 - **claude-coach** uses file-based memory (git markdown). We use AgentCore Memory (semantic search, scalable).
 - **section-11** is a protocol document for any LLM. We embed the protocol in a deployed agent with structured I/O.
@@ -674,7 +680,7 @@ ELSE:
 
 ---
 
-## 9. Open Questions / Future Considerations
+## 10. Open Questions / Future Considerations
 
 1. **Coach feedback opt-out**: Should users be able to disable the coach block in Strava descriptions? → Probably yes, add toggle in Preferences.
 2. **Feedback on coach feedback**: How does the coach learn what's useful? → Track if user edits/removes coach block (same diff mechanism as content_agent).
@@ -684,11 +690,11 @@ ELSE:
 
 ---
 
-## 10. Success Criteria
+## 11. Success Criteria
 
-- [ ] Coach feedback appears in Strava description within 60s of activity upload
-- [ ] Feedback is specific (cites actual numbers, not generic advice)
-- [ ] Recommendations align with athlete profile objectives
-- [ ] Load management flags are accurate (no false alarms on normal training)
-- [ ] Frontend coach page loads in <2s with 4-8 weeks of history
-- [ ] Coach memory improves relevance over time (fewer generic observations)
+- [x] Coach feedback appears in Strava description within 60s of activity upload
+- [x] Feedback is specific (cites actual numbers, not generic advice)
+- [x] Recommendations align with athlete profile objectives
+- [x] Load management flags are accurate (no false alarms on normal training)
+- [x] Frontend coach page loads in <2s with 4-8 weeks of history
+- [x] Coach memory improves relevance over time (fewer generic observations) — boucle mémoire réparée en A4 (2026-07-17, cf. memory-improvements.md) : searchQuery dynamique par type de séance, pertinence vérifiée live
