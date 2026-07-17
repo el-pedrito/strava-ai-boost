@@ -64,23 +64,33 @@ Non fait en V1 (assumé) : suppression du namespace legacy dans coach_chat
 
 ## Pistes suivantes (tracées en ROADMAP)
 
+> Avancement 2026-07-17 après-midi (V2) : pistes 2 et 4 traitées, spike fait
+> sur la 3.
+
 1. **Stratégie EPISODIC + reflection** sur les observations coach — confirmé
    dispo dans l'API (`episodicMemoryStrategy` + `reflectionConfiguration`).
    Consolide (réflexions périodiques) au lieu d'accumuler des records
    par-séance. À ~5 activités/semaine, urgence faible ; à faire quand le
    volume de records gêne la pertinence du topK.
-2. **coach_chat lit les observations** — aujourd'hui le chat écrit en mémoire
-   mais ne relit rien : soit un 5e tool `get_coach_observations`, soit une
-   injection au system prompt. Donnerait de la continuité entre chat et
-   feedback pipeline.
-3. **metadataFilters à l'extraction** — `RetrieveMemoryRecords` supporte des
-   filtres de métadonnées ; taguer les événements par type d'activité
-   permettrait un filtrage exact (vs sémantique) par sport. Demande de passer
-   les métadonnées au `create_event`/`batch_create` et de vérifier leur
-   propagation aux records extraits.
-4. **Hygiène des events** : `event_expiry_duration` de la memory à auditer
-   (les events feedback s'accumulent ; les records extraits suffisent à long
-   terme).
+2. ✅ **coach_chat lit les observations** (fait 2026-07-17) — 5e tool
+   `get_coach_observations(topic)` : prefix `/strategies/` + filtre par
+   utilisateur (le rôle SDK du runtime n'a que `RetrieveMemoryRecords`, pas
+   `GetMemory` → pas de découverte de stratégie côté chat, le pattern prefix
+   suffit). topK 8 → max 5 après filtre utilisateur. Vérifié live : 5
+   observations pertinentes par topic. Le chat a maintenant la continuité
+   avec le pipeline feedback (« d'habitude », « la dernière fois »).
+3. **metadataFilters à l'extraction** — spike fait : `CreateEvent` accepte
+   bien `metadata` (schéma botocore), mais les records extraits observés ne
+   portent que du metadata système (`x-amz-agentcore-memory-recordType`) —
+   la **propagation event→record n'est pas démontrée** (extraction
+   asynchrone, vérification coûteuse). À revalider par un test dédié avant
+   d'investir.
+4. ✅ **Hygiène des events — audité, aucune action** (2026-07-17) :
+   `eventExpiryDuration=365j`, 19 sessions / ~43 events pour l'actor
+   principal — volume trivial, l'expiry par défaut suffit largement.
+   Trouvé au passage : des records d'avril sous l'actor legacy
+   `default_user` (pré-multi-user), orphelins inoffensifs (jamais matchés
+   par les lectures filtrées par user_id réel).
 5. **Unifier `/strategy/` vs `/strategies/`** — le namespace custom de
    `StravaContentPreferences` (singulier, configuré manuellement) diverge de
    la convention du service ; fonctionne mais piège tout futur lecteur.

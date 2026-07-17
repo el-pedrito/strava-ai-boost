@@ -62,8 +62,9 @@ Dedicated AgentCore Runtime `coach_chat` (FastAPI + Strands, AGUI protocol):
   browser POSTs AG-UI RunAgentInput straight to the data plane
   (bedrock-agentcore.{region}.amazonaws.com/runtimes/{arn}/invocations) — CORS *,
   no proxy. Auth: customJWT (Cognito ID token as Bearer); user_id from the
-  custom:strava_id claim. Agent runs 4 @tool loops server-side
-  (query_activities, get_campus_plan, get_pace_zones, get_intervals_metrics) and
+  custom:strava_id claim. Agent runs 5 @tool loops server-side
+  (query_activities, get_campus_plan, get_pace_zones, get_intervals_metrics,
+  get_coach_observations) and
   streams RUN_STARTED / TOOL_CALL_* / TEXT_MESSAGE_* / RUN_FINISHED.
   Sole transport — no buffered fallback; the UI shows an error on failure.
   Source: src/coach_chat/ (deployed via scripts/deploy_agentcore_agents.sh).
@@ -146,7 +147,7 @@ strava-ai-boost/
 │   │   └── embedded_prompts.py         # Prompt templates
 │   │
 │   ├── coach_chat/             # Conversational coach AgentCore Runtime (agentic)
-│   │   ├── coach_chat_agent.py         # FastAPI + Strands, AGUI protocol, 4 @tool loops
+│   │   ├── coach_chat_agent.py         # FastAPI + Strands, AGUI protocol, 5 @tool loops
 │   │   ├── prompts.py                  # COACH_CHAT_SYSTEM_PROMPT (tools persona)
 │   │   └── requirements.txt            # ag-ui-strands, fastapi, strands-agents (deploy-only)
 │   │

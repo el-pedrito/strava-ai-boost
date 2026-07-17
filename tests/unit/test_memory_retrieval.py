@@ -123,3 +123,60 @@ class TestWeeklyRecapMemoryRead:
     def test_returns_empty_string_on_error(self, mock_boto3):
         mock_boto3.client.side_effect = Exception("boom")
         assert _retrieve_memory_observations("user42") == ""
+
+
+class TestCoachChatObservationsTool:
+    """coach_chat 5th tool: long-term observations retrieval (impl)."""
+
+    def _import_impl(self):
+        sys.path.insert(0, os.path.join(REPO_ROOT, 'src', 'coach_chat'))
+        import coach_chat_agent
+        return coach_chat_agent
+
+    def test_filters_to_user_and_caps_results(self):
+        mod = self._import_impl()
+        with patch.object(mod, "boto3") as mock_boto3, \
+             patch.object(mod, "MEMORY_ID", "mem-1"):
+            client = MagicMock()
+            client.retrieve_memory_records.return_value = {
+                "memoryRecordSummaries": [
+                    {"content": {"text": f"obs{i}"}, "namespaces": ["/strategies/S/actors/user42/"]}
+                    for i in range(8)
+                ] + [
+                    {"content": {"text": "other"}, "namespaces": ["/strategies/S/actors/other/"]}
+                ]
+            }
+            mock_boto3.client.return_value = client
+
+            result = mod._get_coach_observations_impl("user42", "progression muscu")
+
+            assert len(result) == 5  # capped
+            assert all(r.startswith("obs") for r in result)
+            kwargs = client.retrieve_memory_records.call_args.kwargs
+            assert kwargs["namespace"] == "/strategies/"
+            assert kwargs["searchCriteria"]["searchQuery"] == "progression muscu"
+
+    def test_empty_topic_uses_default_query(self):
+        mod = self._import_impl()
+        with patch.object(mod, "boto3") as mock_boto3, \
+             patch.object(mod, "MEMORY_ID", "mem-1"):
+            client = MagicMock()
+            client.retrieve_memory_records.return_value = {"memoryRecordSummaries": []}
+            mock_boto3.client.return_value = client
+
+            mod._get_coach_observations_impl("user42", "  ")
+
+            q = client.retrieve_memory_records.call_args.kwargs["searchCriteria"]["searchQuery"]
+            assert "coaching observations" in q
+
+    def test_no_memory_id_returns_empty(self):
+        mod = self._import_impl()
+        with patch.object(mod, "MEMORY_ID", ""):
+            assert mod._get_coach_observations_impl("user42", "x") == []
+
+    def test_error_returns_empty(self):
+        mod = self._import_impl()
+        with patch.object(mod, "boto3") as mock_boto3, \
+             patch.object(mod, "MEMORY_ID", "mem-1"):
+            mock_boto3.client.side_effect = Exception("boom")
+            assert mod._get_coach_observations_impl("user42", "x") == []

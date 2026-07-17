@@ -165,8 +165,8 @@ over Server-Sent Events.
 
 - **Backend**: a dedicated **AgentCore Runtime** (`coach_chat`) — a FastAPI app
   running a Strands agent (Claude Sonnet 4.5) with the AGUI protocol. The agent
-  exposes 4 tools (`query_activities`, `get_campus_plan`, `get_pace_zones`,
-  `get_intervals_metrics`) and runs the tool loop server-side, so it retrieves
+  exposes 5 tools (`query_activities`, `get_campus_plan`, `get_pace_zones`,
+  `get_intervals_metrics`, `get_coach_observations`) and runs the tool loop server-side, so it retrieves
   exactly the data a question needs instead of relying on a fixed context dump.
 - **Transport**: the browser POSTs the AG-UI event stream **directly** to the
   AgentCore data plane (`bedrock-agentcore.{region}.amazonaws.com/runtimes/{arn}/invocations`).
@@ -336,7 +336,7 @@ graph TB
 |-----------|---------|
 | **7 CDK Stacks** | Core, Security, Webhook, Content, API, Feedback, Frontend |
 | **19 Lambda Functions** | API, processing, webhooks, support, voice (in role-based packages) |
-| **Coach chat runtime** | dedicated **AgentCore Runtime** `coach_chat` (FastAPI + Strands, AGUI protocol, 4 tools). Browser POSTs the AG-UI SSE straight to the data plane; **customJWT** auth (Cognito ID token), no SigV4, no proxy |
+| **Coach chat runtime** | dedicated **AgentCore Runtime** `coach_chat` (FastAPI + Strands, AGUI protocol, 5 tools). Browser POSTs the AG-UI SSE straight to the data plane; **customJWT** auth (Cognito ID token), no SigV4, no proxy |
 | **3 DynamoDB Tables** | `activities` (3 GSIs, TTL), `user_config`, `coaching_sessions` |
 | **2 AgentCore Agents** | `content_gen` (LTM memory), `coach_agent` (LTM memory). Campus Coach uses the direct REST sync Lambda (no agent) |
 | **CloudFront + S3** | Frontend hosting with OAC, private bucket, versioning, encryption |

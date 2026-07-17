@@ -530,6 +530,59 @@ async def get_intervals_metrics(date_from: str, date_to: str) -> dict:
     )
 
 
+def _get_coach_observations_impl(user_id: str, topic: str) -> list:
+    """Retrieve long-term coaching observations from AgentCore Memory.
+
+    Records are extracted by the memory strategies into
+    /strategies/{strategyId}/actors/{actorId}/ namespaces. The runtime role has
+    RetrieveMemoryRecords only (no GetMemory), so we use the "/strategies/"
+    prefix and filter results to this user's namespaces — same account-safe
+    pattern as the weekly recap (docs/design/memory-improvements.md).
+    """
+    if not MEMORY_ID or not user_id:
+        return []
+    query = topic.strip() or "coaching observations athlete progression patterns"
+    try:
+        client = boto3.client("bedrock-agentcore", region_name=REGION)
+        response = client.retrieve_memory_records(
+            memoryId=MEMORY_ID,
+            namespace="/strategies/",
+            searchCriteria={"searchQuery": query, "topK": 8},
+        )
+        records = response.get("memoryRecordSummaries", [])
+        return [
+            r["content"]["text"]
+            for r in records
+            if r.get("content", {}).get("text")
+            and any(f"/actors/{user_id}/" in ns for ns in (r.get("namespaces") or []))
+        ][:5]
+    except Exception as e:
+        logger.warning("Failed to retrieve coach observations: %s", e)
+        return []
+
+
+@tool
+async def get_coach_observations(topic: str) -> list:
+    """Récupère les observations long-terme mémorisées sur l'athlète.
+
+    Utilise cet outil pour retrouver ce qui a déjà été observé sur l'athlète au
+    fil des séances : progression des charges en musculation, patterns
+    d'entraînement, habitudes, points de vigilance passés. Complémentaire de
+    query_activities (données brutes) : ici ce sont des synthèses apprises.
+
+    Args:
+        topic: Sujet de recherche en langage naturel, ex. "progression
+            musculation charges", "endurance fondamentale allure", "fatigue
+            récupération". Chaîne vide pour les observations générales.
+
+    Returns:
+        Liste de textes d'observations (max 5), les plus pertinents d'abord.
+        Liste vide si rien n'a encore été mémorisé sur ce sujet.
+    """
+    user_id = _resolve_user_id()
+    return await asyncio.to_thread(_get_coach_observations_impl, user_id, topic)
+
+
 # --- Memory (preserve existing coaching_observations namespace) ---------------
 
 
@@ -570,6 +623,7 @@ Tu disposes d'outils pour récupérer les données de l'athlète à la demande. 
 - get_campus_plan(week_iso) : séances Campus Coach planifiées (week_iso vide = semaine en cours).
 - get_pace_zones() : zones d'allure, records personnels, FCmax.
 - get_intervals_metrics(date_from, date_to) : CTL/ATL/Form/HRV/decoupling Intervals.icu sur une période.
+- get_coach_observations(topic) : observations long-terme mémorisées sur l'athlète (progressions, patterns, points de vigilance). À utiliser pour la continuité ("la dernière fois", "d'habitude", progression muscu).
 
 Enchaîne plusieurs appels si nécessaire (ex : "compare mes 6 dernières séances de seuil" = query_activities filtré, puis analyse). Si un outil renvoie une liste vide, dis simplement que la donnée n'est pas disponible."""
 
@@ -644,7 +698,7 @@ def _build_agent(user_id: str) -> Agent:
     return Agent(
         model=model,
         system_prompt=_build_system_prompt(user_id),
-        tools=[query_activities, get_campus_plan, get_pace_zones, get_intervals_metrics],
+        tools=[query_activities, get_campus_plan, get_pace_zones, get_intervals_metrics, get_coach_observations],
     )
 
 
