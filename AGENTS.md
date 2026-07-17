@@ -22,7 +22,7 @@
 
 ## Project Overview
 
-Strava AI Boost is a **serverless AWS application** that automatically enhances Strava activity titles and descriptions using AI. The system uses a **React + Cloudscape frontend** hosted on CloudFront (with Cognito authentication) that calls API Gateway directly.
+Strava AI Boost is a **serverless AWS application** that automatically enhances Strava activity titles and descriptions using AI. The system uses a **React + TypeScript frontend built on a custom Tailwind v4 design system** (semantic CSS tokens, dark mode, cva component primitives — migrated off Cloudscape) hosted on CloudFront (with Cognito authentication) that calls API Gateway directly.
 
 ### Key Statistics
 - **~18,000 LOC** in core components
@@ -171,7 +171,7 @@ strava-ai-boost/
 │   │   ├── auth/                       # Authentication
 │   │   │   ├── AuthContext.tsx         # Cognito auth context + JWT management
 │   │   │   └── ProtectedRoute.tsx      # Route guard (redirects to login)
-│   │   ├── components/                 # Cloudscape components + tests
+│   │   ├── components/                 # Custom design-system components + tests
 │   │   ├── pages/                      # Page components (Dashboard, Config, Preferences, Quality, Coach, LoginPage)
 │   │   ├── layouts/                    # Layout components (Shell, TopNav w/ Sign Out, Breadcrumbs)
 │   │   ├── utils/                      # Pure utility functions + tests

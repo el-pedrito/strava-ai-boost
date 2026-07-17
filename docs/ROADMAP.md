@@ -166,6 +166,7 @@ Pertinente pour la crédibilité du sample OSS (un lecteur va juger le repo là-
 - **Token refresh dupliqué dans 4 Lambdas** — extraire dans `shared/strava_token_manager.py` (BACKLOG P2). Un contributeur le verra tout de suite.
 - **Lambda Layer build manuel** (`LAYER_ASSET_HASH`) — oubli = deps stales. Automatiser dans un script (BACKLOG P2).
 - **`except Exception` génériques** (20+) avec return None silencieux — au minimum les 3 critiques du BACKLOG.
+- **Frontend — pages monolithiques + dédup UI + micro-bug KPI** — chantier de maintenabilité cadré en spec : [design/frontend-maintainability.md](./design/frontend-maintainability.md) (découpage des grosses pages — `CoachPage.tsx` ~66 KB en tête —, extraction d'un `UserMenu` partagé entre Sidebar/Topbar, correctif suffixe `%` du delta `KPI`). 🗺️ **non démarré, aucun dev/build.** Quick-wins de la même review (2026-07-17) **déjà livrés** hors spec : CSS legacy mort supprimé (`styles/global.css`, ~150 lignes non utilisées + couleurs hardcodées cassant le dark mode) + dérive doc « Cloudscape » corrigée dans `AGENTS.md`.
 
 Confort / plus tard :
 
