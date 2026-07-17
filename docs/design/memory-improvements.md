@@ -81,18 +81,24 @@ Non fait en V1 (assumé) : suppression du namespace legacy dans coach_chat
    suffit). topK 8 → max 5 après filtre utilisateur. Vérifié live : 5
    observations pertinentes par topic. Le chat a maintenant la continuité
    avec le pipeline feedback (« d'habitude », « la dernière fois »).
-3. **metadataFilters à l'extraction** — spike fait : `CreateEvent` accepte
-   bien `metadata` (schéma botocore), mais les records extraits observés ne
-   portent que du metadata système (`x-amz-agentcore-memory-recordType`) —
-   la **propagation event→record n'est pas démontrée** (extraction
-   asynchrone, vérification coûteuse). À revalider par un test dédié avant
-   d'investir.
+3. **metadataFilters à l'extraction** — test de propagation **lancé le
+   2026-07-17** : event taggé (`metadata={activity_type, test_marker}`) créé
+   sous l'actor `metadata_test` (event `0000001784281833937#afb42380`,
+   session `metadata-propagation-test`). L'extraction étant asynchrone
+   (déclenchée à l'idle de session), vérifier plus tard si le record extrait
+   porte le metadata custom :
+   `list_memory_records(namespace='/strategies/')` filtré sur
+   `/actors/metadata_test/` → champ `metadata`. Si oui → investir dans le
+   tagging par sport ; sinon → clore la piste. Nettoyage : supprimer les
+   records/events de l'actor de test après verdict.
 4. ✅ **Hygiène des events — audité, aucune action** (2026-07-17) :
    `eventExpiryDuration=365j`, 19 sessions / ~43 events pour l'actor
    principal — volume trivial, l'expiry par défaut suffit largement.
-   Trouvé au passage : des records d'avril sous l'actor legacy
-   `default_user` (pré-multi-user), orphelins inoffensifs (jamais matchés
-   par les lectures filtrées par user_id réel).
+   Les records orphelins de l'actor legacy `default_user` (19 préférences
+   pré-multi-user, mai 2026) ont été **migrés vers l'actor réel** le
+   2026-07-17 (ils contenaient des préférences apprises uniques : suppression
+   des tournures grandiloquentes, style des fun facts, abréviation des noms
+   d'exercices) puis supprimés — copy-then-delete vérifié, 19/19.
 5. ✅ **Unifier `/strategy/` vs `/strategies/`** (fait 2026-07-17) — pas
    besoin de recréer la stratégie : `modifyMemoryStrategies` change les
    `namespaceTemplates` **in-place** (ID préservé). Exécuté :

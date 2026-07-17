@@ -167,8 +167,8 @@ Pertinente pour la crédibilité du sample OSS (un lecteur va juger le repo là-
 Confort / plus tard :
 
 - **Vérifier weekly_synthesis en live** — son rôle IAM ne pouvait pas autoriser l'invocation de son inference profile (corrigé le 2026-07-17 avec la centralisation LLM) : la Lambda était probablement silencieusement cassée. À confirmer au prochain run planifié (dimanche 20:00 UTC) ou par un déclenchement manuel.
-- **Nettoyer la plomberie campus inerte de `configure_agentcore_integration.sh`** — le script (~1000 lignes) garde des arguments positionnels `campus_arn` résolus à vide (sans effet). Laissé volontairement au décommission (risque de dé-threading disproportionné) ; à faire à l'occasion d'un refactor du script.
-- **Purger les records mémoire orphelins de l'actor legacy `default_user`** (19 records de préférences pré-multi-user) — inoffensifs (jamais matchés par les lectures filtrées par user réel), mais du bruit pour le topK des recherches prefix ; suppression triviale via `batch_delete_memory_records`.
+- [x] ~~Nettoyer la plomberie campus inerte de `configure_agentcore_integration.sh`~~ — ✅ 2026-07-17 : dé-threading complet (détection, IAM, env vars Lambda, cdk context, env file, résumé), retrait du grant secret campus des rôles agents (plus aucun agent ne le lit) et des références aux Lambdas décommissionnées (CampusCoachInvoker, CoachAskAPI). Conservé : les grants de la table `campus-coaching-sessions` (lue par le tool `get_campus_plan` de coach_chat).
+- [x] ~~Purger les records orphelins `default_user`~~ — ✅ 2026-07-17 : **migrés plutôt que purgés** — inspection préalable : ils contenaient des préférences apprises uniques (mai 2026, pré-multi-user) → 19/19 copiés vers l'actor réel puis supprimés. Le contenu appris est préservé et de nouveau servi par les lectures.
 
 - Lambda ARM64 (Graviton) — ~20 % de coût en moins, rebuild layer requis
 - Chunks > 500kb (CoachPage, index)

@@ -20,7 +20,6 @@ PROJECT_NAME="strava-ai-boost"
 
 # Short agent names to avoid ARN truncation issues
 CONTENT_AGENT_NAME="content_gen"
-CAMPUS_AGENT_NAME="campus_coach"
 COACH_AGENT_NAME="strava_ai_boost_coach"
 
 print_status() {
@@ -42,13 +41,11 @@ print_error() {
 # Function to detect deployed AgentCore agents (simplified - no memory detection)
 detect_deployed_agents() {
     local content_arn=""
-    local campus_arn=""
     local coach_arn=""
 
     # Get Content Generation Agent ARN from .bedrock_agentcore.yaml
     if [ -f ".bedrock_agentcore.yaml" ]; then
         content_arn=$(grep -A 1 "agent_arn:" .bedrock_agentcore.yaml | grep "content_gen" -A 1 | grep "arn:aws" | sed 's/.*arn:/arn:/' | sed 's/[[:space:]]*$//' | head -1)
-        campus_arn=$(grep -A 1 "agent_arn:" .bedrock_agentcore.yaml | grep "campus_coach" -A 1 | grep "arn:aws" | sed 's/.*arn:/arn:/' | sed 's/[[:space:]]*$//' | head -1)
         coach_arn=$(grep -A 1 "agent_arn:" .bedrock_agentcore.yaml | grep "strava_ai_boost_coach" -A 1 | grep "arn:aws" | sed 's/.*arn:/arn:/' | sed 's/[[:space:]]*$//' | head -1)
     fi
 
@@ -57,27 +54,22 @@ detect_deployed_agents() {
         content_arn=$(agentcore status --agent "$CONTENT_AGENT_NAME" 2>/dev/null | grep -A 2 "Agent ARN:" | grep "arn:aws" | sed 's/│//g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//' | head -1)
     fi
 
-    if [ -z "$campus_arn" ] && command -v agentcore &> /dev/null; then
-        campus_arn=$(agentcore status --agent "$CAMPUS_AGENT_NAME" 2>/dev/null | grep -A 2 "Agent ARN:" | grep "arn:aws" | sed 's/│//g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//' | head -1)
-    fi
-
     if [ -z "$coach_arn" ] && command -v agentcore &> /dev/null; then
         coach_arn=$(agentcore status --agent "$COACH_AGENT_NAME" 2>/dev/null | grep -A 2 "Agent ARN:" | grep "arn:aws" | sed 's/│//g' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//' | head -1)
     fi
 
     # Validate detection results
-    if [ -z "$content_arn" ] && [ -z "$campus_arn" ] && [ -z "$coach_arn" ]; then
+    if [ -z "$content_arn" ] && [ -z "$coach_arn" ]; then
         return 1
     fi
 
-    echo "$content_arn|$campus_arn|$coach_arn"
+    echo "$content_arn|$coach_arn"
 }
 
 # Function to update IAM permissions for Lambda roles to invoke AgentCore
 update_lambda_iam_permissions() {
     local content_arn="$1"
-    local campus_arn="$2"
-    local coach_arn="$3"
+    local coach_arn="$2"
 
     print_status "🔐 Updating Lambda IAM permissions for AgentCore invocation..."
     
@@ -93,8 +85,6 @@ update_lambda_iam_permissions() {
     # Get Lambda function roles that need AgentCore permissions
     local lambda_functions=(
         "StravaAIBoost-ContentGenerator"
-        "StravaAIBoost-CampusCoachInvoker"
-        "StravaAIBoost-CoachAskAPI"
     )
     
     local updated_roles=0
@@ -277,9 +267,7 @@ EOF
 
 # Function to configure AgentCore agent IAM permissions (including memory access)
 configure_agentcore_agent_permissions() {
-    local campus_arn="$1"
-    local content_memory_id="$2"
-    local campus_memory_id="$3"
+    local content_memory_id="$1"
     
     print_status "🔐 Configuring IAM permissions for AgentCore agents (including memory access)..."
     
@@ -352,9 +340,6 @@ EOF
     if [ -n "$content_memory_id" ]; then
         memory_resources=$(echo "$memory_resources" | jq --arg arn "arn:aws:bedrock-agentcore:${AWS_REGION}:${account_id}:memory/${content_memory_id}" '. + [$arn]')
     fi
-    if [ -n "$campus_memory_id" ]; then
-        memory_resources=$(echo "$memory_resources" | jq --arg arn "arn:aws:bedrock-agentcore:${AWS_REGION}:${account_id}:memory/${campus_memory_id}" '. + [$arn]')
-    fi
     
     # Create comprehensive policy for ALL AgentCore agents
     local policy_name="StravaAIBoost-AgentCore-AllPermissions"
@@ -364,16 +349,6 @@ EOF
 {
     "Version": "2012-10-17",
     "Statement": [
-        {
-            "Sid": "SecretsManagerAccess",
-            "Effect": "Allow",
-            "Action": [
-                "secretsmanager:GetSecretValue"
-            ],
-            "Resource": [
-                "arn:aws:secretsmanager:${AWS_REGION}:${account_id}:secret:strava-ai-boost-campus-coach-credentials-*"
-            ]
-        },
         {
             "Sid": "DynamoDBAccess",
             "Effect": "Allow",
@@ -561,7 +536,6 @@ EOF
 # Function to verify AgentCore agent permissions (read-only check)
 verify_agentcore_iam_permissions() {
     local content_arn="$1"
-    local campus_arn="$2"
     
     print_status "🔍 Verifying AgentCore agent permissions (read-only check)..."
     
@@ -576,7 +550,6 @@ verify_agentcore_iam_permissions() {
     
     # Get execution role ARNs from agent status (with robust parsing)
     local content_role_arn=""
-    local campus_role_arn=""
     
     if [ -n "$content_arn" ]; then
         # Use direct AWS CLI to get the role ARN from the agent runtime
@@ -591,22 +564,6 @@ verify_agentcore_iam_permissions() {
         # Fallback: use known pattern for content generation agent
         if [ -z "$content_role_arn" ] || [ "$content_role_arn" = "None" ]; then
             content_role_arn="arn:aws:iam::${account_id}:role/AmazonBedrockAgentCoreSDKRuntime-${AWS_REGION}-XXXXXXXXXXXX"
-        fi
-    fi
-    
-    if [ -n "$campus_arn" ]; then
-        # Use direct AWS CLI to get the role ARN from the agent runtime
-        local campus_runtime_id=$(echo "$campus_arn" | awk -F'/' '{print $NF}')
-        campus_role_arn=$(aws bedrock-agentcore get-agent-runtime \
-            --agent-runtime-id "$campus_runtime_id" \
-            --profile "$AWS_PROFILE" \
-            --region "$AWS_REGION" \
-            --query 'roleArn' \
-            --output text 2>/dev/null || echo "")
-        
-        # Fallback: use known pattern for campus coach agent
-        if [ -z "$campus_role_arn" ] || [ "$campus_role_arn" = "None" ]; then
-            campus_role_arn="arn:aws:iam::${account_id}:role/AmazonBedrockAgentCoreSDKRuntime-${AWS_REGION}-XXXXXXXXXXXX"
         fi
     fi
     
@@ -625,19 +582,6 @@ verify_agentcore_iam_permissions() {
         fi
     fi
     
-    # Verify Campus Coach Agent role exists
-    if [ -n "$campus_role_arn" ] && [ "$campus_role_arn" != "null" ]; then
-        local role_name=$(echo "$campus_role_arn" | awk -F'/' '{print $NF}')
-        print_status "Verifying Campus Coach role: $role_name"
-        
-        if aws iam get-role --role-name "$role_name" --profile "$AWS_PROFILE" > /dev/null 2>&1; then
-            print_success "✅ Campus Coach agent role exists and is managed by AgentCore"
-            ((verified_roles++))
-        else
-            print_warning "⚠️  Campus Coach agent role not found: $role_name"
-        fi
-    fi
-    
     print_success "AgentCore agent roles verified: $verified_roles roles found"
     print_status "ℹ️  Note: AgentCore agent roles are automatically managed by AWS and include all necessary permissions"
     return 0
@@ -646,9 +590,8 @@ verify_agentcore_iam_permissions() {
 # Function to update Lambda environment variables with agent ARNs (direct AWS API)
 update_lambda_environment_variables() {
     local content_arn="$1"
-    local campus_arn="$2"
-    local coach_arn="$3"
-    local memory_id="$4"
+    local coach_arn="$2"
+    local memory_id="$3"
 
     print_status "🔄 Updating Lambda environment variables with agent ARNs (direct AWS API)..."
     
@@ -681,8 +624,6 @@ update_lambda_environment_variables() {
         # Fallback to expected function names
         lambda_functions=(
             "StravaAIBoost-ContentGenerator"
-            "StravaAIBoost-CampusCoachInvoker"
-            "StravaAIBoost-CoachAskAPI"
         )
     fi
     
@@ -706,16 +647,13 @@ update_lambda_environment_variables() {
             local updated_env
             updated_env=$(echo "$current_env" | jq \
                 --arg content_arn "$content_arn" \
-                --arg campus_arn "$campus_arn" \
                 --arg coach_arn "$coach_arn" \
                 '. + {
                     "CONTENT_GENERATION_AGENT_ARN": $content_arn,
-                    "CAMPUS_COACH_AGENT_ARN": $campus_arn,
                     "COACH_AGENT_ARN": $coach_arn,
-                    "AGENTCORE_AGENTS_AVAILABLE": (if ($content_arn != "" or $campus_arn != "" or $coach_arn != "") then "true" else "false" end),
+                    "AGENTCORE_AGENTS_AVAILABLE": (if ($content_arn != "" or $coach_arn != "") then "true" else "false" end),
                     "AGENTCORE_DEPLOYMENT_TYPE": "direct_code_deploy",
                     "CONTENT_GENERATION_AGENT_NAME": "'"$CONTENT_AGENT_NAME"'",
-                    "CAMPUS_COACH_AGENT_NAME": "'"$CAMPUS_AGENT_NAME"'",
                     "COACH_AGENT_NAME": "'"$COACH_AGENT_NAME"'",
                     "AGENTCORE_REGION": "'"$AWS_REGION"'",
                     "AGENTCORE_LAST_UPDATE": "'"$(date -u +"%Y-%m-%dT%H:%M:%SZ")"'"
@@ -773,7 +711,6 @@ EOF
 # Function to update CDK context with agent ARNs (simplified - no memory)
 update_cdk_context() {
     local content_arn="$1"
-    local campus_arn="$2"
     
     print_status "📝 Updating CDK context with agent ARNs..."
     
@@ -784,10 +721,8 @@ update_cdk_context() {
     
     # Update context with agent ARNs (no memory ID)
     jq --arg content_arn "$content_arn" \
-       --arg campus_arn "$campus_arn" \
        '.agentcore = {
          "content_generation_agent_arn": $content_arn,
-         "campus_coach_agent_arn": $campus_arn,
          "agents_deployed": true,
          "deployment_timestamp": now | strftime("%Y-%m-%dT%H:%M:%SZ"),
          "deployment_type": "direct_code_deploy",
@@ -802,9 +737,8 @@ update_cdk_context() {
 # Function to create environment file for local development (simplified - no memory variables)
 create_env_file() {
     local content_arn="$1"
-    local campus_arn="$2"
-    local coach_arn="$3"
-    local memory_id="$4"
+    local coach_arn="$2"
+    local memory_id="$3"
 
     print_status "📄 Updating .env.agentcore file..."
     
@@ -906,8 +840,6 @@ ENVIRONMENT=development
 # ============================================================================
 # Content generation timeout (seconds)
 CONTENT_GENERATION_TIMEOUT=30
-# Campus Coach extraction timeout (seconds)
-CAMPUS_COACH_TIMEOUT=300
 # Memory lookup timeout (milliseconds)
 MEMORY_LOOKUP_TIMEOUT=500
 
@@ -915,7 +847,6 @@ MEMORY_LOOKUP_TIMEOUT=500
 # FEATURE FLAGS
 # ============================================================================
 # Enable/disable specific modules
-CAMPUS_COACH_MODULE_ENABLED=true
 ENDURAW_MODULE_ENABLED=true
 AGENTCORE_MEMORY_PERSONALIZATION=true
 VERBOSE_LOGGING=true  # Enable verbose logging for debugging
@@ -988,63 +919,56 @@ main() {
     fi
     
     # Parse agent information
-    IFS='|' read -r content_arn campus_arn coach_arn <<< "$agent_info"
+    IFS='|' read -r content_arn coach_arn <<< "$agent_info"
     
     # Get memory IDs from YAML
     print_status "🔍 Detecting AgentCore Memory configuration..."
     local content_memory_id=$(get_memory_id_from_yaml "$CONTENT_AGENT_NAME")
-    local campus_memory_id=$(get_memory_id_from_yaml "$CAMPUS_AGENT_NAME")
     
-    if [ -n "$content_memory_id" ] || [ -n "$campus_memory_id" ]; then
+    if [ -n "$content_memory_id" ]; then
         print_success "Found AgentCore Memory configuration:"
         [ -n "$content_memory_id" ] && print_status "  Content Agent Memory: $content_memory_id"
-        [ -n "$campus_memory_id" ] && print_status "  Campus Coach Memory: $campus_memory_id"
     else
         print_warning "No AgentCore Memory configured (agents will run without LTM)"
         content_memory_id=""
-        campus_memory_id=""
     fi
     
     print_success "Detected AgentCore resources:"
     [ -n "$content_arn" ] && print_status "  Content Generation Agent: $content_arn"
-    [ -n "$campus_arn" ] && print_status "  Campus Coach Agent: $campus_arn"
     [ -n "$coach_arn" ] && print_status "  Strava AI Boost Coach Agent: $coach_arn"
     [ -n "$content_memory_id" ] && print_status "  Content Agent Memory: $content_memory_id"
-    [ -n "$campus_memory_id" ] && print_status "  Campus Coach Memory: $campus_memory_id"
 
     print_status ""
     print_status "🔧 Configuring AgentCore integration..."
 
     # Configure AgentCore agent IAM permissions (including memory access)
-    if [ -n "$campus_arn" ] || [ -n "$content_arn" ] || [ -n "$coach_arn" ]; then
-        configure_agentcore_agent_permissions "$campus_arn" "$content_memory_id" "$campus_memory_id"
+    if [ -n "$content_arn" ] || [ -n "$coach_arn" ]; then
+        configure_agentcore_agent_permissions "$content_memory_id"
     fi
 
     # Update Lambda IAM permissions for AgentCore invocation
-    update_lambda_iam_permissions "$content_arn" "$campus_arn" "$coach_arn"
+    update_lambda_iam_permissions "$content_arn" "$coach_arn"
 
     # Verify AgentCore agent permissions (read-only check)
-    verify_agentcore_iam_permissions "$content_arn" "$campus_arn"
+    verify_agentcore_iam_permissions "$content_arn"
 
     # Update Lambda environment variables with agent ARNs and memory ID
-    update_lambda_environment_variables "$content_arn" "$campus_arn" "$coach_arn" "$content_memory_id"
+    update_lambda_environment_variables "$content_arn" "$coach_arn" "$content_memory_id"
 
     # Update CDK context
-    update_cdk_context "$content_arn" "$campus_arn"
+    update_cdk_context "$content_arn"
 
     # Create environment file with memory ID
-    create_env_file "$content_arn" "$campus_arn" "$coach_arn" "$content_memory_id"
+    create_env_file "$content_arn" "$coach_arn" "$content_memory_id"
     
     print_success "🎉 AgentCore integration configuration completed successfully!"
     print_status ""
     print_status "📋 Configuration Summary:"
     print_status "  Content Generation Agent: $content_arn"
-    print_status "  Campus Coach Agent: $campus_arn"
     print_status "  Strava AI Boost Coach Agent: $coach_arn"
-    if [ -n "$content_memory_id" ] || [ -n "$campus_memory_id" ]; then
+    if [ -n "$content_memory_id" ]; then
         print_status "  AgentCore Memory (LTM):"
         [ -n "$content_memory_id" ] && print_status "    - Content Agent: $content_memory_id"
-        [ -n "$campus_memory_id" ] && print_status "    - Campus Coach: $campus_memory_id"
     else
         print_status "  AgentCore Memory: Not configured"
     fi
