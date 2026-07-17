@@ -89,16 +89,16 @@ Non fait en V1 (assumé) : suppression du namespace legacy dans coach_chat
    suffit). topK 8 → max 5 après filtre utilisateur. Vérifié live : 5
    observations pertinentes par topic. Le chat a maintenant la continuité
    avec le pipeline feedback (« d'habitude », « la dernière fois »).
-3. **metadataFilters à l'extraction** — test de propagation **lancé le
-   2026-07-17** : event taggé (`metadata={activity_type, test_marker}`) créé
-   sous l'actor `metadata_test` (event `0000001784281833937#afb42380`,
-   session `metadata-propagation-test`). L'extraction étant asynchrone
-   (déclenchée à l'idle de session), vérifier plus tard si le record extrait
-   porte le metadata custom :
-   `list_memory_records(namespace='/strategies/')` filtré sur
-   `/actors/metadata_test/` → champ `metadata`. Si oui → investir dans le
-   tagging par sport ; sinon → clore la piste. Nettoyage : supprimer les
-   records/events de l'actor de test après verdict.
+3. ❌ **metadataFilters à l'extraction — piste CLOSE** (verdict 2026-07-17) :
+   le test de propagation a tranché — event taggé (`metadata={activity_type,
+   test_marker}`) extrait en ~15 min, mais les records produits ne portent
+   **que** du metadata système (`x-amz-agentcore-memory-recordType`,
+   `episode-assessment`, timestamps). Le `metadata` de `CreateEvent` **ne se
+   propage pas** aux records extraits → pas de filtrage exact par sport via ce
+   mécanisme ; la recherche sémantique par type de séance (déjà en place)
+   reste l'approche. Actor de test nettoyé (records + event supprimés).
+   **Bonus du test** : première preuve live de la stratégie EPISODIC — le même
+   event a produit un épisode `BASE` + une `REFLECTION` en ~15 minutes.
 4. ✅ **Hygiène des events — audité, aucune action** (2026-07-17) :
    `eventExpiryDuration=365j`, 19 sessions / ~43 events pour l'actor
    principal — volume trivial, l'expiry par défaut suffit largement.

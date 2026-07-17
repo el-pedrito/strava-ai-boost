@@ -10,6 +10,8 @@
 
 ## Done
 
+- **Passe qualité repo + release v0.2.0 (2026-07-17 après-midi)** : audit spécialisé des 21 fichiers markdown contre la vérité terrain (8 stacks, 18 Lambdas, 1 memory) — 15 fichiers corrigés (SECURITY.md décrivait l'auth SigV4 décommissionnée, BACKLOG réécrit, MIT→MIT-0…). Nouveau : `docs/architecture.md` (briques AgentCore d'abord, support du post LinkedIn/blog) + **3 diagrammes draw.io** (high-level, détaillé, services AWS avec icônes officielles) exportés en `.drawio.svg` rendus par GitHub ; **garde anti-dérive documentaire** `test_docs_sync.py` (claims des docs vérifiés contre le code) + hook Kiro `stop` (`scripts/check_docs_sync.sh`). Mémoire reliquat `strava_ai_boost_coach_mem` supprimée (vide, non référencée). **v0.2.0 taguée + GitHub Release publiée.** Verdicts : metadataFilters close (pas de propagation event→record) ; stratégie EPISODIC **prouvée en live** (épisode + réflexion générés en ~15 min).
+
 - **Court terme muscu + santé + deauth (2026-07-16)** : (1) **extraction LLM des séances muscu** (Haiku/Converse) → `parsed_sets` dans DynamoDB ; (2) **charts progression muscu** dans Coach Trends (charge/volume par exercice) ; (3) **détection d'anomalie santé** déterministe (alertes onglet Coach Now) ; (4) **tests de déautorisation Strava** (flow déjà implémenté). Tout déployé (Content + API + frontend). **Correction factuelle** : l'app Strava est **active** (premium, scope complet vérifié en live) — le « 403 Inactive » précédent était un simple token expiré.
 - **Décommission `campus_coach` (2026-07-16)** : agent Browser Tool + Lambda fallback `campus_coach_invoker` supprimés (runtime AgentCore + mémoire détruits dans AWS, code/CDK/scripts/tests nettoyés). Le sync REST `campus_coach_sync` reste la source unique. Reste 3 runtimes AgentCore (`content_gen`, `strava_ai_boost_coach`, `coach_chat`).
 - **Campus Coach : migration Browser Tool → API REST directe** : Lambda `campus_coach_sync.py` (`POST /account/login` + `GET /smart-training` → DynamoDB, 9 semaines / 39 sessions avec intervalles structurés). EventBridge daily 05:00 UTC + on-demand. Futures semaines + athlete context (goal, assiduity, sport profile) injectés dans le contexte coach. Module activation check. Agent Browser Tool conservé en fallback *(superseded : décommissionné le 2026-07-16, cf. item ci-dessus)*. 26 tests unitaires.
@@ -64,8 +66,9 @@
 > historique git nettoyé, tag v0.1.0, screenshots/GIF README)~~ ✅ (2026-07-15) →
 > ~~A2a (multi-tour chat)~~ ✅ → ~~A1 (tools) + A2b (runtime AGUI)~~ ✅ (2026-07-16) →
 > ~~court terme muscu/santé/deauth~~ ✅ (2026-07-16) →
-> ~~A3 (evals régression V1 + V2 managée)~~ ✅ (2026-07-17) →
-> **maintenant : (1) rendre le repo public (aucun bloquant technique restant), (2) peupler les charts muscu via reprocessing d'une vraie séance, (3) backfill PRs Strava (si envie).**
+> ~~A3 (evals régression V1 + V2 managée)~~ ✅ → ~~A4 (mémoire : fixes + EPISODIC + unification)~~ ✅ →
+> ~~passe qualité docs + architecture (3 draw.io) + garde anti-dérive + release v0.2.0~~ ✅ (2026-07-17) →
+> **maintenant : (1) rendre le repo public (aucun bloquant technique restant, v0.2.0 taguée + GitHub Release prête), (2) post LinkedIn (s'appuyer sur docs/architecture.md), (3) peupler les charts muscu via reprocessing d'une vraie séance, (4) backfill PRs Strava (si envie).**
 > Scan sensibilité + CVE + licence déjà faits.
 
 ### Quick wins ops — ✅ DONE (2026-07-10)
