@@ -776,7 +776,10 @@ def _track_strength_history(user_id: str, activity_id: str, activity_data: Dict[
             return
 
         activity_date = activity_data.get('start_date_local', activity_data.get('start_date', ''))
-        duration_min = activity_data.get('moving_time', 0) / 60
+        try:
+            duration_min = float(activity_data.get('moving_time') or 0) / 60
+        except (ValueError, TypeError):
+            duration_min = 0
 
         # Store raw description as a history entry — the coach LLM will interpret it
         # against the strength_program to track progressions. In addition, a
@@ -794,7 +797,9 @@ def _track_strength_history(user_id: str, activity_id: str, activity_data: Dict[
             Key={'user_id': user_id},
             UpdateExpression='SET user_preferences.strength_history.entries = list_append(if_not_exists(user_preferences.strength_history.entries, :empty), :entry), user_preferences.strength_history.last_updated = :ts',
             ExpressionAttributeValues={
-                ':entry': [entry],
+                # DynamoDB rejects floats — parsed_sets carries weight_kg as float
+                # (live incident 2026-07-18/20: entries were silently dropped).
+                ':entry': [_convert_floats_to_decimal(entry)],
                 ':empty': [],
                 ':ts': datetime.now(timezone.utc).isoformat()
             }
@@ -804,19 +809,27 @@ def _track_strength_history(user_id: str, activity_id: str, activity_data: Dict[
         logger.warning(f"Failed to track strength history: {e}")
 
 
+def _convert_floats_to_decimal(obj: Any) -> Any:
+    """Recursively convert Python floats to Decimal for DynamoDB writes.
+
+    boto3 rejects float attribute values ("Float types are not supported") —
+    every dict/list written to DynamoDB must go through this.
+    """
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    elif isinstance(obj, dict):
+        return {k: _convert_floats_to_decimal(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_convert_floats_to_decimal(item) for item in obj]
+    return obj
+
+
 def store_generated_content(activity_id: str, content: Dict[str, Any]) -> None:
     """Store generated content in DynamoDB"""
     try:
         table = dynamodb.Table(ACTIVITIES_TABLE)
 
-        def convert_floats_to_decimal(obj: Any) -> Any:
-            if isinstance(obj, float):
-                return Decimal(str(obj))
-            elif isinstance(obj, dict):
-                return {k: convert_floats_to_decimal(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [convert_floats_to_decimal(item) for item in obj]
-            return obj
+        convert_floats_to_decimal = _convert_floats_to_decimal
 
         metadata = {
             'style_elements': content.get('style_elements', []),

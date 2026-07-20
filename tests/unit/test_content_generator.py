@@ -473,3 +473,45 @@ class TestExtractStrengthSets:
         assert len(result) == 2
         assert result[0] == {"exercise": "Squat", "sets": 5, "reps": 5, "weight_kg": 100.0}
         assert result[1] == {"exercise": "Gainage", "sets": None, "reps": None, "weight_kg": None}
+
+
+class TestTrackStrengthHistory:
+    """Regression (live incident 2026-07-18/20): parsed_sets carried float
+    weight_kg — boto3 rejected the DynamoDB write ('Float types are not
+    supported') and strength history entries were silently dropped."""
+
+    @patch('processing.content_generator._extract_strength_sets')
+    @patch('processing.content_generator.dynamodb')
+    def test_float_weights_written_as_decimal(self, mock_dynamodb, mock_extract):
+        from decimal import Decimal
+        from processing.content_generator import _track_strength_history
+
+        mock_extract.return_value = [
+            {"exercise": "DC haltères", "sets": 4, "reps": 8, "weight_kg": 22.5},
+        ]
+        mock_table = MagicMock()
+        mock_table.get_item.return_value = {"Item": {}}
+        mock_dynamodb.Table.return_value = mock_table
+
+        _track_strength_history("user1", "act1", {
+            "description": "DC haltères 4x8 @22.5kg",
+            "start_date_local": "2026-07-18T12:00:00Z",
+            "moving_time": "1886",  # string numerics happen on manual activities
+        })
+
+        mock_table.update_item.assert_called_once()
+        values = mock_table.update_item.call_args.kwargs["ExpressionAttributeValues"]
+        entry = values[":entry"][0]
+
+        def _no_floats(obj):
+            if isinstance(obj, float):
+                return False
+            if isinstance(obj, dict):
+                return all(_no_floats(v) for v in obj.values())
+            if isinstance(obj, list):
+                return all(_no_floats(v) for v in obj)
+            return True
+
+        assert _no_floats(entry), f"float leaked into DynamoDB write: {entry}"
+        assert entry["parsed_sets"][0]["weight_kg"] == Decimal("22.5")
+        assert entry["duration_min"] == 31  # string moving_time coerced
