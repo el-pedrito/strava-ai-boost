@@ -130,6 +130,50 @@ class TestBuildHistoricalSummary:
         assert "weekly_breakdown" in summary
         assert isinstance(summary["weekly_breakdown"], str)
 
+    @patch('processing.coach_generator.dynamodb')
+    def test_string_numeric_fields_do_not_break_summary(self, mock_dynamodb):
+        """Regression (live incident 2026-07-18): manual/indoor activities store
+        distance/average_speed as strings — the summary crashed on int + str and
+        the coach silently lost all historical context."""
+        from datetime import datetime, timezone, timedelta
+        monday = datetime(2026, 5, 11, 10, 0, 0, tzinfo=timezone.utc)
+        items = [
+            {
+                "activity_id": "act_normal",
+                "activity_data_json": json.dumps({
+                    "distance": 8000,
+                    "moving_time": 2400,
+                    "average_speed": 3.33,
+                    "average_heartrate": 150,
+                    "start_date_local": monday.isoformat(),
+                }),
+                "created_at": monday.isoformat(),
+            },
+            {
+                # Exact shape of live manual activity 19305772266
+                "activity_id": "act_manual",
+                "activity_data_json": json.dumps({
+                    "distance": "5000.0",
+                    "moving_time": 1886,
+                    "average_speed": "2.651",
+                    "average_heartrate": None,
+                    "start_date_local": (monday - timedelta(days=1)).isoformat(),
+                }),
+                "created_at": (monday - timedelta(days=1)).isoformat(),
+            },
+        ]
+        mock_table = MagicMock()
+        mock_table.query.return_value = {"Items": items}
+        mock_dynamodb.Table.return_value = mock_table
+
+        summary = build_historical_summary("user1", "current_act")
+
+        assert "error" not in summary
+        assert summary["total_activities"] == 2
+        assert summary["total_distance_km"] == 13.0  # 8km + 5km, string coerced
+        manual = [a for a in summary["recent_activities"] if a["distance_km"] == 5.0]
+        assert manual and manual[0]["pace"]  # pace computed from string speed
+
 from processing.coach_generator import _compute_coach_metrics, extract_and_store_prs, _build_fitness_trend
 
 

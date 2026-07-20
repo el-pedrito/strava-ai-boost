@@ -348,16 +348,24 @@ def retrieve_activity_data(activity_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _safe_float(val: Any) -> float:
+    """Cast DynamoDB Decimal/string values to float (0 on failure).
+
+    Manual/indoor Strava activities store numeric fields as strings in
+    activity_data_json (e.g. distance='5000.0') — every numeric read must
+    go through this guard.
+    """
+    try:
+        return float(val) if val else 0
+    except (ValueError, TypeError):
+        return 0
+
+
 def _compute_coach_metrics(laps: list, activity_data: Dict[str, Any]) -> Dict[str, Any]:
     """Compute EF (pace/HR ratio) and grey zone time from laps."""
     metrics: Dict[str, Any] = {}
 
-    # Cast DynamoDB Decimal/string values to float
-    def _f(val) -> float:
-        try:
-            return float(val) if val else 0
-        except (ValueError, TypeError):
-            return 0
+    _f = _safe_float
 
     # Efficiency Factor: pace @ HR (for trend comparison across activities)
     avg_speed = _f(activity_data.get("average_speed", 0))
@@ -580,6 +588,12 @@ def build_historical_summary(user_id: str, current_activity_id: str) -> Dict[str
                 continue
             try:
                 data = json.loads(item.get("activity_data_json", "{}"))
+                # Manual/indoor activities store numerics as strings — coerce
+                # once here so every downstream sum/round/comparison is safe
+                # (this crashed the whole historical summary: int + str).
+                for field in ("distance", "moving_time", "average_speed", "average_heartrate"):
+                    if data.get(field) is not None:
+                        data[field] = _safe_float(data[field])
                 # Attach integration data if available
                 if item.get("intervals_icu_json"):
                     icu = json.loads(item["intervals_icu_json"]) if isinstance(item["intervals_icu_json"], str) else item["intervals_icu_json"]
