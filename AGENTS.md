@@ -29,7 +29,7 @@ Strava AI Boost is a **serverless AWS application** that automatically enhances 
 - **18 Lambda functions** (API, processing, webhooks, support, voice — role-based packages)
 - **3 AgentCore Runtimes** — `content_gen`, `strava_ai_boost_coach` (coach), `coach_chat` (agentic conversational coach): 2 agent definitions in `src/agents/` + 1 chat runtime in `src/coach_chat/`, sharing a single AgentCore Memory (`content_gen_mem`, 3 strategies)
 - **8 CDK stacks**
-- **314 tests** (234 backend unit + 36 regression evaluators + 44 frontend) + on-demand prompt regression harness (deterministic V1 + managed AgentCore Evaluations V2)
+- **334 tests** (249 backend unit + 41 regression + 44 frontend) + on-demand prompt regression harness (deterministic V1 + managed AgentCore Evaluations V2)
 - **Centralized LLM registry** — all Bedrock model IDs come from `src/config/llm_config.py` (mirrored in `lambda_functions/shared/llm_models.py` for Lambda bundling); anti-drift sync test
 - **Python 3.12** runtime, **React 19 + TypeScript + Vite** frontend
 - **Cognito authentication** (JWT, custom:strava_id attribute, no self-registration)
@@ -181,14 +181,14 @@ strava-ai-boost/
 │   └── vite.config.ts                  # Vite + Vitest configuration
 │
 ├── tests/                      # Test suite
-│   ├── unit/                           # Lambda unit tests (234 tests)
+│   ├── unit/                           # Lambda unit tests (249 tests)
 │   │   ├── conftest.py                 # Env vars for Lambda imports
 │   │   ├── test_webhook_handler.py     # Validation, routing, signature
 │   │   ├── test_content_generator.py   # DynamoDB, parsing, storage, strength extraction
 │   │   ├── test_workout_analysis.py    # Laps classification, pace zones, Enduraw extraction
 │   │   ├── test_dashboard_api.py       # Validation, routing, caching, health anomalies
 │   │   └── test_configuration_api.py   # Strava deauthorization flow
-│   ├── regression/                     # Prompt regression harness (36 tests + live runners)
+│   ├── regression/                     # Prompt regression harness (41 tests + live runners)
 │   │   ├── fixtures/                   # 8 synthetic activities (shared by V1 + V2 evals)
 │   │   ├── evaluators.py               # Deterministic criteria + BANNED_CLICHES (sync-tested vs prompt)
 │   │   ├── evaluators_managed/         # Custom LLM-as-a-Judge configs (AgentCore Evaluations)
@@ -392,12 +392,12 @@ class MyModule(BaseModule):
 
 ### Running Tests
 
-**Lambda Unit Tests (234 tests, ~2s):**
+**Lambda Unit Tests (249 tests, ~2s):**
 ```bash
 pytest tests/unit/ -v
 ```
 
-**Regression evaluators + LLM registry sync (36 tests, free, no AWS):**
+**Regression evaluators + LLM registry sync (41 tests, free, no AWS):**
 ```bash
 pytest tests/regression/ -v
 ```
