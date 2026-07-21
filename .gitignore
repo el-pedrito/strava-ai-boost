@@ -12,6 +12,8 @@ eggs/
 .eggs/
 lib/
 lib64/
+# The Python-template `lib/` rule above must not swallow frontend sources
+!frontend/src/lib/
 parts/
 sdist/
 var/
