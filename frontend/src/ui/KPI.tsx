@@ -9,6 +9,11 @@ export interface KPIProps extends HTMLAttributes<HTMLDivElement> {
   value: ReactNode;
   unit?: string;
   delta?: { value: number; label?: string; positiveIsGood?: boolean };
+  /**
+   * Unit suffix appended to the delta value (e.g. '%', 'pts', 'km').
+   * Defaults to '%'. Pass an empty string for a unitless delta.
+   */
+  deltaUnit?: string;
   icon?: ReactNode;
   loading?: boolean;
   size?: 'sm' | 'md' | 'lg';
@@ -94,7 +99,7 @@ function AnimatedNumber({ value, ariaLabel }: AnimatedNumberProps) {
 
 export const KPI = forwardRef<HTMLDivElement, KPIProps>(
   (
-    { className, label, value, unit, delta, icon, loading, size = 'md', info, ...props },
+    { className, label, value, unit, delta, deltaUnit = '%', icon, loading, size = 'md', info, ...props },
     ref
   ) => {
     const valueSize = size === 'lg' ? 'text-5xl' : size === 'sm' ? 'text-2xl' : 'text-4xl';
@@ -166,7 +171,7 @@ export const KPI = forwardRef<HTMLDivElement, KPIProps>(
             <span>
               {delta.value > 0 ? '+' : ''}
               {delta.value}
-              {typeof delta.value === 'number' && !Number.isInteger(delta.value) ? '' : '%'}
+              {deltaUnit}
             </span>
             {delta.label ? <span className="text-muted-foreground"> {delta.label}</span> : null}
           </div>

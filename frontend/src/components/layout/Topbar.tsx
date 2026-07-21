@@ -1,16 +1,9 @@
 import { useLocation, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Menu, Sun, Moon, LogOut, ChevronDown } from 'lucide-react';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@radix-ui/react-dropdown-menu';
+import { Menu, Sun, Moon } from 'lucide-react';
 import { useTheme } from '@/theme/ThemeProvider';
-import { useAuth } from '@/auth/AuthContext';
-import { cn } from '@/lib/cn';
 import { NAV_ITEMS } from './navItems';
+import { UserMenu } from './UserMenu';
 
 interface TopbarProps {
   onMenuClick: () => void;
@@ -20,15 +13,11 @@ export function Topbar({ onMenuClick }: TopbarProps) {
   const location = useLocation();
   const { t, i18n } = useTranslation();
   const { theme, toggleTheme } = useTheme();
-  const { user, signOut } = useAuth();
 
   const currentItem = NAV_ITEMS.find((item) =>
     item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to)
   );
   const breadcrumbLabel = currentItem ? t(currentItem.labelKey) : '';
-
-  const userEmail = user?.getUsername() ?? '';
-  const userInitial = userEmail.charAt(0).toUpperCase() || 'U';
 
   const nextLang = i18n.language === 'fr' ? 'en' : 'fr';
   const switchLanguage = () => {
@@ -89,35 +78,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
           )}
         </button>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            className={cn(
-              'inline-flex h-9 items-center gap-1.5 rounded-md px-1.5 text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden'
-            )}
-            aria-label={t('common.userMenu')}
-          >
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
-              {userInitial}
-            </span>
-            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="end"
-            sideOffset={8}
-            className="z-50 min-w-[14rem] rounded-md border border-border bg-surface-elevated p-1 shadow-lg"
-          >
-            <div className="px-2 py-1.5 text-xs text-muted-foreground">
-              <div className="truncate">{userEmail}</div>
-            </div>
-            <DropdownMenuItem
-              onSelect={() => signOut()}
-              className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground outline-none hover:bg-muted focus:bg-muted"
-            >
-              <LogOut className="h-4 w-4" />
-              <span>{t('nav.signOut')}</span>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <UserMenu variant="topbar" />
       </div>
     </header>
   );
