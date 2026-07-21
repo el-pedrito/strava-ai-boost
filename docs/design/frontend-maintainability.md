@@ -1,7 +1,8 @@
 # Design spec — Chantier frontend : maintenabilité & cohérence UI
 
-**Statut :** 🗺️ **roadmap — non démarré.** Aucun dev/build engagé. Ce doc cadre
-les chantiers issus de la review UI/UX du 2026-07-17 pour décision ultérieure.
+**Statut :** 🚧 **en cours.** Items 4 et 5 livrés le 2026-07-21 (voir ci-dessous) ;
+item 3 (découpage des pages) reste à faire. Ce doc cadre
+les chantiers issus de la review UI/UX du 2026-07-17.
 **Périmètre :** design system custom React + Tailwind v4 (`frontend/src/`).
 **Méthode :** review statique du code → constat chiffré → approche proposée par item.
 
@@ -14,13 +15,27 @@ les chantiers issus de la review UI/UX du 2026-07-17 pour décision ultérieure.
 
 ## Résumé exécutif
 
-| # | Item | Nature | Effort | Risque | Priorité |
-|---|------|--------|--------|--------|----------|
-| 3 | Découpage des pages monolithiques | Maintenabilité | M–L | Moyen (régression visuelle/tests) | P2 |
-| 4 | Extraction d'un composant `UserMenu` partagé | DRY / cohérence | S | Faible | P2 |
-| 5 | Micro-bug suffixe `%` du delta `KPI` | Correctif visuel | XS | Faible | P3 |
+| # | Item | Nature | Effort | Risque | Priorité | Statut |
+|---|------|--------|--------|--------|----------|--------|
+| 3 | Découpage des pages monolithiques | Maintenabilité | M–L | Moyen (régression visuelle/tests) | P2 | 🗺️ à faire |
+| 4 | Extraction d'un composant `UserMenu` partagé | DRY / cohérence | S | Faible | P2 | ✅ 2026-07-21 |
+| 5 | Micro-bug suffixe `%` du delta `KPI` | Correctif visuel | XS | Faible | P3 | ✅ 2026-07-21 |
 
 Ordre conseillé si on démarre : **5 → 4 → 3** (du moins risqué au plus lourd).
+
+> **Livraison items 4 & 5 (2026-07-21) :**
+> - **Item 5** — Cas B retenu : prop explicite `deltaUnit?: string` (défaut `'%'`)
+>   dans `ui/KPI.tsx`, heuristique `Number.isInteger` supprimée. Audit préalable :
+>   aucun appelant n'utilisait `delta` — correctif sans risque. Tests :
+>   `ui/__tests__/KPI.test.tsx` (5 tests, entier + décimal + unité custom).
+> - **Item 4** — `components/layout/UserMenu.tsx` créé (`variant="sidebar" | "topbar"`,
+>   `collapsed`), `Sidebar` et `Topbar` rewirés à iso-comportement. Tests :
+>   `components/layout/__tests__/UserMenu.test.tsx` (4 tests, rendu + interaction signOut).
+> - **Découverte en passant** : la règle Python `lib/` du `.gitignore` racine avalait
+>   `frontend/src/lib/` — `cn.ts` et `motion.ts` n'avaient **jamais été commités**
+>   (un clone frais ne buildait pas). Recréés + négation `!frontend/src/lib/` ajoutée.
+>   Reste connu : `frontend/eslint.config.js` manquant aussi (jamais commité, non ignoré) —
+>   `npm run lint` casse sur un clone frais.
 
 ---
 

@@ -33,7 +33,7 @@
 - **Code review fixes** : `get_cached_or_compute` return, `useMemo`→`useEffect`, global `user_id` removed, `activity_id` endpoint, polling, audio duration.
 - **All values configurable via env vars** : plus aucune valeur hardcodée (URLs, IDs, limites).
 - **Backward compatibility** : Campus Coach sync backward-compatible with existing DynamoDB schema and consumer Lambdas (content_generator, coach_generator, coach_ask_api).
-- **Tests** : 336 (251 backend unit + 41 régression + 44 frontend, au 2026-07-20).
+- **Tests** : 345 (251 backend unit + 41 régression + 53 frontend, au 2026-07-21).
 - **Plan Campus injection coach** : fix indentation `coach_generator.py` qui faisait que le plan n'était jamais injecté dans le contexte coach (sauf fallback WeekNumberIndex).
 - **Coach chat sees Campus weekly plan** : `coach_ask_api.py` fetch maintenant les séances de la semaine + IAM index access via Core stack.
 - **Quality > Memory column** : pastille icône color-coded + tooltip Radix au hover (mobile texte préservé).
@@ -166,11 +166,11 @@ Pertinente pour la crédibilité du sample OSS (un lecteur va juger le repo là-
 - **Token refresh dupliqué dans 4 Lambdas** — extraire dans `shared/strava_token_manager.py` (BACKLOG P2). Un contributeur le verra tout de suite.
 - **Lambda Layer build manuel** (`LAYER_ASSET_HASH`) — oubli = deps stales. Automatiser dans un script (BACKLOG P2).
 - **`except Exception` génériques** (20+) avec return None silencieux — au minimum les 3 critiques du BACKLOG.
-- **Frontend — pages monolithiques + dédup UI + micro-bug KPI** — chantier de maintenabilité cadré en spec : [design/frontend-maintainability.md](./design/frontend-maintainability.md) (découpage des grosses pages — `CoachPage.tsx` ~66 KB en tête —, extraction d'un `UserMenu` partagé entre Sidebar/Topbar, correctif suffixe `%` du delta `KPI`). 🗺️ **non démarré, aucun dev/build.** Quick-wins de la même review (2026-07-17) **déjà livrés** hors spec : CSS legacy mort supprimé (`styles/global.css`, ~150 lignes non utilisées + couleurs hardcodées cassant le dark mode) + dérive doc « Cloudscape » corrigée dans `AGENTS.md`.
+- **Frontend — pages monolithiques + dédup UI + micro-bug KPI** — chantier de maintenabilité cadré en spec : [design/frontend-maintainability.md](./design/frontend-maintainability.md). ✅ **Items 4 & 5 livrés le 2026-07-21** (`UserMenu` partagé Sidebar/Topbar + prop `deltaUnit` sur `KPI`, 9 tests ajoutés). En passant : `frontend/src/lib/` était avalé par la règle `lib/` du `.gitignore` racine — `cn.ts`/`motion.ts` recréés et dé-ignorés (un clone frais ne buildait pas). Reste : **item 3** (découpage des grosses pages — `CoachPage.tsx` ~66 KB en tête) + `eslint.config.js` jamais commité. Quick-wins de la même review (2026-07-17) **déjà livrés** hors spec : CSS legacy mort supprimé (`styles/global.css`, ~150 lignes non utilisées + couleurs hardcodées cassant le dark mode) + dérive doc « Cloudscape » corrigée dans `AGENTS.md`.
 
 Confort / plus tard :
 
-- **Vérifier weekly_synthesis en live** — son rôle IAM ne pouvait pas autoriser l'invocation de son inference profile (corrigé le 2026-07-17 avec la centralisation LLM) : la Lambda était probablement silencieusement cassée. À confirmer au prochain run planifié (dimanche 20:00 UTC) ou par un déclenchement manuel.
+- [x] ~~Vérifier weekly_synthesis en live~~ — ✅ **confirmé le 2026-07-21** (logs CloudWatch) : le run pré-fix du 2026-07-12 échouait bien en `AccessDeniedException` sur `bedrock:InvokeModel` (inference profile) — la Lambda était silencieusement cassée comme suspecté. Le run post-fix du **2026-07-19 20:00 UTC a réussi** : « Weekly synthesis generated: 6 sessions, 14.4km », 9 s, aucune erreur. La centralisation LLM du 2026-07-17 a bien réparé le rôle IAM.
 - [x] ~~Nettoyer la plomberie campus inerte de `configure_agentcore_integration.sh`~~ — ✅ 2026-07-17 : dé-threading complet (détection, IAM, env vars Lambda, cdk context, env file, résumé), retrait du grant secret campus des rôles agents (plus aucun agent ne le lit) et des références aux Lambdas décommissionnées (CampusCoachInvoker, CoachAskAPI). Conservé : les grants de la table `campus-coaching-sessions` (lue par le tool `get_campus_plan` de coach_chat).
 - [x] ~~Purger les records orphelins `default_user`~~ — ✅ 2026-07-17 : **migrés plutôt que purgés** — inspection préalable : ils contenaient des préférences apprises uniques (mai 2026, pré-multi-user) → 19/19 copiés vers l'actor réel puis supprimés. Le contenu appris est préservé et de nouveau servi par les lectures.
 
