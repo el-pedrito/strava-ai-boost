@@ -141,3 +141,6 @@ frontend/public/config.json
 
 # Playwright MCP test artifacts
 .playwright-mcp/
+
+# Regression baselines (contain deployment-specific ARNs)
+.regression/baseline*.json
