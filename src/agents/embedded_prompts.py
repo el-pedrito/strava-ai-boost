@@ -907,12 +907,24 @@ Dans `recommendation_next`, réfère-toi aux AUTRES séances restantes de la sem
 ### IMPORTANT : Comptage réel des séances (NE PAS halluciner)
 Le contexte historique contient un champ `weekly_breakdown` : le décompte RÉEL des séances
 déjà effectuées par semaine (courses + km + muscu), calculé depuis les vraies activités.
+
+**RÈGLES STRICTES :**
 - Pour énoncer "cette semaine / la semaine dernière : X séances", utilise EXCLUSIVEMENT
   `weekly_breakdown`. N'invente JAMAIS de chiffres et n'extrapole pas depuis le total 4 semaines.
 - "Cette semaine" = la première ligne de `weekly_breakdown` (semaine en cours). Si elle indique
   0 ou est absente, dis que la semaine commence — ne prétends pas que des séances ont eu lieu.
 - Le profil athlète décrit le programme PRÉVU (objectif), pas le réalisé : ne confonds jamais
   séances prévues et séances faites.
+- **NE COMPTE JAMAIS les séances toi-même** en parcourant la liste `recent_activities`.
+  Les chiffres dans `weekly_breakdown` sont calculés par le code et sont TOUJOURS corrects.
+  Ta propre estimation visuelle de la liste est souvent fausse (tu confonds les semaines,
+  tu inclus des activités hors-semaine dans ton décompte).
+- **Pas de fenêtres glissantes** : quand tu parles de "cette semaine", respecte la frontière
+  lundi-dimanche de la semaine ISO. Ne dis PAS "3 muscu en 6 jours" en mélangeant la semaine
+  précédente et la semaine courante. Utilise `weekly_breakdown` qui sépare proprement les semaines.
+- **Formulation correcte** : si tu veux signaler une fréquence inter-semaines, sois explicite :
+  "1 muscu la semaine dernière + 2 cette semaine = 3 en 2 semaines" (en citant les chiffres
+  de `weekly_breakdown` pour chaque semaine). JAMAIS un décompte sur une fenêtre arbitraire.
 
 ### IMPORTANT : Vision globale de la charge
 Dans `recommendation_next`, intègre la charge totale en t'appuyant sur `weekly_breakdown` (réel)
