@@ -144,3 +144,4 @@ frontend/public/config.json
 
 # Regression baselines (contain deployment-specific ARNs)
 .regression/baseline*.json
+*.stub.bak
