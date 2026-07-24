@@ -76,7 +76,8 @@ tag_agentcore_resources() {
 get_memory_id() {
     local memory_name="$1"
     
-    # Use AgentCore Python toolkit to list memories and match by name
+    # Use AgentCore Python toolkit to list memories and match by ID prefix
+    # (the list API returns id/memoryId but not a separate 'name' field)
     local memory_id=$(python3 << EOF
 from bedrock_agentcore_starter_toolkit.operations.memory.manager import MemoryManager
 
@@ -84,18 +85,11 @@ try:
     manager = MemoryManager(region_name='$AWS_REGION')
     memories = manager.list_memories()
     
-    # List returns IDs, we need to check each one
     for memory in memories:
-        mem_id = memory.get('id')
-        if mem_id:
-            # Get full memory details to check name
-            try:
-                mem_details = manager.get_memory(mem_id)
-                if mem_details.get('name') == '$memory_name':
-                    print(mem_id)
-                    break
-            except:
-                continue
+        mem_id = memory.get('id') or memory.get('memoryId', '')
+        if mem_id.startswith('$memory_name'):
+            print(mem_id)
+            break
 except Exception:
     pass
 EOF
