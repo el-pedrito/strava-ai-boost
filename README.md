@@ -271,7 +271,7 @@ graph TB
         end
 
         subgraph "Core / Security Stacks"
-            DDB[(DynamoDB<br/>3 Tables, 3 GSIs)]
+            DDB[(DynamoDB<br/>3 Tables, 2 GSIs)]
             Secrets[Secrets Manager]
             Guardrails[Bedrock Guardrails]
         end
@@ -342,7 +342,7 @@ graph TB
 | **8 CDK Stacks** | Core, Security, Webhook, Content, VoiceDebrief, API, Feedback, Frontend |
 | **18 Lambda Functions** | API, processing, webhooks, support, voice (in role-based packages) |
 | **Coach chat runtime** | dedicated **AgentCore Runtime** `coach_chat` (FastAPI + Strands, AGUI protocol, 5 tools). Browser POSTs the AG-UI SSE straight to the data plane; **customJWT** auth (Cognito ID token), no SigV4, no proxy |
-| **3 DynamoDB Tables** | `activities` (3 GSIs, TTL), `user_config`, `coaching_sessions` |
+| **3 DynamoDB Tables** | `activities` (2 GSIs, TTL), `user_config`, `coaching_sessions` |
 | **3 AgentCore Runtimes** | `content_gen`, `strava_ai_boost_coach` (coach), `coach_chat` — sharing a single AgentCore Memory (`content_gen_mem`, 3 strategies). Campus Coach uses the direct REST sync Lambda (no agent) |
 | **CloudFront + S3** | Frontend hosting with OAC, private bucket, versioning, encryption |
 | **Cognito User Pool** | JWT authentication, no self-registration, 12+ char password policy |
@@ -383,7 +383,7 @@ sequenceDiagram
 
 **Infrastructure**: AWS CDK (Python), Python 3.12, us-east-1 (configurable via `--context region=<region>`)
 
-**AWS Services**: Lambda (18 functions, Powertools), DynamoDB (3 tables, 3 GSIs, TTL), Step Functions, SQS + DLQ, Bedrock (Claude Sonnet 4.5), Secrets Manager, API Gateway (Cognito authorizer), CloudFront + S3 (OAC), Cognito User Pool
+**AWS Services**: Lambda (18 functions, Powertools), DynamoDB (3 tables, 2 GSIs, TTL), Step Functions, SQS + DLQ, Bedrock (Claude Sonnet 4.5), Secrets Manager, API Gateway (Cognito authorizer), CloudFront + S3 (OAC), Cognito User Pool
 
 **AI/ML**: Strands Agents, AgentCore Memory (1 shared LTM memory, 3 strategies), AgentCore Evaluations (prompt regression), Claude Sonnet 4.5 + Haiku 4.5 (central model registry)
 

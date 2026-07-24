@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.2.1] - 2026-07-24
+
+### Fixed
+
+- **Coach session counting** — enforce `weekly_breakdown` as the sole source for session counts in coach feedback; no more hallucinated sliding window counts crossing ISO week boundaries
+- **AgentCore deploy script** — `get_memory_id()` matches memory by ID prefix instead of broken `get_memory(name)` call (API no longer returns name field)
+- **Regression baselines gitignored** — `.regression/baseline*.json` removed from tracking (contained deployment-specific ARNs with account ID)
+
+### Docs
+
+- Fix GSI count (was 3, actually 2 — IsoWeekIndex never deployed)
+- Fix SECURITY.md branch reference (main → dev)
+- Fix regression-evals.md stale "committed" references for baselines
+
 ## [0.2.0] - 2026-07-17
 
 ### Changed
@@ -120,6 +134,7 @@ for production use (see the disclaimer in the README).
 - Git history scrubbed of account IDs, user IDs, credentials, and internal
   identifiers prior to release; dependency audits (`pip-audit`, `npm audit`) clean.
 
-[Unreleased]: https://github.com/el-pedrito/strava-ai-boost/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/el-pedrito/strava-ai-boost/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/el-pedrito/strava-ai-boost/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/el-pedrito/strava-ai-boost/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/el-pedrito/strava-ai-boost/releases/tag/v0.1.0

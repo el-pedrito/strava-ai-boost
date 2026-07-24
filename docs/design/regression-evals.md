@@ -87,7 +87,7 @@ tests/regression/
 └── conftest.py
 scripts/run_prompt_regression.py   # runner live (Bedrock converse)
 docs/design/regression-evals.md    # cette spec
-.regression/baseline.json          # dernier rapport accepté (committé)
+.regression/baseline.json          # dernier rapport accepté (gitignored, généré localement)
 ```
 
 ### Critères V1 (déterministes, code pur)
@@ -117,7 +117,7 @@ ponctuellement (non-déterminisme).
    `configure_agentcore_integration.sh` ou passé en `--agent-arn`), parser via
    `_process_agent_response`/`_parse_agent_response` (fonctions de prod).
 2. Évaluer tous les critères → rapport JSON + tableau console.
-3. Comparer au `baseline.json` committé : nouveaux `fail` → exit 1 ;
+3. Comparer au `baseline.json` local : nouveaux `fail` → exit 1 ;
    `--update-baseline` pour accepter un nouvel état après revue humaine.
 4. Coût affiché en fin de run (tokens in/out). Ordre de grandeur attendu :
    ~10 fixtures × 1 appel Sonnet ≈ 0,15-0,25 $.

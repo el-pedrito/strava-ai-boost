@@ -1,0 +1,5 @@
+# AgentCore configuration (auto-generated for this environment)
+memories:
+  content_gen_mem:
+    memory_id: content_gen_mem-hnupsb8Lxz
+    memory_name: content_gen_mem

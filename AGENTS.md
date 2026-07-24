@@ -34,7 +34,7 @@ Strava AI Boost is a **serverless AWS application** that automatically enhances 
 - **Python 3.12** runtime, **React 19 + TypeScript + Vite** frontend
 - **Cognito authentication** (JWT, custom:strava_id attribute, no self-registration)
 - **CloudFront + S3** frontend hosting (OAC)
-- **3 DynamoDB GSIs** (ProcessingStatusIndex, UserActivitiesIndex, IsoWeekIndex) — all queries, no scans
+- **2 DynamoDB GSIs** (ProcessingStatusIndex, UserActivitiesIndex) — all queries, no scans
 - **i18n** FR/EN with react-i18next
 
 ### Architecture Pattern

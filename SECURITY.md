@@ -6,7 +6,7 @@ Strava AI Boost is a **personal-use sample project**, not production software. I
 
 ## Supported Versions
 
-Only the latest version on the `main` branch is supported. There are no backported security fixes.
+Only the latest version on the `dev` branch is supported. There are no backported security fixes.
 
 ## Reporting a Vulnerability
 
