@@ -19,8 +19,10 @@ import {
   Calendar,
   ChevronDown,
   ChevronUp,
+  Dumbbell,
   Flame,
   Footprints,
+  RefreshCw,
   Sparkles,
   TrendingDown,
   TrendingUp,
@@ -262,6 +264,7 @@ function StrengthProgression({
   data: StrengthProgressionEntry[];
   locale: string;
 }) {
+  const { t } = useTranslation();
   const chartTheme = useChartTheme();
   const [metric, setMetric] = useState<'weight' | 'volume'>('weight');
   const [selected, setSelected] = useState<string | null>(null);
@@ -287,20 +290,37 @@ function StrengthProgression({
     }))
     .filter((p): p is { date: string; value: number } => p.value != null);
 
-  const unitLabel = metric === 'weight' ? 'kg' : 'kg·rép';
+  const unitLabel =
+    metric === 'weight'
+      ? t('coach.strength.unit.weight')
+      : t('coach.strength.unit.volume');
+  const activeMetricLabel =
+    metric === 'weight'
+      ? t('coach.strength.metric.weight')
+      : t('coach.strength.metric.volume');
+  const chartSummary = t('coach.strength.chartSummary', {
+    exercise: active.exercise,
+    metric: activeMetricLabel,
+  });
 
   return (
     <Card variant="default" padding="lg">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold tracking-tight">
-          💪 Progression musculation
+        <h3 className="flex items-center gap-1.5 text-sm font-semibold tracking-tight">
+          <Dumbbell className="h-4 w-4 text-primary" aria-hidden="true" />
+          {t('coach.strength.progressionTitle')}
         </h3>
-        <div className="flex gap-1 rounded-md border border-border p-0.5">
+        <div
+          className="flex gap-1 rounded-md border border-border p-0.5"
+          role="group"
+          aria-label={t('coach.strength.metricGroupLabel')}
+        >
           {(['weight', 'volume'] as const).map((m) => (
             <button
               key={m}
               type="button"
               onClick={() => setMetric(m)}
+              aria-pressed={metric === m}
               className={cn(
                 'cursor-pointer rounded px-2 py-1 text-xs transition-colors',
                 metric === m
@@ -308,7 +328,9 @@ function StrengthProgression({
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              {m === 'weight' ? 'Charge max' : 'Volume'}
+              {m === 'weight'
+                ? t('coach.strength.metric.weight')
+                : t('coach.strength.metric.volume')}
             </button>
           ))}
         </div>
@@ -320,6 +342,7 @@ function StrengthProgression({
             key={e.exercise}
             type="button"
             onClick={() => setSelected(e.exercise)}
+            aria-pressed={active.exercise === e.exercise}
             className={cn(
               'cursor-pointer rounded-full border px-2.5 py-1 text-xs transition-colors',
               active.exercise === e.exercise
@@ -332,10 +355,11 @@ function StrengthProgression({
         ))}
       </div>
 
-      <ResponsiveContainer width="100%" height={200}>
+      <div role="img" aria-label={chartSummary}>
+        <ResponsiveContainer width="100%" height={200}>
         <LineChart
           data={chartData}
-          margin={{ top: 8, right: 8, bottom: 0, left: -8 }}
+          margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
         >
           <CartesianGrid
             horizontal
@@ -383,10 +407,11 @@ function StrengthProgression({
           />
         </LineChart>
       </ResponsiveContainer>
+      </div>
       <p className="mt-2 text-xs text-muted-foreground">
         {metric === 'weight'
-          ? 'Charge maximale par séance (kg).'
-          : 'Volume total par séance (séries × reps × charge).'}
+          ? t('coach.strength.hint.weight')
+          : t('coach.strength.hint.volume')}
       </p>
     </Card>
   );
@@ -967,9 +992,11 @@ export function CoachPage() {
                   <button
                     type="button"
                     onClick={fetchRecaps}
+                    aria-label={t('coach.recaps.refresh')}
+                    title={t('coach.recaps.refresh')}
                     className="text-xs px-2 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted"
                   >
-                    ↻
+                    <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
                   </button>
                   <button
                     type="button"
@@ -1144,10 +1171,18 @@ export function CoachPage() {
                       {t('coach.charts.last4Weeks')}
                     </span>
                   </div>
-                  <ResponsiveContainer width="100%" height={240}>
+                  <div
+                    role="img"
+                    aria-label={t('coach.charts.volume.chartSummary', {
+                      values: volumeChartData
+                        .map((point) => `${point.week}: ${point.km} ${t('coach.chart.kmUnit')}`)
+                        .join(', '),
+                    })}
+                  >
+                    <ResponsiveContainer width="100%" height={240}>
                     <BarChart
                       data={volumeChartData}
-                      margin={{ top: 8, right: 8, bottom: 0, left: -16 }}
+                      margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
                     >
                       <CartesianGrid
                         horizontal
@@ -1234,6 +1269,7 @@ export function CoachPage() {
                       ) : null}
                     </BarChart>
                   </ResponsiveContainer>
+                  </div>
                 </Card>
 
                 {volumeInsight ? (
@@ -1260,10 +1296,18 @@ export function CoachPage() {
                       {t('coach.charts.lowerIsFaster')}
                     </span>
                   </div>
-                  <ResponsiveContainer width="100%" height={240}>
+                  <div
+                    role="img"
+                    aria-label={t('coach.charts.pace.chartSummary', {
+                      values: paceChartData
+                        .map((point) => `${point.week}: ${formatPace(point.paceSec ?? 0)}${t('coach.chart.paceUnit')}`)
+                        .join(', '),
+                    })}
+                  >
+                    <ResponsiveContainer width="100%" height={240}>
                     <LineChart
                       data={paceChartData}
-                      margin={{ top: 8, right: 8, bottom: 0, left: -16 }}
+                      margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
                     >
                       <CartesianGrid
                         horizontal
@@ -1360,6 +1404,7 @@ export function CoachPage() {
                       />
                     </LineChart>
                   </ResponsiveContainer>
+                  </div>
                 </Card>
 
                 {paceInsight ? (
@@ -1395,13 +1440,22 @@ export function CoachPage() {
                             {t('coach.charts.notEnoughData')}
                           </div>
                         ) : (
-                        <ResponsiveContainer width="100%" height={160}>
+                        <div
+                          role="img"
+                          aria-label={t('coach.charts.intervalPace.chartSummary', {
+                            count: intervalPaces.length,
+                            values: intervalPaces
+                              .map((point) => `${formatShortDate(point.date, locale)}: ${point.pace}${t('coach.chart.paceUnit')}`)
+                              .join(', '),
+                          })}
+                        >
+                          <ResponsiveContainer width="100%" height={160}>
                           <LineChart
                             data={intervalPaces.map((p) => ({
                               date: p.date,
                               paceSec: p.pace_sec,
                             }))}
-                            margin={{ top: 4, right: 4, bottom: 0, left: -16 }}
+                            margin={{ top: 4, right: 4, bottom: 0, left: 0 }}
                           >
                             <CartesianGrid
                               horizontal
@@ -1460,6 +1514,7 @@ export function CoachPage() {
                             />
                           </LineChart>
                         </ResponsiveContainer>
+                        </div>
                         )}
                         <p className="mt-2 text-xs text-muted-foreground">
                           {t('coach.charts.lowerIsFaster')}
@@ -1502,13 +1557,22 @@ export function CoachPage() {
                             {t('coach.charts.notEnoughData')}
                           </div>
                         ) : (
-                        <ResponsiveContainer width="100%" height={160}>
+                        <div
+                          role="img"
+                          aria-label={t('coach.charts.efPace.chartSummary', {
+                            count: efPaces.length,
+                            values: efPaces
+                              .map((point) => `${formatShortDate(point.date, locale)}: ${point.pace}${t('coach.chart.paceUnit')}`)
+                              .join(', '),
+                          })}
+                        >
+                          <ResponsiveContainer width="100%" height={160}>
                           <LineChart
                             data={efPaces.map((p) => ({
                               date: p.date,
                               paceSec: p.pace_sec,
                             }))}
-                            margin={{ top: 4, right: 4, bottom: 0, left: -16 }}
+                            margin={{ top: 4, right: 4, bottom: 0, left: 0 }}
                           >
                             <CartesianGrid
                               horizontal
@@ -1567,6 +1631,7 @@ export function CoachPage() {
                             />
                           </LineChart>
                         </ResponsiveContainer>
+                        </div>
                         )}
                         <p className="mt-2 text-xs text-muted-foreground">
                           {t('coach.charts.efPace.aerobicHint')}
@@ -1596,12 +1661,15 @@ export function CoachPage() {
                 {/* Strength History */}
                 {(trends?.strength_history?.length ?? 0) > 0 && (
                   <Card padding="md">
-                    <h3 className="text-sm font-semibold mb-3">💪 Historique Musculation</h3>
+                    <h3 className="flex items-center gap-1.5 text-sm font-semibold mb-3">
+                      <Dumbbell className="h-4 w-4 text-primary" aria-hidden="true" />
+                      {t('coach.strength.historyTitle')}
+                    </h3>
                     <div className="space-y-2">
                       {trends!.strength_history!.map((entry, i) => (
                         <div key={i} className="flex items-start gap-3 text-xs border-b border-border/50 pb-2 last:border-0">
                           <span className="text-muted-foreground whitespace-nowrap font-medium">
-                            {new Date(entry.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                            {new Date(entry.date).toLocaleDateString(locale, { day: 'numeric', month: 'short' })}
                           </span>
                           <span className="text-foreground leading-relaxed">{entry.description}</span>
                         </div>
@@ -1609,7 +1677,7 @@ export function CoachPage() {
                     </div>
                     {(trends?.strength_history?.length ?? 0) < 3 && (
                       <p className="mt-3 text-xs text-muted-foreground italic">
-                        Les graphiques de progression des charges apparaîtront après 3+ séances enregistrées.
+                        {t('coach.strength.historyHint')}
                       </p>
                     )}
                   </Card>
