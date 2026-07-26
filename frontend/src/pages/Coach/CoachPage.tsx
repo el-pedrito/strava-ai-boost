@@ -180,7 +180,7 @@ function FeedbackCard({ item }: FeedbackCardProps) {
   return (
     <Card variant="default" padding="md">
       <div className="flex flex-col gap-1 mb-2">
-        <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
+        <span className="text-xs text-muted-foreground font-medium">
           {formattedDate}
         </span>
         <span className="text-base font-medium leading-snug break-words">
@@ -197,7 +197,7 @@ function FeedbackCard({ item }: FeedbackCardProps) {
             aria-hidden="true"
           />
           <div className="flex flex-col gap-0.5">
-            <span className="text-xs font-medium uppercase tracking-wider text-primary">
+            <span className="text-xs font-semibold text-primary">
               {t('coach.feedback.recommendationNext')}
             </span>
             <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
@@ -762,7 +762,7 @@ export function CoachPage() {
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center gap-1 mb-1">
-                    <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium">
+                    <span className="text-xs font-semibold text-muted-foreground">
                       {t('coach.now.nextSession.title')}
                     </span>
                     <InfoTooltip i18nKey="metrics.nextSession" align="start" />

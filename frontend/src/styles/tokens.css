@@ -31,7 +31,9 @@
   --border-strong: #cbd5e1;
 
   --muted: #f1f5f9;
-  --muted-foreground: #64748b;
+  /* slate-600: ~7:1 on white / #fafbfc — clears WCAG AA for small + tracked text
+     (was slate-500 #64748b, borderline 4.5:1 and worse when uppercase-tracked) */
+  --muted-foreground: #475569;
 
   --primary: #fc4c02;
   --primary-foreground: #ffffff;
