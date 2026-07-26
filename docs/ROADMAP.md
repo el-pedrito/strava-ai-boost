@@ -68,7 +68,7 @@
 > ~~court terme muscu/santé/deauth~~ ✅ (2026-07-16) →
 > ~~A3 (evals régression V1 + V2 managée)~~ ✅ → ~~A4 (mémoire : fixes + EPISODIC + unification)~~ ✅ →
 > ~~passe qualité docs + architecture (3 draw.io) + garde anti-dérive + release v0.2.0~~ ✅ (2026-07-17) →
-> **maintenant : (1) rendre le repo public (aucun bloquant technique restant, v0.2.0 taguée + GitHub Release prête), (2) post LinkedIn (s'appuyer sur docs/architecture.md), (3) peupler les charts muscu via reprocessing d'une vraie séance, (4) backfill PRs Strava (si envie).**
+> **maintenant : (1) rendre le repo public (aucun bloquant technique restant, v0.2.0 taguée + GitHub Release prête), (2) post LinkedIn (s'appuyer sur docs/architecture.md), (3) ~~peupler les charts muscu~~ ✅ fait le 2026-07-26 — backfill one-shot des 14 entrées historiques (extraction Haiku sur les descriptions déjà stockées en base ; le reprocessing n'aurait PAS marché : le garde anti-doublon de `_track_strength_history` skippe les activity_id déjà trackés). 17/17 entrées avec `parsed_sets`, 14 exercices ≥ 3 points (Tractions ×17, DC ×11…). **Finding au passage : la normalisation des noms d'exercices fuit** (« Face pull »/« Facepull », « Élévation latérale »/« Élévations latérales », 5 variantes d'écart pec, DC éclaté barre/halt) → fragmente les lignes de progression, touche aussi les extractions live. Fix candidat : durcir le prompt (liste canonique fermée) ou normaliser dans `_build_strength_progression`, (4) backfill PRs Strava (si envie).**
 > Scan sensibilité + CVE + licence déjà faits.
 
 ### Quick wins ops — ✅ DONE (2026-07-10)
