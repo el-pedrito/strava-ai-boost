@@ -13,6 +13,13 @@ from typing import Any, Dict, List, Optional
 
 import boto3
 import requests
+from shared.campus_status import (
+    STATUS_DONE,
+    STATUS_SKIP,
+    STATUS_TODO,
+    effective_status,
+    normalize_status,
+)
 from shared.logger import get_logger
 
 logger = get_logger("campus-coach-sync")
@@ -26,6 +33,15 @@ SECRET_ARN = os.environ.get('SECRET_ARN', 'strava-ai-boost-campus-coach-credenti
 USER_CONFIG_TABLE = os.environ.get('USER_CONFIG_TABLE', 'strava-ai-boost-user-configuration')
 
 API_BASE = os.environ.get("CAMPUS_COACH_API_URL", "https://api.campus.coach")
+
+# Provider sync must never write these locally owned or legacy completion fields.
+LOCAL_EXECUTION_FIELDS = frozenset({
+    'local_status',
+    'matched_activity_id',
+    'match_score',
+    'completed_at',
+    'status',
+})
 
 
 def _is_module_enabled(user_id: str) -> bool:
@@ -104,7 +120,10 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     'training_type': session.get('trainingType', ''),
                     'difficulty': int(session.get('difficulty', 0)),
                     'importance': session.get('importance', False),
-                    'status': session.get('status', 'todo'),
+                    # Provider-owned plan status, kept separate from local
+                    # execution state so a daily sync never clobbers a session
+                    # that was locally completed by the content pipeline.
+                    'provider_status': session.get('status', 'todo'),
                     'is_current_week': is_current,
                     'is_future': is_future,
                     'intervals': _build_intervals(session, paces),
@@ -114,11 +133,11 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     'expected_duration_min': round(stats['expectedDuration'] / 60) if stats.get('expectedDuration') else None,
                     'cycle_theme': context_data.get('cycleTheme', ''),
                     'cycle_description': context_data.get('cycleDescription', ''),
-                    'synced_at': now.isoformat(),
+                    'provider_synced_at': now.isoformat(),
+                    'synced_at': now.isoformat(),  # legacy alias, kept for back-compat
                 }
-                # Remove None values for DynamoDB
-                item = {k: v for k, v in item.items() if v is not None}
-                table.put_item(Item=item)
+                # Merge provider-owned fields; never erase local execution state.
+                _upsert_provider_session(table, item)
                 sessions_stored += 1
 
         # Delete stale sessions
@@ -249,6 +268,44 @@ def _build_intervals(session: Dict, paces: List) -> List[Dict[str, Any]]:
             intervals.append(entry)
 
     return intervals
+
+
+def _upsert_provider_session(table: Any, item: Dict[str, Any]) -> None:
+    """Merge provider-owned fields into a session row (never ``put_item``).
+
+    Uses an update expression so local execution state written by the content
+    pipeline (``local_status``, ``matched_activity_id``, ``match_score``,
+    ``completed_at`` and the legacy ``status``=Fait completion marker) survives
+    the daily provider sync untouched. Creates the row if it does not yet exist.
+
+    ``None`` values are skipped (DynamoDB cannot store them). Every attribute name
+    goes through ``ExpressionAttributeNames`` to avoid DynamoDB reserved-word
+    clashes (e.g. ``status``-adjacent names).
+    """
+    key = {'session_date': item['session_date'], 'session_id': item['session_id']}
+    provider_fields = {
+        k: v for k, v in item.items()
+        if k not in ('session_date', 'session_id')
+        and k not in LOCAL_EXECUTION_FIELDS
+        and v is not None
+    }
+    if not provider_fields:
+        return
+
+    names: Dict[str, str] = {}
+    values: Dict[str, Any] = {}
+    assignments: List[str] = []
+    for i, (field, value) in enumerate(provider_fields.items()):
+        names[f'#f{i}'] = field
+        values[f':v{i}'] = value
+        assignments.append(f'#f{i} = :v{i}')
+
+    table.update_item(
+        Key=key,
+        UpdateExpression='SET ' + ', '.join(assignments),
+        ExpressionAttributeNames=names,
+        ExpressionAttributeValues=values,
+    )
 
 
 def _delete_stale_sessions(table: Any, current_ids: set[str]) -> int:

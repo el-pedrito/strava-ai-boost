@@ -98,12 +98,14 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
         # P0.2: Mark Campus Coach session as done using pre-matched session from modules_processing
         matched_session = None
+        matched_score = None
         for m in enhanced_modules:
             if m.get('name') == 'campus_coach' and m.get('matched_session'):
                 matched_session = m['matched_session']
+                matched_score = m.get('match_score')
                 break
         if matched_session:
-            mark_campus_session_done(matched_session, activity_id)
+            mark_campus_session_done(matched_session, activity_id, matched_score)
 
         # Track strength history for WeightTraining activities
         sport_type = activity_data.get('sport_type', activity_data.get('type', ''))
@@ -636,8 +638,19 @@ def _parse_agent_response(
 
 # --- Storage ---
 
-def mark_campus_session_done(session: Dict[str, Any], activity_id: str) -> None:
-    """P0.2: Mark a Campus Coach session as 'Fait' after deterministic matching."""
+def mark_campus_session_done(session: Dict[str, Any], activity_id: str, match_score: Optional[float] = None) -> None:
+    """Mark a Campus Coach session as locally completed after deterministic matching.
+
+    Persists local execution state separately from provider state:
+      * ``local_status='done'``, ``matched_activity_id``, ``completed_at`` and
+        (when provided) ``match_score``;
+      * the legacy ``status='Fait'`` marker is still written for backward
+        compatibility with consumers that read it (dashboard progress, future
+        match filtering in modules_processing).
+
+    Uses ``update_item`` (never ``put_item``) so provider-owned fields written by
+    the daily Campus sync are left intact.
+    """
     try:
         coaching_table_name = os.environ.get('COACHING_SESSIONS_TABLE')
         if not coaching_table_name or not session:
@@ -646,22 +659,31 @@ def mark_campus_session_done(session: Dict[str, Any], activity_id: str) -> None:
         session_date = session.get('session_date')
         session_id = session.get('session_id')
         if not session_date or not session_id:
-            logger.warning(f"Cannot mark session done: missing session_date or session_id")
+            logger.warning("Cannot mark session done: missing session_date or session_id")
             return
+        update_expr = (
+            'SET #s = :done, local_status = :local_done, '
+            'completed_at = :ts, matched_activity_id = :aid'
+        )
+        expr_values: Dict[str, Any] = {
+            ':done': 'Fait',
+            ':local_done': 'done',
+            ':ts': datetime.now(timezone.utc).isoformat(),
+            ':aid': activity_id,
+        }
+        if match_score is not None:
+            update_expr += ', match_score = :score'
+            expr_values[':score'] = Decimal(str(match_score))
         table = dynamodb.Table(coaching_table_name)
         table.update_item(
             Key={'session_date': session_date, 'session_id': session_id},
-            UpdateExpression='SET #s = :done, completed_at = :ts, matched_activity_id = :aid',
+            UpdateExpression=update_expr,
             ExpressionAttributeNames={'#s': 'status'},
-            ExpressionAttributeValues={
-                ':done': 'Fait',
-                ':ts': datetime.now(timezone.utc).isoformat(),
-                ':aid': activity_id
-            }
+            ExpressionAttributeValues=expr_values,
         )
-        logger.info(f"✅ Marked Campus Coach session '{session.get('title')}' ({session_id}) as Fait (activity {activity_id})")
+        logger.info(f"✅ Marked Campus Coach session '{session.get('title')}' ({session_id}) done (activity {activity_id}, status=Fait/local_status=done)")
     except Exception as e:
-        logger.warning(f"Failed to mark session as Fait: {e}")
+        logger.warning(f"Failed to mark session as done: {e}")
 
 
 _STRENGTH_EXTRACTION_SYSTEM_PROMPT = (

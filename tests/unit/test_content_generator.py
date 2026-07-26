@@ -18,6 +18,7 @@ from processing.content_generator import (
     _parse_agent_response,
     _process_agent_response,
     _extract_strength_sets,
+    mark_campus_session_done,
 )
 
 
@@ -515,3 +516,52 @@ class TestTrackStrengthHistory:
         assert _no_floats(entry), f"float leaked into DynamoDB write: {entry}"
         assert entry["parsed_sets"][0]["weight_kg"] == Decimal("22.5")
         assert entry["duration_min"] == 31  # string moving_time coerced
+
+
+class TestMarkCampusSessionDone:
+    """P0.5: local completion is stored separately from provider state, while
+    the legacy status=Fait marker is preserved for back-compat consumers."""
+
+    @patch('processing.content_generator.dynamodb')
+    def test_writes_local_execution_fields(self, mock_dynamodb):
+        mock_table = MagicMock()
+        mock_dynamodb.Table.return_value = mock_table
+
+        session = {'session_date': 'week-2026-W21', 'session_id': '456_0', 'title': 'Tempo'}
+        mark_campus_session_done(session, 'act-123', match_score=0.82)
+
+        mock_table.put_item.assert_not_called()
+        mock_table.update_item.assert_called_once()
+        kwargs = mock_table.update_item.call_args.kwargs
+        assert kwargs['Key'] == {'session_date': 'week-2026-W21', 'session_id': '456_0'}
+
+        values = kwargs['ExpressionAttributeValues']
+        # Legacy completion marker preserved for dashboard_api + modules_processing
+        assert values[':done'] == 'Fait'
+        assert kwargs['ExpressionAttributeNames']['#s'] == 'status'
+        # New separated local execution state
+        assert values[':local_done'] == 'done'
+        assert values[':aid'] == 'act-123'
+        assert ':ts' in values
+        assert values[':score'] == Decimal('0.82')
+        assert 'match_score = :score' in kwargs['UpdateExpression']
+
+    @patch('processing.content_generator.dynamodb')
+    def test_match_score_omitted_when_none(self, mock_dynamodb):
+        mock_table = MagicMock()
+        mock_dynamodb.Table.return_value = mock_table
+
+        session = {'session_date': 'week-2026-W21', 'session_id': '456_0'}
+        mark_campus_session_done(session, 'act-123')
+
+        kwargs = mock_table.update_item.call_args.kwargs
+        assert 'match_score' not in kwargs['UpdateExpression']
+        assert ':score' not in kwargs['ExpressionAttributeValues']
+
+    @patch('processing.content_generator.dynamodb')
+    def test_missing_keys_no_write(self, mock_dynamodb):
+        mock_table = MagicMock()
+        mock_dynamodb.Table.return_value = mock_table
+
+        mark_campus_session_done({'title': 'no keys'}, 'act-123')
+        mock_table.update_item.assert_not_called()
