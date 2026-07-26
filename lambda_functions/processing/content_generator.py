@@ -21,6 +21,10 @@ from processing.workout_analysis import (
 )
 from processing.modules_processing import get_active_modules, apply_module_processing
 from shared.logger import get_logger
+from shared.strength_exercises import (
+    CANONICAL_STRENGTH_EXERCISES,
+    canonicalize_exercise_name,
+)
 
 logger = get_logger("content-generator")
 
@@ -686,15 +690,25 @@ def mark_campus_session_done(session: Dict[str, Any], activity_id: str, match_sc
         logger.warning(f"Failed to mark session as done: {e}")
 
 
+_CANONICAL_STRENGTH_EXERCISE_NAMES = ', '.join(CANONICAL_STRENGTH_EXERCISES)
+
 _STRENGTH_EXTRACTION_SYSTEM_PROMPT = (
     "You extract structured strength-training sets from a free-text workout description "
     "written by an athlete (French or English). Return ONLY a JSON array, no prose, no code fences.\n"
     "Each element is an object: {\"exercise\": string, \"sets\": integer, \"reps\": integer|null, "
     "\"weight_kg\": number|null}.\n"
     "Rules:\n"
-    "- exercise: a concise canonical name in French (e.g. 'Développé couché', 'Tractions', 'Squat', "
-    "'Soulevé de terre', 'Développé militaire'). Normalize common abbreviations (DC -> 'Développé couché', "
-    "SDT -> 'Soulevé de terre'). Keep it short.\n"
+    f"- exercise: use EXACTLY one canonical name from this list when the movement is represented: "
+    f"{_CANONICAL_STRENGTH_EXERCISE_NAMES}.\n"
+    "- Normalize spelling, accents, singular/plural, hyphens, abbreviations, and French/English aliases. "
+    "Required mappings include: Facepull -> 'Face pull'; Élévation latérale -> 'Élévations latérales'; "
+    "Pullover -> 'Pull-over'; DC/DC barre -> 'Développé couché'; DC halt/DC haltères -> "
+    "'Développé couché haltères'; all écart pec/pectoral cable variants -> "
+    "'Écartés pectoraux à la poulie'.\n"
+    "- Keep materially different equipment variants separate: 'Développé couché' (barbell/default) and "
+    "'Développé couché haltères' are not interchangeable because their loads are not comparable.\n"
+    "- If a real resistance exercise is not represented in the canonical list, return one concise French "
+    "name rather than guessing a different listed movement.\n"
     "- sets: number of sets performed for that exercise. If reps are listed per set (e.g. '10,8,6'), "
     "sets = count of those entries.\n"
     "- reps: representative reps per set (integer). If it varies, use the most frequent or the first. "
@@ -703,9 +717,9 @@ _STRENGTH_EXTRACTION_SYSTEM_PROMPT = (
     "- Ignore warm-up notes, feelings, cardio, and anything that is not a resistance exercise with sets.\n"
     "- If nothing parseable, return [].\n"
     "Examples:\n"
-    "'DC 4x8 @80kg, Tractions 4x10, gainage' -> "
+    "'DC 4x8 @80kg, Facepull 4x12' -> "
     "[{\"exercise\":\"Développé couché\",\"sets\":4,\"reps\":8,\"weight_kg\":80},"
-    "{\"exercise\":\"Tractions\",\"sets\":4,\"reps\":10,\"weight_kg\":null}]"
+    "{\"exercise\":\"Face pull\",\"sets\":4,\"reps\":12,\"weight_kg\":null}]"
 )
 
 
@@ -769,7 +783,7 @@ def _extract_strength_sets(description: str) -> List[Dict[str, Any]]:
         if not exercise or not isinstance(exercise, str):
             continue
         clean.append({
-            "exercise": exercise.strip()[:60],
+            "exercise": canonicalize_exercise_name(exercise)[:60],
             "sets": _to_int(raw.get("sets")),
             "reps": _to_int(raw.get("reps")),
             "weight_kg": _to_float(raw.get("weight_kg")),

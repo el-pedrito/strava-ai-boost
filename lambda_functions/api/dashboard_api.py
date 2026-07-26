@@ -15,6 +15,7 @@ import boto3
 from botocore.exceptions import ClientError
 from datetime import datetime, timedelta, timezone, date
 from shared.campus_status import STATUS_DONE, effective_status
+from shared.strength_exercises import canonicalize_exercise_name
 from shared.responses import (
     CORS_HEADERS_READ as CORS_HEADERS,
     create_success_response,
@@ -513,7 +514,10 @@ def _build_strength_progression(entries: List[Dict[str, Any]]) -> List[Dict[str,
         for s in parsed:
             if not isinstance(s, dict):
                 continue
-            name = s.get('exercise')
+            raw_name = s.get('exercise')
+            if not raw_name:
+                continue
+            name = canonicalize_exercise_name(raw_name)
             if not name:
                 continue
             weight = s.get('weight_kg')

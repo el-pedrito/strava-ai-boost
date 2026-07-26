@@ -33,7 +33,7 @@
 - **Code review fixes** : `get_cached_or_compute` return, `useMemo`→`useEffect`, global `user_id` removed, `activity_id` endpoint, polling, audio duration.
 - **All values configurable via env vars** : plus aucune valeur hardcodée (URLs, IDs, limites).
 - **Backward compatibility** : Campus Coach sync backward-compatible with existing DynamoDB schema and consumer Lambdas (content_generator, coach_generator, coach_ask_api).
-- **Tests** : 396 (302 backend unit + 41 régression + 53 frontend, au 2026-07-26).
+- **Tests** : 400 (306 backend unit + 41 régression + 53 frontend, au 2026-07-26).
 - **Plan Campus injection coach** : fix indentation `coach_generator.py` qui faisait que le plan n'était jamais injecté dans le contexte coach (sauf fallback WeekNumberIndex).
 - **Coach chat sees Campus weekly plan** : `coach_ask_api.py` fetch maintenant les séances de la semaine + IAM index access via Core stack.
 - **Quality > Memory column** : pastille icône color-coded + tooltip Radix au hover (mobile texte préservé).
@@ -68,7 +68,7 @@
 > ~~court terme muscu/santé/deauth~~ ✅ (2026-07-16) →
 > ~~A3 (evals régression V1 + V2 managée)~~ ✅ → ~~A4 (mémoire : fixes + EPISODIC + unification)~~ ✅ →
 > ~~passe qualité docs + architecture (3 draw.io) + garde anti-dérive + release v0.2.0~~ ✅ (2026-07-17) →
-> **maintenant : (1) rendre le repo public (aucun bloquant technique restant, v0.2.0 taguée + GitHub Release prête), (2) post LinkedIn (s'appuyer sur docs/architecture.md), (3) ~~peupler les charts muscu~~ ✅ fait le 2026-07-26 — backfill one-shot des 14 entrées historiques (extraction Haiku sur les descriptions déjà stockées en base ; le reprocessing n'aurait PAS marché : le garde anti-doublon de `_track_strength_history` skippe les activity_id déjà trackés). 17/17 entrées avec `parsed_sets`, 14 exercices ≥ 3 points (Tractions ×17, DC ×11…). **Finding au passage : la normalisation des noms d'exercices fuit** (« Face pull »/« Facepull », « Élévation latérale »/« Élévations latérales », 5 variantes d'écart pec, DC éclaté barre/halt) → fragmente les lignes de progression, touche aussi les extractions live. Fix candidat : durcir le prompt (liste canonique fermée) ou normaliser dans `_build_strength_progression`, (4) backfill PRs Strava (si envie).**
+> **maintenant : (1) confirmation visuelle des charts Coach Trends derrière OAuth (à faire avec l'utilisateur), (2) rendre le repo public (aucun bloquant technique restant, v0.2.0 taguée + GitHub Release prête), (3) post LinkedIn (s'appuyer sur docs/architecture.md), (4) backfill PRs Strava (si envie). Muscu : ~~peupler les charts~~ ✅ backfill one-shot du 2026-07-26 sur les 14 séances historiques (17/17 entrées avec `parsed_sets` ; le reprocessing n'aurait pas marché à cause du garde anti-doublon de `_track_strength_history`) ; ~~normaliser les noms d'exercices~~ ✅ code + validation réelle le 2026-07-26 — vocabulaire/alias partagés entre le prompt d'extraction live et `_build_strength_progression`, sans réécriture DynamoDB. Vérifié sur les 17 entrées réelles : `Face pull` 7+6 → **13 séances**, élévations latérales → **13**, écarts pectoraux poulie → **7**, DC barre/default → **12** (fusion par date), DC haltères conservé séparément (**2**) pour ne pas comparer des charges non équivalentes. Déploiement Content + API restant à faire.**
 > Scan sensibilité + CVE + licence déjà faits.
 
 ### Quick wins ops — ✅ DONE (2026-07-10)

@@ -244,6 +244,52 @@ class TestBuildStrengthProgression:
         assert tractions['points'][0]['top_weight_kg'] is None
         assert tractions['points'][0]['volume_kg'] is None
 
+    def test_real_face_pull_aliases_merge_into_thirteen_sessions(self):
+        labels = ['Face pull'] * 7 + ['Facepull'] * 6
+        entries = [
+            {
+                'date': f'2026-07-{index + 1:02d}',
+                'parsed_sets': [{
+                    'exercise': label,
+                    'sets': 4,
+                    'reps': 12,
+                    'weight_kg': 20,
+                }],
+            }
+            for index, label in enumerate(labels)
+        ]
+
+        result = _build_strength_progression(entries)
+
+        assert len(result) == 1
+        assert result[0]['exercise'] == 'Face pull'
+        assert result[0]['sessions'] == 13
+        assert len(result[0]['points']) == 13
+
+    def test_normalizes_real_aliases_but_keeps_dumbbell_bench_separate(self):
+        entries = [
+            {'date': '2026-07-01', 'parsed_sets': [
+                {'exercise': 'Développé couché', 'sets': 4, 'reps': 8, 'weight_kg': 80},
+                {'exercise': 'Écart pec', 'sets': 3, 'reps': 12, 'weight_kg': 15},
+            ]},
+            {'date': '2026-07-02', 'parsed_sets': [
+                {'exercise': 'Développé couché barre', 'sets': 4, 'reps': 8, 'weight_kg': 82.5},
+                {'exercise': 'Écartement pectoraux poulie', 'sets': 3, 'reps': 12, 'weight_kg': 16},
+            ]},
+            {'date': '2026-07-03', 'parsed_sets': [
+                {'exercise': 'Développé couché halt', 'sets': 4, 'reps': 8, 'weight_kg': 24},
+            ]},
+            {'date': '2026-07-04', 'parsed_sets': [
+                {'exercise': 'Développé couché haltères', 'sets': 4, 'reps': 8, 'weight_kg': 26},
+            ]},
+        ]
+
+        by_name = {item['exercise']: item for item in _build_strength_progression(entries)}
+
+        assert by_name['Développé couché']['sessions'] == 2
+        assert by_name['Développé couché haltères']['sessions'] == 2
+        assert by_name['Écartés pectoraux à la poulie']['sessions'] == 2
+
     def test_same_day_merges_max_weight_and_summed_volume(self):
         entries = [
             {'date': '2026-07-01', 'parsed_sets': [

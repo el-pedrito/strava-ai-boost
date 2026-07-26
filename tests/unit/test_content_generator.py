@@ -18,6 +18,7 @@ from processing.content_generator import (
     _parse_agent_response,
     _process_agent_response,
     _extract_strength_sets,
+    _STRENGTH_EXTRACTION_SYSTEM_PROMPT,
     mark_campus_session_done,
 )
 
@@ -433,6 +434,28 @@ class TestExtractStrengthSets:
         assert len(result) == 2
         assert result[0] == {"exercise": "Développé couché", "sets": 4, "reps": 8, "weight_kg": 80.0}
         assert result[1]["weight_kg"] is None
+
+    @patch('processing.content_generator._get_bedrock_runtime')
+    def test_canonicalizes_known_aliases_before_storage(self, mock_runtime):
+        mock_runtime.return_value.converse.return_value = _converse_response(
+            '[{"exercise": "Facepull", "sets": 4, "reps": 12, "weight_kg": 20},'
+            '{"exercise": "Élévation latérale", "sets": 4, "reps": 15, "weight_kg": 8},'
+            '{"exercise": "DC halt", "sets": 3, "reps": 10, "weight_kg": 24}]'
+        )
+
+        result = _extract_strength_sets("Facepull, élévation latérale, DC halt")
+
+        assert [item['exercise'] for item in result] == [
+            'Face pull',
+            'Élévations latérales',
+            'Développé couché haltères',
+        ]
+
+    def test_prompt_contains_closed_vocabulary_and_equipment_guard(self):
+        assert 'use EXACTLY one canonical name' in _STRENGTH_EXTRACTION_SYSTEM_PROMPT
+        assert "Facepull -> 'Face pull'" in _STRENGTH_EXTRACTION_SYSTEM_PROMPT
+        assert "'Écartés pectoraux à la poulie'" in _STRENGTH_EXTRACTION_SYSTEM_PROMPT
+        assert 'loads are not comparable' in _STRENGTH_EXTRACTION_SYSTEM_PROMPT
 
     @patch('processing.content_generator._get_bedrock_runtime')
     def test_code_fence_stripped(self, mock_runtime):
