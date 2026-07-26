@@ -2,6 +2,7 @@ import { useLocation, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Menu, Sun, Moon } from 'lucide-react';
 import { useTheme } from '@/theme/ThemeProvider';
+import { setLanguage } from '@/i18n';
 import { NAV_ITEMS } from './navItems';
 import { UserMenu } from './UserMenu';
 
@@ -21,7 +22,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
 
   const nextLang = i18n.language === 'fr' ? 'en' : 'fr';
   const switchLanguage = () => {
-    void i18n.changeLanguage(nextLang);
+    void setLanguage(nextLang);
   };
 
   return (
