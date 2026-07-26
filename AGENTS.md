@@ -155,12 +155,15 @@ strava-ai-boost/
 │   │   ├── prompts.py                  # COACH_CHAT_SYSTEM_PROMPT (tools persona)
 │   │   └── requirements.txt            # ag-ui-strands, fastapi, strands-agents (deploy-only)
 │   │
-│   ├── modules/                # Module system (Enduraw only)
-│   │   ├── base_module.py              # Base class & registry
-│   │   ├── enduraw_module.py           # Enduraw integration (fetches its own streams independently)
-│   │   └── registry.py                 # Module registration
-│   │   # Campus Coach: no module — sessions fetched from DynamoDB by modules_processing.py, matching done by content_gen agent
-│   │   # Intervals.icu: integrated directly in activity_fetcher.py + content_agent.py (no separate module file)
+│   ├── modules/  ── REMOVED (2026-07-26)
+│   │   # The src/modules package (base_module / registry / enduraw_module) was
+│   │   # dead code: CDK bundles only lambda_functions/, so `from modules import
+│   │   # module_registry` always raised ImportError and the fallback ran. Modules
+│   │   # are now config-driven in lambda_functions/processing/modules_processing.py
+│   │   # (dispatched by name). Campus Coach: sessions fetched from DynamoDB and
+│   │   # matched deterministically in modules_processing.py. Enduraw: metrics
+│   │   # fetched in activity_fetcher.py / workout_analysis.py (no module class).
+│   │   # Intervals.icu: integrated directly in activity_fetcher.py + content_agent.py.
 │   │
 │   └── config/                 # Configuration
 │       └── llm_config.py               # LLM configuration
