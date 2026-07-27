@@ -309,6 +309,15 @@ function EnhancementToggle({
 type SortKey = 'name' | 'date' | 'time';
 type SortDir = 'asc' | 'desc';
 
+function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
+  if (!active) return null;
+  return dir === 'asc' ? (
+    <ArrowUp className="h-3 w-3" aria-hidden="true" />
+  ) : (
+    <ArrowDown className="h-3 w-3" aria-hidden="true" />
+  );
+}
+
 export function DashboardPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -352,15 +361,6 @@ export function DashboardPage() {
       setSortKey(key);
       setSortDir('desc');
     }
-  };
-
-  const SortIcon = ({ k }: { k: SortKey }) => {
-    if (sortKey !== k) return null;
-    return sortDir === 'asc' ? (
-      <ArrowUp className="h-3 w-3" aria-hidden="true" />
-    ) : (
-      <ArrowDown className="h-3 w-3" aria-hidden="true" />
-    );
   };
 
   const fetchAll = useCallback(async () => {
@@ -662,7 +662,7 @@ export function DashboardPage() {
                       >
                         <span className="inline-flex items-center gap-1">
                           {t('dashboard.activities.col.activity')}
-                          <SortIcon k="name" />
+                          <SortIcon active={sortKey === 'name'} dir={sortDir} />
                         </span>
                       </th>
                       <th
@@ -671,7 +671,7 @@ export function DashboardPage() {
                       >
                         <span className="inline-flex items-center gap-1">
                           {t('dashboard.activities.col.date')}
-                          <SortIcon k="date" />
+                          <SortIcon active={sortKey === 'date'} dir={sortDir} />
                         </span>
                       </th>
                       <th className="px-4 py-3 text-left font-medium">{t('dashboard.activities.col.modules')}</th>
@@ -682,7 +682,7 @@ export function DashboardPage() {
                       >
                         <span className="inline-flex items-center justify-end gap-1">
                           {t('dashboard.activities.col.time')}
-                          <SortIcon k="time" />
+                          <SortIcon active={sortKey === 'time'} dir={sortDir} />
                         </span>
                       </th>
                     </tr>

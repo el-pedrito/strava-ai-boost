@@ -27,6 +27,18 @@ export default tseslint.config(
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
+      // Tracked debt, deliberately warnings rather than errors.
+      //
+      // These two React Compiler rules were surfaced the first time this codebase
+      // was ever linted (no eslint config existed before). The remaining hits are
+      // legitimate-but-dated patterns spread across auth, onboarding, preferences
+      // and media state (resetting state when a prop changes, initialising auth,
+      // deriving a displayed value). Fixing them means reworking state management
+      // in code that is already deployed, so it belongs in its own reviewed change
+      // with functional testing behind authentication - not in a lint sweep.
+      // Keep them visible as warnings; do not add blanket file-level disables.
+      'react-hooks/set-state-in-effect': 'warn',
+      'react-hooks/refs': 'warn',
     },
   },
   {

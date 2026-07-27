@@ -282,7 +282,6 @@ export function PreferencesPage() {
 
   useEffect(() => {
     void loadPreferences();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const dirty = useMemo(() => loaded && !statesEqual(state, lastLoadedRef.current), [state, loaded]);
