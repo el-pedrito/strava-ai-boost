@@ -1,4 +1,4 @@
-import { useLocation, Link } from 'react-router-dom';
+import { useLocation, Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Menu, Sun, Moon } from 'lucide-react';
 import { useTheme } from '@/theme/ThemeProvider';

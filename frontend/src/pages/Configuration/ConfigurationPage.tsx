@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Card, CardDescription, CardHeader, CardTitle, InfoTooltip } from '@/ui';
 import { StravaAppSetup } from './StravaAppSetup.tsx';

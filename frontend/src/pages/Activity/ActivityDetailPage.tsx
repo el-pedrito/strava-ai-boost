@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState, useEffect, useMemo, type ComponentType } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useLocation, useParams } from 'react-router-dom';
+import { useNavigate, useLocation, useParams } from 'react-router';
 import {
   Activity as ActivityIcon,
   Bike,

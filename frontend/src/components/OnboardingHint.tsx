@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { ArrowRight, Sparkles, X } from 'lucide-react';
 import { Button, Card } from '@/ui';
