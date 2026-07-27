@@ -529,7 +529,7 @@ export function ContentQualityPage() {
         ) : (
           <>
             {/* Desktop table */}
-            <div className="hidden md:block rounded-xl border border-border bg-surface overflow-hidden">
+            <div className="hidden md:block rounded-xl border border-border bg-surface overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-wider text-muted-foreground border-b border-border bg-surface-muted">
                   <tr>
