@@ -938,6 +938,7 @@ aws stepfunctions describe-execution \
 
 ### P2 — Medium Term ✅ DONE
 - [x] Multi-user readiness: extract user_id from Cognito JWT instead of DEFAULT_USER_ID
+  - Précision (vérifié 2026-07-27) : les endpoints Coach extraient `custom:strava_id` du JWT et **échouent fermés** (403 sans claim). Les endpoints dashboard retombent encore sur `DEFAULT_USER_ID` (single-user by design, cf. README). Le mécanisme JWT existe donc mais l'app reste mono-athlète — pas de hardening multi-tenant.
 - [x] Coach adaptatif: add `recommendation_next` field to coach feedback output
 - [x] With Campus Coach: suggest adjustments (rest day if fatigued, complementary renfo)
 - [x] Without Campus Coach: propose mini weekly plan based on history + objectives

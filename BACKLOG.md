@@ -13,7 +13,7 @@ Le projet est fonctionnel et en production (dev). Toute la chaine fonctionne end
 - Frontend React (CloudFront + Cognito) avec configuration modules, profil utilisateur, feedback loop
 - 419 tests (325 backend unit + 41 régression + 53 frontend) + 73 tests d'intégration
 - Observability (X-Ray + CloudWatch), cost allocation tags, DLQ error handling
-- Security : Secrets Manager, HMAC-SHA1 webhook verification, Cognito auth (API Gateway + coach chat customJWT), DynamoDB encryption, no public endpoints
+- Security : Secrets Manager, filtrage d'origine du webhook (subscription_id + owner_id ; Strava **ne signe pas** ses events), Cognito auth (API Gateway + coach chat customJWT), DynamoDB encryption, no public endpoints
 
 **Stack :** CDK (Python) / Lambda / Step Functions / DynamoDB / API Gateway / Bedrock (Claude) / AgentCore (3 Runtimes + Memory) / React + TypeScript
 
@@ -23,7 +23,7 @@ Voir [docs/ROADMAP.md](docs/ROADMAP.md) pour la liste complète et datée. Rappe
 
 - Fichiers sensibles dans Git history — `git rm --cached` + `.gitignore`
 - Erreur exposee au client — Message generique dans `content_agent.py`
-- Webhook API sans auth — Documente (exigence Strava, HMAC-SHA1)
+- Webhook API sans auth — Documente (exigence Strava). Filtrage d'origine `validate_webhook_origin` (subscription_id + owner_id) déployé le 2026-07-27 ; l'ancienne « vérification HMAC-SHA1 » était infondée (Strava ne signe pas ses events).
 - Logger inconsistant — Harmonise sur `shared.logger.get_logger()`
 - Cost allocation tags — CDK + AgentCore resources + IAM execution roles (per-agent Bedrock cost via CUR 2.0)
 - **Cost optimization pass (April 2026)** — $513/mo -> ~$26/mo (Campus Coach cron + Haiku, Bedrock prompt caching, MaxToolCountsHook, MonitoringStack supprimé).
@@ -38,6 +38,9 @@ Voir [docs/ROADMAP.md](docs/ROADMAP.md) pour la liste complète et datée. Rappe
 ---
 
 ## P1 — High
+
+### verify_token webhook prédictible et absent (durcir avant dépôt public)
+`configure_strava_webhook.sh` fabrique `VERIFY_TOKEN="strava-ai-boost-verify-token-${ENVIRONMENT}"` (littéral, prédictible) et la clé `webhook_verify_token` est **absente** de Secrets Manager, donc `validate_verify_token` échoue en mode ouvert : le GET de validation d'abonnement accepte n'importe quel token. Impact réel faible (ce chemin ne sert qu'à créer un abonnement, ce qui exige déjà client_id + client_secret), mais à corriger **avant** de rendre le dépôt public. Ordre impératif : 1) écrire un `webhook_verify_token` aléatoire dans le secret, 2) faire lire cette valeur par le script au lieu de la fabriquer, 3) seulement ensuite fermer le mode permissif. Détecté 2026-07-27. NB : le vecteur principal (POST anonyme) est déjà fermé par `validate_webhook_origin`.
 
 ### IAM trop large
 - `content_generation_stack.py:131` — Bedrock `foundation-model/*` au lieu du modele specifique
@@ -59,12 +62,20 @@ Voir [docs/ROADMAP.md](docs/ROADMAP.md) pour la liste complète et datée. Rappe
 - CDK : `architecture: lambda.Architecture.ARM_64`
 - Verifier compatibilite Lambda Layer (rebuild `--platform linux/arm64` si needed)
 
-### Code duplique — Token refresh
-Duplique dans 4 fichiers : `strava_updater.py`, `feedback_analyzer.py`, `activity_fetcher.py`, `webhook_handler.py`
-- **Fix :** Extraire dans `shared/strava_token_manager.py`
+### ~~Code duplique — Token refresh~~ ✅ FAIT (2026-07-27)
+Était dupliqué dans `activity_fetcher.py`, `feedback_analyzer.py`, `shared/strava_oauth.py` (mort). Consolidé : `activity_fetcher` et `feedback_analyzer` délèguent l'échange de token au helper `shared/strava_oauth.refresh_access_token` (résolution des credentials propre à chaque appelant). Corrige aussi `activity_fetcher` qui utilisait `datetime.utcnow()` naïf. `strava_updater.py` n'a pas de refresh (reçoit le token). 10 tests ajoutés.
 
 ### Strava Rate Limiting & Retry
 `strava_updater.py` catch le 429 mais ne retry pas. Ajouter exponential backoff ou re-queue dans Step Functions.
+
+### Throttling / WAF sur l'API webhook
+`POST /webhook` n'a aucun throttling (`methodSettings` vide sur l'étage prod), pas de WAF. Depuis le filtrage d'origine (2026-07-27) un event étranger est rejeté **avant** toute écriture DynamoDB / exécution Step Functions / appel Bedrock, donc le coût résiduel d'un abus se limite aux invocations Lambda du handler. Ajouter un throttle explicite (rate/burst) sur la ressource `/webhook` reste souhaitable en défense en profondeur. Détecté 2026-07-27.
+
+### Profile drift restant — uninstall.sh / verify_uninstall.sh
+Même dérive `--profile your-aws-profile` que celle corrigée dans deploy/validate/reprocess/configure/cleanup (2026-07-27), mais laissée dans `uninstall.sh` (35 occurrences) et `verify_uninstall.sh` (20). Scripts destructifs → chantier dédié avec revue, pas dans une passe groupée.
+
+### Assets Lambda : 5 tests CDK obsolètes
+`tests/test_cdk_infrastructure.py` : 5 tests échouent sur des attentes périmées (nombre de Lambda/secrets/EventBridge rules attendus). Préexistant (prouvé par git stash le 2026-07-27, indépendant de tout changement récent). À réaligner sur la topologie réelle des stacks.
 
 ### CI/CD Pipeline
 Pas de pipeline — `cdk deploy` manuel. GitHub Actions avec `cdk diff` sur PR + deploy on merge.
@@ -94,6 +105,9 @@ Dette technique : `embedded_prompts.py` = ~20k chars, difficile a reviewer/A-B t
 
 ### Type hints manquants
 ~40 fonctions sans type hints sur Lambda handlers et fonctions publiques.
+
+### 12 warnings lint frontend `react-hooks` différés
+`frontend/eslint.config.js` met `react-hooks/set-state-in-effect` (11) et `react-hooks/refs` (1) en `warn` avec rationale écrite : patterns state legitimes-mais-datés dans auth/onboarding/preferences/media, déployés en runtime. Les reprendre demande un test fonctionnel derrière Cognito pour un gain cosmétique → à faire après un baseline authentifié connu-bon. 0 erreur lint, 24 warnings assumés. Détecté 2026-07-27.
 
 ### Verify Observability Stack
 - Checker traces dans CloudWatch GenAI Observability dashboard
