@@ -15,6 +15,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from datetime import datetime, timedelta
 from shared.logger import get_logger
+from shared.strava_oauth import refresh_access_token as shared_refresh_access_token
 
 logger = get_logger("activity-fetcher")
 
@@ -226,36 +227,18 @@ def refresh_access_token(refresh_token: str) -> Optional[Dict[str, Any]]:
             logger.error(f"Missing credentials for token refresh - client_id: {client_id is not None}, client_secret: {client_secret is not None}")
             return None
         
-        token_data = {
-            'client_id': client_id,
-            'client_secret': client_secret,
-            'grant_type': 'refresh_token',
-            'refresh_token': refresh_token
-        }
-        
         logger.info(f"Attempting to refresh token with client_id: {client_id}")
-        
-        response = _get_http_session().post("https://www.strava.com/oauth/token", data=token_data, timeout=30)
-        
-        if response.status_code != 200:
-            logger.error(f"Token refresh failed with status {response.status_code}: {response.text}")
-            return None
-        
-        new_tokens = response.json()
-        
-        # Validate response
-        if 'access_token' not in new_tokens:
-            logger.error(f"Invalid token refresh response: {new_tokens}")
-            return None
-        
-        # Add metadata
-        new_tokens['obtained_at'] = datetime.utcnow().isoformat()
-        new_tokens['last_refreshed'] = datetime.utcnow().isoformat()
-        
-        logger.info("Successfully refreshed access token")
-        
-        return new_tokens
-        
+
+        # Single implementation of the token exchange lives in
+        # shared/strava_oauth.py (validates the response and stamps
+        # timezone-aware obtained_at/last_refreshed metadata).
+        return shared_refresh_access_token(
+            refresh_token,
+            client_id,
+            client_secret,
+            http_session=_get_http_session(),
+        )
+
     except requests.RequestException as e:
         logger.error(f"HTTP error during token refresh: {e}")
         return None

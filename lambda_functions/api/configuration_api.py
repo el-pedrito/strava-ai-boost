@@ -341,8 +341,21 @@ def get_oauth_status() -> Dict[str, Any]:
                 'country': athlete.get('country')
             }
 
-        # Determine connection status
-        if is_expired:
+        # Determine connection status.
+        # An expired *access* token is the normal steady state: Strava access
+        # tokens live 6 hours and the pipeline refreshes them on demand. As long
+        # as a refresh token is stored we are still connected, so we must not
+        # tell the user to reconnect (that used to surface a false
+        # "disconnected" badge for most of the day).
+        has_refresh_token = bool(tokens.get('refresh_token'))
+        if is_expired and has_refresh_token:
+            status = 'expired_refreshable'
+            connected = True
+            message = (
+                'Access token expired; it will be refreshed automatically '
+                'from the stored refresh token on the next Strava call.'
+            )
+        elif is_expired:
             status = 'expired'
             connected = False
             message = 'OAuth tokens have expired. Please reconnect to Strava.'
