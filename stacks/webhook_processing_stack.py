@@ -106,7 +106,20 @@ class WebhookProcessingStack(Stack):
                 "PROCESSING_QUEUE_URL": self.processing_queue.queue_url,
                 "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
-                "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name
+                "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
+                # Origin filtering for unsigned Strava webhook events. Both are
+                # optional: when a value is absent the corresponding check is
+                # skipped so ingestion can never break on missing config.
+                "STRAVA_SUBSCRIPTION_ID": str(
+                    self.node.try_get_context("strava_subscription_id") or ""
+                ),
+                "DEFAULT_USER_ID": str(self.node.try_get_context("default_user_id") or ""),
+                # Kill switch: set to "false" to stop dropping foreign events.
+                "WEBHOOK_STRICT_ORIGIN": str(
+                    self.node.try_get_context("webhook_strict_origin")
+                    if self.node.try_get_context("webhook_strict_origin") is not None
+                    else "true"
+                )
             }
         )
 
