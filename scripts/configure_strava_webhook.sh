@@ -19,7 +19,14 @@ set -e
 # Configuration
 ENVIRONMENT="${1:-dev}"
 REGION="${AWS_REGION:-us-east-1}"
-PROFILE="${AWS_PROFILE:-your-aws-profile}"
+PROFILE="${AWS_PROFILE:-}"
+# Only pass --profile when one is configured; otherwise rely on ambient
+# credentials (environment variables, instance role, container role...).
+if [ -n "$PROFILE" ]; then
+    PROFILE_ARGS=(--profile "$PROFILE")
+else
+    PROFILE_ARGS=()
+fi
 VERIFY_TOKEN="strava-ai-boost-verify-token-${ENVIRONMENT}"
 AUTO_CONFIGURE=false
 CLEANUP_MODE=false
@@ -99,7 +106,7 @@ validate_environment_variables() {
         print_error "  If not configured, run:"
         print_error "  aws secretsmanager put-secret-value --secret-id strava-ai-boost-oauth-tokens \\"
         print_error "    --secret-string '{\"client_id\":\"YOUR_ID\",\"client_secret\":\"YOUR_SECRET\"}' \\"
-        print_error "    --profile $PROFILE"
+        print_error "    ${PROFILE:+--profile $PROFILE}"
         exit 1
     fi
 }
@@ -110,17 +117,17 @@ retrieve_strava_credentials_from_secrets() {
     
     print_status "Retrieving Strava credentials from Secrets Manager..."
     
-    if ! aws secretsmanager describe-secret --secret-id "$secret_name" --profile "$PROFILE" --region "$REGION" > /dev/null 2>&1; then
+    if ! aws secretsmanager describe-secret --secret-id "$secret_name" "${PROFILE_ARGS[@]}" --region "$REGION" > /dev/null 2>&1; then
         print_error "Secrets Manager secret '$secret_name' not found"
         print_error "Please create the secret with your Strava application credentials:"
         print_error "  aws secretsmanager create-secret --name '$secret_name' \\"
         print_error "    --secret-string '{\"client_id\":\"YOUR_ID\",\"client_secret\":\"YOUR_SECRET\"}' \\"
-        print_error "    --profile $PROFILE --region $REGION"
+        print_error "    ${PROFILE:+--profile $PROFILE} --region $REGION"
         exit 1
     fi
     
     local secret_value
-    secret_value=$(aws secretsmanager get-secret-value --secret-id "$secret_name" --profile "$PROFILE" --region "$REGION" --query SecretString --output text)
+    secret_value=$(aws secretsmanager get-secret-value --secret-id "$secret_name" "${PROFILE_ARGS[@]}" --region "$REGION" --query SecretString --output text)
     
     if [ $? -ne 0 ]; then
         print_error "Failed to retrieve secret value from Secrets Manager"
@@ -193,7 +200,7 @@ validate_webhook_configuration() {
     # Check 1: API Gateway deployment
     print_status "Checking API Gateway deployment..."
     local api_id
-    api_id=$(aws apigateway get-rest-apis --profile "$PROFILE" --region "$REGION" --query "items[?contains(name, 'StravaAIBoost')].id" --output text | head -1)
+    api_id=$(aws apigateway get-rest-apis "${PROFILE_ARGS[@]}" --region "$REGION" --query "items[?contains(name, 'StravaAIBoost')].id" --output text | head -1)
     
     if [ -n "$api_id" ]; then
         local webhook_url="https://${api_id}.execute-api.${REGION}.amazonaws.com/prod/webhook"
@@ -219,9 +226,9 @@ validate_webhook_configuration() {
     print_status "Checking Secrets Manager configuration..."
     local secret_name="strava-ai-boost-app-config"
     
-    if aws secretsmanager describe-secret --secret-id "$secret_name" --profile "$PROFILE" --region "$REGION" > /dev/null 2>&1; then
+    if aws secretsmanager describe-secret --secret-id "$secret_name" "${PROFILE_ARGS[@]}" --region "$REGION" > /dev/null 2>&1; then
         local secret_value
-        secret_value=$(aws secretsmanager get-secret-value --secret-id "$secret_name" --profile "$PROFILE" --region "$REGION" --query SecretString --output text 2>/dev/null)
+        secret_value=$(aws secretsmanager get-secret-value --secret-id "$secret_name" "${PROFILE_ARGS[@]}" --region "$REGION" --query SecretString --output text 2>/dev/null)
         
         if [ -n "$secret_value" ]; then
             local has_client_id has_client_secret has_verify_token
@@ -287,7 +294,7 @@ validate_webhook_configuration() {
     # Check 4: Lambda function configuration
     print_status "Checking Lambda function configuration..."
     local lambda_functions
-    lambda_functions=$(aws lambda list-functions --profile "$PROFILE" --region "$REGION" --query 'Functions[?contains(FunctionName, `StravaAIBoost`) && contains(FunctionName, `WebhookHandler`)].FunctionName' --output text)
+    lambda_functions=$(aws lambda list-functions "${PROFILE_ARGS[@]}" --region "$REGION" --query 'Functions[?contains(FunctionName, `StravaAIBoost`) && contains(FunctionName, `WebhookHandler`)].FunctionName' --output text)
     
     if [ -n "$lambda_functions" ]; then
         validation_results+=("✅ Webhook handler Lambda function deployed")
@@ -360,7 +367,7 @@ WEBHOOK_BASE_URL=""
 # First try StravaAIBoost-Webhook stack (most specific)
 WEBHOOK_BASE_URL=$(aws cloudformation describe-stacks \
     --stack-name StravaAIBoost-Webhook \
-    --profile $PROFILE \
+    "${PROFILE_ARGS[@]}" \
     --region $REGION \
     --query 'Stacks[0].Outputs[?contains(OutputKey, `APIEndpoint`) || contains(OutputKey, `WebhookAPI`) || contains(OutputKey, `Endpoint`)].OutputValue' \
     --output text 2>/dev/null | head -1)
@@ -370,7 +377,7 @@ if [ -z "$WEBHOOK_BASE_URL" ] || [ "$WEBHOOK_BASE_URL" = "None" ]; then
     print_status "Trying StravaAIBoost-API stack..."
     WEBHOOK_BASE_URL=$(aws cloudformation describe-stacks \
         --stack-name StravaAIBoost-API \
-        --profile $PROFILE \
+        "${PROFILE_ARGS[@]}" \
         --region $REGION \
         --query 'Stacks[0].Outputs[?contains(OutputKey, `APIEndpoint`) || contains(OutputKey, `Endpoint`)].OutputValue' \
         --output text 2>/dev/null | head -1)
@@ -380,7 +387,7 @@ fi
 if [ -z "$WEBHOOK_BASE_URL" ] || [ "$WEBHOOK_BASE_URL" = "None" ]; then
     print_status "Searching all StravaAIBoost stacks for webhook endpoints..."
     WEBHOOK_BASE_URL=$(aws cloudformation describe-stacks \
-        --profile $PROFILE \
+        "${PROFILE_ARGS[@]}" \
         --region $REGION \
         --query 'Stacks[?contains(StackName, `StravaAIBoost`)].Outputs[?contains(OutputKey, `WebhookAPI`) || contains(OutputKey, `Webhook`)].OutputValue' \
         --output text 2>/dev/null | head -1)
@@ -390,7 +397,7 @@ fi
 if [ -z "$WEBHOOK_BASE_URL" ] || [ "$WEBHOOK_BASE_URL" = "None" ]; then
     print_status "Final fallback: searching for any API endpoint..."
     WEBHOOK_BASE_URL=$(aws cloudformation describe-stacks \
-        --profile $PROFILE \
+        "${PROFILE_ARGS[@]}" \
         --region $REGION \
         --query 'Stacks[?contains(StackName, `StravaAIBoost`)].Outputs[?contains(OutputKey, `APIEndpoint`) || contains(OutputKey, `Endpoint`)].OutputValue' \
         --output text 2>/dev/null | head -1)
@@ -404,13 +411,13 @@ if [ -n "$WEBHOOK_BASE_URL" ]; then
 else
     # Fallback: Try to get API Gateway ID from API Gateway service
     print_status "CloudFormation output not found, trying API Gateway service..."
-    API_ID=$(aws apigateway get-rest-apis --profile $PROFILE --region $REGION --query "items[?contains(name, 'Webhook')].id" --output text | head -1)
+    API_ID=$(aws apigateway get-rest-apis "${PROFILE_ARGS[@]}" --region $REGION --query "items[?contains(name, 'Webhook')].id" --output text | head -1)
     
     if [ -z "$API_ID" ]; then
         print_error "Could not find StravaAIBoost API Gateway"
         print_error "Make sure CDK stacks are deployed first"
         print_error "Available stacks:"
-        aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE --profile $PROFILE --region $REGION --query 'StackSummaries[?contains(StackName, `StravaAIBoost`)].StackName' --output table 2>/dev/null || echo "  No StravaAIBoost stacks found"
+        aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE "${PROFILE_ARGS[@]}" --region $REGION --query 'StackSummaries[?contains(StackName, `StravaAIBoost`)].StackName' --output table 2>/dev/null || echo "  No StravaAIBoost stacks found"
         exit 1
     fi
     
@@ -554,9 +561,9 @@ EOF
     print_status "🧪 Testing Instructions:"
     echo "  1. Create or update an activity in Strava"
     echo "  2. Monitor webhook logs:"
-    echo "     aws logs tail /aws/lambda/StravaAIBoost-WebhookHandler --follow --profile $PROFILE"
+    echo "     aws logs tail /aws/lambda/StravaAIBoost-WebhookHandler --follow ${PROFILE:+--profile $PROFILE}"
     echo "  3. Check SQS queue for messages:"
-    echo "     aws sqs get-queue-attributes --queue-url <queue-url> --profile $PROFILE"
+    echo "     aws sqs get-queue-attributes --queue-url <queue-url> ${PROFILE:+--profile $PROFILE}"
     
     # Generate management commands
     generate_webhook_management_commands "$SUBSCRIPTION_ID" "$WEBHOOK_URL"
@@ -592,11 +599,11 @@ else
     echo "  1. Validate webhook configuration:"
     echo "     ./scripts/configure_strava_webhook.sh $ENVIRONMENT --validate-only"
     echo "  2. Check API Gateway deployment:"
-    echo "     aws apigateway get-rest-apis --profile $PROFILE"
+    echo "     aws apigateway get-rest-apis ${PROFILE:+--profile $PROFILE}"
     echo "  3. Test webhook endpoint manually:"
     echo "     curl -X GET '$WEBHOOK_URL?hub.mode=subscribe&hub.challenge=test&hub.verify_token=$VERIFY_TOKEN'"
     echo "  4. Check Lambda function logs:"
-    echo "     aws logs tail /aws/lambda/StravaAIBoost-WebhookHandler --profile $PROFILE"
+    echo "     aws logs tail /aws/lambda/StravaAIBoost-WebhookHandler ${PROFILE:+--profile $PROFILE}"
     
     exit 1
 fi

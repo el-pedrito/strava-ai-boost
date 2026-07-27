@@ -5,7 +5,14 @@
 
 set -e
 
-PROFILE="${AWS_PROFILE:-your-aws-profile}"
+PROFILE="${AWS_PROFILE:-}"
+# Only pass --profile when one is configured; otherwise rely on ambient
+# credentials (environment variables, instance role, container role...).
+if [ -n "$PROFILE" ]; then
+    PROFILE_ARGS=(--profile "$PROFILE")
+else
+    PROFILE_ARGS=()
+fi
 REGION="${AWS_REGION:-us-east-1}"
 
 echo "🔄 DLQ Reprocessing Tool"
@@ -13,8 +20,8 @@ echo "======================="
 echo ""
 
 # Get queue URLs
-DLQ_URL=$(aws sqs get-queue-url --queue-name strava-ai-boost-activity-processing-dlq --profile $PROFILE --region $REGION --query 'QueueUrl' --output text)
-PROCESSING_URL=$(aws sqs get-queue-url --queue-name strava-ai-boost-activity-processing --profile $PROFILE --region $REGION --query 'QueueUrl' --output text)
+DLQ_URL=$(aws sqs get-queue-url --queue-name strava-ai-boost-activity-processing-dlq "${PROFILE_ARGS[@]}" --region $REGION --query 'QueueUrl' --output text)
+PROCESSING_URL=$(aws sqs get-queue-url --queue-name strava-ai-boost-activity-processing "${PROFILE_ARGS[@]}" --region $REGION --query 'QueueUrl' --output text)
 
 echo "📋 Queue URLs:"
 echo "  DLQ: $DLQ_URL"
@@ -25,7 +32,7 @@ echo ""
 DLQ_COUNT=$(aws sqs get-queue-attributes \
     --queue-url $DLQ_URL \
     --attribute-names ApproximateNumberOfMessages \
-    --profile $PROFILE \
+    "${PROFILE_ARGS[@]}" \
     --region $REGION \
     --query 'Attributes.ApproximateNumberOfMessages' \
     --output text)
@@ -61,7 +68,7 @@ case $option in
             MESSAGE=$(aws sqs receive-message \
                 --queue-url $DLQ_URL \
                 --max-number-of-messages 1 \
-                --profile $PROFILE \
+                "${PROFILE_ARGS[@]}" \
                 --region $REGION)
             
             # Check if queue is empty
@@ -85,14 +92,14 @@ case $option in
             aws sqs send-message \
                 --queue-url $PROCESSING_URL \
                 --message-body "$BODY" \
-                --profile $PROFILE \
+                "${PROFILE_ARGS[@]}" \
                 --region $REGION > /dev/null
             
             # Delete from DLQ
             aws sqs delete-message \
                 --queue-url $DLQ_URL \
                 --receipt-handle "$RECEIPT_HANDLE" \
-                --profile $PROFILE \
+                "${PROFILE_ARGS[@]}" \
                 --region $REGION
             
             REPROCESSED=$((REPROCESSED + 1))
@@ -112,7 +119,7 @@ case $option in
         MESSAGE=$(aws sqs receive-message \
             --queue-url $DLQ_URL \
             --max-number-of-messages 1 \
-            --profile $PROFILE \
+            "${PROFILE_ARGS[@]}" \
             --region $REGION)
         
         if [ "$(echo $MESSAGE | jq '.Messages | length')" -eq "0" ]; then
@@ -135,14 +142,14 @@ case $option in
             aws sqs send-message \
                 --queue-url $PROCESSING_URL \
                 --message-body "$BODY" \
-                --profile $PROFILE \
+                "${PROFILE_ARGS[@]}" \
                 --region $REGION > /dev/null
             
             # Delete from DLQ
             aws sqs delete-message \
                 --queue-url $DLQ_URL \
                 --receipt-handle "$RECEIPT_HANDLE" \
-                --profile $PROFILE \
+                "${PROFILE_ARGS[@]}" \
                 --region $REGION
             
             echo "✅ Message reprocessed"
@@ -162,7 +169,7 @@ case $option in
             --max-number-of-messages 10 \
             --attribute-names All \
             --message-attribute-names All \
-            --profile $PROFILE \
+            "${PROFILE_ARGS[@]}" \
             --region $REGION)
         
         MESSAGE_COUNT=$(echo $MESSAGES | jq '.Messages | length')
@@ -204,7 +211,7 @@ echo "📊 Final DLQ Status:"
 aws sqs get-queue-attributes \
     --queue-url $DLQ_URL \
     --attribute-names ApproximateNumberOfMessages \
-    --profile $PROFILE \
+    "${PROFILE_ARGS[@]}" \
     --region $REGION \
     --query 'Attributes.ApproximateNumberOfMessages' \
     --output text | xargs -I {} echo "  {} messages remaining"
