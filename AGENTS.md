@@ -142,6 +142,9 @@ strava-ai-boost/
 │       ├── env_validation.py           # Environment variable validation
 │       ├── responses.py                # Standardized API responses
 │       ├── coach_context.py            # Athlete context builders + format_weekly_breakdown (chat + stream)
+│       ├── campus_status.py            # Canonical Campus session status helper (sync + dashboard consumers)
+│       ├── strength_exercises.py       # Canonical strength exercise vocabulary + alias resolver (extraction + Coach charts)
+│       ├── llm_models.py               # Bedrock model IDs mirrored from src/config/llm_config.py
 │       └── strava_oauth.py             # OAuth token management
 │
 ├── src/
@@ -181,6 +184,7 @@ strava-ai-boost/
 │   │   ├── test/                       # Test setup (Vitest + Testing Library)
 │   │   └── config.ts                   # Runtime configuration
 │   ├── package.json                    # Dependencies
+│   ├── eslint.config.js                # ESLint flat config (typescript-eslint + react-hooks + react-refresh)
 │   └── vite.config.ts                  # Vite + Vitest configuration
 │
 ├── tests/                      # Test suite
