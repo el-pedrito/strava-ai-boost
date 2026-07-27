@@ -12,8 +12,15 @@ set -e
 # Configuration
 ENVIRONMENT="${1:-dev}"
 REGION="${AWS_REGION:-us-east-1}"
-PROFILE="${AWS_PROFILE:-your-aws-profile}"
+PROFILE="${AWS_PROFILE:-}"
 PROJECT_NAME="strava-ai-boost"
+
+# Only pass --profile when one is configured; otherwise use ambient credentials.
+if [ -n "$PROFILE" ]; then
+    PROFILE_ARGS=(--profile "$PROFILE")
+else
+    PROFILE_ARGS=()
+fi
 
 # Colors for output
 RED='\033[0;31m'
@@ -33,17 +40,17 @@ print_check() {
 
 print_pass() {
     echo -e "${GREEN}[PASS]${NC} $1"
-    ((CHECKS_PASSED++))
+    CHECKS_PASSED=$((CHECKS_PASSED + 1))
 }
 
 print_fail() {
     echo -e "${RED}[FAIL]${NC} $1"
-    ((CHECKS_FAILED++))
+    CHECKS_FAILED=$((CHECKS_FAILED + 1))
 }
 
 print_warning() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
-    ((WARNINGS++))
+    WARNINGS=$((WARNINGS + 1))
 }
 
 print_section() {
@@ -62,15 +69,15 @@ fi
 print_section "1. AWS Connectivity and Permissions"
 
 print_check "AWS profile configuration"
-if aws sts get-caller-identity --profile $PROFILE --region $REGION > /dev/null 2>&1; then
-    ACCOUNT_ID=$(aws sts get-caller-identity --profile $PROFILE --region $REGION --query Account --output text)
-    print_pass "AWS profile $PROFILE configured (Account: $ACCOUNT_ID)"
+if aws sts get-caller-identity "${PROFILE_ARGS[@]}" --region $REGION > /dev/null 2>&1; then
+    ACCOUNT_ID=$(aws sts get-caller-identity "${PROFILE_ARGS[@]}" --region $REGION --query Account --output text)
+    print_pass "AWS credentials valid (profile: ${PROFILE:-<ambient credentials>}) (Account: $ACCOUNT_ID)"
 else
-    print_fail "AWS profile $PROFILE not configured or invalid"
+    print_fail "AWS credentials not configured or invalid (profile: ${PROFILE:-<ambient credentials>})"
 fi
 
 print_check "AWS region accessibility"
-if aws ec2 describe-regions --region $REGION --profile $PROFILE > /dev/null 2>&1; then
+if aws ec2 describe-regions --region $REGION "${PROFILE_ARGS[@]}" > /dev/null 2>&1; then
     print_pass "Region $REGION is accessible"
 else
     print_fail "Region $REGION is not accessible"
@@ -89,7 +96,7 @@ EXPECTED_STACKS=(
 for stack in "${EXPECTED_STACKS[@]}"; do
     print_check "CloudFormation stack: $stack"
     
-    STACK_STATUS=$(aws cloudformation describe-stacks --stack-name $stack --profile $PROFILE --region $REGION --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "NOT_FOUND")
+    STACK_STATUS=$(aws cloudformation describe-stacks --stack-name $stack "${PROFILE_ARGS[@]}" --region $REGION --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "NOT_FOUND")
     
     case $STACK_STATUS in
         "CREATE_COMPLETE"|"UPDATE_COMPLETE")
@@ -116,20 +123,21 @@ print_section "3. DynamoDB Tables"
 EXPECTED_TABLES=(
     "strava-ai-boost-activities"
     "strava-ai-boost-user-configuration"
-    "strava-ai-boost-rate-limits"
+    "strava-ai-boost-campus-coaching-sessions"
+    "strava-ai-boost-weekly-recaps"
 )
 
 for table in "${EXPECTED_TABLES[@]}"; do
     print_check "DynamoDB table: $table"
     
-    TABLE_STATUS=$(aws dynamodb describe-table --table-name $table --profile $PROFILE --region $REGION --query 'Table.TableStatus' --output text 2>/dev/null || echo "NOT_FOUND")
+    TABLE_STATUS=$(aws dynamodb describe-table --table-name $table "${PROFILE_ARGS[@]}" --region $REGION --query 'Table.TableStatus' --output text 2>/dev/null || echo "NOT_FOUND")
     
     case $TABLE_STATUS in
         "ACTIVE")
             print_pass "Table $table is active"
             
             # Check encryption
-            ENCRYPTION=$(aws dynamodb describe-table --table-name $table --profile $PROFILE --region $REGION --query 'Table.SSEDescription.Status' --output text 2>/dev/null || echo "NONE")
+            ENCRYPTION=$(aws dynamodb describe-table --table-name $table "${PROFILE_ARGS[@]}" --region $REGION --query 'Table.SSEDescription.Status' --output text 2>/dev/null || echo "NONE")
             if [ "$ENCRYPTION" = "ENABLED" ]; then
                 print_pass "Table $table has encryption enabled"
             else
@@ -159,10 +167,10 @@ EXPECTED_FUNCTIONS=(
     "StravaAIBoost-StravaUpdater"
     "StravaAIBoost-ConfigurationAPI"
     "StravaAIBoost-DashboardAPI"
-    "StravaAIBoost-StatusAPI"
+    "StravaAIBoost-UserPreferencesAPI"
 )
 
-LAMBDA_FUNCTIONS=$(aws lambda list-functions --profile $PROFILE --region $REGION --query 'Functions[].FunctionName' --output text)
+LAMBDA_FUNCTIONS=$(aws lambda list-functions "${PROFILE_ARGS[@]}" --region $REGION --query 'Functions[].FunctionName' --output text)
 
 for function in "${EXPECTED_FUNCTIONS[@]}"; do
     print_check "Lambda function: $function"
@@ -171,7 +179,7 @@ for function in "${EXPECTED_FUNCTIONS[@]}"; do
         print_pass "Function $function exists"
         
         # Check function configuration
-        RUNTIME=$(aws lambda get-function --function-name $function --profile $PROFILE --region $REGION --query 'Configuration.Runtime' --output text 2>/dev/null || echo "UNKNOWN")
+        RUNTIME=$(aws lambda get-function --function-name $function "${PROFILE_ARGS[@]}" --region $REGION --query 'Configuration.Runtime' --output text 2>/dev/null || echo "UNKNOWN")
         if [ "$RUNTIME" = "python3.12" ]; then
             print_pass "Function $function uses correct runtime: $RUNTIME"
         else
@@ -179,7 +187,7 @@ for function in "${EXPECTED_FUNCTIONS[@]}"; do
         fi
         
         # Check function state
-        STATE=$(aws lambda get-function --function-name $function --profile $PROFILE --region $REGION --query 'Configuration.State' --output text 2>/dev/null || echo "UNKNOWN")
+        STATE=$(aws lambda get-function --function-name $function "${PROFILE_ARGS[@]}" --region $REGION --query 'Configuration.State' --output text 2>/dev/null || echo "UNKNOWN")
         if [ "$STATE" = "Active" ]; then
             print_pass "Function $function is active"
         else
@@ -194,7 +202,7 @@ done
 print_section "5. SQS Queues"
 
 print_check "SQS queues"
-SQS_QUEUES=$(aws sqs list-queues --profile $PROFILE --region $REGION --query 'QueueUrls[]' --output text 2>/dev/null || echo "")
+SQS_QUEUES=$(aws sqs list-queues "${PROFILE_ARGS[@]}" --region $REGION --query 'QueueUrls[]' --output text 2>/dev/null || echo "")
 
 if echo "$SQS_QUEUES" | grep -q "strava-ai-boost"; then
     QUEUE_COUNT=$(echo "$SQS_QUEUES" | grep -c "strava-ai-boost" || echo "0")
@@ -206,7 +214,7 @@ if echo "$SQS_QUEUES" | grep -q "strava-ai-boost"; then
         print_pass "Main processing queue exists"
         
         # Check queue attributes
-        VISIBILITY_TIMEOUT=$(aws sqs get-queue-attributes --queue-url "$MAIN_QUEUE_URL" --attribute-names VisibilityTimeout --profile $PROFILE --region $REGION --query 'Attributes.VisibilityTimeout' --output text 2>/dev/null || echo "UNKNOWN")
+        VISIBILITY_TIMEOUT=$(aws sqs get-queue-attributes --queue-url "$MAIN_QUEUE_URL" --attribute-names VisibilityTimeout "${PROFILE_ARGS[@]}" --region $REGION --query 'Attributes.VisibilityTimeout' --output text 2>/dev/null || echo "UNKNOWN")
         print_pass "Queue visibility timeout: ${VISIBILITY_TIMEOUT}s"
     else
         print_fail "Main processing queue not found"
@@ -227,17 +235,17 @@ fi
 print_section "6. Step Functions"
 
 print_check "Step Functions state machines"
-STATE_MACHINES=$(aws stepfunctions list-state-machines --profile $PROFILE --region $REGION --query 'stateMachines[].name' --output text 2>/dev/null || echo "")
+STATE_MACHINES=$(aws stepfunctions list-state-machines "${PROFILE_ARGS[@]}" --region $REGION --query 'stateMachines[].name' --output text 2>/dev/null || echo "")
 
 if echo "$STATE_MACHINES" | grep -q "StravaAIBoost"; then
     STATE_MACHINE_COUNT=$(echo "$STATE_MACHINES" | grep -c "StravaAIBoost" || echo "0")
     print_pass "Found $STATE_MACHINE_COUNT Step Functions state machine(s)"
     
     # Get state machine ARN and check status
-    STATE_MACHINE_ARN=$(aws stepfunctions list-state-machines --profile $PROFILE --region $REGION --query 'stateMachines[?contains(name, `StravaAIBoost`)].stateMachineArn' --output text | head -1)
+    STATE_MACHINE_ARN=$(aws stepfunctions list-state-machines "${PROFILE_ARGS[@]}" --region $REGION --query 'stateMachines[?contains(name, `StravaAIBoost`)].stateMachineArn' --output text | head -1)
     
     if [ -n "$STATE_MACHINE_ARN" ]; then
-        STATE_MACHINE_STATUS=$(aws stepfunctions describe-state-machine --state-machine-arn "$STATE_MACHINE_ARN" --profile $PROFILE --region $REGION --query 'status' --output text 2>/dev/null || echo "UNKNOWN")
+        STATE_MACHINE_STATUS=$(aws stepfunctions describe-state-machine --state-machine-arn "$STATE_MACHINE_ARN" "${PROFILE_ARGS[@]}" --region $REGION --query 'status' --output text 2>/dev/null || echo "UNKNOWN")
         
         if [ "$STATE_MACHINE_STATUS" = "ACTIVE" ]; then
             print_pass "State machine is active"
@@ -253,14 +261,14 @@ fi
 print_section "7. API Gateway"
 
 print_check "API Gateway REST APIs"
-REST_APIS=$(aws apigateway get-rest-apis --profile $PROFILE --region $REGION --query 'items[].name' --output text 2>/dev/null || echo "")
+REST_APIS=$(aws apigateway get-rest-apis "${PROFILE_ARGS[@]}" --region $REGION --query 'items[].name' --output text 2>/dev/null || echo "")
 
-if echo "$REST_APIS" | grep -q "StravaAIBoost"; then
-    API_COUNT=$(echo "$REST_APIS" | grep -c "StravaAIBoost" || echo "0")
+if echo "$REST_APIS" | grep -q "Strava AI Boost"; then
+    API_COUNT=$(echo "$REST_APIS" | tr '\t' '\n' | grep -c "Strava AI Boost" || echo "0")
     print_pass "Found $API_COUNT API Gateway REST API(s)"
     
     # Get API ID and test endpoint
-    API_ID=$(aws apigateway get-rest-apis --profile $PROFILE --region $REGION --query 'items[?contains(name, `StravaAIBoost`)].id' --output text | head -1)
+    API_ID=$(aws apigateway get-rest-apis "${PROFILE_ARGS[@]}" --region $REGION --query 'items[?contains(name, `Webhook`)].id' --output text | head -1)
     
     if [ -n "$API_ID" ]; then
         WEBHOOK_URL="https://${API_ID}.execute-api.${REGION}.amazonaws.com/prod/webhook"
@@ -278,7 +286,7 @@ if echo "$REST_APIS" | grep -q "StravaAIBoost"; then
         fi
     fi
 else
-    print_fail "No API Gateway REST APIs found for StravaAIBoost"
+    print_fail "No API Gateway REST APIs found for Strava AI Boost"
 fi
 
 # Section 8: Secrets Manager
@@ -292,13 +300,13 @@ EXPECTED_SECRETS=(
 for secret in "${EXPECTED_SECRETS[@]}"; do
     print_check "Secret: $secret"
     
-    SECRET_STATUS=$(aws secretsmanager describe-secret --secret-id $secret --profile $PROFILE --region $REGION --query 'Name' --output text 2>/dev/null || echo "NOT_FOUND")
+    SECRET_STATUS=$(aws secretsmanager describe-secret --secret-id $secret "${PROFILE_ARGS[@]}" --region $REGION --query 'Name' --output text 2>/dev/null || echo "NOT_FOUND")
     
     if [ "$SECRET_STATUS" != "NOT_FOUND" ]; then
         print_pass "Secret $secret exists"
         
         # Check if secret has a value
-        SECRET_VALUE=$(aws secretsmanager get-secret-value --secret-id $secret --profile $PROFILE --region $REGION --query 'SecretString' --output text 2>/dev/null || echo "")
+        SECRET_VALUE=$(aws secretsmanager get-secret-value --secret-id $secret "${PROFILE_ARGS[@]}" --region $REGION --query 'SecretString' --output text 2>/dev/null || echo "")
         
         if [ -n "$SECRET_VALUE" ] && [ "$SECRET_VALUE" != "null" ]; then
             # Check if it's still placeholder values
@@ -326,7 +334,7 @@ if command -v agentcore &> /dev/null; then
     print_check "AgentCore Memory"
     MEMORY_NAME="strava-ai-boost-memory-${ENVIRONMENT}"
     
-    if agentcore memory list --profile $PROFILE --region $REGION 2>/dev/null | grep -q "$MEMORY_NAME"; then
+    if agentcore memory list "${PROFILE_ARGS[@]}" --region $REGION 2>/dev/null | grep -q "$MEMORY_NAME"; then
         print_pass "AgentCore Memory $MEMORY_NAME exists"
     else
         print_warning "AgentCore Memory $MEMORY_NAME not found"
@@ -336,7 +344,7 @@ if command -v agentcore &> /dev/null; then
     print_check "AgentCore Agents"
     CONTENT_AGENT_NAME="contentgen-${ENVIRONMENT}"
     
-    AGENT_LIST=$(agentcore agent list --profile $PROFILE --region $REGION 2>/dev/null || echo "")
+    AGENT_LIST=$(agentcore agent list "${PROFILE_ARGS[@]}" --region $REGION 2>/dev/null || echo "")
     
     if echo "$AGENT_LIST" | grep -q "$CONTENT_AGENT_NAME"; then
         print_pass "Content generation agent $CONTENT_AGENT_NAME exists"
@@ -357,13 +365,13 @@ TEST_ITEM_ID="validation-test-$(date +%s)"
 if aws dynamodb put-item \
     --table-name "strava-ai-boost-user-configuration" \
     --item "{\"user_id\":{\"S\":\"$TEST_ITEM_ID\"},\"test_data\":{\"S\":\"validation\"}}" \
-    --profile $PROFILE --region $REGION > /dev/null 2>&1; then
+    "${PROFILE_ARGS[@]}" --region $REGION > /dev/null 2>&1; then
     
     # Read test item
     if aws dynamodb get-item \
         --table-name "strava-ai-boost-user-configuration" \
         --key "{\"user_id\":{\"S\":\"$TEST_ITEM_ID\"}}" \
-        --profile $PROFILE --region $REGION > /dev/null 2>&1; then
+        "${PROFILE_ARGS[@]}" --region $REGION > /dev/null 2>&1; then
         
         print_pass "DynamoDB read/write test successful"
         
@@ -371,7 +379,7 @@ if aws dynamodb put-item \
         aws dynamodb delete-item \
             --table-name "strava-ai-boost-user-configuration" \
             --key "{\"user_id\":{\"S\":\"$TEST_ITEM_ID\"}}" \
-            --profile $PROFILE --region $REGION > /dev/null 2>&1
+            "${PROFILE_ARGS[@]}" --region $REGION > /dev/null 2>&1
     else
         print_fail "DynamoDB read test failed"
     fi

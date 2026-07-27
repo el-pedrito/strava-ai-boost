@@ -4,7 +4,7 @@
 # Orchestrates the entire deployment process from CDK to AgentCore agents
 #
 # Usage:
-#   export AWS_PROFILE=your-aws-profile
+#   export AWS_PROFILE=your-aws-profile   # optional: omit to use ambient credentials
 #   ./scripts/deploy.sh [dev|prod]
 #
 # Environment:
@@ -16,8 +16,16 @@ set -e
 # Configuration
 ENVIRONMENT="${1:-dev}"
 REGION="${AWS_REGION:-us-east-1}"
-PROFILE="${AWS_PROFILE:-your-aws-profile}"
+PROFILE="${AWS_PROFILE:-}"
 PROJECT_NAME="strava-ai-boost"
+
+# Only pass --profile when one is configured; otherwise rely on the ambient
+# credentials (environment variables, instance role, container role...).
+if [ -n "$PROFILE" ]; then
+    PROFILE_ARGS=(--profile "$PROFILE")
+else
+    PROFILE_ARGS=()
+fi
 
 # Colors for output
 RED='\033[0;31m'
@@ -51,7 +59,7 @@ fi
 
 print_section "🚀 Starting Strava AI Boost deployment for $ENVIRONMENT environment"
 print_status "Region: $REGION"
-print_status "Profile: $PROFILE"
+print_status "Profile: ${PROFILE:-<ambient credentials>}"
 print_status "Environment: $ENVIRONMENT"
 
 # Step 1: Validate prerequisites
@@ -59,7 +67,7 @@ print_section "📋 Step 1: Validating prerequisites"
 
 # Check if this is a first deployment
 FIRST_DEPLOYMENT=false
-if ! aws cloudformation describe-stacks --stack-name "StravaAIBoost-Core" --profile $PROFILE --region $REGION > /dev/null 2>&1; then
+if ! aws cloudformation describe-stacks --stack-name "StravaAIBoost-Core" "${PROFILE_ARGS[@]}" --region $REGION > /dev/null 2>&1; then
     FIRST_DEPLOYMENT=true
     print_status "🆕 First deployment detected"
     print_status "⏭️  Skipping advanced validations (will be done after deployment)"
@@ -67,13 +75,13 @@ fi
 
 # Always verify AWS credentials (essential)
 print_status "Verifying AWS credentials..."
-if ! aws sts get-caller-identity --profile $PROFILE > /dev/null 2>&1; then
-    print_error "AWS credentials not configured for profile: $PROFILE"
-    print_error "Please configure with: aws configure --profile $PROFILE"
+if ! aws sts get-caller-identity "${PROFILE_ARGS[@]}" > /dev/null 2>&1; then
+    print_error "AWS credentials not configured (profile: ${PROFILE:-<ambient credentials>})"
+    print_error "Please configure with: aws configure ${PROFILE:+--profile $PROFILE}"
     exit 1
 fi
 
-ACCOUNT_ID=$(aws sts get-caller-identity --profile $PROFILE --query Account --output text)
+ACCOUNT_ID=$(aws sts get-caller-identity "${PROFILE_ARGS[@]}" --query Account --output text)
 print_status "Using AWS Account: $ACCOUNT_ID"
 
 # Only run detailed validations for subsequent deployments
@@ -140,11 +148,11 @@ print_status "Environment configuration complete"
 print_section "🏗️  Step 3: CDK Bootstrap verification"
 
 # Check if CDK is bootstrapped
-if aws cloudformation describe-stacks --stack-name CDKToolkit --profile $PROFILE --region $REGION > /dev/null 2>&1; then
+if aws cloudformation describe-stacks --stack-name CDKToolkit "${PROFILE_ARGS[@]}" --region $REGION > /dev/null 2>&1; then
     print_status "CDK already bootstrapped in $REGION"
 else
     print_status "Bootstrapping CDK in $REGION..."
-    cdk bootstrap --profile $PROFILE --region $REGION
+    cdk bootstrap "${PROFILE_ARGS[@]}" --region $REGION
     
     if [ $? -eq 0 ]; then
         print_status "CDK bootstrap completed successfully"
@@ -171,16 +179,6 @@ else
     print_warning "Lambda Layer build script not found, skipping layer build"
 fi
 
-print_status "Vendoring coach streaming deps (Starlette + uvicorn)..."
-if [ -f "scripts/build_coach_stream_deps.sh" ]; then
-    chmod +x scripts/build_coach_stream_deps.sh
-    if ./scripts/build_coach_stream_deps.sh; then
-        print_status "✅ Coach streaming deps vendored"
-    else
-        print_error "❌ Coach streaming deps vendoring failed"
-        exit 1
-    fi
-fi
 
 # Step 5: CDK Synthesis and Validation
 print_section "🔍 Step 5: CDK synthesis and validation"
@@ -191,7 +189,7 @@ if [ "$FIRST_DEPLOYMENT" = true ]; then
     print_status "CDK will validate during deployment phase"
 else
     print_status "Synthesizing CDK templates..."
-    if cdk synth --profile $PROFILE --region $REGION > /dev/null; then
+    if cdk synth "${PROFILE_ARGS[@]}" --region $REGION > /dev/null; then
         print_status "CDK synthesis successful"
     else
         print_warning "CDK synthesis failed - continuing with deployment"
@@ -201,7 +199,7 @@ fi
 
 # List available stacks
 print_status "Available CDK stacks:"
-cdk list --profile $PROFILE --region $REGION
+cdk list "${PROFILE_ARGS[@]}" --region $REGION
 
 # Step 6: Deploy CDK Infrastructure
 print_section "☁️  Step 6: Deploying CDK infrastructure"
@@ -212,7 +210,7 @@ print_status "Deploying CDK stacks..."
 # CDK automatically handles dependencies between stacks when using --all
 print_status "Using CDK automatic dependency resolution with --all flag..."
 
-if cdk deploy --all --profile $PROFILE --region $REGION --require-approval never; then
+if cdk deploy --all "${PROFILE_ARGS[@]}" --region $REGION --require-approval never; then
     print_status "✅ All CDK stacks deployed successfully"
 else
     CDK_EXIT_CODE=$?
@@ -243,8 +241,8 @@ else
     print_status "   ./scripts/deploy.sh $ENVIRONMENT"
     print_status ""
     print_status "💡 To deploy only specific stacks:"
-    print_status "   cdk deploy StravaAIBoost-Core --profile $PROFILE"
-    print_status "   cdk deploy StravaAIBoost-Content --profile $PROFILE"
+    print_status "   cdk deploy StravaAIBoost-Core ${PROFILE:+--profile $PROFILE}"
+    print_status "   cdk deploy StravaAIBoost-Content ${PROFILE:+--profile $PROFILE}"
     
     exit $CDK_EXIT_CODE
 fi
@@ -264,7 +262,7 @@ EXPECTED_TABLES=(
 )
 
 for table in "${EXPECTED_TABLES[@]}"; do
-    if aws dynamodb describe-table --table-name $table --profile $PROFILE --region $REGION > /dev/null 2>&1; then
+    if aws dynamodb describe-table --table-name $table "${PROFILE_ARGS[@]}" --region $REGION > /dev/null 2>&1; then
         print_status "✅ Table $table exists"
     else
         print_warning "⚠️  Table $table not found"
@@ -273,12 +271,12 @@ done
 
 # Check Lambda functions
 print_status "Verifying Lambda functions..."
-LAMBDA_COUNT=$(aws lambda list-functions --profile $PROFILE --region $REGION | jq -r '.Functions[] | select(.FunctionName | contains("StravaAIBoost")) | .FunctionName' | wc -l)
+LAMBDA_COUNT=$(aws lambda list-functions "${PROFILE_ARGS[@]}" --region $REGION | jq -r '.Functions[] | select(.FunctionName | contains("StravaAIBoost")) | .FunctionName' | wc -l)
 print_status "Found $LAMBDA_COUNT Lambda functions"
 
 # Check SQS queues
 print_status "Verifying SQS queues..."
-SQS_COUNT=$(aws sqs list-queues --profile $PROFILE --region $REGION | jq -r '.QueueUrls[]? // empty' | grep -c strava-ai-boost || echo "0")
+SQS_COUNT=$(aws sqs list-queues "${PROFILE_ARGS[@]}" --region $REGION | jq -r '.QueueUrls[]? // empty' | grep -c strava-ai-boost || echo "0")
 print_status "Found $SQS_COUNT SQS queues"
 
 # Step 8: Configure Secrets Manager
@@ -288,7 +286,7 @@ print_status "Setting up Secrets Manager secrets..."
 
 # Create Strava OAuth secrets placeholder (will be populated by local web interface)
 SECRET_NAME="strava-ai-boost-oauth-tokens"
-if aws secretsmanager describe-secret --secret-id $SECRET_NAME --profile $PROFILE --region $REGION > /dev/null 2>&1; then
+if aws secretsmanager describe-secret --secret-id $SECRET_NAME "${PROFILE_ARGS[@]}" --region $REGION > /dev/null 2>&1; then
     print_status "Secret $SECRET_NAME already exists"
 else
     print_status "Creating secret: $SECRET_NAME"
@@ -296,7 +294,7 @@ else
         --name $SECRET_NAME \
         --description "Strava OAuth tokens for AI Boost (managed by local web interface)" \
         --secret-string '{"placeholder":"true","configured_via":"local_web_interface"}' \
-        --profile $PROFILE \
+        "${PROFILE_ARGS[@]}" \
         --region $REGION > /dev/null
     
     print_status "✅ OAuth secret placeholder created - will be configured via local web interface"
@@ -304,7 +302,7 @@ fi
 
 # Create Campus Coach credentials placeholder
 CAMPUS_SECRET_NAME="strava-ai-boost-campus-coach-credentials"
-if aws secretsmanager describe-secret --secret-id $CAMPUS_SECRET_NAME --profile $PROFILE --region $REGION > /dev/null 2>&1; then
+if aws secretsmanager describe-secret --secret-id $CAMPUS_SECRET_NAME "${PROFILE_ARGS[@]}" --region $REGION > /dev/null 2>&1; then
     print_status "Secret $CAMPUS_SECRET_NAME already exists"
 else
     print_status "Creating secret: $CAMPUS_SECRET_NAME"
@@ -312,11 +310,11 @@ else
         --name $CAMPUS_SECRET_NAME \
         --description "Campus Coach credentials for AI Boost" \
         --secret-string '{"username":"REPLACE_WITH_YOUR_CAMPUS_COACH_USERNAME","password":"REPLACE_WITH_YOUR_CAMPUS_COACH_PASSWORD","login_url":"https://campus.coach/login"}' \
-        --profile $PROFILE \
+        "${PROFILE_ARGS[@]}" \
         --region $REGION > /dev/null
     
     print_warning "⚠️  Please update the Campus Coach credentials in Secrets Manager (optional):"
-    print_warning "   aws secretsmanager put-secret-value --secret-id $CAMPUS_SECRET_NAME --secret-string '{\"username\":\"YOUR_USERNAME\",\"password\":\"YOUR_PASSWORD\",\"login_url\":\"https://campus.coach/login\"}' --profile $PROFILE"
+    print_warning "   aws secretsmanager put-secret-value --secret-id $CAMPUS_SECRET_NAME --secret-string '{\"username\":\"YOUR_USERNAME\",\"password\":\"YOUR_PASSWORD\",\"login_url\":\"https://campus.coach/login\"}' ${PROFILE:+--profile $PROFILE}"
 fi
 
 # Step 8: CDK Deployment Complete - Next Steps
@@ -354,8 +352,8 @@ print_section "🔗 Step 9: Configuring Strava webhook subscription"
 
 # Get webhook handler URL from API Gateway
 WEBHOOK_URL=""
-if aws apigateway get-rest-apis --profile $PROFILE --region $REGION > /dev/null 2>&1; then
-    API_ID=$(aws apigateway get-rest-apis --profile $PROFILE --region $REGION | jq -r '.items[] | select(.name | contains("StravaAIBoost")) | .id' | head -1)
+if aws apigateway get-rest-apis "${PROFILE_ARGS[@]}" --region $REGION > /dev/null 2>&1; then
+    API_ID=$(aws apigateway get-rest-apis "${PROFILE_ARGS[@]}" --region $REGION | jq -r '.items[] | select(.name | contains("StravaAIBoost")) | .id' | head -1)
     
     if [ -n "$API_ID" ]; then
         WEBHOOK_URL="https://${API_ID}.execute-api.${REGION}.amazonaws.com/prod/webhook"
@@ -382,7 +380,9 @@ if [ -f "scripts/test_basic_integration.py" ]; then
     print_status "Running basic integration tests..."
     
     # Set environment variables for tests
-    export AWS_PROFILE=$PROFILE
+    if [ -n "$PROFILE" ]; then
+        export AWS_PROFILE=$PROFILE
+    fi
     export AWS_REGION=$REGION
     
     if python scripts/test_basic_integration.py; then
