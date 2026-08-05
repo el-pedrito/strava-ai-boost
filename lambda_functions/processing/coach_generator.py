@@ -7,13 +7,17 @@ Generates coaching feedback using AgentCore agent (or direct Bedrock fallback).
 import json
 import os
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 import boto3
 
 from shared.logger import get_logger, inject_correlation_id
 from shared.env_validation import validate_env_vars
+from shared.campus_status import STATUS_DONE, STATUS_SKIP, effective_status
+from shared.iso_week import iso_week_label
+from shared.coach_context import format_weekly_breakdown
+from processing.modules_processing import match_campus_session
 
 logger = get_logger("coach-generator")
 
@@ -48,11 +52,32 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         if not activity_data:
             raise ValueError(f"Activity {activity_id} not found in DynamoDB")
 
-        # Build historical summary from last 4 weeks
-        historical_summary = build_historical_summary(user_id, activity_id)
+        # Week identity of the activity being analysed, as an ISO label
+        # 'YYYY-Www' (never a bare int). This is the single reference week:
+        # week_overview owns it, and build_historical_summary excludes it from
+        # the past-week fields, so no field ever describes the same week twice.
+        activity_week = iso_week_label(
+            activity_data.get("start_date_local") or activity_data.get("start_date", "")
+        )
+
+        # Build historical summary from last 4 weeks (strictly PAST weeks: the
+        # activity's own week is owned by week_overview, added further down).
+        historical_summary = build_historical_summary(user_id, activity_id, activity_week)
 
         # Extract and accumulate best efforts (PRs) from this activity
         extract_and_store_prs(user_id, activity_data)
+
+        # Personal-record status is Strava-authoritative (best_efforts.pr_rank),
+        # never inferred by the model from a time comparison. Surface the
+        # distances set as a PR in THIS activity so the coach states records from
+        # a code-provided list instead of comparing times itself.
+        prs_set = [
+            effort.get("name", "")
+            for effort in (activity_data.get("best_efforts") or [])
+            if effort.get("pr_rank") == 1 and effort.get("name")
+        ]
+        if prs_set:
+            historical_summary["prs_set_this_activity"] = prs_set
 
         # Generate coaching feedback via AgentCore
         if not COACH_AGENT_ARN:
@@ -138,13 +163,40 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     "intervals": s.get("intervals", []),
                     "expected_distance_km": s.get("expected_distance_km"),
                     "expected_duration_min": s.get("expected_duration_min"),
-                    "status": s.get("status", ""),
+                    # Canonical execution status (never the raw legacy `status`
+                    # field, which the sync never rewrites — see B1). This makes
+                    # a session with provider_status='done' but status='todo'
+                    # correctly appear as done.
+                    "status": effective_status(s),
+                    "week_date_iso": s.get("week_date_iso", ""),
                     "sport": s.get("sport", ""),
                     "difficulty": s.get("difficulty", ""),
                 }
 
             if current_week:
-                historical_summary["campus_coach_plan"] = [_format_plan_session(s) for s in current_week]
+                # Label the current-week block with its ISO week so the LLM can
+                # tell it apart from the future-week plans (B5). Sessions carry
+                # their own week_date_iso; take the first as the block's week.
+                current_week_iso = current_week[0].get("week_date_iso", "")
+                historical_summary["campus_coach_plan"] = {
+                    "week": current_week_iso,
+                    "sessions": [_format_plan_session(s) for s in current_week],
+                }
+                # Remaining-session count is NOT emitted as a separate field
+                # anymore: it was strictly redundant with
+                # week_overview['campus_remaining'] (same sessions, same
+                # effective statuses), and two fields answering "how many
+                # sessions are left" is exactly the multiplicity that let the
+                # coach quote a wrong number. week_overview is the sole source.
+
+            # Single merged view of the week, computed in code: Campus plan plus
+            # the athlete's own strength program, current activity included.
+            historical_summary["week_overview"] = build_week_overview(
+                user_id,
+                activity_data,
+                current_week,
+                historical_summary.get("strength_program"),
+            )
 
             # Group all future weeks
             if future_sessions:
@@ -166,6 +218,53 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 ctx = ctx_items[0]
                 historical_summary["campus_coach_goal"] = ctx.get("goal", {})
                 historical_summary["campus_coach_assiduity"] = ctx.get("assiduity", "")
+
+            # Authoritative "this activity closes plan session X" signal.
+            #
+            # The coach used to infer the link from the narrative context alone.
+            # Running the same deterministic matcher the content branch uses
+            # removes that inference: the coach is told which session the
+            # activity completes, with its score and ISO week. Recomputing from
+            # laps rather than reading the stored completion marker keeps this
+            # race-free, since the content branch writes that marker in parallel.
+            #
+            # Guarded separately: this is an extra DynamoDB scan, and a failure
+            # here must degrade to "no authoritative signal" rather than cost us
+            # the weekly plan context built above.
+            historical_summary["campus_matched_session"] = None
+            try:
+                matched = match_campus_session(
+                    activity_data,
+                    laps=activity_data.get("_laps") or [],
+                    current_activity_id=activity_id,
+                )
+                matched_session = matched["matched_session"]
+                if matched_session:
+                    historical_summary["campus_matched_session"] = {
+                        "title": matched_session.get("title", ""),
+                        "week_date_iso": matched_session.get("week_date_iso", ""),
+                        "sport": matched_session.get("sport", ""),
+                        "expected_duration_min": matched_session.get("expected_duration_min"),
+                        "intervals": matched_session.get("intervals", []),
+                        "match_score": round(matched["match_score"], 2),
+                    }
+                    logger.info(
+                        "Coach informed of matched session '%s' (%s, score=%.2f)",
+                        matched_session.get("title"),
+                        matched_session.get("week_date_iso"),
+                        matched["match_score"],
+                    )
+                else:
+                    logger.info(
+                        "No Campus session matched this activity (best=%.2f)",
+                        matched["match_score"],
+                    )
+            except Exception as match_error:
+                logger.warning(
+                    "Campus match for coach failed, continuing without the "
+                    "authoritative signal: %s",
+                    match_error,
+                )
         except Exception as e:
             logger.warning(f"Failed to fetch Campus Coach sessions: {e}")
 
@@ -228,14 +327,17 @@ def _invoke_coach_agent(
 
     # Extract activity date for correct week identification
     activity_start = activity_data.get("start_date_local") or activity_data.get("start_date", "")
+    # Week identity as an ISO string 'YYYY-Www' (never a bare int) so the coach
+    # agent can match it against the campus_coach_future_weeks keys (B5).
+    activity_iso_week = iso_week_label(activity_start) or iso_week_label(
+        datetime.now(timezone.utc).isoformat()
+    )
     try:
         activity_dt = datetime.fromisoformat(activity_start.replace("Z", "+00:00"))
-        activity_iso_week = activity_dt.isocalendar()[1]
         activity_date_str = activity_dt.strftime("%Y-%m-%d")
         activity_time_local = activity_dt.strftime("%Hh%M")
         activity_weekday = ['lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche'][activity_dt.weekday()]
     except (ValueError, AttributeError):
-        activity_iso_week = datetime.now(timezone.utc).isocalendar()[1]
         activity_date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         activity_time_local = ''
         activity_weekday = ''
@@ -367,12 +469,17 @@ def _compute_coach_metrics(laps: list, activity_data: Dict[str, Any]) -> Dict[st
 
     _f = _safe_float
 
-    # Efficiency Factor: pace @ HR (for trend comparison across activities)
+    # Average pace and Efficiency Factor (pace @ HR), formatted in code so the
+    # coach never converts average_speed (m/s) to a pace itself: that division
+    # is exactly what produces impossible values like "4:87/km".
     avg_speed = _f(activity_data.get("average_speed", 0))
     avg_hr = _f(activity_data.get("average_heartrate", 0))
-    if avg_speed > 0 and avg_hr > 0:
+    if avg_speed > 0:
         pace_sec = 1000 / avg_speed
-        metrics["ef_pace_at_hr"] = f"{int(pace_sec//60)}:{int(pace_sec%60):02d}/km @ {int(avg_hr)}bpm"
+        pace_str = f"{int(pace_sec//60)}:{int(pace_sec%60):02d}/km"
+        metrics["avg_pace"] = pace_str
+        if avg_hr > 0:
+            metrics["ef_pace_at_hr"] = f"{pace_str} @ {int(avg_hr)}bpm"
 
     # %FCmax for average and max HR
     max_hr_ref = _f(activity_data.get("_max_hr_ref"))
@@ -565,8 +672,169 @@ def _build_fitness_trend(activities: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-def build_historical_summary(user_id: str, current_activity_id: str) -> Dict[str, Any]:
-    """Build a summary of the last 4 weeks of activities."""
+def _compute_volume_ramp(weekly_km_by_iso: Dict[str, float]) -> Optional[Dict[str, Any]]:
+    """Volume progression between the two most recent COMPLETE ISO weeks.
+
+    Deterministic ramp rate, computed in code so the coach never derives it
+    itself. In production the coach summed a rolling 7-day window, called it
+    "cette semaine", compared it against a real ISO week and raised a bogus
+    "+32% (au-dessus des 10% recommandes)" alert. The partial activity week is
+    excluded upstream, so both operands here are complete weeks and the
+    percentage is meaningful. Returns None when fewer than two weeks are
+    available or the earlier week has no distance.
+    """
+    if len(weekly_km_by_iso) < 2:
+        return None
+    # ISO labels 'YYYY-Www' sort chronologically as plain strings.
+    ordered = sorted(weekly_km_by_iso.items())
+    (prev_week, prev_km), (last_week, last_km) = ordered[-2], ordered[-1]
+    if prev_km <= 0:
+        return None
+    delta_pct = round((last_km - prev_km) / prev_km * 100, 1)
+    return {
+        "from_week": prev_week,
+        "to_week": last_week,
+        "from_km": round(prev_km, 1),
+        "to_km": round(last_km, 1),
+        "delta_pct": delta_pct,
+        "exceeds_10pct": delta_pct > 10,
+    }
+
+
+def _monday_of_iso_week(week_label: str) -> Optional[date]:
+    """Monday of an ISO week label 'YYYY-Www'. None when unparseable."""
+    if not week_label or "-W" not in week_label:
+        return None
+    year_part, week_part = week_label.split("-W", 1)
+    try:
+        return date.fromisocalendar(int(year_part), int(week_part), 1)
+    except (ValueError, TypeError):
+        return None
+
+
+def build_week_overview(
+    user_id: str,
+    activity_data: Dict[str, Any],
+    campus_current_week: List[Dict[str, Any]],
+    strength_program: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """One authoritative view of the athlete's week, computed in code.
+
+    Two gaps made the coach state weekly figures that contradicted the data:
+
+    * ``build_historical_summary`` deliberately skips the activity being
+      processed, so its ``weekly_breakdown`` reported "1 course" and no strength
+      session on a day the athlete had just logged one. The coach had to add the
+      current activity itself, and got the arithmetic wrong (it reported two
+      strength sessions where there was one).
+    * the weekly plan was the Campus plan alone, while the athlete's real week is
+      Campus running sessions PLUS his own strength program (Upper A, Upper B,
+      Rappel), so "what is left this week" was always partial.
+
+    This counts the ISO week of the *activity* (not of "now", which differs for a
+    Sunday session processed on Monday), includes the current activity, and merges
+    both plans. Every figure the coach needs about the week is therefore given to
+    it, not inferred.
+    """
+    week = iso_week_label(
+        activity_data.get("start_date_local") or activity_data.get("start_date", "")
+    )
+    overview: Dict[str, Any] = {"week": week}
+
+    # Human-readable label, on purpose.
+    #
+    # `weekly_breakdown` carries friendly French labels ("Semaine derniere",
+    # "Il y a 2 semaines") while this field only had an ISO code. Asked for "cette
+    # semaine", the model reached for the labelled source and read the
+    # "Semaine derniere" line as if it were the current week, mixing a run count
+    # from here with a strength count from the previous week. Giving this field an
+    # equally explicit label removes that asymmetry.
+    monday = _monday_of_iso_week(week)
+    if monday:
+        sunday = monday + timedelta(days=6)
+        overview["label"] = (
+            f"Cette semaine ({monday.strftime('%d/%m')}-{sunday.strftime('%d/%m')})"
+        )
+    else:
+        overview["label"] = "Cette semaine"
+
+    runs = run_km = strength = other = 0
+    try:
+        table = dynamodb.Table(ACTIVITIES_TABLE)
+        since = (datetime.now(timezone.utc) - timedelta(days=21)).isoformat()
+        resp = table.query(
+            IndexName="UserActivitiesIndex",
+            KeyConditionExpression="user_id = :uid AND created_at >= :since",
+            ExpressionAttributeValues={":uid": user_id, ":since": since},
+            ProjectionExpression="activity_id, activity_data_json",
+        )
+        for item in resp.get("Items", []):
+            try:
+                data = json.loads(item.get("activity_data_json", "{}"))
+            except (json.JSONDecodeError, TypeError):
+                continue
+            start = data.get("start_date_local") or data.get("start_date", "")
+            if iso_week_label(start) != week:
+                continue
+            atype = data.get("type", "")
+            if atype == "Run":
+                runs += 1
+                run_km += _safe_float(data.get("distance", 0)) / 1000
+            elif atype == "WeightTraining":
+                strength += 1
+            else:
+                other += 1
+    except Exception as e:
+        logger.warning(f"Failed to count week activities: {e}")
+        overview["counts_incomplete"] = True
+
+    overview["done_this_week"] = {
+        "runs": runs,
+        "run_km": round(run_km, 1),
+        "strength": strength,
+        "other": other,
+        "total": runs + strength + other,
+        "includes_current_activity": True,
+    }
+
+    remaining = [
+        s for s in campus_current_week
+        if effective_status(s) not in (STATUS_DONE, STATUS_SKIP)
+    ]
+    overview["campus_remaining"] = {
+        "count": len(remaining),
+        "running_count": len([s for s in remaining if s.get("sport") != "ppg"]),
+        "titles": [s.get("title", "") for s in remaining],
+    }
+
+    sessions = (strength_program or {}).get("sessions") or []
+    if sessions:
+        planned = 0
+        for s in sessions:
+            freq = str(s.get("frequency", "")).lower()
+            planned += 2 if freq.startswith("2x") else 1
+        overview["own_strength_program"] = {
+            "planned_per_week": planned,
+            "done_this_week": strength,
+            "remaining": max(0, planned - strength),
+            "session_names": [s.get("name") or s.get("id", "") for s in sessions],
+        }
+    return overview
+
+
+def build_historical_summary(
+    user_id: str,
+    current_activity_id: str,
+    current_activity_week: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Build a summary of the last 4 weeks of activities.
+
+    ``current_activity_week`` is the ISO label ('YYYY-Www') of the activity being
+    analysed. When provided, that week is EXCLUDED from every past-week field
+    (``weekly_breakdown``, ``volume_ramp``, the trailing average): its authority
+    belongs to ``week_overview`` alone, so no two fields ever describe the same
+    week. When None (legacy callers, tests) nothing is excluded.
+    """
     try:
         table = dynamodb.Table(ACTIVITIES_TABLE)
         four_weeks_ago = (datetime.now(timezone.utc) - timedelta(weeks=4)).isoformat()
@@ -615,18 +883,34 @@ def build_historical_summary(user_id: str, current_activity_id: str) -> Dict[str
             sum(a.get("average_speed", 0) for a in activities) / len(activities)
         )
 
-        weekly_distances: Dict[int, float] = {}
+        weekly_distances: Dict[str, float] = {}
         for a in activities:
             start = a.get("start_date_local") or a.get("start_date", "")
             try:
                 dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
-                week_num = dt.isocalendar()[1]
-                weekly_distances[week_num] = weekly_distances.get(week_num, 0) + a.get("distance", 0) / 1000
+                # ISO label, never a bare week number: a bare integer is not
+                # comparable with the week_date_iso values used everywhere else,
+                # and gives the coach a second, ambiguous notion of "week".
+                week_key = iso_week_label(start) or f"{dt.isocalendar()[0]}-W{dt.isocalendar()[1]:02d}"
+                weekly_distances[week_key] = weekly_distances.get(week_key, 0) + a.get("distance", 0) / 1000
             except (ValueError, AttributeError):
                 continue
 
+        # Strictly PAST weeks: the activity's own week is owned by week_overview,
+        # so excluding it here guarantees no two fields describe the same week.
+        past_weekly_distances = {
+            week: km for week, km in weekly_distances.items()
+            if week != current_activity_week
+        }
+
         weeks_active = len(weekly_distances)
-        avg_weekly_km = total_distance / max(weeks_active, 1)
+        # Trailing average over the PAST complete weeks. Renamed from the bare
+        # `avg_weekly_km`, which read like a weekly total and invited the coach to
+        # quote it as "cette semaine". It is a 4-week baseline, never a week total.
+        avg_weekly_km_history = (
+            sum(past_weekly_distances.values()) / len(past_weekly_distances)
+            if past_weekly_distances else 0.0
+        )
 
         # Per-activity breakdown for trend analysis (all activities in 4-week window, max 30)
         recent_activities = sorted(
@@ -645,6 +929,11 @@ def build_historical_summary(user_id: str, current_activity_id: str) -> Dict[str
                 pace_str = f"{int(pace_total_sec // 60)}:{int(pace_total_sec % 60):02d}/km"
             entry: Dict[str, Any] = {
                 "date": a.get("start_date", "")[:10],
+                # Every activity states its own ISO week, so a session is never
+                # attributed to the wrong week when quoted individually.
+                "iso_week": iso_week_label(
+                    a.get("start_date_local") or a.get("start_date", "")
+                ),
                 "type": a.get("type", "Run"),
                 "name": a.get("name", ""),
                 "distance_km": dist_km,
@@ -679,14 +968,45 @@ def build_historical_summary(user_id: str, current_activity_id: str) -> Dict[str
                 if isinstance(sb, dict):
                     sb = sb.get("S", "")
                 if sb:
-                    entry["prev_coach_note"] = sb[:150]
+                    # Qualify the note with the ISO week of the activity it
+                    # describes (B6). Without this label the LLM rereads a past
+                    # session count (e.g. "7x1min") as if it were the current
+                    # week, propagating stale figures forward.
+                    note_week = iso_week_label(
+                        a.get("start_date_local") or a.get("start_date", "")
+                    )
+                    note_prefix = f"[semaine {note_week}] " if note_week else ""
+                    entry["prev_coach_note"] = f"{note_prefix}{sb[:150]}"
             recent_breakdown.append(entry)
 
-        # Explicit per-week session counts (runs/km/strength) so the coach states
-        # real weekly figures instead of hallucinating "5 séances cette semaine".
-        # Reuses the same helper as the chat; normalize field names first
-        # (activity_data_json uses `type`, the helper expects `activity_type`).
-        from shared.coach_context import format_weekly_breakdown
+        # Group the per-activity detail by ISO week.
+        #
+        # A flat list carrying a `date` and a `distance_km` per activity is all
+        # the material needed to invent a weekly total: the coach summed a
+        # rolling 7-day window, called it "cette semaine" and compared it with a
+        # real ISO week, producing a bogus ramp-rate alert. Prompt rules alone did
+        # not hold. Making the ISO week the *structure* of the data is what fixed
+        # the same class of error on the Campus plan, so apply it here too: the
+        # detail stays available for a specific session (exercises, loads, paces,
+        # CTL, previous note) but no cross-week window can be assembled without
+        # deliberately merging buckets. Per-week totals live in
+        # `weekly_breakdown`, which is computed in code.
+        recent_by_week: Dict[str, List[Dict[str, Any]]] = {}
+        for entry in recent_breakdown:
+            week = entry.get("iso_week") or "semaine inconnue"
+            recent_by_week.setdefault(week, []).append(entry)
+        # Most recent week first, so the current week reads at the top.
+        recent_by_week = {
+            week: recent_by_week[week] for week in sorted(recent_by_week, reverse=True)
+        }
+
+        # Explicit per-week session counts (runs/km/strength) for the PAST weeks
+        # only, so the coach states real weekly figures instead of hallucinating
+        # "5 seances cette semaine". The activity's own week is excluded here so
+        # this never competes with week_overview: week_overview answers "this
+        # week", weekly_breakdown answers strictly earlier weeks. Reuses the same
+        # helper as the chat; normalize field names first (activity_data_json
+        # uses `type`, the helper expects `activity_type`).
         normalized = [
             {
                 "activity_type": a.get("type", a.get("activity_type", "")),
@@ -694,23 +1014,34 @@ def build_historical_summary(user_id: str, current_activity_id: str) -> Dict[str
                 "start_date": a.get("start_date_local") or a.get("start_date", ""),
             }
             for a in activities
+            if iso_week_label(a.get("start_date_local") or a.get("start_date", ""))
+            != current_activity_week
         ]
         weekly_breakdown = format_weekly_breakdown(normalized)
 
-        return {
+        summary: Dict[str, Any] = {
             "weeks": 4,
             "total_activities": len(activities),
             "total_distance_km": round(total_distance, 1),
             "total_time_hours": round(total_time, 1),
             "avg_pace_ms": round(avg_pace_ms, 2),
-            "avg_weekly_km": round(avg_weekly_km, 1),
+            # Trailing 4-week baseline, explicitly NOT a weekly total (see the
+            # rename note above). Never quote it as the current week's volume.
+            "avg_weekly_km_last_4_weeks": round(avg_weekly_km_history, 1),
             "weeks_active": weeks_active,
             "consistency": f"{weeks_active}/4 weeks",
-            "weekly_km": {str(k): round(v, 1) for k, v in weekly_distances.items()},
             "weekly_breakdown": weekly_breakdown,
-            "recent_activities": recent_breakdown,
+            "recent_activities_by_week": recent_by_week,
             **_build_fitness_trend(activities),
         }
+        # Deterministic volume ramp between the two most recent COMPLETE weeks
+        # (the partial activity week is already excluded from
+        # past_weekly_distances). The coach must never derive a ramp-rate
+        # percentage itself.
+        ramp = _compute_volume_ramp(past_weekly_distances)
+        if ramp:
+            summary["volume_ramp"] = ramp
+        return summary
 
     except Exception as e:
         logger.error(f"Failed to build historical summary: {e}")

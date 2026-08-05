@@ -13,7 +13,11 @@ import pytest  # noqa: F401  (kept consistent with sibling test modules)
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "lambda_functions"))
 
-from shared.coach_context import build_converse_messages  # noqa: E402
+from shared.coach_context import (  # noqa: E402
+    build_converse_messages,
+    format_campus_sessions,
+    _summarize_interval_entry,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -273,3 +277,62 @@ def test_role_case_insensitive_normalization():
     ]
     result = build_converse_messages(history, "q")
     assert _roles(result) == ["user", "assistant", "user"]
+
+
+# --------------------------------------------------------------------------- #
+# Campus plan interval rendering — tolerates BOTH interval schemas (shared
+# contract): the new per-block form and the legacy flat form. Regression guard
+# for the week-mixing bug: a repeated block must surface its repeat count and
+# nested pace, not collapse to a bare "block" (the old `iv.get('repeats')` typo).
+# --------------------------------------------------------------------------- #
+def test_summarize_interval_new_block_schema():
+    iv = {
+        "type": "block",
+        "repeat": 9,
+        "exercises": [
+            {"type": "work", "duration": "1 min", "pace": "Seuil (4:25/km)"},
+            {"type": "recovery", "duration": "1 min", "pace": "Recup"},
+        ],
+    }
+    summary = _summarize_interval_entry(iv)
+    assert "9x" in summary
+    assert "1 min" in summary
+    assert "4:25/km" in summary
+
+
+def test_summarize_interval_legacy_flat_schema():
+    iv = {"type": "work", "duration": "1 min", "pace": "Seuil (4:25/km)", "repeat": 7}
+    summary = _summarize_interval_entry(iv)
+    assert "x7" in summary
+    assert "4:25/km" in summary
+
+
+def test_summarize_interval_non_repeated_flat_block():
+    iv = {"type": "warm-up", "duration": "15 min", "pace": "EF"}
+    summary = _summarize_interval_entry(iv)
+    assert "warm-up" in summary
+    assert "15 min" in summary
+    assert "x" not in summary  # no repeat prefix for a non-repeated entry
+
+
+def test_format_campus_sessions_renders_block_repeat_and_status():
+    sessions = [
+        {
+            "title": "Seuil 30",
+            "provider_status": "done",
+            "status": "todo",  # stale legacy value must be ignored
+            "intervals": [
+                {
+                    "type": "block",
+                    "repeat": 9,
+                    "exercises": [
+                        {"type": "work", "duration": "1 min", "pace": "Seuil (4:25/km)"},
+                    ],
+                }
+            ],
+        }
+    ]
+    out = format_campus_sessions(sessions)
+    assert "statut: done" in out          # canonical status (B1)
+    assert "9x" in out                    # block repeat surfaced (B4 schema)
+    assert "4:25/km" in out               # nested pace surfaced
