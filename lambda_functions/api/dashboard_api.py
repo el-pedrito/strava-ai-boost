@@ -570,6 +570,48 @@ def _build_strength_progression(entries: List[Dict[str, Any]]) -> List[Dict[str,
     return progression
 
 
+
+def _build_strength_sessions(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Per-session totals: sets, reps and tonnage, oldest first.
+
+    Reads the figures the pipeline computed with shared/strength_volume.py and
+    stored on each history entry. Never recomputes: a second definition of tonnage
+    would drift from the coach's, and the flat sets/reps summary cannot represent a
+    session like '10x80 8x90 8x90' anyway (it under-reported one real session by
+    33%).
+
+    Rows written before that wiring carry no totals; they are returned with nulls
+    and `incomplete: true` so the chart can skip them instead of drawing a dip that
+    never happened.
+    """
+    sessions: List[Dict[str, Any]] = []
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        date = (entry.get('date') or '')[:10]
+        if not date:
+            continue
+        total_reps = entry.get('total_reps')
+        sessions.append({
+            'date': date,
+            'activity_id': entry.get('activity_id'),
+            'duration_min': entry.get('duration_min'),
+            'total_sets': int(entry['total_sets']) if entry.get('total_sets') is not None else None,
+            'total_reps': int(total_reps) if total_reps is not None else None,
+            'volume_kg': float(entry['volume_kg']) if entry.get('volume_kg') is not None else None,
+            'body_weight_kg_used': (
+                float(entry['body_weight_kg_used'])
+                if entry.get('body_weight_kg_used') is not None else None
+            ),
+            # True when a load was unknown: the tonnage is a floor, not a total.
+            'volume_incomplete': bool(entry.get('volume_kg_incomplete')) or total_reps is None,
+            'excluded_exercises': list(entry.get('excluded_exercises') or []),
+        })
+
+    sessions.sort(key=lambda e: e['date'])
+    return sessions
+
+
 def _detect_health_anomalies(recovery: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Deterministic health-anomaly rules over the recovery snapshot.
 
@@ -1529,6 +1571,7 @@ def get_coach_summary(user_id: str) -> Dict[str, Any]:
                 'health_anomalies': _detect_health_anomalies(recovery),
                 'strength_history': strength_history[-20:],
                 'strength_progression': _build_strength_progression(strength_history),
+                'strength_sessions': _build_strength_sessions(strength_history),
             }
         }
 

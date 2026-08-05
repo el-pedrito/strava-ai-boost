@@ -758,5 +758,17 @@
   "preferences.demographics.sportApproach.help.definition": "Your main reason for training. Performance-focused gets data-heavy feedback; wellness-focused gets supportive, balanced framing.",
   "preferences.demographics.interests.help.title": "Interests",
   "preferences.demographics.interests.help.definition": "Topics outside running that the AI can weave into descriptions for personality. Optional - empty is fine.",
-  "empty.records.title": "No records yet"
+  "empty.records.title": "No records yet",
+  "coach.strength.sessionTotalsTitle": "Per-session totals",
+  "coach.strength.metric.tonnage": "Tonnage",
+  "coach.strength.metric.sets": "Sets",
+  "coach.strength.metric.reps": "Reps",
+  "coach.strength.unit.tonnage": "kg",
+  "coach.strength.unit.sets": "sets",
+  "coach.strength.unit.reps": "reps",
+  "coach.strength.hint.tonnage": "Total load moved per session, body weight included for pull-ups and dips.",
+  "coach.strength.hint.sets": "Sets actually performed per session.",
+  "coach.strength.hint.reps": "Reps actually performed per session.",
+  "coach.strength.hint.tonnagePartial": "Total load moved per session. {{count}} session(s) excluded: a load was unknown.",
+  "coach.strength.sessionSummary": "{{metric}} over {{count}} sessions, latest {{last}}."
 }

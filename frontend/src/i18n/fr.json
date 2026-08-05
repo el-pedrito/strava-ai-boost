@@ -758,5 +758,17 @@
   "preferences.demographics.sportApproach.help.definition": "Ta motivation principale pour t'entraîner. Performance reçoit un feedback chargé en data ; bien-être reçoit un cadrage soutenant et équilibré.",
   "preferences.demographics.interests.help.title": "Centres d'intérêt",
   "preferences.demographics.interests.help.definition": "Sujets hors course que l'IA peut tisser dans les descriptions pour donner du caractère. Optionnel - vide reste valide.",
-  "empty.records.title": "Aucun record pour le moment"
+  "empty.records.title": "Aucun record pour le moment",
+  "coach.strength.sessionTotalsTitle": "Totaux par séance",
+  "coach.strength.metric.tonnage": "Tonnage",
+  "coach.strength.metric.sets": "Séries",
+  "coach.strength.metric.reps": "Reps",
+  "coach.strength.unit.tonnage": "kg",
+  "coach.strength.unit.sets": "séries",
+  "coach.strength.unit.reps": "reps",
+  "coach.strength.hint.tonnage": "Charge totale déplacée par séance, poids du corps inclus pour les tractions et les dips.",
+  "coach.strength.hint.sets": "Nombre de séries réellement effectuées par séance.",
+  "coach.strength.hint.reps": "Nombre de répétitions réellement effectuées par séance.",
+  "coach.strength.hint.tonnagePartial": "Charge totale déplacée par séance. {{count}} séance(s) exclue(s) : une charge y était inconnue.",
+  "coach.strength.sessionSummary": "{{metric}} sur {{count}} séances, dernière valeur {{last}}."
 }

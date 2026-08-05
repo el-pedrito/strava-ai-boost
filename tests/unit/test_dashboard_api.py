@@ -728,3 +728,55 @@ class TestCoachSummaryCampusCompliance:
             'completed': 1,
             'percentage': 100,
         }
+
+
+class TestBuildStrengthSessions:
+    """Per-session totals feed the frontend chart the athlete asked for.
+
+    They are READ from the figures the pipeline computed with
+    shared/strength_volume.py, never recomputed: a second definition of tonnage in
+    the API would drift from the coach's, and the flat sets/reps summary cannot
+    represent a session like '10x80 8x90 8x90' anyway.
+    """
+
+    def test_stored_totals_are_surfaced_oldest_first(self):
+        from api.dashboard_api import _build_strength_sessions
+
+        out = _build_strength_sessions([
+            {"date": "2026-08-04", "activity_id": "a2", "total_sets": 25,
+             "total_reps": 238, "volume_kg": 15370.0, "body_weight_kg_used": 92.0,
+             "volume_kg_incomplete": False, "excluded_exercises": []},
+            {"date": "2026-08-01", "activity_id": "a1", "total_sets": 20,
+             "total_reps": 200, "volume_kg": 12000.0, "body_weight_kg_used": 92.0,
+             "volume_kg_incomplete": False, "excluded_exercises": []},
+        ])
+        assert [s["date"] for s in out] == ["2026-08-01", "2026-08-04"]
+        assert out[1]["total_reps"] == 238
+        assert out[1]["volume_kg"] == 15370.0
+        assert out[1]["volume_incomplete"] is False
+
+    def test_partial_tonnage_is_flagged_not_hidden(self):
+        """An unknown load makes the tonnage a floor. The chart skips those points
+        rather than drawing a dip that never happened."""
+        from api.dashboard_api import _build_strength_sessions
+
+        out = _build_strength_sessions([
+            {"date": "2026-07-18", "total_sets": 7, "total_reps": 38,
+             "volume_kg": 3480.0, "volume_kg_incomplete": True,
+             "excluded_exercises": ["Gainage"]},
+        ])
+        assert out[0]["volume_incomplete"] is True
+        assert out[0]["excluded_exercises"] == ["Gainage"]
+
+    def test_legacy_row_without_totals_is_incomplete(self):
+        from api.dashboard_api import _build_strength_sessions
+
+        out = _build_strength_sessions([{"date": "2026-06-01", "activity_id": "old"}])
+        assert out[0]["total_reps"] is None
+        assert out[0]["volume_incomplete"] is True
+
+    def test_malformed_rows_are_skipped(self):
+        from api.dashboard_api import _build_strength_sessions
+
+        assert _build_strength_sessions([None, {}, {"date": ""}, "x"]) == []
+        assert _build_strength_sessions(None) == []

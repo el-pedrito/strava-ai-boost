@@ -86,6 +86,7 @@ interface CoachSummary {
     ramp_rate?: number | null;
     compliance?: { planned: number; completed: number; percentage: number } | null;
     strength_history?: Array<{ date: string; activity_id: string; duration_min: number; description: string }>;
+    strength_sessions?: StrengthSessionEntry[];
     strength_progression?: Array<{
       exercise: string;
       points: Array<{ date: string; top_weight_kg: number | null; volume_kg: number | null }>;
@@ -244,6 +245,18 @@ function useStaggerVariants() {
     container: reduceMotion ? undefined : staggerContainer,
     item: reduceMotion ? undefined : staggerItem,
   };
+}
+
+interface StrengthSessionEntry {
+  date: string;
+  activity_id?: string;
+  duration_min?: number | null;
+  total_sets: number | null;
+  total_reps: number | null;
+  volume_kg: number | null;
+  body_weight_kg_used: number | null;
+  volume_incomplete: boolean;
+  excluded_exercises: string[];
 }
 
 interface StrengthProgressionEntry {
@@ -412,6 +425,162 @@ function StrengthProgression({
         {metric === 'weight'
           ? t('coach.strength.hint.weight')
           : t('coach.strength.hint.volume')}
+      </p>
+    </Card>
+  );
+}
+
+/**
+ * Per-session strength totals: tonnage, sets or reps over time.
+ *
+ * Complements the per-exercise chart, which answers "am I progressing on the low
+ * row". This one answers "how much did I move this session", which is the figure
+ * the athlete asked for. Every value is computed server-side by
+ * shared/strength_volume.py and merely read here: recomputing in the UI would
+ * produce a second definition of tonnage that drifts from the coach's.
+ *
+ * Sessions whose tonnage is incomplete (an unknown load somewhere) are excluded
+ * from the tonnage series rather than drawn low, which would show a drop that
+ * never happened. Their sets and reps remain valid and are still plotted.
+ */
+function StrengthSessionTotals({
+  data,
+  locale,
+}: {
+  data: StrengthSessionEntry[];
+  locale: string;
+}) {
+  const { t } = useTranslation();
+  const chartTheme = useChartTheme();
+  const [metric, setMetric] = useState<'tonnage' | 'sets' | 'reps'>('tonnage');
+
+  const chartData = useMemo(
+    () =>
+      data
+        .map((s) => ({
+          date: s.date,
+          value:
+            metric === 'tonnage'
+              ? s.volume_incomplete
+                ? null
+                : s.volume_kg
+              : metric === 'sets'
+                ? s.total_sets
+                : s.total_reps,
+        }))
+        .filter((p): p is { date: string; value: number } => p.value != null),
+    [data, metric],
+  );
+
+  const partialCount = useMemo(
+    () => data.filter((s) => s.volume_incomplete).length,
+    [data],
+  );
+
+  if (chartData.length < 3) return null;
+
+  const unitLabel =
+    metric === 'tonnage'
+      ? t('coach.strength.unit.tonnage')
+      : metric === 'sets'
+        ? t('coach.strength.unit.sets')
+        : t('coach.strength.unit.reps');
+
+  const last = chartData[chartData.length - 1];
+  const chartSummary = t('coach.strength.sessionSummary', {
+    metric: unitLabel,
+    count: chartData.length,
+    last: last.value,
+  });
+
+  return (
+    <Card variant="default" padding="lg">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="flex items-center gap-1.5 text-sm font-semibold tracking-tight">
+          <Dumbbell className="h-4 w-4 text-primary" aria-hidden="true" />
+          {t('coach.strength.sessionTotalsTitle')}
+        </h3>
+        <div
+          className="flex gap-1 rounded-md border border-border p-0.5"
+          role="group"
+          aria-label={t('coach.strength.metricGroupLabel')}
+        >
+          {(['tonnage', 'sets', 'reps'] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMetric(m)}
+              aria-pressed={metric === m}
+              className={cn(
+                'cursor-pointer rounded px-2 py-1 text-xs transition-colors',
+                metric === m
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {t(`coach.strength.metric.${m}`)}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div role="img" aria-label={chartSummary}>
+        <ResponsiveContainer width="100%" height={200}>
+          <LineChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+            <CartesianGrid
+              horizontal
+              vertical={false}
+              strokeDasharray="3 3"
+              stroke={chartTheme.gridColor}
+            />
+            <XAxis
+              dataKey="date"
+              tick={{ fill: chartTheme.axisColor, fontSize: 10, fontFamily: 'var(--font-mono)' }}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(v: string) => formatShortDate(v, locale)}
+              minTickGap={16}
+            />
+            <YAxis
+              tick={{ fill: chartTheme.axisColor, fontSize: 10, fontFamily: 'var(--font-mono)' }}
+              tickLine={false}
+              axisLine={false}
+              width={52}
+              tickFormatter={(v: number) =>
+                metric === 'tonnage' ? `${Math.round(v / 1000)}t` : `${Math.round(v)}`
+              }
+            />
+            <Tooltip
+              content={
+                <ChartTooltip
+                  valueFormatter={(v) =>
+                    typeof v === 'number'
+                      ? `${v.toLocaleString(locale)} ${unitLabel}`
+                      : String(v)
+                  }
+                />
+              }
+            />
+            <Line
+              type="monotone"
+              dataKey="value"
+              name={unitLabel}
+              stroke={chartTheme.primaryColor}
+              strokeWidth={2.5}
+              dot={{ r: 4, fill: chartTheme.primaryColor }}
+              activeDot={{ r: 6, fill: chartTheme.primaryColor }}
+              connectNulls
+              animationDuration={600}
+              animationEasing="ease-out"
+              isAnimationActive
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {metric === 'tonnage' && partialCount > 0
+          ? t('coach.strength.hint.tonnagePartial', { count: partialCount })
+          : t(`coach.strength.hint.${metric}`)}
       </p>
     </Card>
   );
@@ -1654,6 +1823,14 @@ export function CoachPage() {
                 {(trends?.strength_progression?.length ?? 0) > 0 && (
                   <StrengthProgression
                     data={trends!.strength_progression!}
+                    locale={locale}
+                  />
+                )}
+
+                {/* Per-session totals: tonnage, sets, reps */}
+                {(trends?.strength_sessions?.length ?? 0) > 0 && (
+                  <StrengthSessionTotals
+                    data={trends!.strength_sessions!}
                     locale={locale}
                   />
                 )}

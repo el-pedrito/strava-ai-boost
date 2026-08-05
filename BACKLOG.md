@@ -11,7 +11,7 @@ Le projet est fonctionnel et en production (dev). Toute la chaine fonctionne end
 - Webhook Strava → Step Functions → AI content generation → update Strava activity
 - Campus Coach sync REST direct (daily 05:00 UTC via EventBridge, session status sync on match)
 - Frontend React (CloudFront + Cognito) avec configuration modules, profil utilisateur, feedback loop
-- 636 tests (540 backend unit + 43 régression + 53 frontend) + 73 tests d'intégration
+- 640 tests (544 backend unit + 43 régression + 53 frontend) + 73 tests d'intégration
 - Observability (X-Ray + CloudWatch), cost allocation tags, DLQ error handling
 - Security : Secrets Manager, filtrage d'origine du webhook (subscription_id + owner_id ; Strava **ne signe pas** ses events), Cognito auth (API Gateway + coach chat customJWT), DynamoDB encryption, no public endpoints
 
@@ -26,7 +26,7 @@ Voir [docs/ROADMAP.md](docs/ROADMAP.md) pour la liste complète et datée. Rappe
 - Webhook API sans auth — Documente (exigence Strava). Filtrage d'origine `validate_webhook_origin` (subscription_id + owner_id) déployé le 2026-07-27 ; l'ancienne « vérification HMAC-SHA1 » était infondée (Strava ne signe pas ses events).
 - Logger inconsistant — Harmonise sur `shared.logger.get_logger()`
 - Cost allocation tags — CDK + AgentCore resources + IAM execution roles (per-agent Bedrock cost via CUR 2.0)
-- **Cost optimization pass (April 2026)** — $540/mo -> ~$26/mo (Campus Coach cron + Haiku, Bedrock prompt caching, MaxToolCountsHook, MonitoringStack supprimé).
+- **Cost optimization pass (April 2026)** — $544/mo -> ~$26/mo (Campus Coach cron + Haiku, Bedrock prompt caching, MaxToolCountsHook, MonitoringStack supprimé).
 - **Credentials leak in AgentCore logs** — CloudWatch Data Protection Policy masks `Password:`, `EmailAddress`, `AwsSecretKey`, `Authorization:` in all AgentCore runtime log groups. Applied by `scripts/tag_agentcore_resources.py`.
 - **Campus Coach fire-and-forget fix (2026-04-27)** — `threading.Thread` + `asyncio.run()` dans le handler de la Lambda invoker (timeout 120s systematique). Commit `69486ef`. *(Composant depuis décommissionné.)*
 - **Deploy Frontend CloudFront + S3 + Cognito** — fait : S3 + CloudFront (OAC), Cognito User Pool (`selfSignUpEnabled: false`), auth JWT Cognito (l'API key a été remplacée), HTTPS everywhere.
