@@ -31,14 +31,23 @@ def normalize_status(raw: Optional[str]) -> Optional[str]:
 
 
 def effective_status(session: Dict[str, Any]) -> str:
-    """Resolve local, legacy, matched, and provider state in precedence order."""
+    """Resolve local, matched, and provider execution state in precedence order.
+
+    Precedence: ``local_status`` -> ``matched_activity_id``/``completed_at`` ->
+    ``provider_status`` -> ``todo``.
+
+    The raw ``status`` attribute is deliberately NOT consulted. It is a legacy
+    field the provider sync never rewrites, so it held mixed, stale values from
+    several eras ('todo', 'done', 'skip', 'Fait') and reading it made the coach
+    recommend already-done sessions. Its completion information has been migrated
+    into ``local_status`` (see ``scripts/migrate_campus_legacy_status.py``); the
+    field is dropped so it can no longer mislead a reader. ``normalize_status``
+    still recognises the legacy 'Fait'/'done'/'skip' spellings because the
+    migration relies on it to read those rows one last time.
+    """
     local = normalize_status(session.get('local_status'))
     if local is not None:
         return local
-
-    legacy = normalize_status(session.get('status'))
-    if legacy in (STATUS_DONE, STATUS_SKIP):
-        return legacy
 
     if session.get('matched_activity_id') or session.get('completed_at'):
         return STATUS_DONE

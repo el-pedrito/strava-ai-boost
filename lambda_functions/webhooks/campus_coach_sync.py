@@ -34,13 +34,16 @@ USER_CONFIG_TABLE = os.environ.get('USER_CONFIG_TABLE', 'strava-ai-boost-user-co
 
 API_BASE = os.environ.get("CAMPUS_COACH_API_URL", "https://api.campus.coach")
 
-# Provider sync must never write these locally owned or legacy completion fields.
+# Provider sync must never write these locally owned execution fields.
+# The legacy ``status`` attribute is intentionally NOT listed: it is a dead
+# field (its completion info was migrated into ``local_status`` and
+# ``effective_status`` no longer reads it), and the sync never emits a ``status``
+# key anyway (it maps the provider's own status onto ``provider_status``).
 LOCAL_EXECUTION_FIELDS = frozenset({
     'local_status',
     'matched_activity_id',
     'match_score',
     'completed_at',
-    'status',
 })
 
 
@@ -216,56 +219,104 @@ def _format_pace(seconds_per_km: Optional[float]) -> Optional[str]:
     return f"{minutes}:{seconds:02d}/km"
 
 
+def _coerce_repeat(value: Any, default: int = 1) -> int:
+    """Coerce a block ``repeat`` (int/float/Decimal/str) to a positive int."""
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return default
+    return n if n > 0 else default
+
+
+def _build_exercise_entry(
+    exercise: Dict[str, Any], block_type: str
+) -> Dict[str, Any]:
+    """Build a single exercise interval entry ``{type, duration, pace}``.
+
+    The repetition factor is intentionally NOT carried here: it belongs to the
+    block (see :func:`_build_intervals`), not to the individual exercise.
+    """
+    if exercise.get('exerciseType') == 'recuperation' and block_type != 'cool-down':
+        ex_type = 'recovery'
+    elif block_type == 'warm-up':
+        ex_type = 'warm-up'
+    elif block_type == 'cool-down':
+        ex_type = 'cool-down'
+    else:
+        ex_type = 'work'
+
+    # Duration
+    durations = exercise.get('durations', [])
+    dur_str = ''
+    if durations:
+        d = durations[0]
+        val = d.get('value', 0)
+        unit = d.get('timeUnit', 'minutes')
+        if unit == 'seconds':
+            dur_str = f"{val} sec" if val < 60 else f"{val // 60}:{val % 60:02d} min"
+        elif unit == 'minutes':
+            dur_str = f"{val} min"
+        else:
+            dur_str = f"{val} {unit}"
+
+    # Pace
+    pace_info = exercise.get('pace', {})
+    pace_name = pace_info.get('name', '')
+    pace_val = pace_info.get('value')
+    pace_str = pace_name
+    if pace_val and pace_val < 1000:
+        pace_str = f"{pace_name} ({int(pace_val) // 60}:{int(pace_val) % 60:02d}/km)"
+
+    return {'type': ex_type, 'duration': dur_str, 'pace': pace_str}
+
+
 def _build_intervals(session: Dict, paces: List) -> List[Dict[str, Any]]:
-    """Transform exercisesBlocks into simplified interval list."""
+    """Transform ``exercisesBlocks`` into a simplified interval list.
+
+    The ``repeat`` factor is a property of the *block*, not of each exercise.
+    Copying it onto every work exercise (the previous behaviour) let a reader
+    (human or LLM) mistake the block repeat for a per-exercise repetition count,
+    and inflated downstream work-interval counts for multi-exercise blocks.
+
+    A repeated block (``repeat > 1``) is therefore emitted as a single block
+    entry carrying its ``repeat`` and the ordered list of its ``exercises``::
+
+        {'type': 'block', 'repeat': 9,
+         'exercises': [{'type': 'work', 'duration': '1 min', 'pace': '...'},
+                       {'type': 'recovery', 'duration': '1 min', 'pace': '...'}]}
+
+    A non-repeated block (``repeat <= 1``) is flattened to one top-level entry
+    per exercise (the historical shape), so single-pass sessions still read
+    naturally::
+
+        {'type': 'work', 'duration': '5 min', 'pace': '...'}
+
+    Consumers must tolerate BOTH shapes (see
+    ``modules_processing._normalize_intervals``): the DynamoDB table keeps
+    legacy rows in the old flat form until the next provider sync.
+    """
     intervals: List[Dict[str, Any]] = []
     blocks = session.get('exercisesBlocks', [])
 
     for block in blocks:
         block_type = block.get('blockType', 'work')
-        repeat = block.get('repeat', 1)
+        repeat = _coerce_repeat(block.get('repeat', 1))
 
-        for exercise in block.get('exercises', []):
-            if exercise.get('exerciseType') == 'recuperation' and block_type != 'cool-down':
-                ex_type = 'recovery'
-            elif block_type == 'warm-up':
-                ex_type = 'warm-up'
-            elif block_type == 'cool-down':
-                ex_type = 'cool-down'
-            else:
-                ex_type = 'work'
+        exercises = [
+            _build_exercise_entry(exercise, block_type)
+            for exercise in block.get('exercises', [])
+        ]
+        if not exercises:
+            continue
 
-            # Duration
-            durations = exercise.get('durations', [])
-            dur_str = ''
-            if durations:
-                d = durations[0]
-                val = d.get('value', 0)
-                unit = d.get('timeUnit', 'minutes')
-                if unit == 'seconds':
-                    dur_str = f"{val} sec" if val < 60 else f"{val // 60}:{val % 60:02d} min"
-                elif unit == 'minutes':
-                    dur_str = f"{val} min"
-                else:
-                    dur_str = f"{val} {unit}"
-
-            # Pace
-            pace_info = exercise.get('pace', {})
-            pace_name = pace_info.get('name', '')
-            pace_val = pace_info.get('value')
-            pace_str = pace_name
-            if pace_val and pace_val < 1000:
-                pace_str = f"{pace_name} ({int(pace_val) // 60}:{int(pace_val) % 60:02d}/km)"
-
-            entry: Dict[str, Any] = {
-                'type': ex_type,
-                'duration': dur_str,
-                'pace': pace_str,
-            }
-            if repeat > 1 and ex_type == 'work':
-                entry['repeat'] = repeat
-
-            intervals.append(entry)
+        if repeat > 1:
+            intervals.append({
+                'type': 'block',
+                'repeat': repeat,
+                'exercises': exercises,
+            })
+        else:
+            intervals.extend(exercises)
 
     return intervals
 
@@ -274,9 +325,9 @@ def _upsert_provider_session(table: Any, item: Dict[str, Any]) -> None:
     """Merge provider-owned fields into a session row (never ``put_item``).
 
     Uses an update expression so local execution state written by the content
-    pipeline (``local_status``, ``matched_activity_id``, ``match_score``,
-    ``completed_at`` and the legacy ``status``=Fait completion marker) survives
-    the daily provider sync untouched. Creates the row if it does not yet exist.
+    pipeline (``local_status``, ``matched_activity_id``, ``match_score`` and
+    ``completed_at``) survives the daily provider sync untouched. Creates the row
+    if it does not yet exist.
 
     ``None`` values are skipped (DynamoDB cannot store them). Every attribute name
     goes through ``ExpressionAttributeNames`` to avoid DynamoDB reserved-word

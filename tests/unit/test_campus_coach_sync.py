@@ -120,11 +120,49 @@ class TestFetchPlan:
 
 class TestBuildIntervals:
 
-    def test_build_intervals_running_session(self):
+    def test_repeated_single_work_block_emits_block_entry(self):
+        """A repeated block is emitted as a single block entry carrying the
+        repeat and its ordered exercises (repeat lives at block level, never
+        copied onto each exercise)."""
         session = {
             'exercisesBlocks': [{
                 'blockType': 'work',
-                'repeat': 3,
+                'repeat': 9,
+                'exercises': [
+                    {
+                        'exerciseType': 'work',
+                        'durations': [{'value': 1, 'timeUnit': 'minutes'}],
+                        'pace': {'name': 'Seuil', 'value': 265},
+                    },
+                    {
+                        'exerciseType': 'recuperation',
+                        'durations': [{'value': 1, 'timeUnit': 'minutes'}],
+                        'pace': {'name': 'EF', 'value': 360},
+                    },
+                ],
+            }]
+        }
+        result = _build_intervals(session, [])
+        assert len(result) == 1
+        block = result[0]
+        assert block['type'] == 'block'
+        assert block['repeat'] == 9
+        assert len(block['exercises']) == 2
+        assert block['exercises'][0]['type'] == 'work'
+        assert block['exercises'][0]['duration'] == '1 min'
+        assert '4:25/km' in block['exercises'][0]['pace']
+        assert block['exercises'][1]['type'] == 'recovery'
+        # The repeat factor must NOT be duplicated onto the exercises.
+        for ex in block['exercises']:
+            assert 'repeat' not in ex
+
+    def test_non_repeated_block_flattened_to_top_level_entries(self):
+        """A block with repeat<=1 keeps the historical flat shape (one entry
+        per exercise, no block wrapper)."""
+        session = {
+            'exercisesBlocks': [{
+                'blockType': 'work',
+                'repeat': 1,
                 'exercises': [{
                     'exerciseType': 'work',
                     'durations': [{'value': 5, 'timeUnit': 'minutes'}],
@@ -136,12 +174,56 @@ class TestBuildIntervals:
         assert len(result) == 1
         assert result[0]['type'] == 'work'
         assert result[0]['duration'] == '5 min'
-        assert result[0]['repeat'] == 3
+        assert 'repeat' not in result[0]
         assert '5:00/km' in result[0]['pace']
+
+    def test_multi_exercise_repeated_block_keeps_single_repeat(self):
+        """A multi-exercise repeated block (e.g. renforcement) yields ONE block
+        entry with repeat=2 and all exercises inside, instead of copying
+        repeat=2 onto every exercise (which used to inflate work counts)."""
+        session = {
+            'exercisesBlocks': [{
+                'blockType': 'work',
+                'repeat': 2,
+                'exercises': [
+                    {'exerciseType': 'work', 'durations': [], 'pace': {}},
+                    {'exerciseType': 'work', 'durations': [], 'pace': {}},
+                    {'exerciseType': 'work', 'durations': [], 'pace': {}},
+                    {'exerciseType': 'work', 'durations': [], 'pace': {}},
+                    {'exerciseType': 'work', 'durations': [], 'pace': {}},
+                    {'exerciseType': 'work', 'durations': [], 'pace': {}},
+                ],
+            }]
+        }
+        result = _build_intervals(session, [])
+        assert len(result) == 1
+        assert result[0]['type'] == 'block'
+        assert result[0]['repeat'] == 2
+        assert len(result[0]['exercises']) == 6
+
+    def test_warmup_and_cooldown_blocks_flattened(self):
+        session = {
+            'exercisesBlocks': [
+                {
+                    'blockType': 'warm-up',
+                    'repeat': 1,
+                    'exercises': [{'exerciseType': 'work', 'durations': [{'value': 15, 'timeUnit': 'minutes'}], 'pace': {}}],
+                },
+                {
+                    'blockType': 'cool-down',
+                    'repeat': 1,
+                    'exercises': [{'exerciseType': 'work', 'durations': [{'value': 5, 'timeUnit': 'minutes'}], 'pace': {}}],
+                },
+            ]
+        }
+        result = _build_intervals(session, [])
+        assert [r['type'] for r in result] == ['warm-up', 'cool-down']
 
     def test_build_intervals_empty(self):
         assert _build_intervals({}, []) == []
         assert _build_intervals({'exercisesBlocks': []}, []) == []
+        # Block with no exercises is skipped
+        assert _build_intervals({'exercisesBlocks': [{'blockType': 'work', 'repeat': 3, 'exercises': []}]}, []) == []
 
 
 class TestFormatPace:
@@ -239,9 +321,22 @@ class TestEffectiveStatus:
         }
         assert effective_status(session) == STATUS_SKIP
 
-    def test_legacy_fait_marker(self):
-        session = {'status': 'Fait', 'provider_status': 'todo'}
-        assert effective_status(session) == STATUS_DONE
+    def test_legacy_status_no_longer_consulted(self):
+        # The legacy `status` field is a dead trap: a bare 'Fait' with no local
+        # completion signal MUST resolve to todo now (its info is migrated into
+        # local_status by scripts/migrate_campus_legacy_status.py).
+        assert effective_status({'status': 'Fait', 'provider_status': 'todo'}) == STATUS_TODO
+        assert effective_status({'status': 'done'}) == STATUS_TODO
+        assert effective_status({'status': 'skip'}) == STATUS_TODO
+
+    def test_provider_done_still_resolves_done(self):
+        # Completion now comes from local_status / matched / completed_at /
+        # provider_status, never from the legacy status field.
+        assert effective_status({'status': 'todo', 'provider_status': 'done'}) == STATUS_DONE
+
+    def test_migrated_local_status_wins(self):
+        # After migration a formerly-legacy-done row carries local_status=done.
+        assert effective_status({'local_status': 'done'}) == STATUS_DONE
 
     def test_matched_activity_implies_done(self):
         session = {'matched_activity_id': 'act-123', 'provider_status': 'todo'}
@@ -282,7 +377,9 @@ class TestUpsertProviderSession:
     def test_only_provider_fields_written_not_local(self):
         """The merge must only write provider-owned fields, so it can never
         overwrite local execution state (local_status, matched_activity_id,
-        match_score, completed_at, legacy status)."""
+        match_score, completed_at). The legacy `status` field is no longer a
+        protected local field (it is a migrated-away dead field), so it is not
+        asserted here."""
         mock_table = MagicMock()
         item = {
             'session_date': 'week-2026-W21',
@@ -296,7 +393,6 @@ class TestUpsertProviderSession:
             'matched_activity_id': 'must-not-overwrite',
             'match_score': 0.1,
             'completed_at': 'must-not-overwrite',
-            'status': 'todo',
         }
         _upsert_provider_session(mock_table, item)
 
@@ -308,7 +404,7 @@ class TestUpsertProviderSession:
         assert 'expected_distance_km' not in written_fields
         # Local execution fields and PK/SK are never part of the merge
         for forbidden in ('local_status', 'matched_activity_id', 'match_score',
-                          'completed_at', 'status', 'session_date', 'session_id'):
+                          'completed_at', 'session_date', 'session_id'):
             assert forbidden not in written_fields
 
     def test_skips_when_no_provider_fields(self):
@@ -359,3 +455,50 @@ class TestDailySyncPreservesLocalState:
         assert 'status' not in merged_fields
         assert 'local_status' not in merged_fields
         assert 'matched_activity_id' not in merged_fields
+
+
+class TestLegacyStatusMigrationScript:
+    """Classification logic of scripts/migrate_campus_legacy_status.py.
+
+    The migration must preserve legacy done/skip completion info into
+    local_status, drop the trap field, and be idempotent (a row with no
+    `status` is left alone)."""
+
+    @staticmethod
+    def _import_migration():
+        import importlib
+        migration_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'scripts')
+        if migration_dir not in sys.path:
+            sys.path.insert(0, migration_dir)
+        return importlib.import_module('migrate_campus_legacy_status')
+
+    def test_backfill_when_done_and_no_local_status(self):
+        mig = self._import_migration()
+        action, backfill = mig._classify({'status': 'Fait'})
+        assert action == mig.ACTION_BACKFILL
+        assert backfill == STATUS_DONE
+
+    def test_backfill_skip_value(self):
+        mig = self._import_migration()
+        action, backfill = mig._classify({'status': 'sauté'})
+        assert action == mig.ACTION_BACKFILL
+        assert backfill == STATUS_SKIP
+
+    def test_drop_only_when_local_status_already_present(self):
+        mig = self._import_migration()
+        action, backfill = mig._classify({'status': 'Fait', 'local_status': 'todo'})
+        assert action == mig.ACTION_DROP_REDUNDANT
+        assert backfill is None
+
+    def test_drop_when_status_carries_no_completion_signal(self):
+        mig = self._import_migration()
+        for raw in ('todo', 'en cours', ''):
+            action, backfill = mig._classify({'status': raw})
+            assert action == mig.ACTION_DROP_NO_SIGNAL
+            assert backfill is None
+
+    def test_idempotent_skip_when_no_status_field(self):
+        mig = self._import_migration()
+        action, backfill = mig._classify({'local_status': 'done'})
+        assert action == mig.ACTION_SKIP
+        assert backfill is None
