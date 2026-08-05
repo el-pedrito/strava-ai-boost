@@ -20,7 +20,9 @@ from processing.workout_analysis import (
     extract_enduraw_report,
 )
 from processing.modules_processing import get_active_modules, apply_module_processing
-from shared.logger import get_logger
+from shared.iso_week import iso_week_label
+from shared.strength_volume import compute_session_volume
+from shared.logger import get_logger, metrics, MetricUnit
 from shared.strength_exercises import (
     CANONICAL_STRENGTH_EXERCISES,
     canonicalize_exercise_name,
@@ -326,13 +328,16 @@ def generate_enhanced_content(
     try:
         from datetime import datetime, timezone
         activity_dt = datetime.fromisoformat(activity_start.replace('Z', '+00:00'))
-        activity_iso_week = activity_dt.isocalendar()[1]
+        # ISO label, never a bare int: a plain 32 cannot be compared with the
+        # `week_date_iso` values the Campus sync writes, and this branch writes the
+        # completion marker. Same bug already fixed in coach_generator (B5).
+        activity_iso_week = iso_week_label(activity_start)
         activity_date_str = activity_dt.strftime('%Y-%m-%d')
         activity_time_local = activity_dt.strftime('%Hh%M')
         activity_weekday = ['lundi','mardi','mercredi','jeudi','vendredi','samedi','dimanche'][activity_dt.weekday()]
     except (ValueError, AttributeError):
         from datetime import datetime, timezone
-        activity_iso_week = datetime.now(timezone.utc).isocalendar()[1]
+        activity_iso_week = iso_week_label(datetime.now(timezone.utc).isoformat())
         activity_date_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
         activity_time_local = ''
         activity_weekday = ''
@@ -430,15 +435,25 @@ def _get_campus_context() -> Optional[Dict[str, Any]]:
     """Fetch Campus Coach athlete context (goal, cycle, assiduity) for content enrichment."""
     try:
         table = dynamodb.Table(os.environ.get("COACHING_SESSIONS_TABLE", "strava-ai-boost-campus-coaching-sessions"))
-        resp = table.scan(
-            FilterExpression="session_date = :sd",
+        # athlete-context lives in its own partition (session_date =
+        # "athlete-context"), so a Query on the partition key reads exactly that
+        # one partition instead of scanning the whole table and filtering. It is
+        # cheaper, and it cannot accidentally pick up a row from another week.
+        resp = table.query(
+            KeyConditionExpression="session_date = :sd",
             ExpressionAttributeValues={":sd": "athlete-context"},
         )
         items = resp.get("Items", [])
         if not items:
             return None
         ctx = items[0]
-        # Also get current week's cycle theme
+        # Current week's cycle theme stays a Scan: "current week" is identified by
+        # the is_current_week flag (a plain attribute, not the partition key), so
+        # it cannot be a KeyCondition. Deriving the calendar week from the date
+        # instead would risk returning nothing when the current week has not been
+        # synced yet, which would change behaviour. Same reasoning as
+        # modules_processing._get_recent_campus_sessions, which keeps its
+        # current-week fallback as a Scan for exactly this reason.
         week_resp = table.scan(
             FilterExpression="is_current_week = :cw",
             ExpressionAttributeValues={":cw": True},
@@ -454,7 +469,8 @@ def _get_campus_context() -> Optional[Dict[str, Any]]:
             "cycle_theme": cycle_theme,
             "cycle_description": cycle_desc,
         }
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to fetch Campus athlete context: {e}")
         return None
 
 
@@ -696,8 +712,26 @@ _STRENGTH_EXTRACTION_SYSTEM_PROMPT = (
     "You extract structured strength-training sets from a free-text workout description "
     "written by an athlete (French or English). Return ONLY a JSON array, no prose, no code fences.\n"
     "Each element is an object: {\"exercise\": string, \"sets\": integer, \"reps\": integer|null, "
-    "\"weight_kg\": number|null}.\n"
+    "\"weight_kg\": number|null, \"sets_detail\": [{\"reps\": integer|null, \"weight_kg\": number|null}]}.\n"
     "Rules:\n"
+    "- sets_detail is REQUIRED and is the authoritative field: one entry per set actually "
+    "performed, in the order written, each with its OWN reps and its OWN load. Never collapse "
+    "sets that differ. '10x80 8x90 8x90' is three entries: {10,80}, {8,90}, {8,90} -- not "
+    "three sets of 8 at 90.\n"
+    "- TRAILING MULTIPLIER: a trailing 'xN' gives the TOTAL number of sets for the "
+    "weight/reps pair it follows, NOT N extra sets on top of one. '80x10 x2' is exactly "
+    "TWO sets of 10 at 80, never three. So '75x10 80x10 x2' is THREE entries in total: "
+    "{10,75}, {10,80}, {10,80}. Counting a phantom extra set inflated a real session from "
+    "25 sets to 26 and its tonnage by 800 kg.\n"
+    "- sets/reps/weight_kg remain for backward compatibility: sets = len(sets_detail), and "
+    "reps/weight_kg = the most frequent value across sets_detail (a summary, never a total).\n"
+    "- PER SIDE loads: '/c', '/cote', '/côté', 'par cote', 'each side', '/side' mean the load "
+    "is per side, so the load actually moved is DOUBLE. '4x8 55/c' -> four entries at "
+    "weight_kg 110. Apply the doubling in weight_kg, never leave the per-side figure.\n"
+    "- PAIRED notation: 'A - B 3x10-10 15-35' is a superset of two exercises sharing one line. "
+    "Split into TWO objects, matching in order: A with 3 sets of 10 at 15, B with 3 sets of 10 "
+    "at 35. The reps pair '10-10' maps to A and B, and so does the load pair '15-35'. Never "
+    "drop the first value of a pair.\n"
     f"- exercise: use EXACTLY one canonical name from this list when the movement is represented: "
     f"{_CANONICAL_STRENGTH_EXERCISE_NAMES}.\n"
     "- Normalize spelling, accents, singular/plural, hyphens, abbreviations, and French/English aliases. "
@@ -717,9 +751,21 @@ _STRENGTH_EXTRACTION_SYSTEM_PROMPT = (
     "- Ignore warm-up notes, feelings, cardio, and anything that is not a resistance exercise with sets.\n"
     "- If nothing parseable, return [].\n"
     "Examples:\n"
-    "'DC 4x8 @80kg, Facepull 4x12' -> "
-    "[{\"exercise\":\"Développé couché\",\"sets\":4,\"reps\":8,\"weight_kg\":80},"
-    "{\"exercise\":\"Face pull\",\"sets\":4,\"reps\":12,\"weight_kg\":null}]"
+    "'low row mach 10x80 8x90 8x90' -> "
+    "[{\"exercise\":\"Tirage horizontal machine\",\"sets\":3,\"reps\":8,\"weight_kg\":90,"
+    "\"sets_detail\":[{\"reps\":10,\"weight_kg\":80},{\"reps\":8,\"weight_kg\":90},"
+    "{\"reps\":8,\"weight_kg\":90}]}]\n"
+    "'dc machine convergente 4x8 55/c' -> "
+    "[{\"exercise\":\"Développé machine\",\"sets\":4,\"reps\":8,\"weight_kg\":110,"
+    "\"sets_detail\":[{\"reps\":8,\"weight_kg\":110},{\"reps\":8,\"weight_kg\":110},"
+    "{\"reps\":8,\"weight_kg\":110},{\"reps\":8,\"weight_kg\":110}]}]\n"
+    "'elev lat - face pull 3x10-10 15-35' -> "
+    "[{\"exercise\":\"Élévations latérales\",\"sets\":3,\"reps\":10,\"weight_kg\":15,"
+    "\"sets_detail\":[{\"reps\":10,\"weight_kg\":15},{\"reps\":10,\"weight_kg\":15},"
+    "{\"reps\":10,\"weight_kg\":15}]},"
+    "{\"exercise\":\"Face pull\",\"sets\":3,\"reps\":10,\"weight_kg\":35,"
+    "\"sets_detail\":[{\"reps\":10,\"weight_kg\":35},{\"reps\":10,\"weight_kg\":35},"
+    "{\"reps\":10,\"weight_kg\":35}]}]"
 )
 
 
@@ -738,7 +784,15 @@ def _extract_strength_sets(description: str) -> List[Dict[str, Any]]:
             modelId=STRENGTH_EXTRACTION_MODEL_ID,
             messages=[{"role": "user", "content": [{"text": description[:2000]}]}],
             system=[{"text": _STRENGTH_EXTRACTION_SYSTEM_PROMPT}],
-            inferenceConfig={"maxTokens": 800, "temperature": 0.0},
+            # 3000, not 800.
+            #
+            # `sets_detail` emits one JSON object per set, so a 9-exercise session
+            # is roughly 4x the old flat payload. At 800 the response was truncated
+            # mid-object, json.loads failed, and the function returned [] -- which a
+            # bulk replay then stored as "this session had no exercises" for 52 of
+            # 64 sessions. Truncation is silent by construction here, so the budget
+            # must fit the worst realistic session.
+            inferenceConfig={"maxTokens": 3000, "temperature": 0.0},
         )
     except Exception as e:  # noqa: BLE001 - best-effort, never break the pipeline
         logger.warning(f"Strength extraction Bedrock call failed: {e}")
@@ -782,15 +836,57 @@ def _extract_strength_sets(description: str) -> List[Dict[str, Any]]:
         exercise = raw.get("exercise")
         if not exercise or not isinstance(exercise, str):
             continue
+        # sets_detail is authoritative: the flat {sets, reps, weight_kg} shape
+        # cannot represent a session like "10x80 8x90 8x90" and silently reported
+        # 24 reps instead of 26, with the wrong load on the first set. Measured
+        # tonnage error on a real session: -33%.
+        detail: List[Dict[str, Any]] = []
+        for raw_set in raw.get("sets_detail") or []:
+            if not isinstance(raw_set, dict):
+                continue
+            detail.append({
+                "reps": _to_int(raw_set.get("reps")),
+                "weight_kg": _to_float(raw_set.get("weight_kg")),
+            })
+
+        sets = _to_int(raw.get("sets"))
+        reps = _to_int(raw.get("reps"))
+        weight = _to_float(raw.get("weight_kg"))
+
+        if not detail and sets:
+            # Older model output, or a genuinely uniform exercise: rebuild the
+            # per-set view so consumers only ever handle one shape.
+            detail = [{"reps": reps, "weight_kg": weight} for _ in range(min(sets, 20))]
+
         clean.append({
             "exercise": canonicalize_exercise_name(exercise)[:60],
-            "sets": _to_int(raw.get("sets")),
-            "reps": _to_int(raw.get("reps")),
-            "weight_kg": _to_float(raw.get("weight_kg")),
+            "sets": len(detail) if detail else sets,
+            "reps": reps,
+            "weight_kg": weight,
+            "sets_detail": detail,
         })
 
     logger.info(f"Extracted {len(clean)} structured strength sets from description")
     return clean
+
+
+
+def _athlete_body_weight_kg(user_id: str) -> Optional[float]:
+    """Read the athlete's stored body weight, or None.
+
+    Never defaulted: a plausible-but-wrong body weight would silently corrupt
+    every bodyweight tonnage. `compute_session_volume` marks the result incomplete
+    when this is None, which is the honest outcome.
+    """
+    try:
+        table = dynamodb.Table(USER_CONFIG_TABLE)
+        resp = table.get_item(Key={'user_id': user_id})
+        prefs = (resp.get('Item') or {}).get('user_preferences') or {}
+        raw = prefs.get('body_weight_kg')
+        return float(raw) if raw is not None else None
+    except Exception as e:  # noqa: BLE001 - best effort, never break the pipeline
+        logger.warning(f"Could not read body weight for tonnage: {e}")
+        return None
 
 
 def _track_strength_history(user_id: str, activity_id: str, activity_data: Dict[str, Any]) -> None:
@@ -820,15 +916,54 @@ def _track_strength_history(user_id: str, activity_id: str, activity_data: Dict[
         # Store raw description as a history entry — the coach LLM will interpret it
         # against the strength_program to track progressions. In addition, a
         # best-effort LLM extraction produces structured sets for progression charts.
+        parsed_sets = _extract_strength_sets(description)
+
+        # Compute the tonnage ONCE, here, and store it.
+        #
+        # Every consumer (coach payload, dashboard chart, coach_chat tool) needs the
+        # same figures. Letting each compute its own guarantees divergence: the chat
+        # cannot import this module (its deploy bundles only src/coach_chat/), so a
+        # second implementation there would drift silently. Computing at write time
+        # makes `shared/strength_volume.py` the single definition and turns every
+        # reader into a plain lookup.
+        body_weight_kg = _athlete_body_weight_kg(user_id)
+        volume = compute_session_volume(parsed_sets, body_weight_kg)
+
         entry = {
             'date': activity_date[:10] if activity_date else datetime.now(timezone.utc).strftime('%Y-%m-%d'),
             'activity_id': activity_id,
             'duration_min': int(duration_min),
             'description': description[:1000],
-            'parsed_sets': _extract_strength_sets(description),
+            'parsed_sets': parsed_sets,
+            'total_sets': volume['total_sets'],
+            'total_reps': volume['total_reps'],
+            'volume_kg': volume['volume_kg'],
+            'body_weight_kg_used': volume['body_weight_kg_used'],
+            'volume_kg_incomplete': volume['volume_kg_incomplete'],
+            'excluded_exercises': volume['excluded_exercises'],
+            # Per-exercise figures feed the dashboard progression chart. Stored
+            # rather than recomputed there, so the chart and the coach cannot
+            # disagree on the same session.
+            'per_exercise': volume['per_exercise'],
         }
 
         table = dynamodb.Table(USER_CONFIG_TABLE)
+
+        # Create the parent map first, in its own call.
+        #
+        # `if_not_exists` covers a missing LIST but not a missing MAP: DynamoDB
+        # rejects `SET a.b.c = ...` when `a.b` does not exist and never creates
+        # intermediate levels. `user_preferences` exists, `strength_history` did
+        # not, so the append below raised ValidationException ("document path
+        # provided in the update expression is invalid") for every athlete who had
+        # no entry yet -- that is, all of them. The exception was swallowed as a
+        # warning, so the history stayed permanently empty and silently so.
+        # Overlapping paths cannot be updated in a single expression, hence two calls.
+        table.update_item(
+            Key={'user_id': user_id},
+            UpdateExpression='SET user_preferences.strength_history = if_not_exists(user_preferences.strength_history, :init)',
+            ExpressionAttributeValues={':init': {'entries': [], 'last_updated': ''}},
+        )
         table.update_item(
             Key={'user_id': user_id},
             UpdateExpression='SET user_preferences.strength_history.entries = list_append(if_not_exists(user_preferences.strength_history.entries, :empty), :entry), user_preferences.strength_history.last_updated = :ts',
@@ -842,7 +977,12 @@ def _track_strength_history(user_id: str, activity_id: str, activity_data: Dict[
         )
         logger.info(f"📝 Tracked strength history for activity {activity_id} ({activity_date[:10]})")
     except Exception as e:
+        # Loud on purpose. This write has now failed silently twice (floats
+        # rejected 2026-07-18/20, invalid document path until 2026-08-05), each
+        # time leaving the athlete with no strength history at all while the log
+        # showed a single warning nobody read. A data-loss path needs a metric.
         logger.warning(f"Failed to track strength history: {e}")
+        metrics.add_metric(name="StrengthHistoryWriteFailed", unit=MetricUnit.Count, value=1)
 
 
 def _convert_floats_to_decimal(obj: Any) -> Any:

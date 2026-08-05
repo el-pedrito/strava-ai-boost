@@ -426,14 +426,23 @@ class TestExtractStrengthSets:
 
     @patch('processing.content_generator._get_bedrock_runtime')
     def test_valid_extraction(self, mock_runtime):
+        # Uniform exercises emitted by the model in the legacy flat shape (no
+        # sets_detail): the parser must rebuild sets_detail so downstream
+        # consumers only ever handle one shape. A uniform 4x8@80 expands to four
+        # identical per-set entries.
         mock_runtime.return_value.converse.return_value = _converse_response(
             '[{"exercise": "Développé couché", "sets": 4, "reps": 8, "weight_kg": 80},'
             '{"exercise": "Tractions", "sets": 4, "reps": 10, "weight_kg": null}]'
         )
         result = _extract_strength_sets("DC 4x8 @80kg, Tractions 4x10")
         assert len(result) == 2
-        assert result[0] == {"exercise": "Développé couché", "sets": 4, "reps": 8, "weight_kg": 80.0}
+        assert result[0] == {
+            "exercise": "Développé couché", "sets": 4, "reps": 8, "weight_kg": 80.0,
+            "sets_detail": [{"reps": 8, "weight_kg": 80.0}] * 4,
+        }
         assert result[1]["weight_kg"] is None
+        # Bodyweight sets still get a rebuilt per-set view (weight None per entry).
+        assert result[1]["sets_detail"] == [{"reps": 10, "weight_kg": None}] * 4
 
     @patch('processing.content_generator._get_bedrock_runtime')
     def test_canonicalizes_known_aliases_before_storage(self, mock_runtime):
@@ -463,7 +472,12 @@ class TestExtractStrengthSets:
             '```json\n[{"exercise": "Squat", "sets": 5, "reps": 5, "weight_kg": 100}]\n```'
         )
         result = _extract_strength_sets("Squat 5x5 100kg")
-        assert result == [{"exercise": "Squat", "sets": 5, "reps": 5, "weight_kg": 100.0}]
+        # Fence stripping unchanged; the parsed item now also carries the rebuilt
+        # per-set view (5 identical entries for a uniform 5x5@100).
+        assert result == [{
+            "exercise": "Squat", "sets": 5, "reps": 5, "weight_kg": 100.0,
+            "sets_detail": [{"reps": 5, "weight_kg": 100.0}] * 5,
+        }]
 
     @patch('processing.content_generator._get_bedrock_runtime')
     def test_non_json_returns_empty(self, mock_runtime):
@@ -487,6 +501,9 @@ class TestExtractStrengthSets:
 
     @patch('processing.content_generator._get_bedrock_runtime')
     def test_malformed_items_filtered_and_coerced(self, mock_runtime):
+        # The schema gained sets_detail, but the malformed-input contract is
+        # unchanged and still enforced: items with no exercise or that are not
+        # dicts are dropped, and string numerics are coerced to int/float.
         mock_runtime.return_value.converse.return_value = _converse_response(
             '[{"exercise": "Squat", "sets": "5", "reps": "5", "weight_kg": "100"},'
             '{"sets": 3},'  # no exercise → skipped
@@ -495,14 +512,213 @@ class TestExtractStrengthSets:
         )
         result = _extract_strength_sets("Squat 5x5 100kg, gainage")
         assert len(result) == 2
-        assert result[0] == {"exercise": "Squat", "sets": 5, "reps": 5, "weight_kg": 100.0}
-        assert result[1] == {"exercise": "Gainage", "sets": None, "reps": None, "weight_kg": None}
+        # Coercion "5"/"5"/"100" -> 5/5/100.0, then sets_detail rebuilt from the
+        # coerced flat values.
+        assert result[0] == {
+            "exercise": "Squat", "sets": 5, "reps": 5, "weight_kg": 100.0,
+            "sets_detail": [{"reps": 5, "weight_kg": 100.0}] * 5,
+        }
+        # All-null Gainage: sets is falsy so nothing is rebuilt; sets_detail stays
+        # empty and the flat summary stays None (no fabricated set).
+        assert result[1] == {
+            "exercise": "Gainage", "sets": None, "reps": None, "weight_kg": None,
+            "sets_detail": [],
+        }
+
+    @patch('processing.content_generator._get_bedrock_runtime')
+    def test_variable_series_preserved_per_set(self, mock_runtime):
+        """Regression (real session, tonnage error -33%): 'low row mach 10x80 8x90
+        8x90' is three distinct sets, not 3x8@90. Collapsing to the flat summary
+        reported 24 reps at 90kg instead of the 26 reps actually done with the
+        first set at 80kg. sets_detail is authoritative and must survive parsing
+        verbatim."""
+        mock_runtime.return_value.converse.return_value = _converse_response(
+            '[{"exercise":"Tirage horizontal machine","sets":3,"reps":8,"weight_kg":90,'
+            '"sets_detail":[{"reps":10,"weight_kg":80},{"reps":8,"weight_kg":90},'
+            '{"reps":8,"weight_kg":90}]}]'
+        )
+        result = _extract_strength_sets("low row mach 10x80 8x90 8x90")
+        assert len(result) == 1
+        assert result[0]["sets_detail"] == [
+            {"reps": 10, "weight_kg": 80.0},
+            {"reps": 8, "weight_kg": 90.0},
+            {"reps": 8, "weight_kg": 90.0},
+        ]
+        # sets is derived from sets_detail length, not the model's flat "sets".
+        assert result[0]["sets"] == 3
+        # The whole point: the true rep count is 26, not the 24 a naive 3x8@90
+        # would give.
+        assert sum(s["reps"] for s in result[0]["sets_detail"]) == 26
+
+    @patch('processing.content_generator._get_bedrock_runtime')
+    def test_trailing_multiplier_is_a_total_not_an_increment(self, mock_runtime):
+        """'80x10 x2' is TWO sets at 80, never three.
+
+        The athlete's notation uses a trailing xN as the total count for the
+        weight/reps pair it follows. Reading it as "one set plus N more" inflated a
+        real session from 25 sets to 26 and its tonnage by 800 kg (16170 instead of
+        15370). Confirmed by the athlete: "x2 ca veut dire 2 series de 10".
+        """
+        mock_runtime.return_value.converse.return_value = _converse_response(
+            '[{"exercise":"Tirage vertical machine","sets":3,"reps":10,"weight_kg":80,'
+            '"sets_detail":[{"reps":10,"weight_kg":75},{"reps":10,"weight_kg":80},'
+            '{"reps":10,"weight_kg":80}]}]'
+        )
+        out = _extract_strength_sets('tirage vert mach 75x10 80x10 x2')
+        assert len(out) == 1
+        detail = out[0]["sets_detail"]
+        assert len(detail) == 3, f"trailing x2 must yield 3 sets total, got {detail}"
+        assert [d["weight_kg"] for d in detail] == [75.0, 80.0, 80.0]
+        assert sum(d["reps"] for d in detail) == 30
+
+    def test_prompt_states_the_trailing_multiplier_is_a_total(self):
+        """Anti-drift: the rule must stay in the extraction prompt."""
+        assert "TRAILING MULTIPLIER" in _STRENGTH_EXTRACTION_SYSTEM_PROMPT
+        assert "TOTAL number of sets" in _STRENGTH_EXTRACTION_SYSTEM_PROMPT
+        assert "never three" in _STRENGTH_EXTRACTION_SYSTEM_PROMPT
+
+    @patch('processing.content_generator._get_bedrock_runtime')
+    def test_repeat_shorthand_expanded_per_set(self, mock_runtime):
+        """Regression companion: '75x10 80x10 x2' means one set at 75 then two at
+        80 -> [{10,75},{10,80},{10,80}]. The 'x2' repeat must be expanded into two
+        separate entries, never folded into a single set that hides the load
+        change."""
+        mock_runtime.return_value.converse.return_value = _converse_response(
+            '[{"exercise":"Développé couché","sets":3,"reps":10,"weight_kg":80,'
+            '"sets_detail":[{"reps":10,"weight_kg":75},{"reps":10,"weight_kg":80},'
+            '{"reps":10,"weight_kg":80}]}]'
+        )
+        result = _extract_strength_sets("75x10 80x10 x2")
+        assert result[0]["sets"] == 3
+        assert result[0]["sets_detail"] == [
+            {"reps": 10, "weight_kg": 75.0},
+            {"reps": 10, "weight_kg": 80.0},
+            {"reps": 10, "weight_kg": 80.0},
+        ]
+
+    @patch('processing.content_generator._get_bedrock_runtime')
+    def test_per_side_load_is_doubled_in_every_entry(self, mock_runtime):
+        """Regression: '4x8 55/c' is 55kg PER SIDE, so 110kg is actually moved.
+        Storing 55 halved the tonnage. The doubled load must appear in every
+        sets_detail entry and in the flat summary — the per-side figure must never
+        leak through."""
+        mock_runtime.return_value.converse.return_value = _converse_response(
+            '[{"exercise":"Développé machine","sets":4,"reps":8,"weight_kg":110,'
+            '"sets_detail":[{"reps":8,"weight_kg":110},{"reps":8,"weight_kg":110},'
+            '{"reps":8,"weight_kg":110},{"reps":8,"weight_kg":110}]}]'
+        )
+        result = _extract_strength_sets("dc machine 4x8 55/c")
+        assert result[0]["sets"] == 4
+        assert result[0]["weight_kg"] == 110.0
+        assert all(s["weight_kg"] == 110.0 for s in result[0]["sets_detail"])
+        # No entry may keep the raw per-side 55.
+        assert all(s["weight_kg"] != 55.0 for s in result[0]["sets_detail"])
+
+    def test_prompt_documents_per_side_and_variable_series_and_pairs(self):
+        """The parser trusts the model's JSON, so the notations themselves are
+        handled by the extraction prompt. Guard that the prompt keeps instructing
+        the model on the exact regressions that motivated the schema change: the
+        per-side markers (all variants), variable series, and paired supersets."""
+        p = _STRENGTH_EXTRACTION_SYSTEM_PROMPT
+        # Per-side markers — every variant the athlete actually writes.
+        for marker in ("'/c'", "'/cote'", "'par cote'", "'/side'"):
+            assert marker in p, f"missing per-side marker {marker}"
+        assert 'DOUBLE' in p
+        assert "'4x8 55/c' -> four entries at weight_kg 110" in p
+        # Variable series must not be collapsed.
+        assert "'10x80 8x90 8x90' is three entries" in p
+        assert 'Never collapse' in p
+        # Paired notation must keep the first value of each pair.
+        assert 'PAIRED notation' in p
+        assert 'Never' in p and 'drop the first value of a pair.' in p
+
+    @patch('processing.content_generator._get_bedrock_runtime')
+    def test_paired_superset_keeps_first_pair_value(self, mock_runtime):
+        """Regression: 'elev lat - face pull 3x10-10 15-35' is a superset of two
+        exercises. The bug dropped the first load (15) and left both at 35. The
+        parser must keep both objects with their own load: 15 for A, 35 for B."""
+        mock_runtime.return_value.converse.return_value = _converse_response(
+            '[{"exercise":"Élévations latérales","sets":3,"reps":10,"weight_kg":15,'
+            '"sets_detail":[{"reps":10,"weight_kg":15},{"reps":10,"weight_kg":15},'
+            '{"reps":10,"weight_kg":15}]},'
+            '{"exercise":"Face pull","sets":3,"reps":10,"weight_kg":35,'
+            '"sets_detail":[{"reps":10,"weight_kg":35},{"reps":10,"weight_kg":35},'
+            '{"reps":10,"weight_kg":35}]}]'
+        )
+        result = _extract_strength_sets("elev lat - face pull 3x10-10 15-35")
+        assert [item["exercise"] for item in result] == [
+            "Élévations latérales", "Face pull",
+        ]
+        # The first pair value (15) is preserved, not overwritten by the second.
+        assert result[0]["weight_kg"] == 15.0
+        assert all(s["weight_kg"] == 15.0 for s in result[0]["sets_detail"])
+        assert result[1]["weight_kg"] == 35.0
+        assert all(s["weight_kg"] == 35.0 for s in result[1]["sets_detail"])
+
+    @patch('processing.content_generator._get_bedrock_runtime')
+    def test_sets_detail_rebuilt_from_flat_and_capped(self, mock_runtime):
+        """Fallback contract: when the model omits sets_detail but gives a flat
+        sets/reps/weight_kg, the parser rebuilds one entry per set by repetition
+        so consumers never branch on shape. The rebuild is capped at 20 entries to
+        bound a runaway/hallucinated set count."""
+        mock_runtime.return_value.converse.return_value = _converse_response(
+            '[{"exercise":"Squat","sets":4,"reps":6,"weight_kg":90},'
+            '{"exercise":"Gainage","sets":25,"reps":1,"weight_kg":null}]'
+        )
+        result = _extract_strength_sets("Squat 4x6 90kg puis gainage")
+        assert result[0]["sets_detail"] == [{"reps": 6, "weight_kg": 90.0}] * 4
+        assert result[0]["sets"] == 4
+        # 25 requested sets are capped at 20 rebuilt entries; sets follows the
+        # rebuilt length so the count never exceeds the cap either.
+        assert len(result[1]["sets_detail"]) == 20
+        assert result[1]["sets"] == 20
+        assert result[1]["sets_detail"][0] == {"reps": 1, "weight_kg": None}
 
 
 class TestTrackStrengthHistory:
     """Regression (live incident 2026-07-18/20): parsed_sets carried float
     weight_kg — boto3 rejected the DynamoDB write ('Float types are not
     supported') and strength history entries were silently dropped."""
+
+    def test_first_write_initialises_the_parent_map(self):
+        """Reproduces the production failure: no strength_history yet.
+
+        `SET user_preferences.strength_history.entries = ...` raises
+        ValidationException ("document path provided in the update expression is
+        invalid") when the parent map is absent -- which was every athlete. The
+        exception was swallowed as a warning, so the history stayed empty and the
+        coach lost its only persisted source of strength progression.
+        """
+        mock_table = MagicMock()
+        mock_table.get_item.return_value = {"Item": {}}
+        calls = []
+
+        def record(**kwargs):
+            expr = kwargs["UpdateExpression"]
+            calls.append(expr)
+            # Emulate DynamoDB: appending into a map that was never created fails.
+            if "strength_history.entries" in expr and not any(
+                "if_not_exists(user_preferences.strength_history, :init)" in c for c in calls[:-1]
+            ):
+                raise Exception("ValidationException: The document path provided in the update expression is invalid")
+            return {}
+
+        mock_table.update_item.side_effect = record
+        mock_dynamo = MagicMock()
+        mock_dynamo.Table.return_value = mock_table
+
+        with patch("processing.content_generator.dynamodb", mock_dynamo), \
+             patch("processing.content_generator._extract_strength_sets", return_value=[]):
+            from processing.content_generator import _track_strength_history
+            _track_strength_history(
+                "user1", "act-first",
+                {"description": "Trac 10-10-10 puis low row 3x10 @80kg",
+                 "start_date_local": "2026-08-05T12:00:00Z", "moving_time": 2880},
+            )
+
+        assert len(calls) == 2, f"expected init + append, got {calls}"
+        assert "if_not_exists(user_preferences.strength_history, :init)" in calls[0]
+        assert "strength_history.entries" in calls[1]
 
     @patch('processing.content_generator._extract_strength_sets')
     @patch('processing.content_generator.dynamodb')
@@ -523,7 +739,12 @@ class TestTrackStrengthHistory:
             "moving_time": "1886",  # string numerics happen on manual activities
         })
 
-        mock_table.update_item.assert_called_once()
+        # Two calls: the parent map is initialised first, then the entry appended.
+        # DynamoDB rejects `SET a.b.c` when `a.b` is absent and forbids updating
+        # overlapping paths in one expression, so the init cannot be merged.
+        assert mock_table.update_item.call_count == 2
+        init_expr = mock_table.update_item.call_args_list[0].kwargs["UpdateExpression"]
+        assert "if_not_exists(user_preferences.strength_history, :init)" in init_expr
         values = mock_table.update_item.call_args.kwargs["ExpressionAttributeValues"]
         entry = values[":entry"][0]
 
