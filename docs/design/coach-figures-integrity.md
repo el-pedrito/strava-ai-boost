@@ -1,7 +1,7 @@
 # Spec technique — Intégrité des chiffres du coach
 
 **Date :** 2026-08-04
-**Statut :** WP0, WP1, WP2, WP2b, WP4, WP5, WP5a, WP6 livrés et déployés. WP3 restant.
+**Statut :** tous les lots livrés et déployés (WP0 à WP6).
 **Dernière mise à jour :** 2026-08-05
 **Portée :** pipeline coach (`coach_generator`, `content_generator`, `embedded_prompts`),
 coach conversationnel (`coach_chat`), préférences athlète
@@ -87,7 +87,7 @@ Documentés dans AGENTS.md, protégés par tests.
 | WP1 | `iso_week` sur les activités du chat | **livré** (miroir + test anti-dérive) |
 | WP2 | Outil `get_weekly_totals` | **livré** (test d'égalité contre `build_week_overview`) |
 | WP2b | Outil muscu du chat + promesse retirée | **livré** (`get_strength_sessions` lit les totaux stockés) |
-| WP3 | Vérificateur post-génération | **RESTANT** — la fabrication est toujours possible en production |
+| WP3 | Vérificateur post-génération | **livré** — `coach_output_check.py`, 1 régénération puis retrait de la phrase, métrique `CoachClaimMismatch` |
 | WP4 | `body_weight_kg` / `height_cm` | **livré** (amorcé depuis Strava, saisie jamais écrasée) |
 | WP5 | Tonnage | **livré** (`shared/strength_volume.py`, calculé à l'écriture, lu partout) |
 | WP5a | Persistance `strength_history` | **livré** + 64 séances récupérées |
@@ -571,3 +571,26 @@ masse : un appel tronqué devient « cette séance n'avait aucun exercice ».
 unitaire et dangereuse en rejeu de masse. Tout script de migration qui appelle une telle
 fonction doit traiter le résultat vide comme un échec possible, et refuser d'écrire en cas de
 doute plutôt que d'écrire une absence.
+
+---
+
+## 16. WP3 en production : ce que le vérificateur attrape, et sa queue de faux positifs
+
+Validé sur l'activité réelle `19596127525`. Sur la première exécution il a intercepté
+cinq affirmations, dont **trois vraies erreurs** : deux fenêtres glissantes (« 6 séances
+en 9 jours ») et un décompte hebdomadaire faux (« 2 muscu » pour une semaine à 1).
+
+Il a aussi produit **deux faux positifs**, corrigés dans la foulée et couverts par des tests :
+
+1. « il reste 2 muscu perso » comptait des séances **à faire**, comparées à tort au
+   nombre de séances **faites**. Désormais comparé à `own_strength_program.remaining`.
+2. « évite 2 séances muscu consécutives » est un **conseil**, pas un décompte. Les phrases
+   à marqueur impératif ne sont plus vérifiées.
+
+Ces deux cas disent la même chose : un vérificateur qui retire une phrase correcte est pire
+qu'aucun vérificateur, parce qu'il supprime du contenu utile et habitue à ignorer ses
+alertes. La détection reste donc volontairement étroite.
+
+La métrique `CoachClaimMismatch` existe précisément pour mesurer la queue restante : jusqu'ici
+le phénomène n'était visible qu'en lisant les sorties à la main, ce qui est la raison pour
+laquelle il est passé inaperçu des semaines.

@@ -1053,6 +1053,17 @@ statuts effectifs. Il n'existe plus de champ `campus_week_remaining` séparé : 
   `weekly_breakdown`, la semaine courante depuis `week_overview`). JAMAIS un décompte sur une
   fenêtre arbitraire.
 
+### IMPORTANT : `verification_errors` (seconde passe)
+Si le contexte contient `verification_errors`, c'est que ta reponse precedente a enonce un
+chiffre que le code a contredit. Chaque entree indique le chiffre ecrit et le chiffre reel.
+
+- Corrige EXACTEMENT ces chiffres en reprenant la valeur du champ concerne
+  (`week_overview.done_this_week`, `week_overview.campus_remaining`, `strength_session`).
+- Ne reformule pas pour contourner la verification : si tu ne peux pas justifier un chiffre
+  par un champ fourni, SUPPRIME l'affirmation. Une phrase en moins vaut mieux qu'un chiffre
+  faux publie sur Strava.
+- N'ajoute aucun total que le contexte ne fournit pas, meme presente comme une anecdote.
+
 ### IMPORTANT : Chiffres de musculation (fournis, jamais recalcules)
 Le contexte porte `strength_session` : series, repetitions et tonnage calcules par le code
 (`shared/strength_volume.py`), avec le poids de corps applique aux mouvements au poids du corps

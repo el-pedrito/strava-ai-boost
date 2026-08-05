@@ -12,9 +12,13 @@ from typing import Any, Dict, List, Optional
 
 import boto3
 
-from shared.logger import get_logger, inject_correlation_id
+from shared.logger import get_logger, inject_correlation_id, metrics, MetricUnit
 from shared.env_validation import validate_env_vars
 from shared.campus_status import STATUS_DONE, STATUS_SKIP, effective_status
+from processing.coach_output_check import (
+    strip_false_claims,
+    verify_weekly_claims,
+)
 from shared.iso_week import iso_week_label
 from shared.coach_context import format_weekly_breakdown
 from processing.modules_processing import match_campus_session
@@ -280,6 +284,50 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 "user_id": user_id,
                 "coach_feedback": None,
             }
+
+        # Verify the figures the model stated against the ones the code computed.
+        #
+        # Every figure is now computed, labelled and named in the prompt as the sole
+        # source, which fixed every case where the model read the wrong field. It did
+        # not fix the last one: the model sometimes states a figure present in no
+        # field at all ("320 reps" for a 238-rep session, wrapped in an invented fun
+        # fact). One regeneration, then removal of the offending sentence. Never
+        # blocking: a late coach beats no coach, but a wrong count costs the trust in
+        # every other figure.
+        week_overview = (historical_summary or {}).get("week_overview")
+        strength_session = (historical_summary or {}).get("strength_session")
+        problems = verify_weekly_claims(feedback, week_overview, strength_session)
+        if problems:
+            logger.warning(
+                "Coach stated figures contradicting the computed ones, regenerating once",
+                extra={"activity_id": activity_id, "problems": problems},
+            )
+            retry_summary = dict(historical_summary or {})
+            retry_summary["verification_errors"] = problems
+            retried = _invoke_coach_agent(activity_data, user_config, retry_summary)
+            if retried:
+                remaining = verify_weekly_claims(retried, week_overview, strength_session)
+                if not remaining:
+                    feedback = retried
+                    problems = []
+                else:
+                    feedback, removed = strip_false_claims(
+                        retried, week_overview, strength_session
+                    )
+                    problems = remaining
+                    feedback["unverified_claims"] = removed
+            else:
+                feedback, removed = strip_false_claims(
+                    feedback, week_overview, strength_session
+                )
+                feedback["unverified_claims"] = removed
+
+            if problems:
+                # Emit a metric: without it the phenomenon is only visible by reading
+                # outputs by hand, which is how it went unnoticed for weeks.
+                metrics.add_metric(
+                    name="CoachClaimMismatch", unit=MetricUnit.Count, value=1
+                )
 
         # Write coaching observation to memory for long-term learning
         write_coaching_observation(user_id, feedback)
