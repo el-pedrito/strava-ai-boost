@@ -511,6 +511,10 @@ def _build_strength_progression(entries: List[Dict[str, Any]]) -> List[Dict[str,
         parsed = entry.get('parsed_sets') or []
         if not date or not isinstance(parsed, list):
             continue
+        per_exercise_volume = {
+            canonicalize_exercise_name(e.get('exercise') or ''): e.get('volume_kg')
+            for e in (entry.get('per_exercise') or []) if isinstance(e, dict)
+        }
         for s in parsed:
             if not isinstance(s, dict):
                 continue
@@ -521,11 +525,18 @@ def _build_strength_progression(entries: List[Dict[str, Any]]) -> List[Dict[str,
             if not name:
                 continue
             weight = s.get('weight_kg')
-            sets = s.get('sets') or 0
-            reps = s.get('reps') or 0
-            volume = None
-            if weight is not None and sets and reps:
-                volume = round(float(weight) * int(sets) * int(reps), 1)
+            # Volume comes from the figures the pipeline computed with
+            # shared/strength_volume.py (bodyweight coefficients, unilateral
+            # doubling, per-set detail). Recomputing it here from the flat
+            # sets/reps/weight summary under-reported by 33% on a real session,
+            # and would let the chart disagree with the coach on the same data.
+            volume = per_exercise_volume.get(canonicalize_exercise_name(raw_name))
+            if volume is None:
+                # Legacy row written before the wiring: explicit-weight only.
+                sets = s.get('sets') or 0
+                reps = s.get('reps') or 0
+                if weight is not None and sets and reps:
+                    volume = round(float(weight) * int(sets) * int(reps), 1)
             point = {
                 'date': date,
                 'top_weight_kg': float(weight) if weight is not None else None,
@@ -1304,13 +1315,13 @@ def get_coach_summary(user_id: str) -> Dict[str, Any]:
                 dt = datetime.fromisoformat(activity_date.replace('Z', '+00:00'))
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=timezone.utc)
-                # Use ISO week number for bucketing (Monday = start of week)
-                current_week_num = now.isocalendar()[1]
-                activity_week_num = dt.isocalendar()[1]
-                activity_year = dt.isocalendar()[0]
-                current_year = now.isocalendar()[0]
-                # Calculate week offset (0 = this week, 1 = last week, etc.)
-                week_idx = (current_year - activity_year) * 52 + (current_week_num - activity_week_num)
+                # Bucket on whole ISO weeks (Monday start). Derive the offset from
+                # the Monday dates rather than from bare week numbers: the old
+                # `(year_delta * 52) + week_delta` arithmetic is wrong across an ISO
+                # year boundary, because ISO years hold 52 or 53 weeks.
+                current_monday = _iso_week_start(now.date())
+                activity_monday = _iso_week_start(dt.date())
+                week_idx = (current_monday - activity_monday).days // 7
                 if week_idx < 0 or week_idx >= 4:
                     continue
                 distance_m = float(a.get('distance', 0) or 0)
@@ -1433,7 +1444,14 @@ def get_coach_summary(user_id: str) -> Dict[str, Any]:
         compliance = None
         try:
             sessions_table = dynamodb.Table(COACHING_SESSIONS_TABLE)
-            # Scan for current week sessions (new API sync format)
+            # Kept as a Scan: "current week" is identified here by the
+            # is_current_week flag, which is a plain attribute rather than the
+            # session_date partition key, so it cannot be a KeyCondition.
+            # Deriving the calendar week from today's date and Querying that
+            # partition instead would flip compliance to None whenever the
+            # current week has not been synced yet (e.g. early Monday), changing
+            # behaviour. The scan stays; only single-partition reads (a labelled
+            # week, athlete-context) were converted to Query.
             resp = sessions_table.scan(
                 FilterExpression="is_current_week = :cw",
                 ExpressionAttributeValues={":cw": True},
