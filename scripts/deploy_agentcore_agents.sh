@@ -17,6 +17,24 @@ NC='\033[0m' # No Color
 AWS_PROFILE="${AWS_PROFILE:-your-aws-profile}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
 
+# Only pass --profile when that profile actually carries usable credentials.
+#
+# Passing --profile makes the AWS CLI ignore credentials supplied through the
+# environment (AWS_ACCESS_KEY_ID and friends), which is how sandboxes, CI runners
+# and assumed-role sessions provide them. With `set -e` above, a --profile call
+# that fails to locate credentials aborts the script before its own error guard
+# can report anything, which surfaces as an unexplained failure.
+AWS_PROFILE_ARGS=""
+if aws sts get-caller-identity --profile "$AWS_PROFILE" >/dev/null 2>&1; then
+    AWS_PROFILE_ARGS="--profile $AWS_PROFILE"
+elif aws sts get-caller-identity >/dev/null 2>&1; then
+    echo "INFO: profile '$AWS_PROFILE' unusable, falling back to ambient AWS credentials" >&2
+    unset AWS_PROFILE
+else
+    echo "ERROR: no usable AWS credentials (neither profile '$AWS_PROFILE' nor the environment)" >&2
+    exit 1
+fi
+
 # Agent and memory names
 CONTENT_AGENT_NAME="content_gen"
 COACH_AGENT_NAME="strava_ai_boost_coach"
@@ -68,7 +86,7 @@ tag_agentcore_resources() {
     TAGS_COST_CENTER="$TAGS_COST_CENTER" \
     TAGS_MANAGED_BY="$TAGS_MANAGED_BY" \
     AWS_REGION="$AWS_REGION" \
-    AWS_PROFILE="$AWS_PROFILE" \
+    AWS_PROFILE="${AWS_PROFILE:-}" \
         bash "$script_dir/tag_agentcore_resources.sh"
 }
 
@@ -415,10 +433,10 @@ deploy_coach_chat_runtime() {
     # Discover Cognito User Pool + client from the Frontend stack outputs
     local pool_id client_id
     pool_id=$(aws cloudformation describe-stacks --stack-name StravaAIBoost-Frontend \
-        --region "$AWS_REGION" --profile "$AWS_PROFILE" \
+        --region "$AWS_REGION" ${AWS_PROFILE_ARGS} \
         --query 'Stacks[0].Outputs[?OutputKey==`UserPoolId`].OutputValue' --output text 2>/dev/null)
     client_id=$(aws cloudformation describe-stacks --stack-name StravaAIBoost-Frontend \
-        --region "$AWS_REGION" --profile "$AWS_PROFILE" \
+        --region "$AWS_REGION" ${AWS_PROFILE_ARGS} \
         --query 'Stacks[0].Outputs[?OutputKey==`UserPoolClientId`].OutputValue' --output text 2>/dev/null)
     if [ -z "$pool_id" ] || [ -z "$client_id" ]; then
         print_error "Could not discover Cognito pool/client from StravaAIBoost-Frontend outputs"
@@ -458,14 +476,14 @@ deploy_coach_chat_runtime() {
     # Grant the execution role read access for the agent's data tools
     # (auto-created policy covers Bedrock/logs but NOT DynamoDB nor Memory data plane).
     local account_id role_name
-    account_id=$(aws sts get-caller-identity --profile "$AWS_PROFILE" --query Account --output text)
+    account_id=$(aws sts get-caller-identity ${AWS_PROFILE_ARGS} --query Account --output text)
     role_name=$(grep -A 40 "^  ${agent_name}:" .bedrock_agentcore.yaml | grep "execution_role:" | head -1 | awk -F'role/' '{print $2}')
     if [ -z "$role_name" ]; then
         print_error "Could not resolve $agent_name execution role from .bedrock_agentcore.yaml"
         return 1
     fi
     print_status "Attaching tool data-access policy to role: $role_name"
-    aws iam put-role-policy --profile "$AWS_PROFILE" \
+    aws iam put-role-policy ${AWS_PROFILE_ARGS} \
         --role-name "$role_name" \
         --policy-name "CoachChatToolsDataAccess" \
         --policy-document "{
@@ -512,8 +530,12 @@ deploy_coach_chat_runtime() {
 main() {
     print_status "🚀 Starting AgentCore agent deployment with LTM..."
     
-    # Set AWS profile
-    export AWS_PROFILE="$AWS_PROFILE"
+    # Propagate the profile only when one is actually usable: exporting an empty
+    # AWS_PROFILE would make boto3 look for a profile that does not exist and
+    # ignore the ambient credentials we just validated.
+    if [ -n "${AWS_PROFILE:-}" ]; then
+        export AWS_PROFILE="$AWS_PROFILE"
+    fi
     export AWS_DEFAULT_REGION="$AWS_REGION"
     
     # Check prerequisites

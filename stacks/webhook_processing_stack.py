@@ -449,7 +449,7 @@ class WebhookProcessingStack(Stack):
         )
 
     def _create_campus_coach_sync(self) -> None:
-        """Create Campus Coach sync Lambda triggered daily"""
+        """Create Campus Coach sync Lambda triggered every 2h during the day"""
 
         campus_coach_secret = secretsmanager.Secret.from_secret_name_v2(
             self, "CampusCoachSecret",
@@ -493,10 +493,34 @@ class WebhookProcessingStack(Stack):
         )
         user_config_table.grant_read_data(self.campus_coach_sync)
 
+        # Campus Coach data freshness.
+        #
+        # A single daily sync at 05:00 UTC left the coach working from stale
+        # plan data: a workout completed at 08:43 UTC was still seen as "to do"
+        # by a coach run at 10:19 UTC, and an early-afternoon plan change stayed
+        # invisible to a coach run at 18:19 UTC (>13h of lag), because the only
+        # sync of the day had already run hours earlier.
+        #
+        # Fix: sync every 2 hours across the athlete's active window (05:00 to
+        # 21:00 UTC = 9 runs/day) instead of once. This deliberately does NOT
+        # run hourly 24/7 (which would 24x the calls to a third-party,
+        # undocumented API for no benefit overnight when nothing changes).
+        # 9 runs/day is ~60% fewer calls than an hourly cron while closing the
+        # observed gaps: a 09:00 sync catches a morning workout before a mid
+        # morning coach run, and a 15:00 sync catches an afternoon plan change
+        # well before an evening coach run. Off-window hours (22:00-04:00) are
+        # skipped to stay polite to the Campus Coach API.
+        #
+        # Note: the rule name still says "daily-sync" for backwards
+        # compatibility. Renaming it would force a CloudFormation resource
+        # replacement, so the (now slightly misleading) name is kept on purpose.
         events.Rule(
             self, "CampusCoachSyncSchedule",
             rule_name="strava-ai-boost-campus-coach-daily-sync",
-            schedule=events.Schedule.cron(hour="5", minute="0"),
+            schedule=events.Schedule.cron(
+                minute="0",
+                hour="5,7,9,11,13,15,17,19,21",
+            ),
             targets=[targets.LambdaFunction(self.campus_coach_sync)]
         )
 

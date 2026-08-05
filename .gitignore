@@ -26,6 +26,9 @@ venv/
 ENV/
 env/
 .venv
+# Throwaway venvs for deploy tooling (the agentcore CLI needs Python >= 3.10,
+# which may differ from the interpreter used to run the test suite).
+.venv-*/
 
 # Frontend (React)
 node_modules/

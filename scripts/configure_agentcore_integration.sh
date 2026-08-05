@@ -18,6 +18,24 @@ AWS_PROFILE="${AWS_PROFILE:-your-aws-profile}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
 PROJECT_NAME="strava-ai-boost"
 
+# Only pass --profile when that profile actually carries usable credentials.
+#
+# Passing --profile makes the AWS CLI ignore credentials supplied through the
+# environment (AWS_ACCESS_KEY_ID and friends), which is how sandboxes, CI runners
+# and assumed-role sessions provide them. With `set -e` above, a --profile call
+# that fails to locate credentials aborts the script before its own error guard
+# can report anything, which surfaces as an unexplained failure.
+AWS_PROFILE_ARGS=""
+if aws sts get-caller-identity --profile "$AWS_PROFILE" >/dev/null 2>&1; then
+    AWS_PROFILE_ARGS="--profile $AWS_PROFILE"
+elif aws sts get-caller-identity >/dev/null 2>&1; then
+    echo "INFO: profile '$AWS_PROFILE' unusable, falling back to ambient AWS credentials" >&2
+    unset AWS_PROFILE
+else
+    echo "ERROR: no usable AWS credentials (neither profile '$AWS_PROFILE' nor the environment)" >&2
+    exit 1
+fi
+
 # Short agent names to avoid ARN truncation issues
 CONTENT_AGENT_NAME="content_gen"
 COACH_AGENT_NAME="strava_ai_boost_coach"
@@ -75,7 +93,7 @@ update_lambda_iam_permissions() {
     
     # Get account ID
     local account_id
-    account_id=$(aws sts get-caller-identity --profile "$AWS_PROFILE" --query 'Account' --output text 2>/dev/null)
+    account_id=$(aws sts get-caller-identity ${AWS_PROFILE_ARGS} --query 'Account' --output text 2>/dev/null)
     
     if [ -z "$account_id" ]; then
         print_error "Failed to get AWS account ID"
@@ -96,7 +114,7 @@ update_lambda_iam_permissions() {
         local role_arn
         role_arn=$(aws lambda get-function-configuration \
             --function-name "$function_name" \
-            --profile "$AWS_PROFILE" \
+            ${AWS_PROFILE_ARGS} \
             --region "$AWS_REGION" \
             --query 'Role' \
             --output text 2>/dev/null)
@@ -133,7 +151,7 @@ EOF
             local existing_policy_arn
             existing_policy_arn=$(aws iam list-policies \
                 --scope Local \
-                --profile "$AWS_PROFILE" \
+                ${AWS_PROFILE_ARGS} \
                 --query "Policies[?PolicyName=='$policy_name'].Arn" \
                 --output text 2>/dev/null)
             
@@ -146,8 +164,8 @@ EOF
                 local current_policy_doc
                 current_policy_doc=$(aws iam get-policy-version \
                     --policy-arn "$existing_policy_arn" \
-                    --version-id $(aws iam get-policy --policy-arn "$existing_policy_arn" --profile "$AWS_PROFILE" --query 'Policy.DefaultVersionId' --output text) \
-                    --profile "$AWS_PROFILE" \
+                    --version-id $(aws iam get-policy --policy-arn "$existing_policy_arn" ${AWS_PROFILE_ARGS} --query 'Policy.DefaultVersionId' --output text) \
+                    ${AWS_PROFILE_ARGS} \
                     --query 'PolicyVersion.Document' \
                     --output json 2>/dev/null)
                 
@@ -167,7 +185,7 @@ EOF
                     # Delete oldest non-default version if we have 5 versions (AWS limit)
                     local version_count=$(aws iam list-policy-versions \
                         --policy-arn "$existing_policy_arn" \
-                        --profile "$AWS_PROFILE" \
+                        ${AWS_PROFILE_ARGS} \
                         --query 'length(Versions)' \
                         --output text 2>/dev/null)
                     
@@ -175,7 +193,7 @@ EOF
                         print_status "Cleaning up old policy versions (limit: 5)"
                         local oldest_version=$(aws iam list-policy-versions \
                             --policy-arn "$existing_policy_arn" \
-                            --profile "$AWS_PROFILE" \
+                            ${AWS_PROFILE_ARGS} \
                             --query 'Versions[?IsDefaultVersion==`false`] | sort_by(@, &CreateDate) | [0].VersionId' \
                             --output text 2>/dev/null)
                         
@@ -183,7 +201,7 @@ EOF
                             aws iam delete-policy-version \
                                 --policy-arn "$existing_policy_arn" \
                                 --version-id "$oldest_version" \
-                                --profile "$AWS_PROFILE" 2>/dev/null
+                                ${AWS_PROFILE_ARGS} 2>/dev/null
                             print_status "Deleted old version: $oldest_version"
                         fi
                     fi
@@ -194,7 +212,7 @@ EOF
                         --policy-arn "$existing_policy_arn" \
                         --policy-document "file://$policy_file" \
                         --set-as-default \
-                        --profile "$AWS_PROFILE" \
+                        ${AWS_PROFILE_ARGS} \
                         --query 'PolicyVersion.VersionId' \
                         --output text 2>/dev/null)
                     
@@ -215,7 +233,7 @@ EOF
                     --policy-name "$policy_name" \
                     --policy-document "file://$policy_file" \
                     --description "Clean AgentCore invocation permissions for Strava AI Boost Lambda" \
-                    --profile "$AWS_PROFILE" \
+                    ${AWS_PROFILE_ARGS} \
                     --region "$AWS_REGION" \
                     --query 'Policy.Arn' \
                     --output text 2>/dev/null)
@@ -236,7 +254,7 @@ EOF
             local is_attached
             is_attached=$(aws iam list-attached-role-policies \
                 --role-name "$role_name" \
-                --profile "$AWS_PROFILE" \
+                ${AWS_PROFILE_ARGS} \
                 --query "AttachedPolicies[?PolicyArn=='$policy_arn'].PolicyArn" \
                 --output text 2>/dev/null)
             
@@ -245,7 +263,7 @@ EOF
                 if aws iam attach-role-policy \
                     --role-name "$role_name" \
                     --policy-arn "$policy_arn" \
-                    --profile "$AWS_PROFILE" \
+                    ${AWS_PROFILE_ARGS} \
                     --region "$AWS_REGION" > /dev/null 2>&1; then
                     print_success "✅ Attached clean AgentCore policy to Lambda role: $role_name"
                     ((updated_roles++))
@@ -273,7 +291,7 @@ configure_agentcore_agent_permissions() {
     
     # Get account ID
     local account_id
-    account_id=$(aws sts get-caller-identity --profile "$AWS_PROFILE" --query 'Account' --output text 2>/dev/null)
+    account_id=$(aws sts get-caller-identity ${AWS_PROFILE_ARGS} --query 'Account' --output text 2>/dev/null)
     
     if [ -z "$account_id" ]; then
         print_error "Failed to get AWS account ID"
@@ -317,7 +335,7 @@ EOF
     if [ -z "$agentcore_roles" ]; then
         print_warning "Could not extract roles from YAML, using all AgentCore roles"
         agentcore_roles=$(aws iam list-roles \
-            --profile "$AWS_PROFILE" \
+            ${AWS_PROFILE_ARGS} \
             --query 'Roles[?starts_with(RoleName, `AmazonBedrockAgentCoreSDKRuntime-`)].RoleName' \
             --output text 2>/dev/null)
     fi
@@ -397,7 +415,7 @@ EOF
     local existing_policy_arn
     existing_policy_arn=$(aws iam list-policies \
         --scope Local \
-        --profile "$AWS_PROFILE" \
+        ${AWS_PROFILE_ARGS} \
         --query "Policies[?PolicyName=='$policy_name'].Arn" \
         --output text 2>/dev/null)
     
@@ -410,8 +428,8 @@ EOF
         local current_policy_doc
         current_policy_doc=$(aws iam get-policy-version \
             --policy-arn "$existing_policy_arn" \
-            --version-id $(aws iam get-policy --policy-arn "$existing_policy_arn" --profile "$AWS_PROFILE" --query 'Policy.DefaultVersionId' --output text) \
-            --profile "$AWS_PROFILE" \
+            --version-id $(aws iam get-policy --policy-arn "$existing_policy_arn" ${AWS_PROFILE_ARGS} --query 'Policy.DefaultVersionId' --output text) \
+            ${AWS_PROFILE_ARGS} \
             --query 'PolicyVersion.Document' \
             --output json 2>/dev/null)
         
@@ -431,7 +449,7 @@ EOF
             # Delete oldest non-default version if we have 5 versions (AWS limit)
             local version_count=$(aws iam list-policy-versions \
                 --policy-arn "$existing_policy_arn" \
-                --profile "$AWS_PROFILE" \
+                ${AWS_PROFILE_ARGS} \
                 --query 'length(Versions)' \
                 --output text 2>/dev/null)
             
@@ -439,7 +457,7 @@ EOF
                 print_status "Cleaning up old policy versions (limit: 5)"
                 local oldest_version=$(aws iam list-policy-versions \
                     --policy-arn "$existing_policy_arn" \
-                    --profile "$AWS_PROFILE" \
+                    ${AWS_PROFILE_ARGS} \
                     --query 'Versions[?IsDefaultVersion==`false`] | sort_by(@, &CreateDate) | [0].VersionId' \
                     --output text 2>/dev/null)
                 
@@ -447,7 +465,7 @@ EOF
                     aws iam delete-policy-version \
                         --policy-arn "$existing_policy_arn" \
                         --version-id "$oldest_version" \
-                        --profile "$AWS_PROFILE" 2>/dev/null
+                        ${AWS_PROFILE_ARGS} 2>/dev/null
                     print_status "Deleted old version: $oldest_version"
                 fi
             fi
@@ -458,7 +476,7 @@ EOF
                 --policy-arn "$existing_policy_arn" \
                 --policy-document "file://$policy_file" \
                 --set-as-default \
-                --profile "$AWS_PROFILE" \
+                ${AWS_PROFILE_ARGS} \
                 --query 'PolicyVersion.VersionId' \
                 --output text 2>/dev/null)
             
@@ -478,7 +496,7 @@ EOF
             --policy-name "$policy_name" \
             --policy-document "file://$policy_file" \
             --description "Comprehensive permissions for all Strava AI Boost AgentCore agents (including memory access)" \
-            --profile "$AWS_PROFILE" \
+            ${AWS_PROFILE_ARGS} \
             --region "$AWS_REGION" \
             --query 'Policy.Arn' \
             --output text 2>/dev/null)
@@ -503,7 +521,7 @@ EOF
         local is_attached
         is_attached=$(aws iam list-attached-role-policies \
             --role-name "$role_name" \
-            --profile "$AWS_PROFILE" \
+            ${AWS_PROFILE_ARGS} \
             --query "AttachedPolicies[?PolicyArn=='$policy_arn'].PolicyArn" \
             --output text 2>/dev/null)
         
@@ -511,7 +529,7 @@ EOF
             if aws iam attach-role-policy \
                 --role-name "$role_name" \
                 --policy-arn "$policy_arn" \
-                --profile "$AWS_PROFILE" > /dev/null 2>&1; then
+                ${AWS_PROFILE_ARGS} > /dev/null 2>&1; then
                 print_success "✅ Attached policy to role: $role_name"
                 ((attached_count++))
             else
@@ -541,7 +559,7 @@ verify_agentcore_iam_permissions() {
     
     # Get account ID
     local account_id
-    account_id=$(aws sts get-caller-identity --profile "$AWS_PROFILE" --query 'Account' --output text 2>/dev/null)
+    account_id=$(aws sts get-caller-identity ${AWS_PROFILE_ARGS} --query 'Account' --output text 2>/dev/null)
     
     if [ -z "$account_id" ]; then
         print_error "Failed to get AWS account ID"
@@ -556,7 +574,7 @@ verify_agentcore_iam_permissions() {
         local content_runtime_id=$(echo "$content_arn" | awk -F'/' '{print $NF}')
         content_role_arn=$(aws bedrock-agentcore get-agent-runtime \
             --agent-runtime-id "$content_runtime_id" \
-            --profile "$AWS_PROFILE" \
+            ${AWS_PROFILE_ARGS} \
             --region "$AWS_REGION" \
             --query 'roleArn' \
             --output text 2>/dev/null || echo "")
@@ -574,7 +592,7 @@ verify_agentcore_iam_permissions() {
         local role_name=$(echo "$content_role_arn" | awk -F'/' '{print $NF}')
         print_status "Verifying Content Generation role: $role_name"
         
-        if aws iam get-role --role-name "$role_name" --profile "$AWS_PROFILE" > /dev/null 2>&1; then
+        if aws iam get-role --role-name "$role_name" ${AWS_PROFILE_ARGS} > /dev/null 2>&1; then
             print_success "✅ Content Generation agent role exists and is managed by AgentCore"
             ((verified_roles++))
         else
@@ -601,7 +619,7 @@ update_lambda_environment_variables() {
     # Get all Lambda functions with Strava AI Boost prefix
     local all_functions
     all_functions=$(aws lambda list-functions \
-        --profile "$AWS_PROFILE" \
+        ${AWS_PROFILE_ARGS} \
         --region "$AWS_REGION" \
         --query 'Functions[?starts_with(FunctionName, `StravaAIBoost-`)].FunctionName' \
         --output json 2>/dev/null)
@@ -637,7 +655,7 @@ update_lambda_environment_variables() {
         local current_env
         current_env=$(aws lambda get-function-configuration \
             --function-name "$function_name" \
-            --profile "$AWS_PROFILE" \
+            ${AWS_PROFILE_ARGS} \
             --region "$AWS_REGION" \
             --query 'Environment.Variables' \
             --output json 2>/dev/null)
@@ -672,7 +690,7 @@ EOF
             if aws lambda update-function-configuration \
                 --function-name "$function_name" \
                 --environment "file://$env_file" \
-                --profile "$AWS_PROFILE" \
+                ${AWS_PROFILE_ARGS} \
                 --region "$AWS_REGION" > /dev/null 2>&1; then
                 print_success "✅ Updated environment variables for $function_name"
                 ((updated_count++))
@@ -681,7 +699,7 @@ EOF
                 print_status "Waiting for function update to complete..."
                 aws lambda wait function-updated \
                     --function-name "$function_name" \
-                    --profile "$AWS_PROFILE" \
+                    ${AWS_PROFILE_ARGS} \
                     --region "$AWS_REGION" 2>/dev/null || true
             else
                 print_warning "⚠️  Failed to update environment variables for $function_name"
@@ -755,21 +773,21 @@ create_env_file() {
         local stack_name="StravaAIBoost-Security"
         if aws cloudformation describe-stacks \
             --stack-name "$stack_name" \
-            --profile "$AWS_PROFILE" \
+            ${AWS_PROFILE_ARGS} \
             --region "$AWS_REGION" \
             --query 'Stacks[0].StackStatus' \
             --output text &>/dev/null; then
             
             EXISTING_GUARDRAIL_ID=$(aws cloudformation describe-stacks \
                 --stack-name "$stack_name" \
-                --profile "$AWS_PROFILE" \
+                ${AWS_PROFILE_ARGS} \
                 --region "$AWS_REGION" \
                 --query 'Stacks[0].Outputs[?OutputKey==`GuardrailId`].OutputValue' \
                 --output text 2>/dev/null || echo "")
             
             EXISTING_GUARDRAIL_VERSION=$(aws cloudformation describe-stacks \
                 --stack-name "$stack_name" \
-                --profile "$AWS_PROFILE" \
+                ${AWS_PROFILE_ARGS} \
                 --region "$AWS_REGION" \
                 --query 'Stacks[0].Outputs[?OutputKey==`GuardrailVersion`].OutputValue' \
                 --output text 2>/dev/null || echo "1")
@@ -904,8 +922,12 @@ EOF
 main() {
     print_status "🔧 Starting AgentCore integration configuration for Strava AI Boost..."
     
-    # Set AWS profile for all operations
-    export AWS_PROFILE="$AWS_PROFILE"
+    # Propagate the profile only when one is actually usable: exporting an empty
+    # AWS_PROFILE would make boto3 look for a profile that does not exist and
+    # ignore the ambient credentials we just validated.
+    if [ -n "${AWS_PROFILE:-}" ]; then
+        export AWS_PROFILE="$AWS_PROFILE"
+    fi
     export AWS_DEFAULT_REGION="$AWS_REGION"
     
     # Detect deployed agents (silent)
