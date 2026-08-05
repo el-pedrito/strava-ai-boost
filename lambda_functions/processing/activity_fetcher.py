@@ -7,6 +7,7 @@ Handles comprehensive data retrieval for analysis.
 
 import json
 import os
+from decimal import Decimal
 from typing import Dict, Any, Optional
 import boto3
 from botocore.exceptions import ClientError
@@ -44,6 +45,10 @@ STRAVA_OAUTH_SECRET = os.environ['STRAVA_OAUTH_SECRET']
 # Strava API configuration
 STRAVA_API_BASE = "https://www.strava.com/api/v3"
 
+# Body weight bounds (kg), mirrored from user_preferences_api validation
+BODY_WEIGHT_MIN_KG = 30
+BODY_WEIGHT_MAX_KG = 250
+
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
@@ -78,6 +83,10 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
         # Fetch user configuration for module decisions
         user_config = fetch_user_configuration(user_id)
+
+        # Opportunistically seed body weight from the Strava profile (no extra API
+        # call), without ever overwriting a manual entry.
+        persist_body_weight_from_strava(user_id, athlete_profile, user_config)
 
         # Fetch Intervals.icu data if module is enabled
         intervals_icu_data = fetch_intervals_icu_data(activity_data, user_config)
@@ -398,6 +407,75 @@ def fetch_athlete_profile(access_token: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.warning(f"Failed to fetch athlete profile: {str(e)}")
         return None
+
+
+def persist_body_weight_from_strava(
+    user_id: str,
+    athlete_profile: Optional[Dict[str, Any]],
+    user_config: Dict[str, Any],
+) -> None:
+    """Seed body_weight_kg in user_preferences from the Strava athlete profile.
+
+    The weight already comes back in the /athlete response (kg, structured,
+    maintained by the athlete), so no extra API call is made. We persist it only
+    when the athlete has no value yet: an explicit manual entry is authoritative
+    because Strava can be stale or empty. An existing value (manual or previously
+    seeded) is never overwritten.
+    """
+    if not athlete_profile:
+        return
+
+    weight = athlete_profile.get('weight')
+    if weight is None:
+        return
+
+    try:
+        weight_value = Decimal(str(weight))
+    except (ArithmeticError, ValueError, TypeError):
+        logger.warning("Athlete weight from Strava is not a number, skipping persistence")
+        return
+
+    if not (BODY_WEIGHT_MIN_KG <= weight_value <= BODY_WEIGHT_MAX_KG):
+        logger.warning(f"Athlete weight {weight_value}kg out of bounds, skipping persistence")
+        return
+
+    preferences = user_config.get('user_preferences')
+    if not isinstance(preferences, dict):
+        preferences = {}
+
+    if preferences.get('body_weight_kg') is not None:
+        # Manual or already-seeded value is authoritative, never overwrite.
+        return
+
+    user_config_table = os.environ.get('USER_CONFIG_TABLE', 'strava-ai-boost-user-configuration')
+    table = dynamodb.Table(user_config_table)
+
+    try:
+        if user_config.get('user_preferences') is None:
+            # No preferences map yet: create it with the seeded value. Nothing to
+            # wipe, and this avoids the invalid nested-path update on a missing map.
+            table.update_item(
+                Key={'user_id': user_id},
+                UpdateExpression='SET user_preferences = :prefs',
+                ExpressionAttributeValues={':prefs': {'body_weight_kg': weight_value}},
+                ConditionExpression='attribute_not_exists(user_preferences)',
+            )
+        else:
+            table.update_item(
+                Key={'user_id': user_id},
+                UpdateExpression='SET user_preferences.body_weight_kg = :w',
+                ExpressionAttributeValues={':w': weight_value},
+                ConditionExpression='attribute_not_exists(user_preferences.body_weight_kg)',
+            )
+        logger.info(f"Seeded body_weight_kg={weight_value} from Strava for {user_id}")
+        # Keep the in-memory copy consistent for downstream use in this invocation.
+        preferences['body_weight_kg'] = weight_value
+        user_config['user_preferences'] = preferences
+    except ClientError as e:
+        if e.response.get('Error', {}).get('Code') == 'ConditionalCheckFailedException':
+            logger.info("body_weight_kg already set (concurrent write), not overwriting")
+        else:
+            logger.warning(f"Failed to seed body_weight_kg from Strava: {str(e)}")
 
 
 def _compute_wellness_trends(wellness_history: list, activity_date: str) -> Dict[str, Any]:

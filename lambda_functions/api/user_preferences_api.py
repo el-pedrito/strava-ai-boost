@@ -9,6 +9,7 @@ Handles user preferences for content personalization:
 import json
 import os
 import re
+from decimal import Decimal, InvalidOperation
 from typing import Dict, Any
 import boto3
 from botocore.exceptions import ClientError
@@ -36,6 +37,12 @@ ALLOWED_CONTENT_TONES = ['technical & analytical', 'motivational & energetic', '
 ALLOWED_EMOJI_USAGES = ['none', 'minimal', 'moderate', 'enthusiastic']
 ALLOWED_TECHNICAL_DETAILS = ['basic', 'intermediate', 'advanced']
 ALLOWED_CONTENT_LANGUAGES = ['french', 'english', 'spanish', 'german', 'italian']
+
+# Body metrics bounds (structured fields, same flat convention as max_hr)
+BODY_WEIGHT_MIN_KG = 30
+BODY_WEIGHT_MAX_KG = 250
+HEIGHT_MIN_CM = 100
+HEIGHT_MAX_CM = 250
 
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -99,6 +106,8 @@ def get_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
                 'athlete_profile': preferences.get('athlete_profile', ''),
                 'personal_records': preferences.get('personal_records', []),
                 'max_hr': preferences.get('max_hr', None),
+                'body_weight_kg': preferences.get('body_weight_kg', None),
+                'height_cm': preferences.get('height_cm', None),
                 'best_efforts_prs': best_efforts_prs,
                 'strength_program': preferences.get('strength_program', None),
             }
@@ -209,6 +218,38 @@ def update_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
                     return create_error_response(400, 'max_hr must be between 120 and 230', cors_headers=CORS_HEADERS)
             except (ValueError, TypeError):
                 return create_error_response(400, 'max_hr must be an integer', cors_headers=CORS_HEADERS)
+
+        # Add body_weight_kg if provided (number, 30-250 kg)
+        body_weight_kg = body.get('body_weight_kg')
+        if body_weight_kg is not None:
+            try:
+                weight_value = Decimal(str(body_weight_kg))
+            except (InvalidOperation, ValueError, TypeError):
+                return create_error_response(400, 'body_weight_kg must be a number', cors_headers=CORS_HEADERS)
+            if BODY_WEIGHT_MIN_KG <= weight_value <= BODY_WEIGHT_MAX_KG:
+                preferences['body_weight_kg'] = weight_value
+            else:
+                return create_error_response(
+                    400,
+                    f'body_weight_kg must be between {BODY_WEIGHT_MIN_KG} and {BODY_WEIGHT_MAX_KG}',
+                    cors_headers=CORS_HEADERS,
+                )
+
+        # Add height_cm if provided (number, 100-250 cm)
+        height_cm = body.get('height_cm')
+        if height_cm is not None:
+            try:
+                height_value = Decimal(str(height_cm))
+            except (InvalidOperation, ValueError, TypeError):
+                return create_error_response(400, 'height_cm must be a number', cors_headers=CORS_HEADERS)
+            if HEIGHT_MIN_CM <= height_value <= HEIGHT_MAX_CM:
+                preferences['height_cm'] = height_value
+            else:
+                return create_error_response(
+                    400,
+                    f'height_cm must be between {HEIGHT_MIN_CM} and {HEIGHT_MAX_CM}',
+                    cors_headers=CORS_HEADERS,
+                )
 
         # Add strength_program if provided
         strength_program = body.get('strength_program')
