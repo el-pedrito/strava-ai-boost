@@ -29,7 +29,7 @@ Strava AI Boost is a **serverless AWS application** that automatically enhances 
 - **18 Lambda functions** (API, processing, webhooks, support, voice — role-based packages)
 - **3 AgentCore Runtimes** — `content_gen`, `strava_ai_boost_coach` (coach), `coach_chat` (agentic conversational coach): 2 agent definitions in `src/agents/` + 1 chat runtime in `src/coach_chat/`, sharing a single AgentCore Memory (`content_gen_mem`, 3 strategies)
 - **8 CDK stacks**
-- **419 tests** (325 backend unit + 41 regression + 53 frontend) + on-demand prompt regression harness (deterministic V1 + managed AgentCore Evaluations V2)
+- **613 tests** (517 backend unit + 43 regression + 53 frontend) + on-demand prompt regression harness (deterministic V1 + managed AgentCore Evaluations V2)
 - **Centralized LLM registry** — all Bedrock model IDs come from `src/config/llm_config.py` (mirrored in `lambda_functions/shared/llm_models.py` for Lambda bundling); anti-drift sync test
 - **Python 3.12** runtime, **React 19 + TypeScript + Vite** frontend
 - **Cognito authentication** (JWT, custom:strava_id attribute, no self-registration)
@@ -142,7 +142,8 @@ strava-ai-boost/
 │       ├── env_validation.py           # Environment variable validation
 │       ├── responses.py                # Standardized API responses
 │       ├── coach_context.py            # Athlete context builders + format_weekly_breakdown (chat + stream)
-│       ├── campus_status.py            # Canonical Campus session status helper (sync + dashboard consumers)
+│       ├── campus_status.py            # Canonical Campus session status helper (sole source of truth for "is this session done")
+│       ├── iso_week.py                 # Canonical ISO week label 'YYYY-Www' (never a bare week number)
 │       ├── strength_exercises.py       # Canonical strength exercise vocabulary + alias resolver (extraction + Coach charts)
 │       ├── llm_models.py               # Bedrock model IDs mirrored from src/config/llm_config.py
 │       └── strava_oauth.py             # OAuth token management
@@ -188,14 +189,14 @@ strava-ai-boost/
 │   └── vite.config.ts                  # Vite + Vitest configuration
 │
 ├── tests/                      # Test suite
-│   ├── unit/                           # Lambda unit tests (325 tests)
+│   ├── unit/                           # Lambda unit tests (517 tests)
 │   │   ├── conftest.py                 # Env vars for Lambda imports
 │   │   ├── test_webhook_handler.py     # Validation, routing, signature
 │   │   ├── test_content_generator.py   # DynamoDB, parsing, storage, strength extraction
 │   │   ├── test_workout_analysis.py    # Laps classification, pace zones, Enduraw extraction
 │   │   ├── test_dashboard_api.py       # Validation, routing, caching, health anomalies
 │   │   └── test_configuration_api.py   # Strava deauthorization flow
-│   ├── regression/                     # Prompt regression harness (41 tests + live runners)
+│   ├── regression/                     # Prompt regression harness (43 tests + live runners)
 │   │   ├── fixtures/                   # 8 synthetic activities (shared by V1 + V2 evals)
 │   │   ├── evaluators.py               # Deterministic criteria + BANNED_CLICHES (sync-tested vs prompt)
 │   │   ├── evaluators_managed/         # Custom LLM-as-a-Judge configs (AgentCore Evaluations)
@@ -258,7 +259,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
     except ValueError as e:
         logger.warning("Invalid input", extra={"error": str(e)})
-        return {'statusCode': 400, 'body': json.dumps({'error': str(e)})}
+        return {'statusCode': 517, 'body': json.dumps({'error': str(e)})}
     except Exception as e:
         logger.exception("Unexpected error")
         return {'statusCode': 500, 'body': json.dumps({'error': str(e)})}
@@ -399,12 +400,12 @@ class MyModule(BaseModule):
 
 ### Running Tests
 
-**Lambda Unit Tests (325 tests, ~2s):**
+**Lambda Unit Tests (517 tests, ~2s):**
 ```bash
 pytest tests/unit/ -v
 ```
 
-**Regression evaluators + LLM registry sync (41 tests, free, no AWS):**
+**Regression evaluators + LLM registry sync (43 tests, free, no AWS):**
 ```bash
 pytest tests/regression/ -v
 ```
@@ -605,15 +606,90 @@ class TestMyModule:
 
 **Campus Coach Matching** (deterministic, `modules_processing.py`):
 - Sessions scored against activity laps using: activity type, duration match, interval count, interval duration
-- Score ≥ 0.5 → only that session sent to LLM, marked "Fait" in DynamoDB
+- Candidates are scoped to the **activity's own ISO week**, read with a `Query` on the `session_date` partition key (`week-YYYY-Www`). The `is_current_week` flag is only the fallback, for an activity whose week has no synced plan. Scoping matters because the scorer discriminates weeks poorly: a real 9x1min activity still scores 0.82 against the 7x1min plan of the previous week, above the 0.5 threshold
+- Score ≥ 0.5 → only that session sent to LLM, marked done in DynamoDB
 - Score < 0.5 → all sessions passed for context, nothing marked done
-- Already-done sessions filtered from future matching
+- Already-done sessions are excluded, **except** the one already bound to the activity being processed (see `match_campus_session`)
+- Both pipeline branches call the single matcher `match_campus_session()`. The coach branch uses it to receive an authoritative `campus_matched_session` signal instead of inferring the link from narrative context
 
-**Campus Coach Sync** (`lambda_functions/webhooks/campus_coach_sync.py`): Direct REST API integration replacing Browser Tool. Login via `POST /account/login` + `GET /smart-training?from=...&to=...` fetches all accessible weeks (1-9 depending on billing cycle). Stores structured sessions in DynamoDB with `is_current_week`/`is_future` flags, including intervals and targets. EventBridge daily 05:00 UTC. Only runs if campus_coach module is enabled. Athlete context (goal, assiduity, sport profile) persisted. All future weeks injected into coach context.
+**Gym activity vs planned PPG** (`_score_gym_against_ppg`): a `WeightTraining` carries no laps to score against the PPG intervals, so the activity type alone cannot tell the athlete's own program (`strength_program`: Upper A, Upper B, Rappel) from the running-specific PPG the plan prescribes. This used to return a flat `0.8`, above the threshold, so **every** gym session silently closed the Campus PPG, which hid a session still to do and inflated the week's count. It is now weighted, because no single factor is conclusive:
+
+- base `0.30`, deliberately below `MATCH_THRESHOLD`: the default is "context only, do not close"
+- `+0.55` when the athlete names it (writes "renfo campus" / "ppg" in the Strava title or description). He is the only one who knows, so this is the decisive factor
+- `-0.15` when the text lists his own program's movements (tractions, low row, DC barre…)
+- up to `+0.15` for closeness to `expected_duration_min`, weak corroboration
+
+A declaration therefore wins even alongside a movement list, while movements without a declaration stay far below the threshold. Two guards: negations near the marker ("pas le renfo campus") do not count, and the declaration is read from `original_name`/`original_description` first, because the **generated** description routinely says "Séance Campus Coach" and would otherwise let our own output confirm the match on reprocessing.
+
+**Strength session data contracts** (three invariants, break them and the tonnage lies):
+
+1. **`sets_detail` is authoritative** — each exercise in `parsed_sets` carries
+   `sets_detail: [{reps, weight_kg}]`, one entry per set actually performed, in order.
+   The flat `{sets, reps, weight_kg}` triplet is a summary kept for backward
+   compatibility (`sets = len(sets_detail)`, `reps`/`weight_kg` = most frequent value),
+   never a total. The flat shape cannot represent `10x80 8x90 8x90` and under-reported a
+   real session's tonnage by 33%. Consumers must tolerate rows written before the change:
+   rebuild `sets_detail` from the flat fields when it is absent.
+2. **The athlete's notation has three traps**, all encoded in
+   `_STRENGTH_EXTRACTION_SYSTEM_PROMPT` and pinned by tests:
+   - `/c`, `/cote`, `par cote`, `/side` mean the load is PER SIDE, so what is moved is
+     double (`4x8 55/c` is four sets at 110).
+   - a paired line `A - B 3x10-10 15-35` is a superset: two exercises, matched in order
+     (A at 15, B at 35). Dropping the first value of a pair silently loses a load.
+   - a trailing `xN` is the TOTAL number of sets for the pair it follows, not N extra
+     sets (`80x10 x2` is two sets, never three).
+3. **Tonnage has a single definition** — `shared/strength_volume.py`, computed ONCE at
+   write time in `_track_strength_history` and stored on the history entry
+   (`total_sets`, `total_reps`, `volume_kg`, `body_weight_kg_used`,
+   `volume_kg_incomplete`, `excluded_exercises`, `per_exercise`). The coach payload, the
+   dashboard chart and the `coach_chat` tool all READ those figures. They never
+   recompute: the chat cannot import `lambda_functions/shared/` (its bundle is limited to
+   `src/coach_chat/`), so a second implementation there drifted immediately. Bodyweight
+   movements resolve through `BODYWEIGHT_EXERCISES` only, unilateral ones double through
+   `UNILATERAL_EXERCISES`, and `body_weight_kg` is NEVER defaulted (a plausible wrong
+   weight is worse than a flagged gap).
+
+**Campus Coach data contracts** (three invariants, break them and the coach mixes weeks):
+
+1. **Execution status** — always resolve through `shared/campus_status.effective_status()`. The raw `status` attribute is a legacy field that the sync deliberately never rewrites (it is in `LOCAL_EXECUTION_FIELDS`), so it holds stale, mixed values. Precedence: `local_status` → legacy `status` if done/skip → `matched_activity_id`/`completed_at` → `provider_status` → `todo`. The `coach_chat` runtime cannot import `lambda_functions/shared/` (its `direct_code_deploy` bundles only `src/coach_chat/`), so it carries a local mirror kept honest by an anti-drift test.
+2. **Week identity** — always the ISO string `'YYYY-Www'` via `shared/iso_week.iso_week_label()`, never a bare week number. A bare integer cannot be compared with the `week_date_iso` values the sync writes.
+3. **Intervals schema** — consumers must tolerate three shapes, because rows written before a sync keep the old form:
+   - new per-block: `{'type': 'block', 'repeat': N, 'exercises': [{type, duration, pace}]}` (emitted when `repeat > 1`)
+   - new flat: `{'type': 'work', 'duration', 'pace'}` (emitted when `repeat <= 1`)
+   - legacy flat with a per-entry `repeat`
+   Use `modules_processing._normalize_intervals()`, which expands all three into per-occurrence units. Never sum a per-entry `repeat`: the old producer copied the block factor onto every work exercise, which inflated counts. For a session's planned duration prefer the provider's `expected_duration_min` (`_session_target_duration_min`); deriving it from intervals under-reports, because legacy rows omit the repeat factor on recoveries nested in a repeated block.
+
+**Campus Coach Sync** (`lambda_functions/webhooks/campus_coach_sync.py`): Direct REST API integration replacing Browser Tool. Login via `POST /account/login` + `GET /smart-training?from=...&to=...` fetches all accessible weeks (1-9 depending on billing cycle). Stores structured sessions in DynamoDB with `is_current_week`/`is_future` flags, including intervals and targets. EventBridge every 2h across the athlete's active window (05:00 to 21:00 UTC, 9 runs/day): a single daily run left the coach up to 13h behind, so a session completed during the day, or a plan edited mid-afternoon, stayed invisible. Only runs if campus_coach module is enabled. Athlete context (goal, assiduity, sport profile) persisted. All future weeks injected into coach context.
 
 **Coach Agent** (`coach_agent.py`): Training feedback agent using Claude Sonnet 4.5 with LTM memory (`coaching_observations` write session; observations are extracted by the memory strategies and read back via the unified `/strategies/` namespaces with a session-type-aware query). Analyzes activity in context of athlete profile (objectives, history, experience, pace zones, personal records, FCmax), recent training trends (4 weeks via GSI query with EF pace@HR, CTL/Form, segment PRs), and historical observations. Produces training feedback focused on **progression and trends** (not session recap). Runs in parallel with content generation.
 
 **Coach Context (injected):**
+
+> **Figures the coach must never recompute.** Every weekly number the coach states
+> is calculated in code and handed to it. This is not cosmetic: each figure left to
+> the model was wrong in production (a rolling 7-day total presented as "cette
+> semaine" with a bogus "+32% ramp rate" alert, "il reste 2 séances" when 4 were
+> to do, "2 séances muscu" on a week holding one), while every figure moved into
+> code has been right since. The prompt states these fields are the sole source and
+> forbids recomputing them.
+>
+> - `week_overview` (`build_week_overview`) — the single merged view of the week:
+>   `done_this_week` (runs/km/strength, **current activity included**, unlike
+>   `weekly_breakdown` which skips it), `campus_remaining` (count, running_count,
+>   titles) and `own_strength_program` (planned/done/remaining). It buckets on the
+>   ISO week of the *activity*, not of "now", so a Sunday session processed on
+>   Monday stays in its own week. Sets `counts_incomplete` on query failure rather
+>   than letting the model fill the gap. The athlete's week is Campus running
+>   sessions **plus** his own program, and the two are never merged into one count.
+> - `campus_week_remaining` — remaining plan sessions for the week, resolved through
+>   `effective_status`.
+> - `campus_matched_session` — authoritative "this activity closes plan session X",
+>   from the shared `match_campus_session`. Authoritative on *which* session was
+>   done, never on what was done inside it: counts and paces always come from laps.
+> - `recent_activities_by_week` — per-activity detail keyed by ISO week. Deliberately
+>   not a flat dated list: that shape is what let the coach sum an arbitrary window.
+> - `weekly_km` — keyed by ISO label (`2026-W32`), never a bare week number.
+
 - Athlete profile + pace zones + personal records + FCmax
 - **Strength program** (Upper A, Upper B, Rappel — exercises with sets/load/rest)
 - **Strength history** (last 8 WeightTraining descriptions for progression tracking)

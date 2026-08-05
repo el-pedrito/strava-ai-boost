@@ -3,8 +3,8 @@
 Integration test suite with dynamic AWS resource discovery.
 
 > This README covers the **integration suite** (live AWS). Two other suites live alongside:
-> - `tests/unit/` — 325 mocked Lambda unit tests, no AWS credentials (`pytest tests/unit/`)
-> - `tests/regression/` — 41 prompt-regression & docs-sync tests + live runners (see `docs/design/regression-evals.md`)
+> - `tests/unit/` — 517 mocked Lambda unit tests, no AWS credentials (`pytest tests/unit/`)
+> - `tests/regression/` — 43 prompt-regression & docs-sync tests + live runners (see `docs/design/regression-evals.md`)
 
 ## Test Files
 
@@ -96,7 +96,7 @@ open htmlcov/index.html
 - ✅ `/preferences` - User preferences
 
 **Advanced Testing**
-- ✅ Error handling (404, 403, 405)
+- ✅ Error handling (404, 403, 517)
 - ✅ Cognito JWT validation (valid/invalid/missing token)
 - ✅ Performance (response times <5-10s)
 - ✅ Data structure validation
@@ -243,7 +243,7 @@ aws cloudformation list-stacks --profile your-aws-profile
 
 ## Next Steps
 
-Done since this suite was written: **Lambda unit tests** (325 mocked tests in `tests/unit/`) and **agent prompt tests** (regression harness in `tests/regression/` + live V1/V2 runners). Remaining ideas:
+Done since this suite was written: **Lambda unit tests** (517 mocked tests in `tests/unit/`) and **agent prompt tests** (regression harness in `tests/regression/` + live V1/V2 runners). Remaining ideas:
 
 1. **Load tests** - Test API Gateway under load
 2. **Security tests** - Penetration testing for API endpoints
