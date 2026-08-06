@@ -11,7 +11,7 @@ Le projet est fonctionnel et en production (dev). Toute la chaine fonctionne end
 - Webhook Strava → Step Functions → AI content generation → update Strava activity
 - Campus Coach sync REST direct (daily 05:00 UTC via EventBridge, session status sync on match)
 - Frontend React (CloudFront + Cognito) avec configuration modules, profil utilisateur, feedback loop
-- 666 tests (570 backend unit + 43 régression + 53 frontend) + 73 tests d'intégration
+- 674 tests (578 backend unit + 43 régression + 53 frontend) + 73 tests d'intégration
 - Observability (X-Ray + CloudWatch), cost allocation tags, DLQ error handling
 - Security : Secrets Manager, filtrage d'origine du webhook (subscription_id + owner_id ; Strava **ne signe pas** ses events), Cognito auth (API Gateway + coach chat customJWT), DynamoDB encryption, no public endpoints
 
