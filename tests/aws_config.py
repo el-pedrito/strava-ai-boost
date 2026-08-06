@@ -17,11 +17,27 @@ logger = logging.getLogger(__name__)
 class AWSTestConfig:
     """Dynamic AWS configuration for tests"""
     
-    def __init__(self, profile: str = None, region: str = 'eu-west-1'):
-        """Initialize AWS config with profile"""
-        self.profile = profile or os.environ.get('AWS_PROFILE', 'your-aws-profile')
-        self.region = region
-        self.session = boto3.Session(profile_name=self.profile, region_name=self.region)
+    def __init__(self, profile: str = None, region: str = None):
+        """Initialize AWS config.
+
+        Profile follows the same rule as the deploy scripts (c77b406): pass profile_name
+        only when one is configured. The previous default was the literal placeholder
+        'your-aws-profile', so discovery raised ProfileNotFound for anyone who did not
+        happen to have a profile by that name.
+
+        CAVEAT: the session-scoped autouse `setup_environment` fixture in tests/conftest.py
+        sets FAKE AWS credentials and AWS_REGION=eu-west-1 for every test under tests/,
+        including this integration suite. Ambient credentials are therefore clobbered and a
+        named AWS_PROFILE is currently REQUIRED for live runs -- profile_name bypasses the
+        env credentials, which is the only reason the suite ever worked. Region is read from
+        TEST_AWS_REGION rather than AWS_REGION for the same reason: AWS_REGION is fake here.
+        """
+        self.profile = profile or os.environ.get('AWS_PROFILE') or None
+        self.region = region or os.environ.get('TEST_AWS_REGION') or 'us-east-1'
+        session_kwargs = {'region_name': self.region}
+        if self.profile:
+            session_kwargs['profile_name'] = self.profile
+        self.session = boto3.Session(**session_kwargs)
         self._cache = {}
     
     def get_stack_outputs(self, stack_name: str) -> Dict[str, str]:

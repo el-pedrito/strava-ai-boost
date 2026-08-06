@@ -32,10 +32,11 @@ pip install -r requirements.txt
 
 ```bash
 # Run complete test suite
-export AWS_PROFILE=your-aws-profile
 pytest tests/ -v
 
-# Expected: 70 passed in ~20s
+# Measured 2026-08-06 without a profile: 29 passed, 15 failed, 26 skipped.
+# The 26 skips are the live API tests (no COGNITO_ID_TOKEN - read the warning below).
+# The 15 failures are NOT your setup; see "Known broken" in Test Coverage.
 ```
 
 ### Run Specific Test Categories
@@ -63,16 +64,51 @@ open htmlcov/index.html
 
 ## Test Coverage
 
-### Current Coverage (70 tests)
+### Measured 2026-08-06 (`--cov=lambda_functions --cov=stacks --cov=src`)
 
-| Component | Coverage | Status |
-|-----------|----------|--------|
-| **CDK Stacks** | 91% | ✅ Excellent |
-| **API Gateway** | 100% functional | ✅ Perfect |
-| **Lambda Structure** | 100% | ✅ Perfect |
-| **AWS Integration** | 100% | ✅ Perfect |
-| **Lambda Logic** | 5% | ⚠️ Integration only |
-| **Agents** | 0% | ⚠️ Deployed on AgentCore |
+Measured from the **offline** suites (`tests/unit/`, `tests/regression/`,
+`tests/test_cdk_infrastructure.py`). The live API and end-to-end tests are excluded on
+purpose — see the warning below.
+
+| Component | Coverage | Notes |
+|-----------|----------|-------|
+| `lambda_functions/` | **45%** | processing 51%, webhooks 51%, shared 69%, api 35%, support 17% |
+| `stacks/` | **67%** | via CDK synth tests; 4 of 8 stacks at 0% (feedback_loop, frontend_hosting, security, voice_debrief) |
+| `src/` | **37%** | `coach_chat` 80%, `agents` 6% (agent bodies run on AgentCore, not locally) |
+| API Gateway endpoints | functional only | live tests skip without `COGNITO_ID_TOKEN` |
+
+Reproduce:
+
+```bash
+pytest tests/unit/ tests/regression/ tests/test_cdk_infrastructure.py \
+  --cov=lambda_functions --cov=stacks --cov=src --cov-report=term
+```
+
+> ⚠️ **Known broken (pre-existing, verified at `386bd55`)** — the integration suite does not
+> currently pass. Measured 2026-08-06: **29 passed, 15 failed, 26 skipped**.
+>
+> - **5 stale CDK resource counts** in `test_cdk_infrastructure.py`: expects 3 Secrets
+>   Manager secrets (there are 4), 4 Lambdas in the Content stack (5), 6 in the API stack
+>   (4), and an EventBridge rule that moved. The assertions need updating, not the stacks.
+> - **10 discovery failures** caused by the harness, not by AWS. The session-scoped
+>   `autouse` `setup_environment` fixture in `conftest.py` sets **fake AWS credentials** and
+>   `AWS_REGION=eu-west-1` for every test under `tests/`, including this suite. Ambient
+>   credentials are therefore clobbered, so a named `AWS_PROFILE` is **required** for a live
+>   run — `profile_name` is the only path that bypasses the fake env credentials. Region is
+>   read from `TEST_AWS_REGION` for the same reason.
+>
+> Properly separating the mocked env from the live suite (scoping the fixture to
+> `tests/unit/`, or skipping it for integration) is the real fix and has not been done.
+
+> 🛑 **Do not run the live API suite against a real account.**
+> `test_api_gateway.py::test_preferences_update` POSTs a 4-field payload to `/preferences`,
+> and the handler does `SET user_preferences = :prefs` — a wholesale replace, not a merge.
+> On the live account that destroys `athlete_profile`, `pace_zones`, `personal_records`,
+> `strength_program` and the full `strength_history` (64 entries as of 2026-08-06). The test
+> reads the current values into `current` and never restores them. Point-in-time recovery is
+> enabled on `strava-ai-boost-user-configuration`, so it is recoverable, but only by
+> restoring the table. Fix the test to restore (or to use a throwaway user) before setting
+> `COGNITO_ID_TOKEN`.
 
 ### What's Tested
 

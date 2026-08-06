@@ -78,9 +78,19 @@ def aws_config():
 
 @pytest.fixture(scope="session")
 def aws_session():
-    """Create AWS session with proper profile for integration tests"""
-    profile = os.environ.get('AWS_PROFILE', 'your-aws-profile')
-    return boto3.Session(profile_name=profile, region_name='eu-west-1')
+    """AWS session for integration tests.
+
+    Mirrors aws_config.AWSTestConfig: no profile_name unless AWS_PROFILE is set, and
+    us-east-1 (where this project deploys) rather than the previous eu-west-1 default.
+    Region comes from TEST_AWS_REGION because the autouse setup_environment fixture above
+    overwrites AWS_REGION with a fake value for unit-test mocking.
+    """
+    profile = os.environ.get('AWS_PROFILE') or None
+    region = os.environ.get('TEST_AWS_REGION') or 'us-east-1'
+    kwargs = {'region_name': region}
+    if profile:
+        kwargs['profile_name'] = profile
+    return boto3.Session(**kwargs)
 
 
 @pytest.fixture
