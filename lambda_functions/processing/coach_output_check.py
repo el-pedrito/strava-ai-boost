@@ -51,8 +51,12 @@ _STRENGTH_COUNT = re.compile(
 )
 # "3 courses", "1 run"
 _RUN_COUNT = re.compile(rf"{_NUM}\s*(?:courses?|runs?|sorties?)\b", re.IGNORECASE)
-# "35km", "6,4 km"
-_KM = re.compile(rf"{_NUM}\s*km\b", re.IGNORECASE)
+# "35km", "6,4 km". The trailing guard rejects "17-18km/h": \b fires on the slash, so a
+# SPEED was being read as a distance and compared to the weekly total, which would strip
+# the sentence describing the workout itself. Scoped to a following h (or the exotic
+# "km·h") rather than any slash, so "21,8km / 3 runs" -- a slash used as a separator --
+# is still read as a distance.
+_KM = re.compile(rf"{_NUM}\s*km\b(?!\s*[/·]\s*h)", re.IGNORECASE)
 # "il te reste 2", "il reste 4 seances"
 _REMAINING = re.compile(rf"il\s+(?:te\s+)?reste\s+{_NUM}", re.IGNORECASE)
 # "320 reps", "238 repetitions"
@@ -65,9 +69,52 @@ _TONNAGE = re.compile(
     re.IGNORECASE,
 )
 
-# A claim is only checked when the sentence ties it to the current week. Without
-# this, "26.5km la semaine derniere" would be compared against this week's total.
-_CURRENT_WEEK_MARKERS = ("cette semaine", "sur la semaine", "ta semaine", "la semaine en cours")
+# A claim is only checked when the sentence ties it to THIS week's completed totals.
+# Without this, "26.5km la semaine derniere" would be compared against this week.
+#
+# The gate is an ALLOWLIST on purpose, and stays one. An unrecognised phrasing costs a
+# missed check; a wrongly-recognised one strips correct coaching, and this module holds
+# the second to be the worse failure. A broad stem match (`semaine|hebdo`) was tried and
+# reverted: it admitted "la semaine prochaine tu as 4 courses", "ta moyenne hebdomadaire",
+# "Semaine 32 : 4 courses" and a dozen more -- and since recommendation_next is in
+# CHECKED_FIELDS, next-week prose is checked by construction, so that direction is not
+# theoretical.
+#
+# What the allowlist must cover, from production: the coach published
+# "Contexte hebdo : ... = 3 runs" against a computed 2, one sentence after the verifier
+# had stripped that same error phrased "Cette semaine". So the "<noun> hebdo" and
+# "hebdo :" shapes are recognised alongside the original four literals.
+_WEEK_SCOPE = re.compile(
+    r"cette\s+semaine"
+    r"|semaine\s+en\s+cours"
+    r"|sur\s+la\s+semaine"
+    r"|(?:ta|ma|sa)\s+semaine"
+    r"|(?:contexte|bilan|r[eé]cap\w*|total|volume|charge|cumul)\s+hebdo\w*"
+    r"|hebdo\w*\s*:",
+    re.IGNORECASE,
+)
+
+# A qualifier can turn a current-week phrasing into something else entirely, so these
+# are vetoed before the allowlist is consulted:
+#   plan      "la semaine prochaine tu as 4 courses au programme"
+#   habit     "ta charge hebdo HABITUELLE", "ta moyenne hebdo", "une semaine TYPE",
+#             "en semaine", "4 fois PAR semaine", "35km/semaine"
+#   other wk  "Semaine 32 :", "la semaine DU 27/07", "il y a une semaine"
+#   part wk   "en FIN DE semaine"
+#   multi-wk  "sur ces 3 semaineS" (the plural also defeats \bhebdo on its own)
+# Each entry here was a measured false positive, not a hypothetical.
+_NOT_CURRENT_WEEK = re.compile(
+    r"habituel\w*|moyenne|typique|semaine\s+type|d'habitude"
+    r"|semaine\s+(?:prochaine|derni[eè]re|pr[eé]c[eé]dente|du\b|\d)"
+    r"|(?:prochaine|derni[eè]re|pr[eé]c[eé]dente)\s+semaine"
+    r"|il\s+y\s+a\s+(?:une?|\d+)\s+semaines?"
+    r"|(?:par|chaque)\s+semaine|/\s*semaine|[àa]\s+la\s+semaine|sur\s+une\s+semaine"
+    r"|(?:fin|d[eé]but|milieu)\s+de\s+semaine"
+    r"|en\s+semaine"
+    r"|semaines"
+    r"|au\s+programme",
+    re.IGNORECASE,
+)
 
 # A sentence that names a PAST week is reporting weekly_breakdown, which legitimately
 # holds other figures. Checking it against this week's counts produced a false
@@ -106,7 +153,9 @@ def _mentions_current_week(sentence: str) -> bool:
     low = sentence.lower()
     if _mentions_past_week(sentence):
         return False
-    return any(marker in low for marker in _CURRENT_WEEK_MARKERS)
+    if _NOT_CURRENT_WEEK.search(low):
+        return False
+    return bool(_WEEK_SCOPE.search(low))
 
 
 def _is_advisory(sentence: str) -> bool:
@@ -168,8 +217,15 @@ def _check_sentence(
             )
 
     # Weekly claims are only meaningful when the sentence scopes them to this week,
-    # and only trustworthy when the counts themselves are complete.
-    if _mentions_current_week(sentence) and not counts_incomplete:
+    # and only trustworthy when the counts themselves are complete. A "remaining"
+    # sentence is excluded too: "il te reste 3 courses cette semaine" counts sessions
+    # still TO DO, so comparing it against runs DONE flags a correct sentence -- the
+    # same trap already documented below for strength counts.
+    if (
+        _mentions_current_week(sentence)
+        and not counts_incomplete
+        and not _mentions_remaining(sentence)
+    ):
         for m in _RUN_COUNT.finditer(sentence):
             compare("run count this week", _to_float(m.group(1)), done.get("runs"))
         for m in _KM.finditer(sentence):

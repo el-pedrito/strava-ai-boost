@@ -211,3 +211,215 @@ class TestAdvisorySentencesAreNotClaims:
         problems = verify_weekly_claims(fb, _overview(strength=1), None)
         assert len(problems) == 1, problems
         assert "strength sessions this week" in problems[0]
+
+
+
+class TestWeekScopedByAnySynonym:
+    """The week gate must not be defeated by rephrasing.
+
+    Regression fixtures from activity 19616443561 (2026-08-05), the first activity
+    processed after the verifier shipped. The coach double-counted the current
+    session -- it took the weekly totals, which already include it, and added it
+    again -- producing "3 runs" and "21,8km" against a real 2 runs / 14,08km.
+
+    The verifier caught it in the sentence phrased "Cette semaine : ..." and stripped
+    it, then PUBLISHED the identical error one sentence earlier because that one
+    scoped the week as "Contexte hebdo". The gate was a four-literal allowlist, so
+    any synonym walked around it and the athlete read a figure the code had already
+    rejected.
+    """
+
+    def _week(self):
+        """The real computed figures for 2026-W32: 2 runs, 14.08 km, 1 strength."""
+        return _overview(runs=2, run_km=14.08, strength=1, remaining=3)
+
+    def test_hebdo_scoped_run_count_is_caught(self):
+        """VERBATIM published sentence: 'Contexte hebdo' scopes the week too."""
+        fb = {
+            "detailed_analysis": (
+                "Contexte hebdo : 2 EF (14,1km) + Upper A (DC machine 110kg) "
+                "+ cette seance = 3 runs + 1 muscu, frequence coherente."
+            )
+        }
+        problems = verify_weekly_claims(fb, self._week(), None)
+        assert problems, "'3 runs' contradicts the computed 2 and must be caught"
+        assert any("run count" in p for p in problems)
+
+    def test_correct_kilometres_in_the_same_sentence_still_pass(self):
+        """Catching the run count must not also strip the correct 14,1km beside it.
+
+        The verbatim sentence carries both a wrong figure (3 runs) and a correct one
+        (14,1km, inside KM_TOLERANCE of the computed 14,08). Only the run count may be
+        reported: a fix that also flagged the kilometres would be inventing a mismatch.
+        """
+        fb = {
+            "detailed_analysis": (
+                "Contexte hebdo : 2 EF (14,1km) + Upper A (DC machine 110kg) "
+                "+ cette seance = 3 runs + 1 muscu, frequence coherente."
+            )
+        }
+        problems = verify_weekly_claims(fb, self._week(), None)
+        assert len(problems) == 1, f"expected only the run count to be flagged, got {problems}"
+        assert "run count" in problems[0]
+        assert not any("kilometres" in p for p in problems)
+
+    def test_speed_is_not_read_as_a_weekly_distance(self):
+        """VERBATIM published sentence: '17-18km/h' is a speed, not 18 km.
+
+        The regex matched the 18 because \\b fires on the slash. Comparing it to the
+        weekly 14,08 would strip the primary description of the workout.
+        """
+        fb = {
+            "detailed_analysis": (
+                "Cette semaine tu as fait 5x30sec rapides (138-150m par fraction, "
+                "soit ~17-18km/h) sur la seance Campus."
+            )
+        }
+        assert verify_weekly_claims(fb, self._week(), None) == []
+
+    def test_current_activity_distance_is_not_a_weekly_claim(self):
+        """The coach states this session's own distance constantly.
+
+        Without a week marker it must stay unchecked, otherwise every activity's own
+        distance gets compared to the weekly total.
+        """
+        fb = {"detailed_analysis": "Ta sortie de 7,7 km ce soir etait solide."}
+        assert verify_weekly_claims(fb, self._week(), None) == []
+
+    def test_other_period_claims_are_not_compared_to_the_week(self):
+        """A monthly count is not a weekly count.
+
+        This is why the run count keeps its gate instead of being checked
+        unconditionally: 'le mois dernier' is not a week and must not be compared.
+        """
+        fb = {"detailed_analysis": "Le mois dernier tu avais boucle 12 courses."}
+        assert verify_weekly_claims(fb, self._week(), None) == []
+
+    def test_past_week_still_wins_over_the_broadened_marker(self):
+        """'la semaine derniere' contains 'semaine' but must remain excluded."""
+        fb = {"detailed_analysis": "La semaine derniere : 4 courses (26,5km), 2 muscu."}
+        assert verify_weekly_claims(fb, self._week(), None) == []
+
+
+
+class TestWeekGateRejectsNonCurrentWeekSentences:
+    """Sentences that mention a week but claim nothing about THIS week's totals.
+
+    Each case here was a measured false positive when the gate was briefly widened to a
+    bare `semaine|hebdo` stem match. They are pinned because stripping a correct
+    sentence is the failure this module holds to be worse than a missed check: it
+    removes real coaching and teaches the athlete to ignore the warnings.
+
+    The computed week is 2 runs / 14,08km / 1 strength throughout, so any figure below
+    that differs would be flagged if the sentence were wrongly treated as a claim.
+    """
+
+    def _week(self):
+        return _overview(runs=2, run_km=14.08, strength=1, remaining=3)
+
+    def _assert_not_flagged(self, sentence):
+        for field in ("detailed_analysis", "recommendation_next", "strava_block"):
+            assert verify_weekly_claims({field: sentence}, self._week(), None) == [], (
+                f"{field}: wrongly treated as a current-week claim: {sentence!r}"
+            )
+
+    def test_next_week_plan_is_not_a_current_week_claim(self):
+        """recommendation_next is a CHECKED_FIELD, so next-week prose is unavoidable."""
+        self._assert_not_flagged("La semaine prochaine tu as 4 courses au programme.")
+
+    def test_weekly_average_is_not_a_current_week_claim(self):
+        self._assert_not_flagged("Ta moyenne hebdomadaire tourne autour de 3 courses.")
+
+    def test_habitual_weekly_load_is_not_a_current_week_claim(self):
+        self._assert_not_flagged("Ta charge hebdo habituelle est de 35km.")
+
+    def test_typical_week_is_not_a_current_week_claim(self):
+        self._assert_not_flagged("Une semaine type chez toi : 4 courses pour 30km.")
+
+    def test_weekday_habit_is_not_a_current_week_claim(self):
+        self._assert_not_flagged("En semaine tu cales 3 courses avant le travail.")
+
+    def test_numbered_week_is_not_a_current_week_claim(self):
+        self._assert_not_flagged("Semaine 32 : 4 courses pour 26,5km.")
+
+    def test_dated_week_is_not_a_current_week_claim(self):
+        self._assert_not_flagged("La semaine du 27/07 tu avais boucle 4 courses.")
+
+    def test_a_week_ago_is_not_a_current_week_claim(self):
+        """_PAST_WEEK_MARKERS enumerates 'il y a 2/3/4 semaines' but not 'une'."""
+        self._assert_not_flagged("Il y a une semaine tu enchainais 4 courses.")
+
+    def test_frequency_phrasings_are_not_current_week_claims(self):
+        for sentence in (
+            "Tu tournes a 4 courses par semaine depuis mars.",
+            "Ton volume est monte a 35km/semaine.",
+            "Chaque semaine tu places 4 courses.",
+            "Tu es a la semaine a 3 courses.",
+            "Sur une semaine tu boucles 4 courses.",
+        ):
+            self._assert_not_flagged(sentence)
+
+    def test_part_of_week_is_not_a_whole_week_claim(self):
+        self._assert_not_flagged("En fin de semaine tu as pose 1 course de plus.")
+
+    def test_multi_week_window_is_not_a_current_week_claim(self):
+        """The plural must defeat the 'volume hebdo' shape too."""
+        self._assert_not_flagged("Sur ces 3 semaines, ton volume hebdo etait de 30km.")
+
+    def test_remaining_runs_are_not_compared_to_runs_done(self):
+        """'il te reste 3 courses' counts sessions TO DO, not sessions completed."""
+        self._assert_not_flagged("Il te reste 3 courses cette semaine pour boucler le plan.")
+
+
+class TestWeekGateStillCatchesRealClaims:
+    """The narrowing above must not cost the checks the verifier exists for."""
+
+    def _week(self):
+        return _overview(runs=2, run_km=14.08, strength=1, remaining=3)
+
+    def test_recognised_hebdo_shapes_are_checked(self):
+        """Each shape the allowlist covers must still catch a wrong run count."""
+        for sentence in (
+            "Contexte hebdo : 2 EF + cette seance = 3 runs.",
+            "Bilan hebdo : 3 courses au compteur.",
+            "Recap hebdo : 3 courses.",
+            "Volume hebdo : 3 courses cumulees.",
+            "Hebdo : 3 courses.",
+        ):
+            problems = verify_weekly_claims({"detailed_analysis": sentence}, self._week(), None)
+            assert problems, f"wrong run count not caught in: {sentence!r}"
+            assert any("run count" in p for p in problems)
+
+    def test_original_literal_markers_still_work(self):
+        """The four phrasings that predate this change must keep being checked."""
+        for sentence in (
+            "Cette semaine : 3 courses.",
+            "Sur la semaine tu es a 3 courses.",
+            "Ta semaine : 3 courses.",
+            "Sur la semaine en cours, 3 courses.",
+        ):
+            problems = verify_weekly_claims({"detailed_analysis": sentence}, self._week(), None)
+            assert problems, f"wrong run count not caught in: {sentence!r}"
+
+
+class TestKilometreUnitGuard:
+    """`_KM` must read distances and ignore speeds, without over-rejecting."""
+
+    def _week(self):
+        return _overview(runs=2, run_km=14.08, strength=1, remaining=3)
+
+    def test_speeds_are_never_read_as_distances(self):
+        for speed in ("~17-18km/h", "18 km/h", "18KM/H", "18km·h"):
+            fb = {"detailed_analysis": f"Cette semaine tu as tourne a {speed} sur les fractions."}
+            assert verify_weekly_claims(fb, self._week(), None) == [], f"{speed!r} read as a distance"
+
+    def test_a_slash_used_as_a_separator_still_reads_as_a_distance(self):
+        """The guard is scoped to a following 'h' so a km lie phrased with '/' is caught."""
+        fb = {"detailed_analysis": "Cette semaine : 21,8km / 3 sorties."}
+        problems = verify_weekly_claims(fb, self._week(), None)
+        assert any("kilometres" in p for p in problems), "21,8km vs 14,08 must still be caught"
+
+    def test_plain_distances_are_still_matched(self):
+        for text in ("35km", "26,5km", "7.7 km", "12,5km."):
+            fb = {"detailed_analysis": f"Cette semaine tu totalises {text}"}
+            assert verify_weekly_claims(fb, self._week(), None), f"{text!r} not read as a distance"

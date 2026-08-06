@@ -36,6 +36,9 @@ MEMORY_ID = os.environ.get("BEDROCK_AGENTCORE_MEMORY_ID") or os.environ.get("MEM
 COACH_AGENT_ARN = os.environ.get("COACH_AGENT_ARN", "")
 
 
+# @log_metrics is what flushes add_metric to CloudWatch (EMF on stdout).
+# Without it the metrics are buffered and silently dropped.
+@metrics.log_metrics
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Lambda handler for coaching feedback generation."""
     try:
@@ -305,6 +308,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             retry_summary = dict(historical_summary or {})
             retry_summary["verification_errors"] = problems
             retried = _invoke_coach_agent(activity_data, user_config, retry_summary)
+            removed: List[str] = []
             if retried:
                 remaining = verify_weekly_claims(retried, week_overview, strength_session)
                 if not remaining:
@@ -321,6 +325,26 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     feedback, week_overview, strength_session
                 )
                 feedback["unverified_claims"] = removed
+
+            if removed:
+                # A strip is the one outcome that changes what the athlete reads, and it
+                # used to leave no trace: no log line here, and the metric below was
+                # never flushed, so the only record was a DynamoDB attribute. Name the
+                # sentences -- a warning that does not say what was removed cannot be
+                # acted on.
+                logger.warning(
+                    "Removed coach sentences whose figures stayed contradicted after a retry",
+                    extra={
+                        "activity_id": activity_id,
+                        "removed_sentences": removed,
+                        "problems": problems,
+                    },
+                )
+            elif not problems:
+                logger.info(
+                    "Coach figures agreed with the computed ones after regeneration",
+                    extra={"activity_id": activity_id},
+                )
 
             if problems:
                 # Emit a metric: without it the phenomenon is only visible by reading
