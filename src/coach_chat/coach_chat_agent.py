@@ -664,9 +664,12 @@ def _compute_strength_totals(parsed_sets: list) -> dict:
     bodyweight or unknown loads are EXCLUDED and flagged (``volume_kg_incomplete``),
     never resolved to a default weight — an arbitrary default would produce a
     plausible but false figure, the exact class of error this chantier exists to
-    kill. Full bodyweight/unilateral tonnage is WP5's shared.strength_volume
-    (out of the chat runtime's bundle); until it lands, this reports honest
-    counts and a partial, flagged tonnage.
+    kill. Full bodyweight/unilateral tonnage lives in the pipeline's
+    shared/strength_volume.py, the single definition of tonnage, which this
+    runtime cannot import (its deploy bundles only src/coach_chat/). The caller
+    therefore prefers the figures that module stored at write time and reaches
+    this function ONLY for legacy rows written before that wiring landed, where
+    it force-flags the result incomplete.
     """
     total_sets = 0
     total_reps = 0
