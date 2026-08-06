@@ -234,6 +234,9 @@ def get_coach_recaps(event: Dict[str, Any], user_id: str) -> Dict[str, Any]:
 
 
 
+# @log_metrics is what flushes add_metric to CloudWatch (EMF on stdout).
+# Without it the metrics are buffered and silently dropped.
+@metrics.log_metrics
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Lambda handler for dashboard API endpoints

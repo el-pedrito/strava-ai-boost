@@ -60,6 +60,9 @@ ANALYSIS_WINDOW_HOURS = 24  # Minimum delay before analyzing (give user time to 
 MAX_CONTENT_LENGTH = 4000   # Max chars per message written to memory (AgentCore limit ~9000)
 
 
+# @log_metrics is what flushes add_metric to CloudWatch (EMF on stdout).
+# Without it the metrics are buffered and silently dropped.
+@metrics.log_metrics
 def lambda_handler(event, context):
     """
     Main handler for feedback analysis.

@@ -9,12 +9,27 @@ Usage:
 """
 
 from typing import Any, Dict
+import warnings
 
 from aws_lambda_powertools import Logger, Metrics
 from aws_lambda_powertools.metrics import MetricUnit
 
 
 METRICS_NAMESPACE = "StravaAIBoost"
+
+# Every metric in this project is ANOMALY-ONLY: CoachClaimMismatch,
+# WebhookRejectedForeignOrigin, StrengthHistoryWriteFailed and friends are recorded
+# only when the thing they name actually happens. An invocation that records nothing is
+# therefore the expected, healthy case -- but @log_metrics warns on every such flush.
+# Python's warning registry dedupes it to once per process rather than once per
+# invocation, so the cost is one spurious stderr line per cold container, not per call.
+# Suppressed anyway, and deliberately NOT by inventing a dummy metric to keep the set
+# non-empty: the warning is reporting a state we already know about and chose.
+warnings.filterwarnings(
+    "ignore",
+    message="No application metrics to publish",
+    category=UserWarning,
+)
 
 
 def get_logger(service: str = "strava-ai-boost") -> Logger:

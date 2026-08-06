@@ -106,6 +106,9 @@ def get_secretsmanager_client():
     return boto3.client('secretsmanager')
 
 
+# @log_metrics is what flushes add_metric to CloudWatch (EMF on stdout).
+# Without it the metrics are buffered and silently dropped.
+@metrics.log_metrics
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Lambda handler for Strava webhook notifications
