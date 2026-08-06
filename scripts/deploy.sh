@@ -65,6 +65,56 @@ print_status "Environment: $ENVIRONMENT"
 # Step 1: Validate prerequisites
 print_section "📋 Step 1: Validating prerequisites"
 
+# --- Python / CDK toolchain ----------------------------------------------------
+# cdk.json runs "python3 app.py", so whatever python3 resolves to on PATH is what
+# synthesises the stacks. On Amazon Linux 2023 /usr/bin/python3 is 3.9 and cannot even
+# import app.py (shared/responses.py uses datetime.UTC, which needs 3.11+). The project
+# venv is prepended to PATH so a deploy does not silently depend on the caller's shell.
+DEPLOY_VENV="${DEPLOY_VENV:-.venv-deploy}"
+if [ -x "$DEPLOY_VENV/bin/python" ]; then
+    # cd+pwd so an absolute DEPLOY_VENV works too: "$PWD/$DEPLOY_VENV" would build a
+    # nonexistent path and silently leave the system python3 (3.9) in front.
+    export PATH="$(cd "$DEPLOY_VENV/bin" && pwd):$PATH"
+    print_status "Python from $DEPLOY_VENV: $(python3 --version 2>&1)"
+else
+    print_warning "$DEPLOY_VENV not found - using the python3 already on PATH"
+fi
+
+# Lambda runs 3.12. Refuse to synth on anything older than 3.11.
+if [ "$(python3 -c 'import sys; print(1 if sys.version_info >= (3, 11) else 0)' 2>/dev/null || echo 0)" != "1" ]; then
+    print_error "python3 on PATH is $(python3 --version 2>&1), but synth needs >= 3.11 (Lambda runs 3.12)."
+    print_error "Build the deploy venv:"
+    print_error "  uv venv --python 3.12 $DEPLOY_VENV"
+    print_error "  uv pip install --python $DEPLOY_VENV/bin/python -r requirements.txt"
+    exit 1
+fi
+
+if ! command -v cdk > /dev/null 2>&1; then
+    print_error "cdk CLI not found on PATH. Install with: npm install -g aws-cdk"
+    exit 1
+fi
+print_status "CDK CLI: $(cdk --version 2>&1)"
+
+# .bedrock_agentcore.yaml is the ONLY source of BEDROCK_AGENTCORE_MEMORY_ID (.env.agentcore
+# does not carry it). Reading it needs PyYAML, and a venv without PyYAML used to make
+# load_agentcore_memory_id() return '' silently -- the deploy then blanked that variable on
+# every Lambda consuming it, disabling AgentCore memory with nothing logged anywhere. The
+# loader raises now; this check fails earlier and explains what to do.
+if [ -f ".bedrock_agentcore.yaml" ]; then
+    if ! MEMORY_ID_PREFLIGHT=$(python3 -c 'import sys; sys.path.insert(0, "."); from stacks.env_loader import load_agentcore_memory_id; print(load_agentcore_memory_id())' 2>&1); then
+        print_error "Could not resolve BEDROCK_AGENTCORE_MEMORY_ID:"
+        print_error "$MEMORY_ID_PREFLIGHT"
+        print_error "Deploying now would blank it on the Lambdas that consume it. Aborting."
+        exit 1
+    fi
+    if [ -z "$MEMORY_ID_PREFLIGHT" ]; then
+        print_warning "AgentCore memory id resolved empty - Lambdas deploy without it"
+    else
+        print_status "AgentCore memory id: $MEMORY_ID_PREFLIGHT"
+    fi
+fi
+# --- end toolchain -------------------------------------------------------------
+
 # Check if this is a first deployment
 FIRST_DEPLOYMENT=false
 if ! aws cloudformation describe-stacks --stack-name "StravaAIBoost-Core" "${PROFILE_ARGS[@]}" --region $REGION > /dev/null 2>&1; then
