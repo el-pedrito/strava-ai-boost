@@ -12,19 +12,20 @@ Integration test suite with dynamic AWS resource discovery.
 |------|-------|-------------|
 | `conftest.py` | - | Pytest configuration and shared fixtures |
 | `aws_config.py` | - | Dynamic AWS resource discovery |
-| `test_api_gateway.py` | 28 | Live API Gateway endpoint testing |
+| `test_api_gateway.py` | 27 | Live API Gateway endpoint testing |
 | `test_cdk_infrastructure.py` | 25 | CDK stacks and infrastructure |
-| `test_lambda_functions.py` | 10 | Lambda function structure |
+| `test_lambda_functions.py` | 8 | Lambda function structure |
 | `test_end_to_end.py` | 10 | Integration tests with deployed AWS |
 
-**Total: 73 tests**
+**Total: 70 tests**
 
 ## Quick Start
 
 ### Install Dependencies
 
 ```bash
-pip install pytest pytest-cov moto boto3 requests
+# Same venv as the other suites (see CONTRIBUTING.md); Python 3.12 to match Lambda.
+pip install -r requirements.txt
 ```
 
 ### Run All Tests
@@ -34,7 +35,7 @@ pip install pytest pytest-cov moto boto3 requests
 export AWS_PROFILE=your-aws-profile
 pytest tests/ -v
 
-# Expected: 73 passed in ~20s
+# Expected: 70 passed in ~20s
 ```
 
 ### Run Specific Test Categories
@@ -62,7 +63,7 @@ open htmlcov/index.html
 
 ## Test Coverage
 
-### Current Coverage (73 tests)
+### Current Coverage (70 tests)
 
 | Component | Coverage | Status |
 |-----------|----------|--------|
@@ -76,7 +77,7 @@ open htmlcov/index.html
 ### What's Tested
 
 **Infrastructure (CDK)**
-- ✅ DynamoDB tables (3 tables, encryption, GSI, TTL)
+- ✅ DynamoDB tables (4 tables, encryption, GSI, TTL)
 - ✅ Lambda functions (per-stack resource counts, configuration)
 - ✅ SQS queues (main + DLQ, encryption)
 - ✅ Step Functions (workflow, error handling)
@@ -96,7 +97,7 @@ open htmlcov/index.html
 - ✅ `/preferences` - User preferences
 
 **Advanced Testing**
-- ✅ Error handling (404, 403, 544)
+- ✅ Error handling (400, 403, 404)
 - ✅ Cognito JWT validation (valid/invalid/missing token)
 - ✅ Performance (response times <5-10s)
 - ✅ Data structure validation

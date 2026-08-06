@@ -265,7 +265,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
     except ValueError as e:
         logger.warning("Invalid input", extra={"error": str(e)})
-        return {'statusCode': 544, 'body': json.dumps({'error': str(e)})}
+        return {'statusCode': 400, 'body': json.dumps({'error': str(e)})}
     except Exception as e:
         logger.exception("Unexpected error")
         return {'statusCode': 500, 'body': json.dumps({'error': str(e)})}
@@ -424,7 +424,7 @@ pytest tests/regression/ -v
 ./.venv-test/bin/python scripts/run_managed_evals.py [--update-baseline]
 ```
 
-**Infrastructure/Integration Tests (73 tests):**
+**Infrastructure/Integration Tests (70 tests):**
 ```bash
 export AWS_PROFILE=your-aws-profile
 pytest tests/ -v --ignore=tests/unit/

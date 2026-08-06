@@ -11,7 +11,7 @@ Le projet est fonctionnel et en production (dev). Toute la chaine fonctionne end
 - Webhook Strava → Step Functions → AI content generation → update Strava activity
 - Campus Coach sync REST direct (daily 05:00 UTC via EventBridge, session status sync on match)
 - Frontend React (CloudFront + Cognito) avec configuration modules, profil utilisateur, feedback loop
-- 674 tests (578 backend unit + 43 régression + 53 frontend) + 73 tests d'intégration
+- 674 tests (578 backend unit + 43 régression + 53 frontend) + 70 tests d'intégration
 - Observability (X-Ray + CloudWatch), cost allocation tags, DLQ error handling
 - Security : Secrets Manager, filtrage d'origine du webhook (subscription_id + owner_id ; Strava **ne signe pas** ses events), Cognito auth (API Gateway + coach chat customJWT), DynamoDB encryption, no public endpoints
 
@@ -54,7 +54,10 @@ Voir [docs/ROADMAP.md](docs/ROADMAP.md) pour la liste complète et datée. Rappe
 ## P2 — Medium
 
 ### RemovalPolicy.DESTROY sur DynamoDB
-`core_infrastructure_stack.py:78,109,129` — 3 tables + 4 secrets en DESTROY. Acceptable en dev, a passer en RETAIN avant prod.
+`core_infrastructure_stack.py:71,115,135` — 3 tables + 4 secrets en DESTROY.
+`voice_debrief_stack.py:327` — la 4e table (`weekly-recaps`) l'est aussi, plus les buckets
+audio (`:79`, `:101`). Le fix doit donc couvrir les deux stacks, pas seulement Core.
+Acceptable en dev, a passer en RETAIN avant prod.
 - **Fix :** Conditionner sur `environment` context
 
 ### Lambda ARM64 (Graviton)
