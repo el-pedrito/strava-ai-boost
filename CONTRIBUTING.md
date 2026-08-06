@@ -13,8 +13,8 @@ Thanks for your interest! This project is a **personal-use sample** published fo
 ```bash
 git clone https://github.com/el-pedrito/strava-ai-boost.git
 cd strava-ai-boost
-python -m venv venv
-source venv/bin/activate
+python3.12 -m venv .venv-deploy
+source .venv-deploy/bin/activate
 pip install -r requirements.txt
 cd frontend && npm install && cd ..
 ```

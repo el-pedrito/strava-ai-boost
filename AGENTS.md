@@ -195,7 +195,10 @@ strava-ai-boost/
 │   │   ├── test_content_generator.py   # DynamoDB, parsing, storage, strength extraction
 │   │   ├── test_workout_analysis.py    # Laps classification, pace zones, Enduraw extraction
 │   │   ├── test_dashboard_api.py       # Validation, routing, caching, health anomalies
-│   │   └── test_configuration_api.py   # Strava deauthorization flow
+│   │   ├── test_configuration_api.py   # Strava deauthorization flow
+│   │   ├── test_coach_output_check.py  # Figure verifier: week-scope gate, km vs km/h, strip
+│   │   ├── test_metrics_flush.py       # Anti-drift: add_metric requires @metrics.log_metrics
+│   │   └── test_env_loader_memory_id.py # Synth must fail, not blank, an unreadable memory id
 │   ├── regression/                     # Prompt regression harness (43 tests + live runners)
 │   │   ├── fixtures/                   # 8 synthetic activities (shared by V1 + V2 evals)
 │   │   ├── evaluators.py               # Deterministic criteria + BANNED_CLICHES (sync-tested vs prompt)
@@ -242,6 +245,9 @@ logger = get_logger(service="my-service")
 dynamodb = boto3.resource('dynamodb')
 table = dynamodb.Table(os.environ['TABLE_NAME'])
 
+@metrics.log_metrics  # REQUIRED whenever the handler records a metric: add_metric only
+                      # buffers, and without this the EMF blob is never written and the
+                      # metric never reaches CloudWatch. Pinned by tests/unit/test_metrics_flush.py.
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Lambda handler with structured logging and correlation IDs."""
     inject_correlation_id(logger, event)
@@ -413,9 +419,9 @@ pytest tests/regression/ -v
 **Prompt regression — live, on-demand (run after changing `embedded_prompts.py` + deploying):**
 ```bash
 # V1 deterministic harness (~0.20$/run, invokes the deployed content_gen runtime)
-./venv/bin/python scripts/run_prompt_regression.py [--update-baseline]
+./.venv-test/bin/python scripts/run_prompt_regression.py [--update-baseline]
 # V2 managed AgentCore Evaluations (~1.2$/run, LLM-as-a-Judge on traces)
-./venv/bin/python scripts/run_managed_evals.py [--update-baseline]
+./.venv-test/bin/python scripts/run_managed_evals.py [--update-baseline]
 ```
 
 **Infrastructure/Integration Tests (73 tests):**
@@ -758,10 +764,14 @@ python scripts/configure_memory_strategy.py     # Step 4: Configure the 3 memory
 ### Full Deployment
 
 **Prerequisites:**
-- AWS CLI configured with profile `your-aws-profile`
-- AWS CDK CLI installed
+- AWS credentials configured (`AWS_PROFILE`, or ambient credentials — the scripts pass
+  `--profile` only when one is set)
+- AWS CDK CLI installed (`npm install -g aws-cdk`)
 - AgentCore CLI installed
-- Python 3.12+
+- Python 3.12 in a project venv (`.venv-deploy`, `venv` or `.venv` — `deploy.sh` detects
+  them in that order). Synth needs 3.11+ and `PyYAML` from `requirements.txt`: it is the
+  only way `.bedrock_agentcore.yaml` is read, and without it the deploy would blank
+  `BEDROCK_AGENTCORE_MEMORY_ID`. The preflight in `deploy.sh` checks all of this.
 
 **Step 1: Deploy Infrastructure (includes Frontend stack)**
 ```bash

@@ -70,23 +70,43 @@ print_section "📋 Step 1: Validating prerequisites"
 # synthesises the stacks. On Amazon Linux 2023 /usr/bin/python3 is 3.9 and cannot even
 # import app.py (shared/responses.py uses datetime.UTC, which needs 3.11+). The project
 # venv is prepended to PATH so a deploy does not silently depend on the caller's shell.
-DEPLOY_VENV="${DEPLOY_VENV:-.venv-deploy}"
-if [ -x "$DEPLOY_VENV/bin/python" ]; then
+DEPLOY_VENV="${DEPLOY_VENV:-}"
+if [ -z "$DEPLOY_VENV" ]; then
+    # Probe the layouts this repo has used: .venv-deploy is what exists today, venv/ and
+    # .venv are what README/CONTRIBUTING historically told people to create. Accepting all
+    # three means following the docs cannot land you on the system python by surprise.
+    for candidate in .venv-deploy venv .venv; do
+        if [ -x "$candidate/bin/python" ]; then
+            DEPLOY_VENV="$candidate"
+            break
+        fi
+    done
+fi
+
+if [ -n "$DEPLOY_VENV" ] && [ -x "$DEPLOY_VENV/bin/python" ]; then
     # cd+pwd so an absolute DEPLOY_VENV works too: "$PWD/$DEPLOY_VENV" would build a
     # nonexistent path and silently leave the system python3 (3.9) in front.
     export PATH="$(cd "$DEPLOY_VENV/bin" && pwd):$PATH"
     print_status "Python from $DEPLOY_VENV: $(python3 --version 2>&1)"
 else
-    print_warning "$DEPLOY_VENV not found - using the python3 already on PATH"
+    print_warning "No project venv found (.venv-deploy, venv, .venv) - using the python3 on PATH"
 fi
 
-# Lambda runs 3.12. Refuse to synth on anything older than 3.11.
+# app.py cannot even be imported below 3.11 (shared/responses.py uses datetime.UTC), so
+# that is a hard stop: overriding it would only trade this message for an ImportError.
 if [ "$(python3 -c 'import sys; print(1 if sys.version_info >= (3, 11) else 0)' 2>/dev/null || echo 0)" != "1" ]; then
     print_error "python3 on PATH is $(python3 --version 2>&1), but synth needs >= 3.11 (Lambda runs 3.12)."
     print_error "Build the deploy venv:"
-    print_error "  uv venv --python 3.12 $DEPLOY_VENV"
-    print_error "  uv pip install --python $DEPLOY_VENV/bin/python -r requirements.txt"
+    print_error "  uv venv --python 3.12 .venv-deploy    # or: python3.12 -m venv .venv-deploy"
+    print_error "  uv pip install --python .venv-deploy/bin/python -r requirements.txt"
     exit 1
+fi
+
+# 3.11 synthesises fine, but drift from the Lambda runtime means local runs and production
+# execute on different interpreters, so say so rather than hiding it.
+PY_MINOR="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo unknown)"
+if [ "$PY_MINOR" != "3.12" ]; then
+    print_warning "Synthesising on Python $PY_MINOR while Lambda runs 3.12 - tests and production differ."
 fi
 
 if ! command -v cdk > /dev/null 2>&1; then

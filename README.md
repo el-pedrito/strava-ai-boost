@@ -27,7 +27,8 @@ Full walkthrough of the frontend (Dashboard, Coach, Quality, Configuration, Pref
 ### Prerequisites
 
 - AWS Account with CLI configured
-- Python 3.12+, Node.js (for CDK)
+- Python 3.12+ (Lambda runs 3.12; synth requires 3.11+), Node.js
+- AWS CDK CLI: `npm install -g aws-cdk`
 - AgentCore CLI (for Phase 2 only)
 - Strava Account with API application registered
 - **Paid Strava subscription (required since 2026)** — Strava now gates all API access behind an active subscription. Accounts **without** a subscription have their API application deactivated (`403 Forbidden`, `Application Status: Inactive`), so no activities can be read or enhanced. Note: in our own deployment (with an active subscription, app staying `Active`) the exact symptom we hit during this policy change was an expired/downgraded OAuth token — fixed by a normal token refresh. See [Strava OAuth Setup](#strava-oauth-setup).
@@ -38,10 +39,12 @@ Full walkthrough of the frontend (Dashboard, Coach, Quality, Configuration, Pref
 # 1. Clone and setup
 git clone <repository-url>
 cd strava-ai-boost
-python -m venv venv
-source venv/bin/activate
+# 3.12 to match the Lambda runtime. deploy.sh auto-detects .venv-deploy, venv or .venv,
+# and refuses to synth on anything below 3.11 (app.py cannot be imported there).
+python3.12 -m venv .venv-deploy
+source .venv-deploy/bin/activate
 pip install -r requirements.txt
-export AWS_PROFILE=<your-aws-profile>
+export AWS_PROFILE=<your-aws-profile>   # optional: omit to use ambient credentials
 
 # Optional: deploy to a different region (default: us-east-1)
 export AWS_REGION=eu-west-1
@@ -527,10 +530,10 @@ pytest tests/ -v
 
 ```bash
 # V1 — deterministic checks (banned AI clichés, dashes, length, emoji policy…), ~$0.20/run
-./venv/bin/python scripts/run_prompt_regression.py [--update-baseline]
+./.venv-test/bin/python scripts/run_prompt_regression.py [--update-baseline]
 
 # V2 — managed AgentCore Evaluations (built-in + custom LLM-as-a-Judge evaluators), ~$1.2/run
-./venv/bin/python scripts/run_managed_evals.py [--update-baseline]
+./.venv-test/bin/python scripts/run_managed_evals.py [--update-baseline]
 ```
 
 Design and findings: [`docs/design/regression-evals.md`](docs/design/regression-evals.md).
