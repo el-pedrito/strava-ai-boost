@@ -74,6 +74,18 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Fetch laps data (device-recorded intervals/auto-laps)
         laps_data = fetch_laps_data(activity_id, access_token)
 
+        # Fetch the per-activity HR zone distribution (Strava Summit feature).
+        # This is the authoritative source for which HR zone the session was in.
+        # It is computed once here and stored on activity_data so downstream
+        # consumers (content agent, coach) READ it and never invent a zone number.
+        hr_zone = compute_hr_zone(fetch_activity_zones(activity_id, access_token))
+        if hr_zone:
+            activity_data['_strava_hr_zone'] = hr_zone
+            logger.info(
+                f"HR zone (Strava): {hr_zone['label']} "
+                f"({hr_zone['dominant_pct']}% of time)"
+            )
+
         # Fetch athlete stats for context (yearly totals, records, etc.)
         athlete_id = activity_data.get('athlete', {}).get('id') or user_id
         athlete_stats = fetch_athlete_stats(athlete_id, access_token)
@@ -336,6 +348,105 @@ def fetch_laps_data(activity_id: str, access_token: str) -> Optional[list]:
     except Exception as e:
         logger.warning(f"Failed to fetch laps data: {str(e)}")
         return None
+
+
+# HR zone labels, indexed by Strava zone number (buckets are ordered Z1..Zn).
+_HR_ZONE_LABELS = {
+    1: "Zone 1 (recuperation)",
+    2: "Zone 2 (endurance fondamentale)",
+    3: "Zone 3 (tempo / seuil bas)",
+    4: "Zone 4 (seuil)",
+    5: "Zone 5 (VO2max / anaerobie)",
+}
+
+
+def fetch_activity_zones(activity_id: str, access_token: str) -> Optional[list]:
+    """
+    Fetch the per-activity HR zone distribution from Strava.
+
+    Endpoint: GET /activities/{id}/zones (getZonesByActivityId). This is a
+    Strava Summit (subscriber) feature but requires no OAuth scope beyond the
+    activity:read already used for laps.
+
+    The response is a list of ActivityZone objects; we return the
+    distribution_buckets of the 'heartrate' entry (ordered Z1..Zn, each
+    {min, max, time}). Returns None when zones are unavailable (404 / non-Summit
+    403 / no HR sensor / any error) so the caller degrades gracefully.
+    """
+    try:
+        headers = {'Authorization': f'Bearer {access_token}'}
+        url = f"{STRAVA_API_BASE}/activities/{activity_id}/zones"
+
+        response = _get_http_session().get(url, headers=headers, timeout=30)
+
+        if response.status_code in (403, 404):
+            logger.info(
+                f"Activity zones unavailable ({response.status_code}) for {activity_id}"
+            )
+            return None
+
+        response.raise_for_status()
+        zones = response.json()
+
+        if not isinstance(zones, list):
+            return None
+
+        for zone in zones:
+            if isinstance(zone, dict) and zone.get('type') == 'heartrate':
+                buckets = zone.get('distribution_buckets')
+                if buckets:
+                    logger.info(
+                        f"Fetched {len(buckets)} HR zone buckets for activity {activity_id}"
+                    )
+                    return buckets
+
+        logger.info(f"No heartrate zones in activity zones for {activity_id}")
+        return None
+
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"Activity zones API request failed: {str(e)}")
+        return None
+    except Exception as e:
+        logger.warning(f"Failed to fetch activity zones: {str(e)}")
+        return None
+
+
+def compute_hr_zone(buckets: Optional[list]) -> Optional[Dict[str, Any]]:
+    """
+    Reduce Strava HR zone buckets to the dominant zone (by time spent).
+
+    Pure function (unit-tested). `buckets` is the ordered Z1..Zn list from
+    fetch_activity_zones. Returns {zone, label, dominant_pct, range_bpm} for the
+    zone where the athlete spent the most time, or None if there is no usable
+    data. Dominant-by-time answers "which zone was this session", which is what
+    the narrative needs, and is robust to a stray second in an adjacent bucket.
+    """
+    if not buckets or not isinstance(buckets, list):
+        return None
+
+    times = []
+    for bucket in buckets:
+        if not isinstance(bucket, dict):
+            return None
+        try:
+            times.append(float(bucket.get('time', 0) or 0))
+        except (TypeError, ValueError):
+            times.append(0.0)
+
+    total = sum(times)
+    if total <= 0:
+        return None
+
+    dom_idx = max(range(len(times)), key=lambda i: times[i])
+    zone_num = dom_idx + 1
+    dominant = buckets[dom_idx]
+
+    return {
+        'zone': zone_num,
+        'label': _HR_ZONE_LABELS.get(zone_num, f"Zone {zone_num}"),
+        'dominant_pct': round(times[dom_idx] / total * 100, 1),
+        'range_bpm': [dominant.get('min'), dominant.get('max')],
+    }
 
 
 def fetch_athlete_stats(athlete_id: str, access_token: str) -> Optional[Dict[str, Any]]:
