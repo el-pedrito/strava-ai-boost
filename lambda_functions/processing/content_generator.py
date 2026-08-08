@@ -30,6 +30,20 @@ from shared.strength_exercises import (
 
 logger = get_logger("content-generator")
 
+
+def _apply_preserved_original(activity_data: dict, item: dict) -> None:
+    """Feed the agent the athlete's TRUE original text, not the current Strava
+    description (which is our own prior output on a reprocess, so a generation
+    mangle like "split squat 2 kettlebells de 20kg" -> "20 fentes bulgares" would
+    propagate). activity_fetcher preserves the first-seen original at the item top
+    level; prefer it. Mutates activity_data in place."""
+    preserved_desc = item.get('original_description')
+    if preserved_desc:
+        activity_data['description'] = preserved_desc
+    preserved_name = item.get('original_name')
+    if preserved_name:
+        activity_data['name'] = preserved_name
+
 # AWS clients
 REGION = os.environ.get('AWS_REGION', 'eu-west-1')
 dynamodb = boto3.resource('dynamodb', region_name=REGION)
@@ -154,6 +168,12 @@ def retrieve_activity_data_from_dynamodb(activity_id: str) -> Optional[Dict[str,
         item = response['Item']
 
         activity_data = json.loads(item.get('activity_data_json', '{}'))
+
+        # Feed the agent the athlete's TRUE original text (see
+        # _apply_preserved_original), not the current Strava description which is
+        # our own prior output on a reprocess.
+        _apply_preserved_original(activity_data, item)
+
         athlete_stats = json.loads(item.get('athlete_stats_json', 'null')) if item.get('athlete_stats_json') else None
         athlete_profile = json.loads(item.get('athlete_profile_json', 'null')) if item.get('athlete_profile_json') else None
         intervals_icu_data = json.loads(item.get('intervals_icu_json', 'null')) if item.get('intervals_icu_json') else None

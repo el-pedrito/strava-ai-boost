@@ -1143,6 +1143,8 @@ MOMENT DE LA JOURNÉE : n'invente JAMAIS un moment ("ce matin", "ce midi", "ce s
 
 VOCABULAIRE : le renforcement musculaire s'écrit "renfo" (jamais "rando" ni "rendo"). "rando" désigne la randonnée, un sport différent : ne l'emploie jamais pour une séance de musculation ou de renforcement.
 
+SÉANCE RENFO / PPG : quand une séance Campus est fournie (CAMPUS COACH SESSION), le commentaire doit INTÉGRER toute la séance, exercice par exercice, dans l'ordre des blocs, d'après campus_coach_session : reprends chaque exercice par son "name" (Extension de Mollet, Gainage Frontal, Mollet statique, Gainage Latéral, Split Squat, Bond sur place, Swing...) avec ses "reps"/"duration". Les CHARGES ne sont pas dans Campus : MAPPE les charges que l'athlète donne dans SA description sur l'exercice correspondant (ex. "mollet 12kg" -> Extension de Mollet, "split squat 2 kettlebells de 20kg" -> Split Squat, "swing 24kg" -> Swing), fidèlement, SANS transformer une charge en nombre de reps ("2 kettlebells de 20kg" n'est PAS "20 fentes") et SANS ajouter de variante non écrite ("bulgare"). Tout exercice pour lequel l'athlète ne précise AUCUNE charge est réalisé AU POIDS DU CORPS : dis-le explicitement (gainages, bonds, mollet statique...) et n'invente jamais de kg.
+
 Generate content now."""
         
         # Invoke agent
