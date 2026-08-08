@@ -84,13 +84,21 @@ _TONNAGE = re.compile(
 # "Contexte hebdo : ... = 3 runs" against a computed 2, one sentence after the verifier
 # had stripped that same error phrased "Cette semaine". So the "<noun> hebdo" and
 # "hebdo :" shapes are recognised alongside the original four literals.
+#
+# Later production case: "5 courses en 5 jours (03-07/08) = 27km" against a computed 3.
+# The agent dodged every "semaine"/"hebdo" marker by scoping the count to a rolling
+# "en N jours" window, which the prompt explicitly forbids. Any "en N jours" or
+# "ces N derniers jours" window is therefore recognised: the prompt bans stating such a
+# window at all, so comparing it against the ISO-week total is always the right call.
 _WEEK_SCOPE = re.compile(
     r"cette\s+semaine"
     r"|semaine\s+en\s+cours"
     r"|sur\s+la\s+semaine"
     r"|(?:ta|ma|sa)\s+semaine"
     r"|(?:contexte|bilan|r[eé]cap\w*|total|volume|charge|cumul)\s+hebdo\w*"
-    r"|hebdo\w*\s*:",
+    r"|hebdo\w*\s*:"
+    r"|en\s+\d+\s+jours?"
+    r"|ces\s+\d+\s+derniers?\s+jours?",
     re.IGNORECASE,
 )
 
