@@ -267,7 +267,24 @@ def _build_exercise_entry(
     if pace_val and pace_val < 1000:
         pace_str = f"{pace_name} ({int(pace_val) // 60}:{int(pace_val) % 60:02d}/km)"
 
-    return {'type': ex_type, 'duration': dur_str, 'pace': pace_str}
+    entry: Dict[str, Any] = {'type': ex_type, 'duration': dur_str, 'pace': pace_str}
+
+    # Movement name (PPG/renfo: "Split Squat", "Gainage Frontal", ...). Dropping it
+    # left strength sessions as empty {type:work, duration:'', pace:''} placeholders,
+    # so the coach could never name the exercises done. Keep it when present.
+    name = exercise.get('name')
+    if name:
+        entry['name'] = name
+
+    # A PPG exercise's own ``repeat`` is its rep count (10, 12, ...), distinct from
+    # the block ``repeat`` (the number of sets). Surfacing it as ``reps`` lets the
+    # coach state "10 mollets" instead of a bare movement name. Recovery entries
+    # carry repeat=1 and no meaningful rep count, so only work exercises get it.
+    reps = exercise.get('repeat')
+    if ex_type == 'work' and isinstance(reps, (int, float)) and reps > 1:
+        entry['reps'] = int(reps)
+
+    return entry
 
 
 def _build_intervals(session: Dict, paces: List) -> List[Dict[str, Any]]:
