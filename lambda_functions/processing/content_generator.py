@@ -154,6 +154,20 @@ def retrieve_activity_data_from_dynamodb(activity_id: str) -> Optional[Dict[str,
         item = response['Item']
 
         activity_data = json.loads(item.get('activity_data_json', '{}'))
+
+        # Feed the agent the athlete's TRUE original text, not the current Strava
+        # description. On a reprocess, activity_data_json['description'] is our own
+        # prior output, so a generation mangle (e.g. "split squat 2 kettlebells de
+        # 20kg" -> "20 fentes bulgares") propagates on every run. activity_fetcher
+        # preserves the first-seen original at the item top level; use it so the
+        # agent maps loads from the athlete's real words.
+        _preserved_desc = item.get('original_description')
+        if _preserved_desc:
+            activity_data['description'] = _preserved_desc
+        _preserved_name = item.get('original_name')
+        if _preserved_name:
+            activity_data['name'] = _preserved_name
+
         athlete_stats = json.loads(item.get('athlete_stats_json', 'null')) if item.get('athlete_stats_json') else None
         athlete_profile = json.loads(item.get('athlete_profile_json', 'null')) if item.get('athlete_profile_json') else None
         intervals_icu_data = json.loads(item.get('intervals_icu_json', 'null')) if item.get('intervals_icu_json') else None
