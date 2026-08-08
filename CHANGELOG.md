@@ -5,6 +5,65 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2](https://github.com/el-pedrito/strava-ai-boost/compare/v0.2.1...v0.2.2) (2026-08-08)
+
+
+### Features
+
+* **coach_chat:** give the chat code-computed figures instead of raw lists ([eb9c4c2](https://github.com/el-pedrito/strava-ai-boost/commit/eb9c4c2aced865cc9575e3cb3990e2ddd640382c))
+* **coach:** verify stated figures against computed ones before publishing ([da5cd6f](https://github.com/el-pedrito/strava-ai-boost/commit/da5cd6f1bc74a6ec58e52783228ad33271c641f4))
+* **frontend:** chart the per-session strength totals ([386bd55](https://github.com/el-pedrito/strava-ai-boost/commit/386bd5582950487b6b3dd62441cf2c7895cbd112))
+* **preferences:** structured body weight and height ([c5697e1](https://github.com/el-pedrito/strava-ai-boost/commit/c5697e1ac49a7e7c0d90066ca5b4abec5d53d148))
+* **scripts:** add the missing frontend deployment script ([69fc66a](https://github.com/el-pedrito/strava-ai-boost/commit/69fc66a4143d5186abc9d90a2702bd7770dd85e6))
+* **strength:** single code-authoritative definition of session tonnage ([a6b08b5](https://github.com/el-pedrito/strava-ai-boost/commit/a6b08b5b407a0413e380e7be634fe5c4868499a1))
+
+
+### Bug Fixes
+
+* **campus:** capture PPG exercise names + reps in sync ([0f056c4](https://github.com/el-pedrito/strava-ai-boost/commit/0f056c4464e8d2b6651e4f6a0b0de98fccb53b36))
+* **campus:** capture PPG exercise names and reps in sync ([2bba166](https://github.com/el-pedrito/strava-ai-boost/commit/2bba16631bf6a967a1f3ed8abb94bd5f98b5af7e))
+* **campus:** retire the legacy status field as a completion source ([234da78](https://github.com/el-pedrito/strava-ai-boost/commit/234da7807284163876b7578fa44a59509ca7d584))
+* **campus:** stop closing the planned PPG on every gym session ([b27d6e4](https://github.com/el-pedrito/strava-ai-boost/commit/b27d6e4f44170de58585b1aa41e005fce7b2927f))
+* **cdk:** exclude bytecode caches from Lambda assets for deterministic deploys ([0f1b1d2](https://github.com/el-pedrito/strava-ai-boost/commit/0f1b1d2801107643a787937d48e0417ba6dfa089))
+* **coach:** compute every weekly figure in code, with disjoint coverage ([806f8ed](https://github.com/el-pedrito/strava-ai-boost/commit/806f8edcb0eaeca3e9afe1e28828b0c7543055a0))
+* **coach:** flag sliding-window weekly counts (N courses en N jours) ([e4a9b9b](https://github.com/el-pedrito/strava-ai-boost/commit/e4a9b9b5d516b43a6a8b3761598a00b673a89172))
+* **coach:** flag sliding-window weekly counts (N courses en N jours) ([d4e6d42](https://github.com/el-pedrito/strava-ai-boost/commit/d4e6d4209b67831c960468413c895f05055b5a6d))
+* **coach:** normalize strength exercise names ([be2b987](https://github.com/el-pedrito/strava-ai-boost/commit/be2b987e2063eb5e8411f80cf046ece2bb768e8c))
+* **coach:** secure summaries and preserve Campus state ([e420d36](https://github.com/el-pedrito/strava-ai-boost/commit/e420d36fff98a312d6c17646ff0e952e7e13f683))
+* **coach:** stop the week gate being walked around, and log the strip ([48ec25a](https://github.com/el-pedrito/strava-ai-boost/commit/48ec25aa86f26874f3817caf3a5227b844dcd3df))
+* **content:** faithful PPG exercise naming, no invented loads ([4a07b8b](https://github.com/el-pedrito/strava-ai-boost/commit/4a07b8b04e77bc1b34f8da0d5fb3449b649bb19a))
+* **content:** feed agent the preserved original description, not current Strava text ([3afd34d](https://github.com/el-pedrito/strava-ai-boost/commit/3afd34d7672966a35b265d8bd37226ed37b9a6cf))
+* **content:** full Campus PPG integration + load mapping + bodyweight default ([4a3422f](https://github.com/el-pedrito/strava-ai-boost/commit/4a3422f7ba9daab596ad77487095f715e0229702))
+* **content:** ground HR zone in Strava data + release-please CI ([7d53599](https://github.com/el-pedrito/strava-ai-boost/commit/7d5359998a9a746571ee7ebdd8de07bff10c0441))
+* **content:** ground HR zone in Strava data, stop agent inventing zone 1 ([a75a5db](https://github.com/el-pedrito/strava-ai-boost/commit/a75a5dbf9504ebfc0c0156b8baa3a1b524cec34c))
+* **content:** integrate full Campus PPG session, map loads, bodyweight default ([fb82b9c](https://github.com/el-pedrito/strava-ai-boost/commit/fb82b9c31c2e159258d151b131ea9281fc663023))
+* **content:** invented time-of-day + rando/rendo garble ([f720239](https://github.com/el-pedrito/strava-ai-boost/commit/f720239e34a3ca7f29d8cfd0a111dc0d9f04aae7))
+* **content:** name PPG exercises from Campus data, no invented loads ([5f47418](https://github.com/el-pedrito/strava-ai-boost/commit/5f474188c484511dd7a7bbbaeffe4fbdf8c6c0be))
+* **content:** stop invented time-of-day and rando/rendo garble ([0c2b66c](https://github.com/el-pedrito/strava-ai-boost/commit/0c2b66c67232fa126782eecfc8822037609ab449))
+* **content:** use preserved original description for the agent input ([d215de6](https://github.com/el-pedrito/strava-ai-boost/commit/d215de64e76efac343b74368814b87845f31fb34))
+* **deploy:** fail the preflight on the toolchain gaps that bite silently ([93ccfc1](https://github.com/el-pedrito/strava-ai-boost/commit/93ccfc1e640f9485bf7b7182fe2c0e8d3252dff6))
+* **frontend:** clear all npm security advisories ([48571fc](https://github.com/el-pedrito/strava-ai-boost/commit/48571fc31bf6364999b44fb74e80c6e93b5d1929))
+* **frontend:** localize and improve Coach chart accessibility ([71746ba](https://github.com/el-pedrito/strava-ai-boost/commit/71746ba02114e034863a8553d5fa60111d435661))
+* **frontend:** repair two responsive defects on authenticated pages ([536a7fb](https://github.com/el-pedrito/strava-ai-boost/commit/536a7fbc69c1548a44d4219f65215db414712900))
+* **frontend:** WCAG AA contrast + de-eyebrow coach labels ([9252684](https://github.com/el-pedrito/strava-ai-boost/commit/9252684d5bbfe71f5d58634a972b8c7b587d6399))
+* **metrics:** flush the metrics that were being recorded and dropped ([0eb78b1](https://github.com/el-pedrito/strava-ai-boost/commit/0eb78b112b8b650df781cbcae89b0a1b93c2a207))
+* **oauth:** base connection status on the refresh token and unify token refresh ([584c811](https://github.com/el-pedrito/strava-ai-boost/commit/584c811207945481484fb4ddc506100d8c5c3961))
+* **prompts:** route every figure to its single source, in both prompts ([b7359e2](https://github.com/el-pedrito/strava-ai-boost/commit/b7359e2669c75eabcf7b519ea0a9702ce777760f))
+* **renfo:** stop reprocess feedback loop + keep athlete's real loads ([18f1467](https://github.com/el-pedrito/strava-ai-boost/commit/18f146769c879099cc06f77471381893e95c2fcf))
+* **renfo:** stop reprocess feedback loop, preserve athlete's real loads ([9d0cfa9](https://github.com/el-pedrito/strava-ai-boost/commit/9d0cfa9e114c93dd22ec7276c632fcf627ba0e12))
+* **scripts:** stop depending on a named AWS profile, sync Campus more often ([c77b406](https://github.com/el-pedrito/strava-ai-boost/commit/c77b40646be6e1db7d372d34b61b2324c2c26da6))
+* **scripts:** support ambient AWS credentials and repair validation drift ([e479ed9](https://github.com/el-pedrito/strava-ai-boost/commit/e479ed9a678e997c426520150290f84d8148538c))
+* **scripts:** support ambient AWS credentials in operational scripts ([eafd4a3](https://github.com/el-pedrito/strava-ai-boost/commit/eafd4a3bf3404fb59bed06385ac1a546b10fecc9))
+* **strength:** repair the history write, and stop the lossy extraction schema ([b9bdb64](https://github.com/el-pedrito/strava-ai-boost/commit/b9bdb6496bb9a357bb4a999c4fed42fa0bf2c360))
+* **synth:** stop a missing PyYAML silently blanking the AgentCore memory id ([d01768d](https://github.com/el-pedrito/strava-ai-boost/commit/d01768d7c2cf422220e548081e7ac4c0cfd4b3cc))
+* **webhook:** drop events that do not come from our own subscription ([309f091](https://github.com/el-pedrito/strava-ai-boost/commit/309f0912212b5259df009aef3c01406126872ec6))
+* **weeks:** make the ISO week label the only week identity ([2e04494](https://github.com/el-pedrito/strava-ai-boost/commit/2e044948f2b2ba32fba7f9339501f891717bc791))
+
+
+### Performance Improvements
+
+* **frontend:** lazy-load English locale out of the initial bundle ([bbe7c24](https://github.com/el-pedrito/strava-ai-boost/commit/bbe7c24938df09089e469831531271ad41693bd1))
+
 ## [Unreleased]
 
 ### Security
