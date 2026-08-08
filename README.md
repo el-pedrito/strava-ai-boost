@@ -27,7 +27,8 @@ Full walkthrough of the frontend (Dashboard, Coach, Quality, Configuration, Pref
 ### Prerequisites
 
 - AWS Account with CLI configured
-- Python 3.12+, Node.js (for CDK)
+- Python 3.12+ (Lambda runs 3.12; synth requires 3.11+), Node.js
+- AWS CDK CLI: `npm install -g aws-cdk`
 - AgentCore CLI (for Phase 2 only)
 - Strava Account with API application registered
 - **Paid Strava subscription (required since 2026)** — Strava now gates all API access behind an active subscription. Accounts **without** a subscription have their API application deactivated (`403 Forbidden`, `Application Status: Inactive`), so no activities can be read or enhanced. Note: in our own deployment (with an active subscription, app staying `Active`) the exact symptom we hit during this policy change was an expired/downgraded OAuth token — fixed by a normal token refresh. See [Strava OAuth Setup](#strava-oauth-setup).
@@ -38,10 +39,12 @@ Full walkthrough of the frontend (Dashboard, Coach, Quality, Configuration, Pref
 # 1. Clone and setup
 git clone <repository-url>
 cd strava-ai-boost
-python -m venv venv
-source venv/bin/activate
+# 3.12 to match the Lambda runtime. deploy.sh auto-detects .venv-deploy, venv or .venv,
+# and refuses to synth on anything below 3.11 (app.py cannot be imported there).
+python3.12 -m venv .venv-deploy
+source .venv-deploy/bin/activate
 pip install -r requirements.txt
-export AWS_PROFILE=<your-aws-profile>
+export AWS_PROFILE=<your-aws-profile>   # optional: omit to use ambient credentials
 
 # Optional: deploy to a different region (default: us-east-1)
 export AWS_REGION=eu-west-1
@@ -130,7 +133,7 @@ The frontend is hosted on CloudFront with Cognito authentication:
 
 #### Campus Coach (Optional)
 
-Matches activities with planned training sessions from [campus.coach](https://campus.coach). Uses direct REST API sync (login + GET /smart-training) to fetch up to 9 weeks of structured sessions with intervals and targets. Daily sync via EventBridge (05:00 UTC).
+Matches activities with planned training sessions from [campus.coach](https://campus.coach). Uses direct REST API sync (login + GET /smart-training) to fetch up to 9 weeks of structured sessions with intervals and targets. Sync via EventBridge every 2h across the athlete's active window (05:00 to 21:00 UTC, 9 runs/day): a single daily run left the coach up to 13h behind a session completed during the day or a plan edited mid-afternoon.
 
 1. Go to Configuration > Modules, enable "Campus Coach"
 2. Enter your Campus Coach username and password
@@ -205,6 +208,8 @@ Customize AI content generation in Configuration > Personal Profile:
 | **Language** | French, English, Spanish, German, Italian |
 | **Athlete Profile** | Free-text field for objectives, training history, experience level |
 | **FC Max** | Manual or calculated (Tanaka: 208 - 0.7 × age). Auto-updated if activity shows higher HR |
+| **Body Weight** | `body_weight_kg` (30-250). Seeded automatically from your Strava profile, editable. A manual entry is authoritative and never overwritten by Strava. Used for bodyweight-exercise tonnage |
+| **Height** | `height_cm` (100-250). Manual (Strava does not expose height) |
 | **Personal Records** | Manual PRs with distance, time, date, event. Auto-calculates pace & speed |
 | **Strength Program** | Structured strength sessions (Upper A, Upper B, Rappel). Exercises with sets/load/rest. Auto-tracked from Strava descriptions. Coach uses it for global weekly vision and progression tracking |
 
@@ -230,17 +235,20 @@ VITE_COACH_RUNTIME_ARN=arn:aws:bedrock-agentcore:<your-region>:<account>:runtime
 
 > **Note:** API authentication is handled via Cognito JWT tokens (sent in the `Authorization` header). The frontend automatically manages token refresh after login.
 
-**CDK Context** (`cdk.json`):
+**CDK Context** (`cdk.json`, or `cdk.context.json` which is gitignored):
 ```json
 {
   "context": {
     "region": "us-east-1",
-    "default_user_id": "YOUR_STRAVA_ATHLETE_ID"
+    "default_user_id": "YOUR_STRAVA_ATHLETE_ID",
+    "strava_subscription_id": "YOUR_STRAVA_SUBSCRIPTION_ID"
   }
 }
 ```
 
 > The `default_user_id` is used by the dashboard Lambda to query activities via the `UserActivitiesIndex` GSI. Set it to your Strava athlete ID.
+
+> `strava_subscription_id` feeds `STRAVA_SUBSCRIPTION_ID` on the webhook handler, which uses it to drop events that did not come from your own Strava subscription. **A missing value degrades silently**: the handler treats an empty string as "skip this check", so origin filtering stops even though `WEBHOOK_STRICT_ORIGIN` is still `true`. Because these values usually live in the gitignored `cdk.context.json`, a `cdk deploy` run from a fresh clone will wipe them from the deployed Lambda without failing. Run `cdk diff` before deploying and confirm no environment variable drops to an empty value. Get the ID from `./scripts/configure_strava_webhook.sh dev --validate-only`.
 
 ---
 
@@ -499,13 +507,13 @@ The Lambda Layer cannot be replaced via CDK due to CloudFormation cross-stack ex
 ## Testing
 
 ```bash
-# Lambda unit tests (251 tests, ~2s — no AWS credentials needed)
+# Lambda unit tests (578 tests, ~2s — no AWS credentials needed)
 pytest tests/unit/ -v
 
-# Prompt regression evaluators + LLM registry sync (41 tests, free)
+# Prompt regression evaluators + LLM registry sync (43 tests, free)
 pytest tests/regression/ -v
 
-# Infrastructure/integration tests (73 tests — requires AWS credentials)
+# Infrastructure/integration tests (70 tests — requires AWS credentials)
 export AWS_PROFILE=<your-aws-profile>
 pytest tests/ -v --ignore=tests/unit/
 
@@ -516,16 +524,16 @@ cd frontend && npm test
 pytest tests/ -v
 ```
 
-**Test coverage:** 345 total tests (251 backend unit + 41 regression + 53 frontend), plus integration tests.
+**Test coverage:** 674 total tests (578 backend unit + 43 regression + 53 frontend), plus integration tests.
 
 **Prompt regression (on-demand, live):** after changing prompts and redeploying the agents, replay 8 synthetic reference activities against the deployed runtime:
 
 ```bash
 # V1 — deterministic checks (banned AI clichés, dashes, length, emoji policy…), ~$0.20/run
-./venv/bin/python scripts/run_prompt_regression.py [--update-baseline]
+./.venv-test/bin/python scripts/run_prompt_regression.py [--update-baseline]
 
 # V2 — managed AgentCore Evaluations (built-in + custom LLM-as-a-Judge evaluators), ~$1.2/run
-./venv/bin/python scripts/run_managed_evals.py [--update-baseline]
+./.venv-test/bin/python scripts/run_managed_evals.py [--update-baseline]
 ```
 
 Design and findings: [`docs/design/regression-evals.md`](docs/design/regression-evals.md).

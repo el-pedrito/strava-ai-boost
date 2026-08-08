@@ -1,6 +1,11 @@
 # AWS CDK Development Dependencies
 aws-cdk-lib==2.219.0
 constructs>=10.0.0,<11.0.0
+# Required at SYNTH time: .bedrock_agentcore.yaml is the only source of
+# BEDROCK_AGENTCORE_MEMORY_ID, and a venv without PyYAML used to make
+# load_agentcore_memory_id() return '' silently, blanking that variable on every
+# Lambda that consumes it. env_loader now raises instead, so this must be present.
+PyYAML>=6.0
 
 # Local development only (not for Lambda)
 boto3>=1.34.0  # For local AWS operations

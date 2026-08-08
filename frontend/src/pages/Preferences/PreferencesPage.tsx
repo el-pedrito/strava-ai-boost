@@ -174,6 +174,8 @@ interface PreferencesState {
   athleteProfile: string;
   personalRecords: PersonalRecord[];
   maxHr: string;
+  bodyWeightKg: string;
+  heightCm: string;
   strengthProgram: StrengthSession[];
 }
 
@@ -190,6 +192,8 @@ const initialState: PreferencesState = {
   athleteProfile: '',
   personalRecords: [],
   maxHr: '',
+  bodyWeightKg: '',
+  heightCm: '',
   strengthProgram: [],
 };
 
@@ -203,7 +207,9 @@ function statesEqual(a: PreferencesState, b: PreferencesState): boolean {
     a.technicalDetail !== b.technicalDetail ||
     a.contentLanguage !== b.contentLanguage ||
     a.athleteProfile !== b.athleteProfile ||
-    a.maxHr !== b.maxHr
+    a.maxHr !== b.maxHr ||
+    a.bodyWeightKg !== b.bodyWeightKg ||
+    a.heightCm !== b.heightCm
   )
     return false;
   if (a.interests.length !== b.interests.length) return false;
@@ -261,6 +267,8 @@ export function PreferencesPage() {
               )
             : [],
           maxHr: p.max_hr ? String(p.max_hr) : '',
+          bodyWeightKg: p.body_weight_kg != null ? String(p.body_weight_kg) : '',
+          heightCm: p.height_cm != null ? String(p.height_cm) : '',
           strengthProgram: Array.isArray((p.strength_program as { sessions?: unknown[] })?.sessions)
             ? ((p.strength_program as { sessions: Array<{ id?: string; name: string; frequency: string; exercises: StrengthExercise[] }> }).sessions).map(
                 (s) => ({ ...s, id: s.id || crypto.randomUUID() })
@@ -282,7 +290,6 @@ export function PreferencesPage() {
 
   useEffect(() => {
     void loadPreferences();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const dirty = useMemo(() => loaded && !statesEqual(state, lastLoadedRef.current), [state, loaded]);
@@ -307,6 +314,8 @@ export function PreferencesPage() {
           .filter((r) => r.distance && r.time)
           .map((r) => ({ distance: r.distance, time: r.time, date: r.date, event: r.event })),
         ...(state.maxHr ? { max_hr: parseInt(state.maxHr, 10) } : {}),
+        ...(state.bodyWeightKg ? { body_weight_kg: parseFloat(state.bodyWeightKg) } : {}),
+        ...(state.heightCm ? { height_cm: parseInt(state.heightCm, 10) } : {}),
         strength_program: {
           sessions: state.strengthProgram.map((s) => ({
             id: s.id,
@@ -414,6 +423,42 @@ export function PreferencesPage() {
               {state.maxHr && state.ageRange && (
                 <span className="text-xs text-info">{t('preferences.profile.tanakaFormula')}</span>
               )}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-5">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="body-weight">Body weight (kg)</Label>
+              <p className="text-xs text-muted-foreground">
+                Seeded from Strava, editable. Used for bodyweight-exercise tonnage.
+              </p>
+              <div className="w-32">
+                <Input
+                  id="body-weight"
+                  value={state.bodyWeightKg}
+                  onChange={(e) =>
+                    setState((prev) => ({ ...prev, bodyWeightKg: e.target.value.replace(/[^\d.]/g, '') }))
+                  }
+                  placeholder="92"
+                  type="number"
+                  inputMode="decimal"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="height-cm">Height (cm)</Label>
+              <p className="text-xs text-muted-foreground">Manual (Strava does not expose height).</p>
+              <div className="w-32">
+                <Input
+                  id="height-cm"
+                  value={state.heightCm}
+                  onChange={(e) => setState((prev) => ({ ...prev, heightCm: e.target.value.replace(/\D/g, '') }))}
+                  placeholder="192"
+                  type="number"
+                  inputMode="numeric"
+                />
+              </div>
             </div>
           </div>
         </div>

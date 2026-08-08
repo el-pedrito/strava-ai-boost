@@ -308,7 +308,7 @@ SPORT_APPROACH_EXAMPLES = {
     'health & wellness': {
         'focus': 'Bien-etre, stress relief, niveaux d\'energie, sante globale',
         'narrative': 'Mindfulness journey — body sensations, breathing, inner peace, recovery quality',
-        'example': 'Sortie bien-etre parfaite ! 90 minutes d\'endurance fondamentale (92% zone 1-2) avec un ressenti de reve. Mon corps ronronne, mon esprit se libere.',
+        'example': 'Sortie bien-etre parfaite ! 90 minutes d\'endurance fondamentale (allure tres facile) avec un ressenti de reve. Mon corps ronronne, mon esprit se libere.',
     },
     'social & fun': {
         'focus': 'Plaisir, aspects sociaux, communaute, experiences partagees',
@@ -1094,6 +1094,7 @@ Description: "{validated_description}"
 - Average Speed: {avg_speed:.1f} km/h
 - Max Speed: {max_speed:.1f} km/h
 - Average HR: {avg_hr} bpm (Max: {max_hr} bpm)
+{f"- Zone FC (Strava, SOURCE DE VERITE): {activity_data['_strava_hr_zone']['label']}, {activity_data['_strava_hr_zone']['dominant_pct']}% du temps. Regle stricte: n'ecris JAMAIS un autre numero de zone FC que celui-ci. Si cette ligne est absente, ne mentionne AUCUNE zone FC numerotee." if activity_data.get('_strava_hr_zone') else ""}
 {f"- Average Cadence: {avg_cadence:.0f} spm{f' (Max: {max_cadence:.0f} spm)' if max_cadence else ''}" if avg_cadence else ""}
 {f"- Power: Avg {avg_watts:.0f}W{f', Max {max_watts:.0f}W' if max_watts else ''}{f', Weighted {weighted_avg_watts:.0f}W' if weighted_avg_watts else ''} {'(Device)' if device_watts else '(Estimated)'}" if avg_watts else ""}
 {f"- Calories: {calories:.0f} kcal" if calories else ""}
@@ -1137,6 +1138,10 @@ AVANT DE GÉNÉRER, réfléchis étape par étape (dans un bloc <thinking>):
 Puis génère le JSON.
 
 RAPPEL FINAL NON NÉGOCIABLE : zéro em dash (—/–), et AUCUNE expression de la liste "Expressions bannies (clichés gen-AI sportif)" du system prompt (ex. "la machine", "le corps se réveille", "rythme de croisière", "les kilomètres défilent", ni aucune variante proche). Relis ta réponse et reformule si besoin AVANT de rendre le JSON.
+
+MOMENT DE LA JOURNÉE : n'invente JAMAIS un moment ("ce matin", "ce midi", "ce soir") pour une séance dont tu n'as pas l'heure explicite. Si l'athlète a enchaîné plusieurs séances le même jour, écris "juste avant" ou "plus tôt dans la journée", jamais un moment précis que tu ne connais pas.
+
+VOCABULAIRE : le renforcement musculaire s'écrit "renfo" (jamais "rando" ni "rendo"). "rando" désigne la randonnée, un sport différent : ne l'emploie jamais pour une séance de musculation ou de renforcement.
 
 Generate content now."""
         

@@ -1,6 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import '../i18n';
-import i18n from '../i18n';
+import { setLanguage } from '../i18n';
 
-// Force English for predictable test assertions.
-void i18n.changeLanguage('en');
+// Force English for predictable test assertions (loads the lazy en bundle first).
+await setLanguage('en');

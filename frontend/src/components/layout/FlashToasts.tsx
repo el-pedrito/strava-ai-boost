@@ -33,7 +33,7 @@ export function FlashToasts({ items }: FlashToastsProps) {
     <div
       aria-live="polite"
       aria-atomic="false"
-      className="pointer-events-none fixed right-4 top-16 z-50 flex w-full max-w-sm flex-col gap-2"
+      className="pointer-events-none fixed left-4 right-4 top-16 z-50 flex flex-col gap-2 sm:left-auto sm:w-full sm:max-w-sm"
     >
       <AnimatePresence initial={false}>
         {items.map((item) => {

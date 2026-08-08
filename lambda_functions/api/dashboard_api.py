@@ -13,7 +13,9 @@ import os
 from typing import Dict, Any, List, Optional
 import boto3
 from botocore.exceptions import ClientError
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
+from shared.campus_status import STATUS_DONE, effective_status
+from shared.strength_exercises import canonicalize_exercise_name
 from shared.responses import (
     CORS_HEADERS_READ as CORS_HEADERS,
     create_success_response,
@@ -41,6 +43,14 @@ ACTIVITIES_TABLE = os.environ['ACTIVITIES_TABLE']
 USER_CONFIG_TABLE = os.environ['USER_CONFIG_TABLE']
 COACHING_SESSIONS_TABLE = os.environ['COACHING_SESSIONS_TABLE']
 DEFAULT_USER_ID = os.environ.get('DEFAULT_USER_ID', '')
+# Coach endpoints fail closed without an authenticated Strava identity. A
+# DEFAULT_USER_ID fallback is honored only when this flag is explicitly enabled
+# for local dev/test (R1.3) and never overrides a real authenticated id.
+COACH_ALLOW_DEFAULT_USER = os.environ.get(
+    'COACH_ALLOW_DEFAULT_USER', ''
+).strip().lower() in ('1', 'true', 'yes', 'on')
+# Recovery snapshot freshness threshold in hours (R3.2, default 36h).
+RECOVERY_STALE_THRESHOLD_HOURS = int(os.environ.get('RECOVERY_STALE_HOURS', '36'))
 
 
 def _get_user_id(event: Dict[str, Any]) -> str:
@@ -55,6 +65,36 @@ def _get_user_id(event: Dict[str, Any]) -> str:
         pass
     # Cognito sub is NOT usable as user_id (DynamoDB uses Strava athlete ID)
     return DEFAULT_USER_ID
+
+
+def _get_strava_claim(event: Dict[str, Any]) -> str:
+    """Return the Cognito custom:strava_id claim, or '' when absent."""
+    try:
+        claims = event.get('requestContext', {}).get('authorizer', {}).get('claims', {})
+        return claims.get('custom:strava_id', '') or ''
+    except (AttributeError, TypeError):
+        return ''
+
+
+def _resolve_coach_user_id(event: Dict[str, Any]) -> Optional[str]:
+    """Resolve the Coach user id from the authenticated Cognito claim.
+
+    Fails closed (returns None) when no `custom:strava_id` claim is present so
+    protected Coach endpoints never fall back to an all-users scan (R1). A
+    DEFAULT_USER_ID fallback is honored only when COACH_ALLOW_DEFAULT_USER is
+    explicitly enabled for local dev/test, and never overrides a real claim.
+    """
+    strava_id = _get_strava_claim(event)
+    if strava_id:
+        return strava_id
+
+    metrics.add_metric(name="CoachSummaryMissingUserClaim", unit=MetricUnit.Count, value=1)
+    logger.warning("Coach summary request missing custom:strava_id claim; failing closed")
+
+    if COACH_ALLOW_DEFAULT_USER and DEFAULT_USER_ID:
+        logger.info("Using DEFAULT_USER_ID fallback for Coach (dev/test mode)")
+        return DEFAULT_USER_ID
+    return None
 
 
 def _query_user_activities(user_id: str, since: datetime = None, projection: str = None) -> List[Dict[str, Any]]:
@@ -194,6 +234,9 @@ def get_coach_recaps(event: Dict[str, Any], user_id: str) -> Dict[str, Any]:
 
 
 
+# @log_metrics is what flushes add_metric to CloudWatch (EMF on stdout).
+# Without it the metrics are buffered and silently dropped.
+@metrics.log_metrics
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Lambda handler for dashboard API endpoints
@@ -231,7 +274,10 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             response_data = get_system_stats(user_id)
             return create_success_response(response_data)
         elif '/coach/summary' in path:
-            response_data = get_coach_summary(user_id)
+            coach_user_id = _resolve_coach_user_id(event)
+            if not coach_user_id:
+                return create_error_response(403, 'Forbidden: authenticated Strava identity required')
+            response_data = get_coach_summary(coach_user_id)
             return create_success_response(response_data)
         elif '/coach/recaps' in path:
             response_data = get_coach_recaps(event, user_id)
@@ -468,18 +514,32 @@ def _build_strength_progression(entries: List[Dict[str, Any]]) -> List[Dict[str,
         parsed = entry.get('parsed_sets') or []
         if not date or not isinstance(parsed, list):
             continue
+        per_exercise_volume = {
+            canonicalize_exercise_name(e.get('exercise') or ''): e.get('volume_kg')
+            for e in (entry.get('per_exercise') or []) if isinstance(e, dict)
+        }
         for s in parsed:
             if not isinstance(s, dict):
                 continue
-            name = s.get('exercise')
+            raw_name = s.get('exercise')
+            if not raw_name:
+                continue
+            name = canonicalize_exercise_name(raw_name)
             if not name:
                 continue
             weight = s.get('weight_kg')
-            sets = s.get('sets') or 0
-            reps = s.get('reps') or 0
-            volume = None
-            if weight is not None and sets and reps:
-                volume = round(float(weight) * int(sets) * int(reps), 1)
+            # Volume comes from the figures the pipeline computed with
+            # shared/strength_volume.py (bodyweight coefficients, unilateral
+            # doubling, per-set detail). Recomputing it here from the flat
+            # sets/reps/weight summary under-reported by 33% on a real session,
+            # and would let the chart disagree with the coach on the same data.
+            volume = per_exercise_volume.get(canonicalize_exercise_name(raw_name))
+            if volume is None:
+                # Legacy row written before the wiring: explicit-weight only.
+                sets = s.get('sets') or 0
+                reps = s.get('reps') or 0
+                if weight is not None and sets and reps:
+                    volume = round(float(weight) * int(sets) * int(reps), 1)
             point = {
                 'date': date,
                 'top_weight_kg': float(weight) if weight is not None else None,
@@ -513,6 +573,48 @@ def _build_strength_progression(entries: List[Dict[str, Any]]) -> List[Dict[str,
     return progression
 
 
+
+def _build_strength_sessions(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Per-session totals: sets, reps and tonnage, oldest first.
+
+    Reads the figures the pipeline computed with shared/strength_volume.py and
+    stored on each history entry. Never recomputes: a second definition of tonnage
+    would drift from the coach's, and the flat sets/reps summary cannot represent a
+    session like '10x80 8x90 8x90' anyway (it under-reported one real session by
+    33%).
+
+    Rows written before that wiring carry no totals; they are returned with nulls
+    and `incomplete: true` so the chart can skip them instead of drawing a dip that
+    never happened.
+    """
+    sessions: List[Dict[str, Any]] = []
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        date = (entry.get('date') or '')[:10]
+        if not date:
+            continue
+        total_reps = entry.get('total_reps')
+        sessions.append({
+            'date': date,
+            'activity_id': entry.get('activity_id'),
+            'duration_min': entry.get('duration_min'),
+            'total_sets': int(entry['total_sets']) if entry.get('total_sets') is not None else None,
+            'total_reps': int(total_reps) if total_reps is not None else None,
+            'volume_kg': float(entry['volume_kg']) if entry.get('volume_kg') is not None else None,
+            'body_weight_kg_used': (
+                float(entry['body_weight_kg_used'])
+                if entry.get('body_weight_kg_used') is not None else None
+            ),
+            # True when a load was unknown: the tonnage is a floor, not a total.
+            'volume_incomplete': bool(entry.get('volume_kg_incomplete')) or total_reps is None,
+            'excluded_exercises': list(entry.get('excluded_exercises') or []),
+        })
+
+    sessions.sort(key=lambda e: e['date'])
+    return sessions
+
+
 def _detect_health_anomalies(recovery: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Deterministic health-anomaly rules over the recovery snapshot.
 
@@ -522,6 +624,10 @@ def _detect_health_anomalies(recovery: Optional[Dict[str, Any]]) -> List[Dict[st
     data. Thresholds are centralized here for easy tuning.
     """
     if not recovery:
+        return []
+
+    # Freshness-dependent rules must not fire on stale recovery data (R3.6).
+    if recovery.get('stale'):
         return []
 
     anomalies: List[Dict[str, Any]] = []
@@ -566,28 +672,85 @@ def _detect_health_anomalies(recovery: Optional[Dict[str, Any]]) -> List[Dict[st
     return anomalies
 
 
-def _extract_recovery(activities: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """Extract recovery state from the most recent activity with Intervals.icu data."""
+def _as_float(value: Any) -> Optional[float]:
+    """Coerce a value to float, preserving 0 and returning None for missing/invalid."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_recovery(
+    activities: List[Dict[str, Any]],
+    now: Optional[datetime] = None,
+    stale_threshold_hours: int = RECOVERY_STALE_THRESHOLD_HOURS,
+) -> Optional[Dict[str, Any]]:
+    """Extract recovery state from the most recent activity carrying Intervals.icu data.
+
+    Adds freshness metadata (`as_of`, `fetched_at`, `source`, `stale`) and keeps
+    current sleep separate from the 30-day average (R3). Numeric zero deltas are
+    preserved as 0.0 and never coerced to None. Pure function: it reads only the
+    activity dicts passed in and performs no I/O.
+    """
+    if now is None:
+        now = datetime.now(tz=timezone.utc)
+
     for a in activities:
         icu_raw = a.get('intervals_icu_json')
         if not icu_raw:
             continue
         try:
             icu = json.loads(icu_raw) if isinstance(icu_raw, str) else icu_raw
-            fitness = icu.get('fitness', {})
-            trends = icu.get('trends', {})
+            fitness = icu.get('fitness', {}) or {}
+            trends = icu.get('trends', {}) or {}
+            vo2 = trends.get('vo2max', {}) or {}
+            rhr = trends.get('resting_hr', {}) or {}
+            sleep = trends.get('sleep_duration', {}) or {}
+
+            raw_date = a.get('start_date') or a.get('start_date_local') or a.get('created_at', '')
+            as_of = None
+            as_of_dt = None
+            if raw_date:
+                try:
+                    as_of_dt = datetime.fromisoformat(raw_date.replace('Z', '+00:00'))
+                    if as_of_dt.tzinfo is None:
+                        as_of_dt = as_of_dt.replace(tzinfo=timezone.utc)
+                    as_of = as_of_dt.date().isoformat()
+                except (ValueError, TypeError, AttributeError):
+                    as_of_dt = None
+            # Unknown measurement time is stale by definition: freshness-based
+            # advice must fail safe rather than fire on undated recovery data.
+            stale = True
+            if as_of_dt is not None:
+                stale = (now - as_of_dt) > timedelta(hours=stale_threshold_hours)
+            fetched_at = a.get('updated_at') or a.get('created_at') or raw_date or None
+
             return {
-                'form': float(fitness['form']) if fitness.get('form') is not None else None,
-                'ctl': float(fitness['ctl']) if fitness.get('ctl') is not None else None,
-                'atl': float(fitness['atl']) if fitness.get('atl') is not None else None,
+                'form': _as_float(fitness.get('form')),
+                'ctl': _as_float(fitness.get('ctl')),
+                'atl': _as_float(fitness.get('atl')),
                 'resting_hr': fitness.get('resting_hr'),
                 'hrv': fitness.get('hrv'),
-                'vo2max': float(trends['vo2max']['current']) if trends.get('vo2max', {}).get('current') else None,
-                'vo2max_delta_7d': float(trends['vo2max']['delta_7d']) if trends.get('vo2max', {}).get('delta_7d') else None,
-                'resting_hr_delta_7d': float(trends['resting_hr']['delta_7d']) if trends.get('resting_hr', {}).get('delta_7d') else None,
+                'vo2max': _as_float(vo2.get('current')),
+                'vo2max_delta_7d': _as_float(vo2.get('delta_7d')),
+                'resting_hr_delta_7d': _as_float(rhr.get('delta_7d')),
                 'sleep_hours': None,
-                'sleep_display': _format_sleep(trends.get('sleep_duration', {}).get('avg_30d')),
-                'sleep_delta_7d_min': _sleep_delta_minutes(trends.get('sleep_duration', {}).get('delta_7d')),
+                # Legacy field kept for frontend compatibility (30-day average).
+                'sleep_display': _format_sleep(sleep.get('avg_30d')),
+                'sleep_delta_7d_min': _sleep_delta_minutes(sleep.get('delta_7d')),
+                # Corrected, separated sleep fields (additive) — R3.3.
+                'sleep_current_sec': _as_float(sleep.get('current')),
+                'sleep_average_30d_sec': _as_float(sleep.get('avg_30d')),
+                'sleep_delta_7d_sec': _as_float(sleep.get('delta_7d')),
+                'sleep_current_display': _format_sleep(sleep.get('current')),
+                'sleep_average_30d_display': _format_sleep(sleep.get('avg_30d')),
+                # Freshness metadata — R3.1.
+                'as_of': as_of,
+                'fetched_at': fetched_at,
+                'source': 'intervals_icu',
+                'stale': stale,
             }
         except (json.JSONDecodeError, KeyError, TypeError, ValueError):
             continue
@@ -1042,16 +1205,104 @@ def get_system_stats(user_id: str) -> Dict[str, Any]:
         }
 
 
+def _iso_week_start(d: date) -> date:
+    """Return the Monday (ISO week start) of the week containing date `d`."""
+    return d - timedelta(days=d.weekday())
+
+
+def _bucket_weekly_trends(
+    activities: List[Dict[str, Any]],
+    now: datetime,
+    num_weeks: int = 12,
+) -> List[Dict[str, Any]]:
+    """Bucket activities into `num_weeks` chronological WeeklyTrend objects.
+
+    Buckets by Monday calendar date (not ISO week-number arithmetic), which
+    handles year boundaries and ISO week 53 correctly. The last bucket is the
+    current (in-progress) week and is marked `complete=False`; all earlier weeks
+    are `complete=True`. Pure function: reads only the activity dicts, no I/O.
+    """
+    current_monday = _iso_week_start(now.date())
+    week_starts = [current_monday - timedelta(weeks=(num_weeks - 1 - i)) for i in range(num_weeks)]
+    index_by_monday = {ws: i for i, ws in enumerate(week_starts)}
+
+    trends = [
+        {
+            'week_start': ws.isoformat(),
+            'week_end': (ws + timedelta(days=6)).isoformat(),
+            'complete': ws != current_monday,
+            'run_km': 0.0,
+            'run_duration_sec': 0.0,
+            'runs': 0,
+            'strength_sessions': 0,
+            'other_sessions': 0,
+        }
+        for ws in week_starts
+    ]
+
+    for a in activities:
+        raw_date = a.get('start_date') or a.get('start_date_local') or a.get('created_at', '')
+        if not raw_date:
+            continue
+        try:
+            dt = datetime.fromisoformat(raw_date.replace('Z', '+00:00'))
+        except (ValueError, TypeError, AttributeError):
+            continue
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        idx = index_by_monday.get(_iso_week_start(dt.date()))
+        if idx is None:
+            continue
+
+        bucket = trends[idx]
+        activity_type = a.get('activity_type', '')
+        distance_m = float(a.get('distance', 0) or 0)
+        moving_time_s = float(a.get('moving_time', 0) or 0)
+        if activity_type == 'Run':
+            bucket['runs'] += 1
+            if distance_m > 0:
+                bucket['run_km'] += distance_m / 1000
+            if moving_time_s > 0:
+                bucket['run_duration_sec'] += moving_time_s
+        elif activity_type == 'WeightTraining':
+            bucket['strength_sessions'] += 1
+        else:
+            bucket['other_sessions'] += 1
+
+    for bucket in trends:
+        bucket['run_km'] = round(bucket['run_km'], 1)
+        bucket['run_duration_sec'] = round(bucket['run_duration_sec'])
+    return trends
+
+
+def _completed_week_volume_change(weekly_trends: List[Dict[str, Any]]) -> Optional[float]:
+    """Percent run-volume change between the two most recent completed weeks.
+
+    Returns None when fewer than two completed weeks exist or the earlier
+    comparison week has zero volume (insufficient data — R2.5). The current
+    in-progress week (`complete=False`) is never used as a comparison term.
+    """
+    completed = [w for w in weekly_trends if w.get('complete')]
+    if len(completed) < 2:
+        return None
+    prev_week, last_week = completed[-2], completed[-1]
+    prev_km = prev_week.get('run_km') or 0
+    last_km = last_week.get('run_km') or 0
+    if prev_km <= 0:
+        return None
+    return round((last_km - prev_km) / prev_km * 100, 1)
+
+
 def get_coach_summary(user_id: str) -> Dict[str, Any]:
     """Get coach summary: recent feedback, training trends, and athlete profile."""
     try:
         table = dynamodb.Table(ACTIVITIES_TABLE)
         config_table = dynamodb.Table(USER_CONFIG_TABLE)
 
-        # Get athlete profile from user preferences
+        # Get athlete profile from user preferences (loaded with the resolved
+        # authenticated user id — never overwritten with DEFAULT_USER_ID; R1.5).
         athlete_profile = ''
         try:
-            user_id = os.environ.get('DEFAULT_USER_ID', '')
             if user_id:
                 config_response = config_table.get_item(Key={'user_id': user_id})
                 prefs = config_response.get('Item', {}).get('user_preferences', {})
@@ -1059,9 +1310,15 @@ def get_coach_summary(user_id: str) -> Dict[str, Any]:
         except ClientError:
             pass
 
-        # Get recent activities (last 30 days) sorted by date
+        # Get recent activities (12 ISO weeks) sorted by date. The window is
+        # aligned to the oldest bucket's Monday (minus a 1-day buffer for
+        # created_at vs start_date skew) so all 12 weekly buckets are populated.
         now = datetime.now(tz=timezone.utc)
-        start_date = now - timedelta(days=30)
+        oldest_monday = _iso_week_start(now.date()) - timedelta(weeks=11)
+        start_date = datetime(
+            oldest_monday.year, oldest_monday.month, oldest_monday.day,
+            tzinfo=timezone.utc,
+        ) - timedelta(days=1)
 
         recent = _query_user_activities(user_id, since=start_date)
         recent.sort(key=lambda x: x.get('created_at', ''), reverse=True)
@@ -1103,13 +1360,13 @@ def get_coach_summary(user_id: str) -> Dict[str, Any]:
                 dt = datetime.fromisoformat(activity_date.replace('Z', '+00:00'))
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=timezone.utc)
-                # Use ISO week number for bucketing (Monday = start of week)
-                current_week_num = now.isocalendar()[1]
-                activity_week_num = dt.isocalendar()[1]
-                activity_year = dt.isocalendar()[0]
-                current_year = now.isocalendar()[0]
-                # Calculate week offset (0 = this week, 1 = last week, etc.)
-                week_idx = (current_year - activity_year) * 52 + (current_week_num - activity_week_num)
+                # Bucket on whole ISO weeks (Monday start). Derive the offset from
+                # the Monday dates rather than from bare week numbers: the old
+                # `(year_delta * 52) + week_delta` arithmetic is wrong across an ISO
+                # year boundary, because ISO years hold 52 or 53 weeks.
+                current_monday = _iso_week_start(now.date())
+                activity_monday = _iso_week_start(dt.date())
+                week_idx = (current_monday - activity_monday).days // 7
                 if week_idx < 0 or week_idx >= 4:
                     continue
                 distance_m = float(a.get('distance', 0) or 0)
@@ -1232,7 +1489,14 @@ def get_coach_summary(user_id: str) -> Dict[str, Any]:
         compliance = None
         try:
             sessions_table = dynamodb.Table(COACHING_SESSIONS_TABLE)
-            # Scan for current week sessions (new API sync format)
+            # Kept as a Scan: "current week" is identified here by the
+            # is_current_week flag, which is a plain attribute rather than the
+            # session_date partition key, so it cannot be a KeyCondition.
+            # Deriving the calendar week from today's date and Querying that
+            # partition instead would flip compliance to None whenever the
+            # current week has not been synced yet (e.g. early Monday), changing
+            # behaviour. The scan stays; only single-partition reads (a labelled
+            # week, athlete-context) were converted to Query.
             resp = sessions_table.scan(
                 FilterExpression="is_current_week = :cw",
                 ExpressionAttributeValues={":cw": True},
@@ -1249,11 +1513,9 @@ def get_coach_summary(user_id: str) -> Dict[str, Any]:
 
             total_planned = len(current_week_sessions)
             if total_planned > 0:
-                # Support both formats: new='done', old='Fait'/'Complétée'
-                done_statuses = {'done', 'fait', 'faite', 'complétée', 'completée', 'validée'}
                 completed_count = sum(
-                    1 for s in current_week_sessions
-                    if (s.get('status') or '').strip().lower() in done_statuses
+                    1 for session in current_week_sessions
+                    if effective_status(session) == STATUS_DONE
                 )
                 compliance = {
                     'planned': total_planned,
@@ -1283,10 +1545,20 @@ def get_coach_summary(user_id: str) -> Dict[str, Any]:
             'total': sessions_per_week[-1] if sessions_per_week else 0,
         }
 
+        # Additive V2 correctness fields (R2): explicit 12-week WeeklyTrend
+        # objects with date-based buckets, plus a completed-week-only volume
+        # delta. Recovery is extracted once and reused (R3.4).
+        weekly_trends = _bucket_weekly_trends(recent, now, num_weeks=12)
+        volume_change_completed_weeks_pct = _completed_week_volume_change(weekly_trends)
+        recovery = _extract_recovery(recent, now)
+
         return {
+            'schema_version': 1,
             'athlete_profile': athlete_profile,
             'recent_feedback': recent_feedback,
             'current_week': current_week,
+            'weekly_trends': weekly_trends,
+            'volume_change_completed_weeks_pct': volume_change_completed_weeks_pct,
             'trends': {
                 'weekly_volume_km': [round(v, 1) for v in weekly_volume],
                 'sessions_per_week': sessions_per_week,
@@ -1298,18 +1570,22 @@ def get_coach_summary(user_id: str) -> Dict[str, Any]:
                 'ef_paces': ef_trend[-20:],
                 'ramp_rate': ramp_rate,
                 'compliance': compliance,
-                'recovery': _extract_recovery(recent),
-                'health_anomalies': _detect_health_anomalies(_extract_recovery(recent)),
+                'recovery': recovery,
+                'health_anomalies': _detect_health_anomalies(recovery),
                 'strength_history': strength_history[-20:],
                 'strength_progression': _build_strength_progression(strength_history),
+                'strength_sessions': _build_strength_sessions(strength_history),
             }
         }
 
     except (ClientError, ValueError, TypeError) as e:
         logger.error(f"Failed to get coach summary: {str(e)}")
         return {
+            'schema_version': 1,
             'athlete_profile': '',
             'recent_feedback': [],
+            'weekly_trends': [],
+            'volume_change_completed_weeks_pct': None,
             'trends': {
                 'weekly_volume_km': [0, 0, 0, 0],
                 'sessions_per_week': [0, 0, 0, 0],

@@ -171,7 +171,14 @@ class TestBuildHistoricalSummary:
         assert "error" not in summary
         assert summary["total_activities"] == 2
         assert summary["total_distance_km"] == 13.0  # 8km + 5km, string coerced
-        manual = [a for a in summary["recent_activities"] if a["distance_km"] == 5.0]
+        # Per-activity detail is grouped by ISO week so no rolling window can be
+        # assembled from it; flatten here only to assert the entry itself.
+        flat = [
+            a
+            for entries in summary["recent_activities_by_week"].values()
+            for a in entries
+        ]
+        manual = [a for a in flat if a["distance_km"] == 5.0]
         assert manual and manual[0]["pace"]  # pace computed from string speed
 
 from processing.coach_generator import _compute_coach_metrics, extract_and_store_prs, _build_fitness_trend

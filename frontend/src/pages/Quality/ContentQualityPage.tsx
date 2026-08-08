@@ -64,6 +64,15 @@ function transformActivities(raw: RawActivity[]): Activity[] {
 type QualitySortKey = 'name' | 'date' | 'confidence' | 'similarity';
 type QualitySortDir = 'asc' | 'desc';
 
+function SortIcon({ active, dir }: { active: boolean; dir: QualitySortDir }) {
+  if (!active) return null;
+  return dir === 'asc' ? (
+    <ArrowUp className="h-3 w-3" aria-hidden="true" />
+  ) : (
+    <ArrowDown className="h-3 w-3" aria-hidden="true" />
+  );
+}
+
 function computeQualityStats(activities: Activity[]): QualityStats {
   const withConfidence = activities.filter((a) => a.confidence && a.confidence > 0);
   const withFeedback = activities.filter((a) => a.feedback_analyzed);
@@ -188,6 +197,7 @@ function DesktopRow({ item, t }: ActivityRowProps & { t: TFn }) {
     <tr className="hover:bg-muted transition-colors">
       <td className="py-3 px-4">
         <div className="flex items-center gap-2.5 max-w-[280px]">
+          {/* eslint-disable-next-line react-hooks/static-components -- Icon references a module-level Lucide component returned by getActivityLucideIcon(); it is not created during render. */}
           <Icon className="h-4 w-4 flex-shrink-0 text-muted-foreground" aria-hidden="true" />
           <span className="text-foreground font-medium truncate">{item.name}</span>
         </div>
@@ -268,6 +278,7 @@ function MobileCard({ item, t }: ActivityRowProps & { t: TFn }) {
     <Card padding="sm" className="hover:bg-muted transition-colors">
       <div className="flex items-start justify-between gap-3 mb-2">
         <div className="flex items-center gap-2 min-w-0">
+          {/* eslint-disable-next-line react-hooks/static-components -- Icon references a module-level Lucide component returned by getActivityLucideIcon(); it is not created during render. */}
           <Icon className="h-4 w-4 flex-shrink-0 text-muted-foreground" aria-hidden="true" />
           <span className="text-foreground font-medium truncate">{item.name}</span>
         </div>
@@ -394,15 +405,6 @@ export function ContentQualityPage() {
     }
   };
 
-  const SortIcon = ({ k }: { k: QualitySortKey }) => {
-    if (sortKey !== k) return null;
-    return sortDir === 'asc' ? (
-      <ArrowUp className="h-3 w-3" aria-hidden="true" />
-    ) : (
-      <ArrowDown className="h-3 w-3" aria-hidden="true" />
-    );
-  };
-
   const avgConfidenceValue =
     !loading && stats.avg_confidence > 0
       ? `${(stats.avg_confidence * 100).toFixed(0)}%`
@@ -527,7 +529,7 @@ export function ContentQualityPage() {
         ) : (
           <>
             {/* Desktop table */}
-            <div className="hidden md:block rounded-xl border border-border bg-surface overflow-hidden">
+            <div className="hidden md:block rounded-xl border border-border bg-surface overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="text-xs uppercase tracking-wider text-muted-foreground border-b border-border bg-surface-muted">
                   <tr>
@@ -537,7 +539,7 @@ export function ContentQualityPage() {
                     >
                       <span className="inline-flex items-center gap-1">
                         {t('quality.col.activity')}
-                        <SortIcon k="name" />
+                        <SortIcon active={sortKey === 'name'} dir={sortDir} />
                       </span>
                     </th>
                     <th
@@ -546,7 +548,7 @@ export function ContentQualityPage() {
                     >
                       <span className="inline-flex items-center gap-1">
                         {t('quality.col.date')}
-                        <SortIcon k="date" />
+                        <SortIcon active={sortKey === 'date'} dir={sortDir} />
                       </span>
                     </th>
                     <th
@@ -555,7 +557,7 @@ export function ContentQualityPage() {
                     >
                       <span className="inline-flex items-center gap-1">
                         {t('quality.col.confidence')}
-                        <SortIcon k="confidence" />
+                        <SortIcon active={sortKey === 'confidence'} dir={sortDir} />
                       </span>
                     </th>
                     <th className="text-left py-3 px-4 font-medium">{t('quality.col.userEdit')}</th>
@@ -565,7 +567,7 @@ export function ContentQualityPage() {
                     >
                       <span className="inline-flex items-center gap-1">
                         {t('quality.col.similarity')}
-                        <SortIcon k="similarity" />
+                        <SortIcon active={sortKey === 'similarity'} dir={sortDir} />
                       </span>
                     </th>
                     <th className="text-left py-3 px-4 font-medium">

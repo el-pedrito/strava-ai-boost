@@ -12,7 +12,7 @@ import boto3
 from botocore.exceptions import ClientError
 import hmac
 import hashlib
-from shared.logger import get_logger
+from shared.logger import get_logger, metrics, MetricUnit
 
 logger = get_logger("webhook-handler")
 
@@ -20,6 +20,75 @@ logger = get_logger("webhook-handler")
 PROCESSING_QUEUE_URL = os.environ['PROCESSING_QUEUE_URL']
 ACTIVITIES_TABLE = os.environ['ACTIVITIES_TABLE']
 STRAVA_OAUTH_SECRET = os.environ['STRAVA_OAUTH_SECRET']
+
+# Origin validation for webhook events (see docs: Strava does NOT sign webhook
+# events, so there is no HMAC to verify -- the only usable signal is that the
+# event body carries our own subscription id and an athlete we know).
+#
+# Kill switch: set WEBHOOK_STRICT_ORIGIN to a falsy value ("0"/"false"/"off")
+# to disable rejection instantly via update-function-configuration, with no
+# code deployment. Strava webhook delivery is a hard dependency of this app, so
+# every unknown/unconfigured condition below fails OPEN on purpose and only a
+# positively identified mismatch is dropped.
+WEBHOOK_STRICT_ORIGIN = os.environ.get(
+    'WEBHOOK_STRICT_ORIGIN', 'true'
+).strip().lower() not in ('0', 'false', 'no', 'off')
+# Expected push subscription id, injected by CDK. Not a secret, but only
+# obtainable with the app's client_id/client_secret.
+EXPECTED_SUBSCRIPTION_ID = os.environ.get('STRAVA_SUBSCRIPTION_ID', '').strip()
+
+
+def is_known_athlete(owner_id: str) -> bool:
+    """Return True when owner_id matches a configured athlete.
+
+    Authoritative source is the user configuration table, so authorising a new
+    athlete needs no code change. Fails OPEN (returns True) when the table
+    cannot be read, so a DynamoDB problem can never stop Strava ingestion.
+    """
+    try:
+        table_name = os.environ.get('USER_CONFIG_TABLE', 'strava-ai-boost-user-configuration')
+        item = get_dynamodb_resource().Table(table_name).get_item(
+            Key={'user_id': str(owner_id)}
+        ).get('Item')
+        if item:
+            return True
+        # Not in the table: fall back to the deployment's default athlete
+        # before declaring the event foreign.
+        default_user = os.environ.get('DEFAULT_USER_ID', '').strip()
+        if default_user and str(owner_id) == default_user:
+            return True
+        return False
+    except Exception as e:
+        logger.warning(f"Could not verify athlete {owner_id}, allowing event: {e}")
+        return True
+
+
+def validate_webhook_origin(webhook_data: Dict[str, Any]) -> bool:
+    """Validate that an event plausibly originates from our own subscription.
+
+    Returns True when the event should be processed. Verified against 339 real
+    events (2026-03-26 -> 2026-07-27): 338/338 legitimate events carried our
+    subscription id and known athlete; the only mismatch was a forged test.
+    """
+    subscription_id = str(webhook_data.get('subscription_id', '') or '')
+    owner_id = str(webhook_data.get('owner_id', '') or '')
+
+    mismatch = None
+    if EXPECTED_SUBSCRIPTION_ID and subscription_id and subscription_id != EXPECTED_SUBSCRIPTION_ID:
+        mismatch = f"subscription_id {subscription_id} != expected {EXPECTED_SUBSCRIPTION_ID}"
+    elif owner_id and not is_known_athlete(owner_id):
+        mismatch = f"unknown athlete owner_id {owner_id}"
+
+    if mismatch is None:
+        return True
+
+    metrics.add_metric(name="WebhookRejectedForeignOrigin", unit=MetricUnit.Count, value=1)
+    if not WEBHOOK_STRICT_ORIGIN:
+        logger.warning(f"Foreign webhook origin ({mismatch}) but strict origin disabled; processing anyway")
+        return True
+
+    logger.warning(f"Dropping webhook from foreign origin: {mismatch}")
+    return False
 
 
 def get_sqs_client():
@@ -37,6 +106,9 @@ def get_secretsmanager_client():
     return boto3.client('secretsmanager')
 
 
+# @log_metrics is what flushes add_metric to CloudWatch (EMF on stdout).
+# Without it the metrics are buffered and silently dropped.
+@metrics.log_metrics
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Lambda handler for Strava webhook notifications
@@ -181,12 +253,21 @@ def handle_webhook_notification(event: Dict[str, Any]) -> Dict[str, Any]:
             webhook_data = body
             
         logger.info(f"Received webhook: {webhook_data}")
-        
+
         # Validate webhook structure
         if not validate_webhook_data(webhook_data):
             return {
                 'statusCode': 400,
                 'body': json.dumps({'error': 'Invalid webhook data'})
+            }
+
+        # Drop events that do not come from our own subscription/athlete.
+        # Strava retries any non-200 up to three times and disables failing
+        # subscriptions, so a dropped event must still be acknowledged with 200.
+        if not validate_webhook_origin(webhook_data):
+            return {
+                'statusCode': 200,
+                'body': json.dumps({'status': 'ignored'})
             }
         
         # Extract user_id from webhook (owner_id)
@@ -255,15 +336,19 @@ def handle_webhook_notification(event: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def verify_webhook_signature(body: str, headers: Dict[str, str]) -> bool:
-    """
-    Verify Strava webhook signature for security
-    
-    Args:
-        body: Raw webhook body
-        headers: Request headers
-        
-    Returns:
-        True if signature is valid, False otherwise
+    """Best-effort signature check. NOT a security control for Strava.
+
+    The Strava Webhook Events API does not sign event deliveries: the documented
+    event body is object_type/object_id/aspect_type/updates/owner_id/
+    subscription_id/event_time and no signature header is sent
+    (https://developers.strava.com/docs/webhooks/). The only shared secret,
+    verify_token, is used solely in the subscription-validation GET.
+
+    Consequently this function always takes the "no signature" branch in
+    production and must stay fail-open: requiring a signature would reject every
+    legitimate Strava event and break ingestion. Origin filtering is done by
+    validate_webhook_origin() instead. The HMAC branch below is kept only for
+    self-hosted/proxy setups that do sign requests.
     """
     try:
         # Get signature from headers (case-insensitive)

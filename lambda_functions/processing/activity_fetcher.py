@@ -7,6 +7,7 @@ Handles comprehensive data retrieval for analysis.
 
 import json
 import os
+from decimal import Decimal
 from typing import Dict, Any, Optional
 import boto3
 from botocore.exceptions import ClientError
@@ -15,6 +16,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from datetime import datetime, timedelta
 from shared.logger import get_logger
+from shared.strava_oauth import refresh_access_token as shared_refresh_access_token
 
 logger = get_logger("activity-fetcher")
 
@@ -43,6 +45,10 @@ STRAVA_OAUTH_SECRET = os.environ['STRAVA_OAUTH_SECRET']
 # Strava API configuration
 STRAVA_API_BASE = "https://www.strava.com/api/v3"
 
+# Body weight bounds (kg), mirrored from user_preferences_api validation
+BODY_WEIGHT_MIN_KG = 30
+BODY_WEIGHT_MAX_KG = 250
+
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
@@ -68,6 +74,18 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Fetch laps data (device-recorded intervals/auto-laps)
         laps_data = fetch_laps_data(activity_id, access_token)
 
+        # Fetch the per-activity HR zone distribution (Strava Summit feature).
+        # This is the authoritative source for which HR zone the session was in.
+        # It is computed once here and stored on activity_data so downstream
+        # consumers (content agent, coach) READ it and never invent a zone number.
+        hr_zone = compute_hr_zone(fetch_activity_zones(activity_id, access_token))
+        if hr_zone:
+            activity_data['_strava_hr_zone'] = hr_zone
+            logger.info(
+                f"HR zone (Strava): {hr_zone['label']} "
+                f"({hr_zone['dominant_pct']}% of time)"
+            )
+
         # Fetch athlete stats for context (yearly totals, records, etc.)
         athlete_id = activity_data.get('athlete', {}).get('id') or user_id
         athlete_stats = fetch_athlete_stats(athlete_id, access_token)
@@ -77,6 +95,10 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
         # Fetch user configuration for module decisions
         user_config = fetch_user_configuration(user_id)
+
+        # Opportunistically seed body weight from the Strava profile (no extra API
+        # call), without ever overwriting a manual entry.
+        persist_body_weight_from_strava(user_id, athlete_profile, user_config)
 
         # Fetch Intervals.icu data if module is enabled
         intervals_icu_data = fetch_intervals_icu_data(activity_data, user_config)
@@ -226,36 +248,18 @@ def refresh_access_token(refresh_token: str) -> Optional[Dict[str, Any]]:
             logger.error(f"Missing credentials for token refresh - client_id: {client_id is not None}, client_secret: {client_secret is not None}")
             return None
         
-        token_data = {
-            'client_id': client_id,
-            'client_secret': client_secret,
-            'grant_type': 'refresh_token',
-            'refresh_token': refresh_token
-        }
-        
         logger.info(f"Attempting to refresh token with client_id: {client_id}")
-        
-        response = _get_http_session().post("https://www.strava.com/oauth/token", data=token_data, timeout=30)
-        
-        if response.status_code != 200:
-            logger.error(f"Token refresh failed with status {response.status_code}: {response.text}")
-            return None
-        
-        new_tokens = response.json()
-        
-        # Validate response
-        if 'access_token' not in new_tokens:
-            logger.error(f"Invalid token refresh response: {new_tokens}")
-            return None
-        
-        # Add metadata
-        new_tokens['obtained_at'] = datetime.utcnow().isoformat()
-        new_tokens['last_refreshed'] = datetime.utcnow().isoformat()
-        
-        logger.info("Successfully refreshed access token")
-        
-        return new_tokens
-        
+
+        # Single implementation of the token exchange lives in
+        # shared/strava_oauth.py (validates the response and stamps
+        # timezone-aware obtained_at/last_refreshed metadata).
+        return shared_refresh_access_token(
+            refresh_token,
+            client_id,
+            client_secret,
+            http_session=_get_http_session(),
+        )
+
     except requests.RequestException as e:
         logger.error(f"HTTP error during token refresh: {e}")
         return None
@@ -346,6 +350,105 @@ def fetch_laps_data(activity_id: str, access_token: str) -> Optional[list]:
         return None
 
 
+# HR zone labels, indexed by Strava zone number (buckets are ordered Z1..Zn).
+_HR_ZONE_LABELS = {
+    1: "Zone 1 (recuperation)",
+    2: "Zone 2 (endurance fondamentale)",
+    3: "Zone 3 (tempo / seuil bas)",
+    4: "Zone 4 (seuil)",
+    5: "Zone 5 (VO2max / anaerobie)",
+}
+
+
+def fetch_activity_zones(activity_id: str, access_token: str) -> Optional[list]:
+    """
+    Fetch the per-activity HR zone distribution from Strava.
+
+    Endpoint: GET /activities/{id}/zones (getZonesByActivityId). This is a
+    Strava Summit (subscriber) feature but requires no OAuth scope beyond the
+    activity:read already used for laps.
+
+    The response is a list of ActivityZone objects; we return the
+    distribution_buckets of the 'heartrate' entry (ordered Z1..Zn, each
+    {min, max, time}). Returns None when zones are unavailable (404 / non-Summit
+    403 / no HR sensor / any error) so the caller degrades gracefully.
+    """
+    try:
+        headers = {'Authorization': f'Bearer {access_token}'}
+        url = f"{STRAVA_API_BASE}/activities/{activity_id}/zones"
+
+        response = _get_http_session().get(url, headers=headers, timeout=30)
+
+        if response.status_code in (403, 404):
+            logger.info(
+                f"Activity zones unavailable ({response.status_code}) for {activity_id}"
+            )
+            return None
+
+        response.raise_for_status()
+        zones = response.json()
+
+        if not isinstance(zones, list):
+            return None
+
+        for zone in zones:
+            if isinstance(zone, dict) and zone.get('type') == 'heartrate':
+                buckets = zone.get('distribution_buckets')
+                if buckets:
+                    logger.info(
+                        f"Fetched {len(buckets)} HR zone buckets for activity {activity_id}"
+                    )
+                    return buckets
+
+        logger.info(f"No heartrate zones in activity zones for {activity_id}")
+        return None
+
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"Activity zones API request failed: {str(e)}")
+        return None
+    except Exception as e:
+        logger.warning(f"Failed to fetch activity zones: {str(e)}")
+        return None
+
+
+def compute_hr_zone(buckets: Optional[list]) -> Optional[Dict[str, Any]]:
+    """
+    Reduce Strava HR zone buckets to the dominant zone (by time spent).
+
+    Pure function (unit-tested). `buckets` is the ordered Z1..Zn list from
+    fetch_activity_zones. Returns {zone, label, dominant_pct, range_bpm} for the
+    zone where the athlete spent the most time, or None if there is no usable
+    data. Dominant-by-time answers "which zone was this session", which is what
+    the narrative needs, and is robust to a stray second in an adjacent bucket.
+    """
+    if not buckets or not isinstance(buckets, list):
+        return None
+
+    times = []
+    for bucket in buckets:
+        if not isinstance(bucket, dict):
+            return None
+        try:
+            times.append(float(bucket.get('time', 0) or 0))
+        except (TypeError, ValueError):
+            times.append(0.0)
+
+    total = sum(times)
+    if total <= 0:
+        return None
+
+    dom_idx = max(range(len(times)), key=lambda i: times[i])
+    zone_num = dom_idx + 1
+    dominant = buckets[dom_idx]
+
+    return {
+        'zone': zone_num,
+        'label': _HR_ZONE_LABELS.get(zone_num, f"Zone {zone_num}"),
+        'dominant_pct': round(times[dom_idx] / total * 100, 1),
+        'range_bpm': [dominant.get('min'), dominant.get('max')],
+    }
+
+
 def fetch_athlete_stats(athlete_id: str, access_token: str) -> Optional[Dict[str, Any]]:
     """
     Fetch athlete statistics from Strava API
@@ -415,6 +518,75 @@ def fetch_athlete_profile(access_token: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.warning(f"Failed to fetch athlete profile: {str(e)}")
         return None
+
+
+def persist_body_weight_from_strava(
+    user_id: str,
+    athlete_profile: Optional[Dict[str, Any]],
+    user_config: Dict[str, Any],
+) -> None:
+    """Seed body_weight_kg in user_preferences from the Strava athlete profile.
+
+    The weight already comes back in the /athlete response (kg, structured,
+    maintained by the athlete), so no extra API call is made. We persist it only
+    when the athlete has no value yet: an explicit manual entry is authoritative
+    because Strava can be stale or empty. An existing value (manual or previously
+    seeded) is never overwritten.
+    """
+    if not athlete_profile:
+        return
+
+    weight = athlete_profile.get('weight')
+    if weight is None:
+        return
+
+    try:
+        weight_value = Decimal(str(weight))
+    except (ArithmeticError, ValueError, TypeError):
+        logger.warning("Athlete weight from Strava is not a number, skipping persistence")
+        return
+
+    if not (BODY_WEIGHT_MIN_KG <= weight_value <= BODY_WEIGHT_MAX_KG):
+        logger.warning(f"Athlete weight {weight_value}kg out of bounds, skipping persistence")
+        return
+
+    preferences = user_config.get('user_preferences')
+    if not isinstance(preferences, dict):
+        preferences = {}
+
+    if preferences.get('body_weight_kg') is not None:
+        # Manual or already-seeded value is authoritative, never overwrite.
+        return
+
+    user_config_table = os.environ.get('USER_CONFIG_TABLE', 'strava-ai-boost-user-configuration')
+    table = dynamodb.Table(user_config_table)
+
+    try:
+        if user_config.get('user_preferences') is None:
+            # No preferences map yet: create it with the seeded value. Nothing to
+            # wipe, and this avoids the invalid nested-path update on a missing map.
+            table.update_item(
+                Key={'user_id': user_id},
+                UpdateExpression='SET user_preferences = :prefs',
+                ExpressionAttributeValues={':prefs': {'body_weight_kg': weight_value}},
+                ConditionExpression='attribute_not_exists(user_preferences)',
+            )
+        else:
+            table.update_item(
+                Key={'user_id': user_id},
+                UpdateExpression='SET user_preferences.body_weight_kg = :w',
+                ExpressionAttributeValues={':w': weight_value},
+                ConditionExpression='attribute_not_exists(user_preferences.body_weight_kg)',
+            )
+        logger.info(f"Seeded body_weight_kg={weight_value} from Strava for {user_id}")
+        # Keep the in-memory copy consistent for downstream use in this invocation.
+        preferences['body_weight_kg'] = weight_value
+        user_config['user_preferences'] = preferences
+    except ClientError as e:
+        if e.response.get('Error', {}).get('Code') == 'ConditionalCheckFailedException':
+            logger.info("body_weight_kg already set (concurrent write), not overwriting")
+        else:
+            logger.warning(f"Failed to seed body_weight_kg from Strava: {str(e)}")
 
 
 def _compute_wellness_trends(wellness_history: list, activity_date: str) -> Dict[str, Any]:

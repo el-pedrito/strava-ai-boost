@@ -8,10 +8,12 @@ without duplicating logic.
 import json
 import os
 from datetime import datetime, timedelta, timezone
+from typing import Any, Dict
 
 import boto3
 
 from shared.logger import get_logger
+from shared.campus_status import effective_status
 
 logger = get_logger("coach-context")
 
@@ -163,10 +165,17 @@ def build_user_context(user_id: str) -> list[str]:
 
 
 def fetch_campus_weekly_plan(user_id: str) -> str:
-    """Fetch Campus Coach sessions for current week and next week.
+    """Fetch Campus Coach sessions for current week and all future weeks.
 
-    Uses Scan with FilterExpression on is_current_week / is_future flags.
-    Returns a compact text block. Empty string if nothing found.
+    Kept as a Scan on purpose. This read spans the current week *and every*
+    synced future week, and the number of future weeks is not known in advance
+    (the sync fetches 1 to 9 weeks depending on the athlete's billing cycle).
+    Turning it into per-week Queries would mean guessing that set of week
+    partitions from today's date, and any week we failed to guess would silently
+    vanish from the plan. Missing a week is worse than scanning, so the
+    unbounded read stays a Scan (contrast with the week-scoped, single-partition
+    reads that were converted to Query). The athlete-context lookup below, which
+    targets one known partition, is already a Query.
     """
     try:
         sessions_table = dynamodb.Table(COACHING_SESSIONS_TABLE)
@@ -200,9 +209,15 @@ def fetch_campus_weekly_plan(user_id: str) -> str:
 
         parts: list[str] = []
         if current_week:
-            parts.append(
-                "Plan Campus Coach cette semaine:\n" + format_campus_sessions(current_week)
+            # Label the current-week block with its ISO week (B5) so it is not
+            # confused with the future-week plans, which already carry it.
+            current_iso = current_week[0].get("week_date_iso", "")
+            header = (
+                f"Plan Campus Coach cette semaine ({current_iso}):"
+                if current_iso
+                else "Plan Campus Coach cette semaine:"
             )
+            parts.append(header + "\n" + format_campus_sessions(current_week))
 
         # Group all future weeks
         if future_sessions:
@@ -238,13 +253,61 @@ def fetch_campus_weekly_plan(user_id: str) -> str:
         return ""
 
 
+def _summarize_interval_entry(iv: Dict[str, Any]) -> str:
+    """Compact one-line summary of a single Campus plan interval entry.
+
+    Tolerates BOTH interval schemas (shared contract, no destructive migration):
+    the new per-block form {'type': 'block', 'repeat': N, 'exercises':
+    [{type, duration, pace}, ...]} and the legacy flat form {'type': 'work',
+    'duration': ..., 'pace': ...} (optionally with a top-level 'repeat').
+    Purely descriptive context for the plan: the executed laps remain the sole
+    source of truth for any count, never this 'repeat'.
+    """
+    exercises = iv.get("exercises")
+    if isinstance(exercises, list) and exercises:
+        repeat = iv.get("repeat")
+        inner: list[str] = []
+        for ex in exercises:
+            if not isinstance(ex, dict):
+                continue
+            ex_parts = [str(ex.get("type") or "").strip()[:12]]
+            if ex.get("duration"):
+                ex_parts.append(str(ex["duration"])[:20])
+            if ex.get("pace"):
+                ex_parts.append(str(ex["pace"])[:20])
+            joined = " ".join(p for p in ex_parts if p)
+            if joined:
+                inner.append(joined)
+        body = " + ".join(inner)
+        prefix = f"{repeat}x " if repeat else ""
+        if body:
+            return f"{prefix}({body})"
+        return (prefix + "bloc").strip()
+
+    # Flat schema (new non-repeated block or legacy per-entry form).
+    parts = [str(iv.get("type") or iv.get("label") or "bloc").strip()[:20]]
+    repeat = iv.get("repeat") or iv.get("repeats")  # legacy per-entry repeat
+    if repeat:
+        parts.append(f"x{repeat}")
+    if iv.get("duration"):
+        parts.append(str(iv["duration"])[:20])
+    if iv.get("distance"):
+        parts.append(str(iv["distance"])[:20])
+    if iv.get("pace"):
+        parts.append(str(iv["pace"])[:20])
+    return " ".join(p for p in parts if p)
+
+
 def format_campus_sessions(sessions: list) -> str:
     """Format Campus Coach sessions into a compact text block for the prompt."""
     lines: list[str] = []
     for s in sessions:
         try:
             title = (s.get("title") or "Séance").strip()[:80]
-            status = (s.get("status") or "").strip() or "à venir"
+            # Canonical execution status (never the raw legacy `status` field,
+            # which the sync never rewrites — see B1). A session done on the
+            # provider but still 'todo' locally now reads as done.
+            status = effective_status(s)
             dist = s.get("expected_distance_km")
             dur = s.get("expected_duration_min")
 
@@ -271,15 +334,9 @@ def format_campus_sessions(sessions: list) -> str:
                     if isinstance(iv, str):
                         pieces.append(iv[:50])
                     elif isinstance(iv, dict):
-                        label = iv.get("label") or iv.get("type") or "bloc"
-                        iv_parts = [str(label)[:30]]
-                        if iv.get("repeats"):
-                            iv_parts.append(f"x{iv['repeats']}")
-                        if iv.get("distance"):
-                            iv_parts.append(str(iv["distance"])[:20])
-                        if iv.get("pace"):
-                            iv_parts.append(str(iv["pace"])[:20])
-                        pieces.append(" ".join(iv_parts))
+                        piece = _summarize_interval_entry(iv)
+                        if piece:
+                            pieces.append(piece)
                 if pieces:
                     interval_summary = "  Intervalles: " + " ; ".join(pieces)
 

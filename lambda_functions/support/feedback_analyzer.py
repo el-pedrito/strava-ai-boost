@@ -22,6 +22,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import difflib
 from shared.logger import get_logger, metrics, MetricUnit
+from shared.strava_oauth import refresh_access_token as shared_refresh_access_token
 
 logger = get_logger("feedback_analyzer")
 
@@ -59,6 +60,9 @@ ANALYSIS_WINDOW_HOURS = 24  # Minimum delay before analyzing (give user time to 
 MAX_CONTENT_LENGTH = 4000   # Max chars per message written to memory (AgentCore limit ~9000)
 
 
+# @log_metrics is what flushes add_metric to CloudWatch (EMF on stdout).
+# Without it the metrics are buffered and silently dropped.
+@metrics.log_metrics
 def lambda_handler(event, context):
     """
     Main handler for feedback analysis.
@@ -291,33 +295,15 @@ def refresh_access_token(refresh_token: str) -> Optional[Dict[str, Any]]:
             logger.error("Missing client credentials for token refresh")
             return None
         
-        # Request new token
-        token_data = {
-            'client_id': client_id,
-            'client_secret': client_secret,
-            'grant_type': 'refresh_token',
-            'refresh_token': refresh_token
-        }
-        
-        response = _get_http_session().post("https://www.strava.com/oauth/token", data=token_data, timeout=30)
-        
-        if response.status_code != 200:
-            logger.error(f"Token refresh failed: {response.status_code}")
-            return None
-        
-        new_tokens = response.json()
-        
-        if 'access_token' not in new_tokens:
-            logger.error("Invalid token refresh response")
-            return None
-        
-        # Add metadata
-        new_tokens['obtained_at'] = datetime.now(UTC).isoformat()
-        new_tokens['last_refreshed'] = datetime.now(UTC).isoformat()
-        
-        logger.info("Successfully refreshed access token")
-        return new_tokens
-        
+        # Request new token — single implementation of the token exchange lives
+        # in shared/strava_oauth.py.
+        return shared_refresh_access_token(
+            refresh_token,
+            client_id,
+            client_secret,
+            http_session=_get_http_session(),
+        )
+
     except (ClientError, json.JSONDecodeError, KeyError) as e:
         logger.error(f"Error refreshing token: {e}")
         return None

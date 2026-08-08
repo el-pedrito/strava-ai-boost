@@ -35,7 +35,7 @@ import contextvars
 import json
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -149,6 +149,64 @@ def _to_float(value: Any) -> float:
         return 0.0
 
 
+# --- Campus Coach status resolution (local mirror of shared.campus_status) -----
+#
+# The coach_chat runtime is deployed via `agentcore configure --entrypoint
+# src/coach_chat/coach_chat_agent.py --deployment-type direct_code_deploy` (see
+# scripts/deploy_agentcore_agents.sh). direct_code_deploy bundles only the
+# src/coach_chat/ directory — the flat `from prompts import ...` above confirms
+# it — so this module has NO access to lambda_functions/shared/campus_status.py.
+# We therefore reimplement effective_status() here with the EXACT same precedence
+# order (local_status -> matched_activity_id/completed_at -> provider_status ->
+# todo). The raw legacy `status` field is deliberately NOT consulted (shared
+# contract B1): the sync never rewrites it, so it holds stale mixed values that
+# made the coach recommend already-done sessions; its completion signal has been
+# migrated into `local_status`. Keep in sync with campus_status.py.
+_STATUS_DONE = "done"
+_STATUS_SKIP = "skip"
+_STATUS_TODO = "todo"
+_DONE_VALUES = {
+    "done", "fait", "faite", "complete", "completed", "complétée",
+    "completée", "validée",
+}
+_SKIP_VALUES = {
+    "skip", "skipped", "sauté", "saute", "sautée", "ignoré", "ignorée",
+}
+_TODO_VALUES = {"todo", "to do", "à faire", "a faire", "planned", "pending", ""}
+
+
+def _normalize_status(raw: Optional[str]) -> Optional[str]:
+    """Normalize a legacy or provider status to a canonical execution state."""
+    if raw is None:
+        return None
+    value = str(raw).strip().lower()
+    if value in _DONE_VALUES:
+        return _STATUS_DONE
+    if value in _SKIP_VALUES:
+        return _STATUS_SKIP
+    if value in _TODO_VALUES:
+        return _STATUS_TODO
+    return None
+
+
+def _effective_status(session: dict) -> str:
+    """Resolve local, matched, and provider state in precedence order.
+
+    The raw legacy ``status`` field is deliberately NOT consulted (shared
+    contract B1) — it is stale and made the coach treat already-done sessions as
+    still to do. Mirror of shared.campus_status.effective_status.
+    """
+    local = _normalize_status(session.get("local_status"))
+    if local is not None:
+        return local
+    if session.get("matched_activity_id") or session.get("completed_at"):
+        return _STATUS_DONE
+    provider = _normalize_status(session.get("provider_status"))
+    if provider is not None:
+        return provider
+    return _STATUS_TODO
+
+
 def _normalize_range(date_from: str, date_to: str) -> tuple[str, str]:
     """Normalize an ISO date window for a ``created_at`` GSI range query.
 
@@ -177,6 +235,50 @@ def _parse_activity_item(item: dict) -> dict:
     return data
 
 
+# --- ISO week labelling (local mirror of shared.iso_week) ---------------------
+#
+# Same bundle constraint as _effective_status above: direct_code_deploy bundles
+# only src/coach_chat/, so lambda_functions/shared/iso_week.py is unreachable.
+# We reimplement iso_week_label() here with the EXACT same contract — a week
+# identity is always the ISO string 'YYYY-Www' (e.g. '2026-W32'), never a bare
+# integer, and an unparseable/empty input yields '' (a distinct, testable
+# "unknown week" case). A bare week number cannot be compared against the
+# week_date_iso values the Campus sync writes, and a flat date-sorted list with
+# no week identity is exactly what let the model sum a rolling 7-day window and
+# call it "cette semaine" (35km announced for a real 6.4km ISO week, with a
+# bogus +32% ramp alert). Keep in sync with shared/iso_week.py; locked by
+# test_coach_chat_tools.test_matches_shared_iso_week_label.
+
+
+def iso_week_label(start_date: Optional[str]) -> str:
+    """Return an ISO week label 'YYYY-Www' from an ISO datetime/date string.
+
+    Mirror of shared.iso_week.iso_week_label. Empty/unparseable input -> ''.
+    """
+    if not start_date:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(str(start_date).replace("Z", "+00:00"))
+    except (ValueError, AttributeError, TypeError):
+        return ""
+    iso = parsed.isocalendar()
+    return f"{iso[0]}-W{iso[1]:02d}"
+
+
+def _monday_of_iso_week(week_label: str) -> Optional[date]:
+    """Monday of an ISO week label 'YYYY-Www'. None when unparseable.
+
+    Mirror of coach_generator._monday_of_iso_week (same bundle constraint).
+    """
+    if not week_label or "-W" not in week_label:
+        return None
+    year_part, week_part = week_label.split("-W", 1)
+    try:
+        return date.fromisocalendar(int(year_part), int(week_part), 1)
+    except (ValueError, TypeError):
+        return None
+
+
 def _compact_activity(item: dict) -> dict:
     """Produce a compact, coach-relevant view of one activity."""
     data = _parse_activity_item(item)
@@ -197,6 +299,7 @@ def _compact_activity(item: dict) -> dict:
     record = {
         "activity_id": item.get("activity_id"),
         "date": date,
+        "iso_week": iso_week_label(date),
         "type": atype,
         "name": data.get("name") or item.get("enhanced_title") or "",
         "distance_km": round(distance_m / 1000, 2) if distance_m else 0,
@@ -307,6 +410,15 @@ def _get_campus_plan_impl(week_iso: str) -> dict:
     used deliberately here (small table, ~a dozen sessions; consistent with
     campus_coach_sync.py). The "queries, no scans" rule in AGENTS.md targets
     user-scoped tables (activities via GSI), not this global config table.
+
+    Kept as a Scan for an additional, harder reason: a labelled week
+    (``session_date = week-YYYY-Www``) and the ``athlete-context`` partition are
+    both single-partition reads that a Query would serve more precisely and
+    cheaply. This runtime's IAM role, however, is granted only ``dynamodb:Scan``
+    on this table (policy CoachChatToolsDataAccess in
+    scripts/deploy_agentcore_agents.sh); a Query would fail with AccessDenied in
+    production. Converting this read therefore requires first widening that policy
+    to include ``dynamodb:Query``. Until then the Scan stays. See the report.
     """
     try:
         table = dynamodb.Table(COACHING_SESSIONS_TABLE)
@@ -329,7 +441,9 @@ def _get_campus_plan_impl(week_iso: str) -> dict:
             "title": s.get("title", ""),
             "session_number": s.get("session_number", ""),
             "week_date_iso": s.get("week_date_iso", ""),
-            "status": s.get("status", ""),
+            # Canonical execution status, not the raw legacy `status` field
+            # (never rewritten by the sync — see B1).
+            "status": _effective_status(s),
             "sport": s.get("sport", ""),
             "expected_distance_km": s.get("expected_distance_km"),
             "expected_duration_min": s.get("expected_duration_min"),
@@ -435,6 +549,259 @@ def _get_intervals_metrics_impl(user_id: str, date_from: str, date_to: str) -> d
     return _jsonable({"series": series, "latest": latest})
 
 
+# --- Weekly totals (code-computed, mirror of build_week_overview counting) ----
+
+
+def _get_weekly_totals_impl(user_id: str, weeks_back: int) -> list:
+    """Aggregate activities into per-ISO-week totals, computed in code.
+
+    Mirror of coach_generator.build_week_overview's counting: same source fields
+    (start_date_local/start_date from the activity blob), same type buckets
+    (Run -> runs+run_km, WeightTraining -> strength, else -> other), same 1-decimal
+    rounding on km. This is what actually fixed the pipeline — a total computed in
+    code, not a labelled list the model re-sums by hand. Locked to
+    build_week_overview by
+    test_coach_chat_tools.test_weekly_totals_match_build_week_overview.
+    """
+    if not user_id:
+        return []
+    try:
+        weeks_back = max(1, min(int(weeks_back), 12))
+    except (ValueError, TypeError):
+        weeks_back = 4
+
+    now = datetime.now(timezone.utc)
+    current_label = iso_week_label(now.date().isoformat())
+    cur_monday = _monday_of_iso_week(current_label)
+
+    # Target set: the current ISO week plus the weeks_back-1 preceding weeks.
+    target_labels: list[str] = []
+    if cur_monday:
+        for i in range(weeks_back):
+            monday_i = cur_monday - timedelta(weeks=i)
+            target_labels.append(iso_week_label(monday_i.isoformat()))
+    target_set = set(target_labels)
+
+    oldest_monday = cur_monday - timedelta(weeks=weeks_back - 1) if cur_monday else None
+    if oldest_monday:
+        since = f"{(oldest_monday - timedelta(days=3)).isoformat()}T00:00:00"
+    else:
+        since = f"{(now - timedelta(days=weeks_back * 7 + 7)).date().isoformat()}T00:00:00"
+    end = f"{now.date().isoformat()}T23:59:59.999999"
+
+    try:
+        table = dynamodb.Table(ACTIVITIES_TABLE)
+        items = _query_all(
+            table,
+            IndexName="UserActivitiesIndex",
+            KeyConditionExpression=Key("user_id").eq(user_id)
+            & Key("created_at").between(since, end),
+            ProjectionExpression="activity_id, activity_data_json",
+        )
+    except Exception as e:
+        logger.warning("get_weekly_totals failed: %s", e)
+        return []
+
+    buckets: dict = {}
+    for item in items:
+        data = _parse_activity_item(item)
+        start = data.get("start_date_local") or data.get("start_date", "")
+        wk = iso_week_label(start)
+        if not wk or wk not in target_set:
+            continue
+        bucket = buckets.setdefault(
+            wk, {"runs": 0, "run_km": 0.0, "strength": 0, "other": 0}
+        )
+        atype = data.get("type", "")
+        if atype == "Run":
+            bucket["runs"] += 1
+            bucket["run_km"] += _to_float(data.get("distance", 0)) / 1000
+        elif atype == "WeightTraining":
+            bucket["strength"] += 1
+        else:
+            bucket["other"] += 1
+
+    result = []
+    for label in target_labels:  # most recent first (i=0 is the current week)
+        bucket = buckets.get(label, {"runs": 0, "run_km": 0.0, "strength": 0, "other": 0})
+        is_current = label == current_label
+        monday = _monday_of_iso_week(label)
+        if monday:
+            sunday = monday + timedelta(days=6)
+            if is_current:
+                human = (
+                    f"Cette semaine ({monday.strftime('%d/%m')}-{sunday.strftime('%d/%m')})"
+                )
+            else:
+                human = f"Semaine du {monday.strftime('%d/%m')} au {sunday.strftime('%d/%m')}"
+        else:
+            human = label
+        runs, strength, other = bucket["runs"], bucket["strength"], bucket["other"]
+        result.append(
+            {
+                "iso_week": label,
+                "label": human,
+                "runs": runs,
+                "run_km": round(bucket["run_km"], 1),
+                "strength": strength,
+                "other": other,
+                "total": runs + strength + other,
+                "is_current": is_current,
+            }
+        )
+    return result
+
+
+# --- Strength sessions (code-computed set/rep counts + explicit-weight tonnage) -
+
+
+def _compute_strength_totals(parsed_sets: list) -> dict:
+    """Code-computed set/rep counts and explicit-weight-only tonnage.
+
+    Counts come from ``sets_detail`` (authoritative: one entry per set actually
+    performed) and fall back to the flat sets/reps summary only when no detail is
+    stored. Volume is Σ reps×weight_kg over the sets whose load is explicit;
+    bodyweight or unknown loads are EXCLUDED and flagged (``volume_kg_incomplete``),
+    never resolved to a default weight — an arbitrary default would produce a
+    plausible but false figure, the exact class of error this chantier exists to
+    kill. Full bodyweight/unilateral tonnage lives in the pipeline's
+    shared/strength_volume.py, the single definition of tonnage, which this
+    runtime cannot import (its deploy bundles only src/coach_chat/). The caller
+    therefore prefers the figures that module stored at write time and reaches
+    this function ONLY for legacy rows written before that wiring landed, where
+    it force-flags the result incomplete.
+    """
+    total_sets = 0
+    total_reps = 0
+    volume_kg = 0.0
+    incomplete = False
+    per_exercise: list[dict] = []
+    for entry in parsed_sets or []:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("exercise") or "?"
+        detail = entry.get("sets_detail")
+        ex_sets = ex_reps = 0
+        ex_volume = 0.0
+        ex_incomplete = False
+        if isinstance(detail, list) and detail:
+            for one in detail:
+                if not isinstance(one, dict):
+                    continue
+                ex_sets += 1
+                reps = one.get("reps")
+                weight = one.get("weight_kg")
+                reps_i = int(reps) if isinstance(reps, (int, float)) else 0
+                ex_reps += reps_i
+                if weight is not None and reps_i:
+                    ex_volume += float(weight) * reps_i
+                else:
+                    ex_incomplete = True
+        else:
+            sets = entry.get("sets")
+            reps = entry.get("reps")
+            weight = entry.get("weight_kg")
+            sets_i = int(sets) if isinstance(sets, (int, float)) else 0
+            reps_i = int(reps) if isinstance(reps, (int, float)) else 0
+            ex_sets = sets_i
+            ex_reps = reps_i * sets_i
+            if weight is not None and reps_i and sets_i:
+                ex_volume = float(weight) * reps_i * sets_i
+            else:
+                ex_incomplete = True
+        total_sets += ex_sets
+        total_reps += ex_reps
+        volume_kg += ex_volume
+        incomplete = incomplete or ex_incomplete
+        per_exercise.append(
+            {
+                "exercise": name,
+                "sets": ex_sets,
+                "reps": ex_reps,
+                "volume_kg": round(ex_volume, 1) if not ex_incomplete else None,
+            }
+        )
+    return {
+        "total_sets": total_sets,
+        "total_reps": total_reps,
+        "volume_kg": round(volume_kg, 1),
+        "volume_kg_incomplete": incomplete,
+        "per_exercise": per_exercise,
+    }
+
+
+def _get_strength_sessions_impl(user_id: str, weeks_back: int) -> list:
+    """Return WeightTraining sessions with code-computed totals.
+
+    Source: ``user_preferences.strength_history.entries`` via get_item on the
+    user-configuration table — the runtime IAM already grants dynamodb:GetItem
+    there (no policy change). Reps/sets/tonnage are NEVER counted from the raw
+    description; they come from the stored ``parsed_sets``/``sets_detail`` and are
+    computed in code (:func:`_compute_strength_totals`).
+    """
+    if not user_id:
+        return []
+    try:
+        weeks_back = max(1, min(int(weeks_back), 12))
+    except (ValueError, TypeError):
+        weeks_back = 4
+    try:
+        table = dynamodb.Table(USER_CONFIG_TABLE)
+        item = table.get_item(Key={"user_id": user_id}).get("Item", {})
+    except Exception as e:
+        logger.warning("get_strength_sessions failed: %s", e)
+        return []
+
+    prefs = item.get("user_preferences", {})
+    entries = ((prefs.get("strength_history") or {}).get("entries")) or []
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(days=weeks_back * 7)
+    ).date().isoformat()
+
+    sessions: list[dict] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        day = (entry.get("date") or "")[:10]
+        if day and day < cutoff:
+            continue
+        # Prefer the figures computed at write time by the pipeline's
+        # shared/strength_volume.py. That module is the single definition of
+        # tonnage: it applies the bodyweight coefficients and the unilateral
+        # doubling, which this runtime cannot replicate (it cannot import
+        # lambda_functions/shared/, its deploy bundles only src/coach_chat/).
+        # Recomputing here produced a second, lower figure for the same session.
+        # The local fallback only covers rows written before the wiring landed.
+        if entry.get("total_reps") is not None:
+            totals = {
+                "total_sets": entry.get("total_sets"),
+                "total_reps": entry.get("total_reps"),
+                "volume_kg": entry.get("volume_kg"),
+                "body_weight_kg_used": entry.get("body_weight_kg_used"),
+                "volume_kg_incomplete": bool(entry.get("volume_kg_incomplete")),
+                "excluded_exercises": entry.get("excluded_exercises") or [],
+                "figures_source": "pipeline",
+            }
+        else:
+            totals = dict(_compute_strength_totals(entry.get("parsed_sets") or []))
+            # Explicit-weight-only tonnage: no bodyweight coefficient applied.
+            totals["volume_kg_incomplete"] = True
+            totals["figures_source"] = "legacy_local_fallback"
+        sessions.append(
+            _jsonable(
+                {
+                    "activity_id": entry.get("activity_id"),
+                    "date": day,
+                    "iso_week": iso_week_label(day),
+                    "duration_min": entry.get("duration_min"),
+                    **totals,
+                }
+            )
+        )
+    sessions.sort(key=lambda s: s.get("date", ""), reverse=True)
+    return sessions
+
+
 # --- Strands tools (PURE: docstring + type hints are the whole spec) ----------
 
 
@@ -470,6 +837,30 @@ async def query_activities(activity_type: str, date_from: str, date_to: str) -> 
     return await asyncio.to_thread(
         _query_activities_impl, user_id, activity_type, date_from, date_to
     )
+
+
+@tool
+async def get_weekly_totals(weeks_back: int = 4) -> list:
+    """Récupère les totaux hebdomadaires par semaine ISO, calculés côté serveur.
+
+    UTILISE CET OUTIL pour toute question de volume ou de décompte hebdomadaire
+    ("combien de séances cette semaine", "mon volume la semaine dernière",
+    "combien de km"). Les totaux sont calculés en code, par semaine ISO
+    (lundi-dimanche) : ne recompte JAMAIS en parcourant query_activities, et ne
+    construis jamais un total sur 7 jours glissants.
+
+    Args:
+        weeks_back: Nombre de semaines ISO à renvoyer, semaine en cours incluse
+            (défaut 4, borné à 12).
+
+    Returns:
+        Liste par semaine, la plus récente d'abord, chacune avec: iso_week
+        (AAAA-Www), label (libellé lisible), runs, run_km, strength, other, total,
+        is_current (True pour la semaine en cours). Une semaine sans activité
+        renvoie des zéros (ce n'est pas une donnée manquante).
+    """
+    user_id = _resolve_user_id()
+    return await asyncio.to_thread(_get_weekly_totals_impl, user_id, weeks_back)
 
 
 @tool
@@ -566,14 +957,15 @@ async def get_coach_observations(topic: str) -> list:
     """Récupère les observations long-terme mémorisées sur l'athlète.
 
     Utilise cet outil pour retrouver ce qui a déjà été observé sur l'athlète au
-    fil des séances : progression des charges en musculation, patterns
-    d'entraînement, habitudes, points de vigilance passés. Complémentaire de
-    query_activities (données brutes) : ici ce sont des synthèses apprises.
+    fil des séances : patterns d'entraînement, habitudes, ressentis récurrents,
+    points de vigilance passés. Complémentaire de query_activities (données
+    brutes) : ici ce sont des synthèses qualitatives apprises, pas des chiffres.
+    Pour les charges et le tonnage de musculation, utilise get_strength_sessions.
 
     Args:
-        topic: Sujet de recherche en langage naturel, ex. "progression
-            musculation charges", "endurance fondamentale allure", "fatigue
-            récupération". Chaîne vide pour les observations générales.
+        topic: Sujet de recherche en langage naturel, ex. "endurance
+            fondamentale allure", "fatigue récupération", "régularité
+            entraînement". Chaîne vide pour les observations générales.
 
     Returns:
         Liste de textes d'observations (max 5), les plus pertinents d'abord.
@@ -581,6 +973,30 @@ async def get_coach_observations(topic: str) -> list:
     """
     user_id = _resolve_user_id()
     return await asyncio.to_thread(_get_coach_observations_impl, user_id, topic)
+
+
+@tool
+async def get_strength_sessions(weeks_back: int = 4) -> list:
+    """Récupère les séances de musculation avec exercices et totaux calculés.
+
+    UTILISE CET OUTIL pour toute question sur la musculation : charges, séries,
+    répétitions, tonnage, progression muscu. Les totaux (séries, répétitions,
+    tonnage) sont calculés côté serveur à partir des séries enregistrées : ne les
+    recompte JAMAIS depuis la description d'une activité.
+
+    Args:
+        weeks_back: Nombre de semaines à remonter (défaut 4, borné à 12).
+
+    Returns:
+        Liste de séances, la plus récente d'abord, chacune avec: activity_id,
+        date, iso_week, duration_min, total_sets, total_reps, volume_kg,
+        volume_kg_incomplete (True si des charges manquent — poids du corps ou
+        inconnu — le tonnage est alors partiel, ne le présente pas comme exact),
+        per_exercise (par exercice: sets, reps, volume_kg). Liste vide si aucune
+        séance de musculation n'est enregistrée.
+    """
+    user_id = _resolve_user_id()
+    return await asyncio.to_thread(_get_strength_sessions_impl, user_id, weeks_back)
 
 
 # --- Memory (writes feed the extraction strategies; reads via get_coach_observations tool) ---
@@ -619,11 +1035,18 @@ _TOOLS_ADDENDUM = """
 
 ## Outils disponibles
 Tu disposes d'outils pour récupérer les données de l'athlète à la demande. Ne suppose JAMAIS un chiffre : appelle l'outil adéquat, puis cite les chiffres exacts qu'il renvoie.
-- query_activities(activity_type, date_from, date_to) : activités passées filtrées par type et période (dates ISO AAAA-MM-JJ, vides = 4 dernières semaines).
+- query_activities(activity_type, date_from, date_to) : activités passées filtrées par type et période (dates ISO AAAA-MM-JJ, vides = 4 dernières semaines). Chaque activité porte un champ iso_week (AAAA-Www).
+- get_weekly_totals(weeks_back) : totaux par semaine ISO (runs, run_km, strength, other, total), calculés côté serveur. C'est LA source de tout total ou décompte hebdomadaire.
 - get_campus_plan(week_iso) : séances Campus Coach planifiées (week_iso vide = semaine en cours).
 - get_pace_zones() : zones d'allure, records personnels, FCmax.
 - get_intervals_metrics(date_from, date_to) : CTL/ATL/Form/HRV/decoupling Intervals.icu sur une période.
-- get_coach_observations(topic) : observations long-terme mémorisées sur l'athlète (progressions, patterns, points de vigilance). À utiliser pour la continuité ("la dernière fois", "d'habitude", progression muscu).
+- get_coach_observations(topic) : observations qualitatives long-terme mémorisées (patterns, habitudes, points de vigilance). À utiliser pour la continuité ("la dernière fois", "d'habitude").
+- get_strength_sessions(weeks_back) : séances de musculation avec exercices et totaux (séries, répétitions, tonnage) calculés côté serveur. C'est LA source de tout chiffre de musculation.
+
+## Règles de chiffres (CRITIQUE)
+- Tout total ou décompte hebdomadaire (nombre de séances, kilométrage, nombre de séances de muscu) vient de get_weekly_totals. INTERDIT de le recompter en parcourant query_activities, et INTERDIT de sommer une fenêtre de 7 jours glissants pour l'appeler "cette semaine".
+- Chaque activité renvoyée porte iso_week (AAAA-Www) : regroupe par ce champ, jamais par un calcul de date à la main.
+- Tout chiffre de musculation (séries, répétitions, tonnage) vient de get_strength_sessions, jamais d'un comptage sur les descriptions. Si volume_kg_incomplete est vrai, ne présente pas le tonnage comme exact.
 
 Enchaîne plusieurs appels si nécessaire (ex : "compare mes 6 dernières séances de seuil" = query_activities filtré, puis analyse). Si un outil renvoie une liste vide, dis simplement que la donnée n'est pas disponible."""
 
@@ -698,7 +1121,7 @@ def _build_agent(user_id: str) -> Agent:
     return Agent(
         model=model,
         system_prompt=_build_system_prompt(user_id),
-        tools=[query_activities, get_campus_plan, get_pace_zones, get_intervals_metrics, get_coach_observations],
+        tools=[query_activities, get_weekly_totals, get_campus_plan, get_pace_zones, get_intervals_metrics, get_coach_observations, get_strength_sessions],
     )
 
 

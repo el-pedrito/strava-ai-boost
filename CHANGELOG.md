@@ -7,7 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Security
+
+- **Webhook origin filtering** — Strava does not sign webhook events, so the
+  previous "HMAC-SHA1 verification" was a no-op and anonymous POSTs traversed the
+  whole pipeline. `validate_webhook_origin` now drops events whose
+  `subscription_id` or `owner_id` do not match the known subscription/athletes,
+  answers 200 (Strava disables subscriptions on non-200), and has a
+  `WEBHOOK_STRICT_ORIGIN` kill switch. Validated against 339 real events
+  (338/338 legitimate accepted, 1 forged rejected).
+- **Authenticated path verified** — 21/21 API endpoints require Cognito; missing,
+  malformed and forged JWTs are rejected 401; a real SRP-obtained token succeeds.
+
+### Fixed
+
+- **OAuth status uses the refresh token** — `/config/oauth` reported "reconnect"
+  on access-token expiry alone (6h lifetime), showing "disconnected" most of the
+  day while the pipeline auto-refreshes. Expired-with-refresh-token now reports
+  connected (`expired_refreshable`).
+- **Token refresh consolidated** — `activity_fetcher` and `feedback_analyzer` now
+  delegate to `shared/strava_oauth.refresh_access_token` (was dead code);
+  timezone-aware metadata everywhere (was naive `datetime.utcnow()` in one path).
+- **Two responsive defects** — Quality table clipped its columns at iPad width
+  (`overflow-hidden` → `overflow-x-auto`); FlashToasts overflowed left on 375px
+  phones (anchored to both edges below the `sm` breakpoint).
+- **Deterministic Lambda assets** — `Code.from_asset` excluded `__pycache__`/`.pyc`,
+  so `cdk diff` is again a trustworthy deployed-equals-source signal.
+- **npm advisories** — 8 HIGH → 0 (`postcss`, `eslint`, `react-router` 8 with
+  `react-router-dom` consolidated, `react-leaflet` 5).
+- **Operational scripts** — `reprocess_dlq.sh`, `configure_strava_webhook.sh`,
+  `cleanup_strava_webhook.sh` now work with ambient AWS credentials (were hardcoded
+  to a named profile; the DLQ recovery tool was unusable).
+
+### Added
+
+- **`scripts/deploy_frontend.sh`** — the frontend had no deploy tooling and
+  production served an 11-day-old bundle. Build → S3 sync (preserving the runtime
+  `config.json`) → CloudFront invalidation + wait → verify served bundle.
+- **`frontend/eslint.config.js`** — `npm run lint` had never worked; flat config
+  added, 0 errors / 24 tracked warnings.
+
+### Docs
+
+- Corrected the unfounded "HMAC-SHA1 webhook verification" claim across ROADMAP,
+  BACKLOG and the project state.
+- Documented the previously-undocumented `shared/` modules
+  (`strength_exercises.py`, `campus_status.py`, `llm_models.py`) and the ESLint
+  config in AGENTS.md; precised the multi-user readiness claim.
+- Recorded remaining findings in BACKLOG (verify_token hardening, webhook
+  throttling, uninstall.sh profile drift, stale CDK tests, deferred lint warnings).
 
 ## [0.2.1] - 2026-07-24
 

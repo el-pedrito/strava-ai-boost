@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route } from 'react-router';
 import { Shell } from './layouts/AppLayout.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { OAuthCallback } from './pages/Configuration/OAuthCallback.tsx';

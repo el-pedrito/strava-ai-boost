@@ -12,7 +12,14 @@ set -e
 # Configuration
 ENVIRONMENT="${1:-dev}"
 REGION="${AWS_REGION:-us-east-1}"
-PROFILE="${AWS_PROFILE:-your-aws-profile}"
+PROFILE="${AWS_PROFILE:-}"
+# Only pass --profile when one is configured; otherwise rely on ambient
+# credentials (environment variables, instance role, container role...).
+if [ -n "$PROFILE" ]; then
+    PROFILE_ARGS=(--profile "$PROFILE")
+else
+    PROFILE_ARGS=()
+fi
 
 # Colors for output
 RED='\033[0;31m'
@@ -51,8 +58,8 @@ print_status "Retrieving Strava credentials from Secrets Manager..."
 SECRET_NAME="strava-ai-boost-oauth-tokens"
 STRAVA_CLIENT_SECRET=""
 
-if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" --profile "$PROFILE" --region "$REGION" > /dev/null 2>&1; then
-    SECRET_VALUE=$(aws secretsmanager get-secret-value --secret-id "$SECRET_NAME" --profile "$PROFILE" --region "$REGION" --query SecretString --output text 2>/dev/null)
+if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" "${PROFILE_ARGS[@]}" --region "$REGION" > /dev/null 2>&1; then
+    SECRET_VALUE=$(aws secretsmanager get-secret-value --secret-id "$SECRET_NAME" "${PROFILE_ARGS[@]}" --region "$REGION" --query SecretString --output text 2>/dev/null)
     
     if [ -n "$SECRET_VALUE" ]; then
         STRAVA_CLIENT_SECRET=$(echo "$SECRET_VALUE" | jq -r '.client_secret // empty' 2>/dev/null)
@@ -156,8 +163,8 @@ done
 # Clean up webhook configuration from Secrets Manager
 print_status "Cleaning up webhook configuration from Secrets Manager..."
 
-if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" --profile "$PROFILE" --region "$REGION" > /dev/null 2>&1; then
-    CURRENT_SECRET=$(aws secretsmanager get-secret-value --secret-id "$SECRET_NAME" --profile "$PROFILE" --region "$REGION" --query SecretString --output text 2>/dev/null || echo "{}")
+if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" "${PROFILE_ARGS[@]}" --region "$REGION" > /dev/null 2>&1; then
+    CURRENT_SECRET=$(aws secretsmanager get-secret-value --secret-id "$SECRET_NAME" "${PROFILE_ARGS[@]}" --region "$REGION" --query SecretString --output text 2>/dev/null || echo "{}")
     
     # Remove webhook-related fields
     UPDATED_SECRET=$(echo "$CURRENT_SECRET" | jq 'del(.webhook_verify_token, .webhook_callback_url, .webhook_subscription_id, .webhook_configured_at, .webhook_secret)' 2>/dev/null || echo "$CURRENT_SECRET")
@@ -166,7 +173,7 @@ if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" --profile "$PRO
         aws secretsmanager put-secret-value \
             --secret-id "$SECRET_NAME" \
             --secret-string "$UPDATED_SECRET" \
-            --profile "$PROFILE" \
+            "${PROFILE_ARGS[@]}" \
             --region "$REGION" > /dev/null 2>&1
         
         if [ $? -eq 0 ]; then

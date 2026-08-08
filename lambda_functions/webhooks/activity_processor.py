@@ -30,6 +30,9 @@ PROCESSING_QUEUE_URL = os.environ.get('PROCESSING_QUEUE_URL',
     f"https://sqs.{os.environ.get('AWS_REGION', 'eu-west-1')}.amazonaws.com/{os.environ.get('AWS_ACCOUNT_ID', '')}/strava-ai-boost-activity-processing")
 
 
+# @log_metrics is what flushes add_metric to CloudWatch (EMF on stdout).
+# Without it the metrics are buffered and silently dropped.
+@metrics.log_metrics
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Lambda handler for SQS-triggered activity processing

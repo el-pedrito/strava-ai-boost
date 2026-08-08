@@ -1,0 +1,32 @@
+{
+  "include": [
+    "lambda_functions",
+    "src",
+    "stacks",
+    "scripts",
+    "tests",
+    "app.py"
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/venv",
+    "**/.venv",
+    "**/.venv-*",
+    "**/venv-*",
+    "**/__pycache__",
+    "**/.pytest_cache",
+    "**/cdk.out",
+    "**/build",
+    "**/dist",
+    "frontend",
+    "lambda_layer",
+    "lambda_functions/agents",
+    "**/.aws-sam",
+    "**/site-packages"
+  ],
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "warning",
+  "reportMissingTypeStubs": "none",
+  "useLibraryCodeForTypes": true
+}

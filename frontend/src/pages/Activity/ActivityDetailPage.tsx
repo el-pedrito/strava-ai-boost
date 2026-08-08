@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState, useEffect, useMemo, type ComponentType } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useLocation, useParams } from 'react-router-dom';
+import { useNavigate, useLocation, useParams } from 'react-router';
 import {
   Activity as ActivityIcon,
   Bike,
@@ -351,6 +351,7 @@ export function ActivityDetailPage() {
 
         <div className="flex items-start gap-4">
           <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+          {/* eslint-disable-next-line react-hooks/static-components -- Icon is a reference to a module-level Lucide component picked by activityIcon(), not a component created during render. */}
             <Icon className="h-6 w-6" />
           </div>
           <div className="min-w-0 flex-1">
