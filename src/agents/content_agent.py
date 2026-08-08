@@ -1143,6 +1143,8 @@ MOMENT DE LA JOURNÉE : n'invente JAMAIS un moment ("ce matin", "ce midi", "ce s
 
 VOCABULAIRE : le renforcement musculaire s'écrit "renfo" (jamais "rando" ni "rendo"). "rando" désigne la randonnée, un sport différent : ne l'emploie jamais pour une séance de musculation ou de renforcement.
 
+SÉANCE RENFO / PPG : si une séance Campus est fournie ci-dessus (CAMPUS COACH SESSION), nomme les exercices d'après le champ "name" de chaque exercice de campus_coach_session (ex. "Extension de Mollet", "Gainage Frontal", "Mollet statique", "Gainage Latéral", "Split Squat", "Bond sur place", "Swing avec charge"), avec leurs "reps"/"duration" quand ils existent. Les synonymes courants sont admis (une "fente" = un "Split Squat"). En revanche Campus ne fournit AUCUNE charge : n'invente jamais un poids en kg ni une variante précise ("bulgare", "kettlebell 12kg", "24kg") absents des données. Si l'athlète donne des charges dans son propre titre/description, reprends-les ; sinon ne mentionne aucun kg.
+
 Generate content now."""
         
         # Invoke agent
