@@ -1139,6 +1139,10 @@ Puis génère le JSON.
 
 RAPPEL FINAL NON NÉGOCIABLE : zéro em dash (—/–), et AUCUNE expression de la liste "Expressions bannies (clichés gen-AI sportif)" du system prompt (ex. "la machine", "le corps se réveille", "rythme de croisière", "les kilomètres défilent", ni aucune variante proche). Relis ta réponse et reformule si besoin AVANT de rendre le JSON.
 
+MOMENT DE LA JOURNÉE : n'invente JAMAIS un moment ("ce matin", "ce midi", "ce soir") pour une séance dont tu n'as pas l'heure explicite. Si l'athlète a enchaîné plusieurs séances le même jour, écris "juste avant" ou "plus tôt dans la journée", jamais un moment précis que tu ne connais pas.
+
+VOCABULAIRE : le renforcement musculaire s'écrit "renfo" (jamais "rando" ni "rendo"). "rando" désigne la randonnée, un sport différent : ne l'emploie jamais pour une séance de musculation ou de renforcement.
+
 Generate content now."""
         
         # Invoke agent

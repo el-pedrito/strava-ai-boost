@@ -401,7 +401,28 @@ def generate_enhanced_content(
     result['title'] = result['title'].replace('—', ',').replace('–', ',')
     result['description'] = result['description'].replace('—', ',').replace('–', ',')
 
+    # Fix the model garbling "renfo" as "rendo"/"rando" (rando = randonnee, a
+    # different sport). Scoped to WeightTraining so a genuine hike mention is safe.
+    _is_strength = (activity_data.get('type') or activity_data.get('sport_type')) == 'WeightTraining'
+    result['title'] = _normalize_strength_vocab(result['title'], _is_strength)
+    result['description'] = _normalize_strength_vocab(result['description'], _is_strength)
+
     return result
+
+
+def _normalize_strength_vocab(text: str, is_strength: bool) -> str:
+    """Normalise the model's garbling of 'renfo'.
+
+    'rendo' is always a typo of 'renfo' so it is fixed unconditionally (word-bounded
+    to spare 'rendormir' and friends). 'rando' is a real word (randonnee), rewritten
+    only for a strength session where it can only be a mistake for 'renfo'.
+    """
+    if not text:
+        return text
+    text = re.sub(r"\brendo\b", "renfo", text, flags=re.IGNORECASE)
+    if is_strength:
+        text = re.sub(r"\brando(?:nn[ée]es?)?\b", "renfo", text, flags=re.IGNORECASE)
+    return text
 
 
 def _process_agent_response(response: Dict[str, Any]) -> str:
