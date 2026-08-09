@@ -860,10 +860,22 @@ def build_week_overview(
         logger.warning(f"Failed to count week activities: {e}")
         overview["counts_incomplete"] = True
 
+    # Split the strength count: a WeightTraining matched to a Campus PPG session
+    # is a PPG, not the athlete's own program (Upper/Rappel). Counting it in both
+    # buckets made the coach state "3 muscu + 1 PPG" for a week that held 2 muscu
+    # + 1 PPG (the renfo WeightTraining counted once as muscu AND once as PPG).
+    ppg_done = len([
+        s for s in campus_current_week
+        if s.get("sport") == "ppg" and effective_status(s) == STATUS_DONE
+    ])
+    muscu = max(0, strength - ppg_done)
+
     overview["done_this_week"] = {
         "runs": runs,
         "run_km": round(run_km, 1),
-        "strength": strength,
+        "strength": strength,   # total strength sessions = muscu + ppg (NOT muscu alone)
+        "muscu": muscu,         # athlete's own program only (Upper A/B, Rappel...)
+        "ppg": ppg_done,        # Campus PPG sessions done this week
         "other": other,
         "total": runs + strength + other,
         "includes_current_activity": True,
@@ -887,8 +899,8 @@ def build_week_overview(
             planned += 2 if freq.startswith("2x") else 1
         overview["own_strength_program"] = {
             "planned_per_week": planned,
-            "done_this_week": strength,
-            "remaining": max(0, planned - strength),
+            "done_this_week": muscu,
+            "remaining": max(0, planned - muscu),
             "session_names": [s.get("name") or s.get("id", "") for s in sessions],
         }
     return overview

@@ -1010,7 +1010,11 @@ Le contexte contient `week_overview`, la vue unique de la semaine calculée par 
 - `label` : le libellé lisible de cette semaine, ex "Cette semaine (03/08-09/08)". C'est CE
   champ qui désigne la semaine en cours, jamais la première ligne de `weekly_breakdown`
 - `done_this_week` : ce qui est DÉJÀ fait, **activité courante incluse** (`runs`, `run_km`,
-  `strength`, `total`)
+  `muscu`, `ppg`, `strength`, `total`). ATTENTION : `strength` = `muscu` + `ppg` (total des
+  séances de force) ; la PPG Campus n'est PAS une muscu perso. Pour le détail, dis
+  "`muscu` muscu + `ppg` PPG", JAMAIS "`strength` muscu + `ppg` PPG" (ce serait compter la PPG
+  deux fois). Le total de séances de la semaine = `total` (déjà égal à `runs` + `strength`),
+  JAMAIS `runs` + `muscu` + `ppg` + `strength`.
 - `campus_remaining` : séances Campus restantes (`count`, `running_count`, `titles`)
 - `own_strength_program` : le programme muscu perso de l'athlète (`planned_per_week`,
   `done_this_week`, `remaining`), qui s'ajoute au plan Campus et n'en fait pas partie
