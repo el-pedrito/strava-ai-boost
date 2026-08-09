@@ -67,3 +67,32 @@ class TestWeekOverviewMuscuPpgSplit:
         line = ov.get("recap_line", "")
         assert line == ("Cette semaine : 4 courses (40 km), 2 muscu, 1 PPG, "
                         "soit 7 séances au total."), line
+
+
+class TestInjectRecapLine:
+    """The weekly recap must ALWAYS reach the published block: injected in code,
+    not left to the model (which chose 'say nothing' over 'copy verbatim')."""
+
+    WO = {"recap_line": "Cette semaine : 4 courses (30,5 km), 2 muscu, 1 PPG, soit 7 séances au total."}
+
+    def test_prepended_when_absent(self):
+        from processing.coach_generator import _inject_recap_line
+        fb = {"strava_block": "Ton cardio encaisse bien la charge."}
+        _inject_recap_line(fb, self.WO)
+        assert fb["strava_block"].startswith("Cette semaine : 4 courses"), fb
+        assert fb["strava_block"].endswith("la charge."), fb
+
+    def test_no_duplicate_when_model_copied_it(self):
+        from processing.coach_generator import _inject_recap_line
+        fb = {"strava_block": self.WO["recap_line"] + " Belle régularité."}
+        _inject_recap_line(fb, self.WO)
+        assert fb["strava_block"].count("Cette semaine :") == 1, fb
+
+    def test_noop_without_recap_or_block(self):
+        from processing.coach_generator import _inject_recap_line
+        fb = {"strava_block": "Texte."}
+        _inject_recap_line(fb, {})
+        assert fb["strava_block"] == "Texte."
+        fb2 = {}
+        _inject_recap_line(fb2, self.WO)
+        assert "strava_block" not in fb2

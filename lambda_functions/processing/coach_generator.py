@@ -353,6 +353,13 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     name="CoachClaimMismatch", unit=MetricUnit.Count, value=1
                 )
 
+        # The weekly recap is GUARANTEED in the published block: it is prepended
+        # here, in code, after verification. Relying on the model to copy
+        # recap_line verbatim produced fully-qualitative blocks with no recap at
+        # all (the model chose "say nothing" over "copy verbatim"), and the
+        # athlete wants the figures every time.
+        _inject_recap_line(feedback, week_overview)
+
         # Write coaching observation to memory for long-term learning
         write_coaching_observation(user_id, feedback)
 
@@ -782,6 +789,22 @@ def _monday_of_iso_week(week_label: str) -> Optional[date]:
         return date.fromisocalendar(int(year_part), int(week_part), 1)
     except (ValueError, TypeError):
         return None
+
+
+def _inject_recap_line(
+    feedback: Dict[str, Any], week_overview: Optional[Dict[str, Any]]
+) -> None:
+    """Prepend the code-owned weekly recap to the published coach block.
+
+    Deterministic: injected text equals the computed truth by construction, so it
+    cannot be a false claim. The `not in` guard avoids a duplicate if the model
+    copied the line itself. Mutates feedback in place; no-op when there is no
+    recap (counts_incomplete) or no strava_block to prepend to.
+    """
+    recap_line = (week_overview or {}).get("recap_line")
+    block = feedback.get("strava_block")
+    if recap_line and block and recap_line not in block:
+        feedback["strava_block"] = f"{recap_line} {block}".strip()
 
 
 def build_week_overview(

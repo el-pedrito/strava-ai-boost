@@ -1013,14 +1013,14 @@ Le contexte contient `week_overview`, la vue unique de la semaine calculée par 
   `muscu`, `ppg`, `strength`, `total`). ATTENTION : `strength` = `muscu` + `ppg` (total des
   séances de force) ; la PPG Campus n'est PAS une muscu perso.
 - `recap_line` : la phrase de bilan hebdo PRÉ-CALCULÉE par le code, ex "Cette semaine :
-  4 courses (30,5 km), 2 muscu, 1 PPG, soit 7 séances au total.". **C'est la SEULE façon
-  autorisée d'énoncer des chiffres sur la semaine** : si tu veux donner le bilan de la
-  semaine, recopie `recap_line` MOT POUR MOT, telle quelle. Ne compose JAMAIS toi-même un
-  décompte hebdomadaire, sous AUCUNE forme : ni cardinal ("4 courses", "40km cette
-  semaine"), ni ordinal ("5e course en 7 jours", "3e muscu"), ni total ("8 séances"), ni
-  fenêtre glissante ("en N jours"). Un bilan chiffré non issu de `recap_line` sera supprimé
-  avant publication. Si `recap_line` est absente, ne donne aucun chiffre hebdo : parle de la
-  semaine qualitativement.
+  4 courses (30,5 km), 2 muscu, 1 PPG, soit 7 séances au total.". **Le système l'ajoute
+  AUTOMATIQUEMENT au début de ton strava_block avant publication : ne la recopie PAS et ne
+  la reformule pas.** Ton texte vient APRÈS elle : commente-la qualitativement (charge,
+  régularité, équilibre course/renfo) sans répéter ses chiffres. Ne compose JAMAIS
+  toi-même un décompte hebdomadaire, sous AUCUNE forme : ni cardinal ("4 courses", "40km
+  cette semaine"), ni ordinal ("5e course en 7 jours", "3e muscu"), ni total ("8 séances"),
+  ni fenêtre glissante ("en N jours"). Un bilan chiffré composé par toi sera supprimé
+  avant publication.
 - `campus_remaining` : séances Campus restantes (`count`, `running_count`, `titles`)
 - `own_strength_program` : le programme muscu perso de l'athlète (`planned_per_week`,
   `done_this_week`, `remaining`), qui s'ajoute au plan Campus et n'en fait pas partie
