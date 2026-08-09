@@ -56,3 +56,14 @@ class TestWeekOverviewMuscuPpgSplit:
         osp = ov["own_strength_program"]
         assert osp["done_this_week"] == 2, osp  # 2 muscu, not 3 (PPG excluded)
         assert osp["remaining"] == 0, osp       # planned 2 - done 2
+
+    @patch.object(coach_generator, 'dynamodb')
+    def test_recap_line_built_from_computed_figures(self, mock_ddb):
+        table = MagicMock()
+        table.query.return_value = {"Items": _make_items()}
+        mock_ddb.Table.return_value = table
+        campus = [{"sport": "ppg", "matched_activity_id": "19655889544", "completed_at": "2026-08-08T14:00:00"}]
+        ov = build_week_overview("138362426", {"start_date_local": "2026-08-09T07:18:00"}, campus, None)
+        line = ov.get("recap_line", "")
+        assert line == ("Cette semaine : 4 courses (40 km), 2 muscu, 1 PPG, "
+                        "soit 7 séances au total."), line

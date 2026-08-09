@@ -881,6 +881,31 @@ def build_week_overview(
         "includes_current_activity": True,
     }
 
+    # Code-owned recap line. Four production incidents in a row saw the coach
+    # compose its own weekly arithmetic in free text and get it wrong (5 courses,
+    # 3 muscu, 8 seances, 40km), each time in a phrasing the verifier did not
+    # recognise. So the recap sentence itself is now computed here; the prompt
+    # instructs the coach to copy it VERBATIM when it wants to state the week, and
+    # never to compose weekly figures itself. A verbatim copy passes the verifier
+    # by construction (its figures ARE the computed ones).
+    if not overview.get("counts_incomplete"):
+        bits = []
+        if runs:
+            km_txt = f"{round(run_km, 1):g}".replace(".", ",")
+            bits.append(f"{runs} course{'s' if runs > 1 else ''} ({km_txt} km)")
+        if muscu:
+            bits.append(f"{muscu} muscu")
+        if ppg_done:
+            bits.append(f"{ppg_done} PPG")
+        if other:
+            bits.append(f"{other} autre{'s' if other > 1 else ''}")
+        total = runs + strength + other
+        if bits:
+            overview["recap_line"] = (
+                f"Cette semaine : {', '.join(bits)}, "
+                f"soit {total} séance{'s' if total > 1 else ''} au total."
+            )
+
     remaining = [
         s for s in campus_current_week
         if effective_status(s) not in (STATUS_DONE, STATUS_SKIP)

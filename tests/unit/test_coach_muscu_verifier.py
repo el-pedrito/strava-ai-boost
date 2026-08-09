@@ -32,3 +32,38 @@ class TestVerifierMuscuTotal:
         # regression: 2 muscu must NOT be compared against strength=3 (old bug would flag it)
         probs = _check_sentence("Cette semaine tu as fait 2 muscu.", WO, None)
         assert probs == [], probs
+
+
+class TestClaimLevelScoping:
+    """Production incident 2026-08-09: '5e course en 7 jours (40km cette semaine vs
+    27km semaine derniere)' published against a computed 4 runs / 30.5km. Two holes:
+    the ordinal escaped _RUN_COUNT, and the past-week mention disabled the whole
+    sentence instead of just its own comparison segment."""
+
+    WO2 = {
+        "done_this_week": {"runs": 4, "run_km": 30.5, "strength": 3, "muscu": 2,
+                            "ppg": 1, "total": 7},
+        "campus_remaining": {"count": 0},
+        "own_strength_program": {"remaining": 0},
+    }
+
+    def test_exact_production_sentence_is_flagged(self):
+        s = "5e course en 7 jours (40km cette semaine vs 27km semaine dernière)."
+        probs = _check_sentence(s, self.WO2, None)
+        assert any("run count" in p and "5" in p for p in probs), probs
+        assert any("kilometres" in p and "40" in p for p in probs), probs
+
+    def test_past_week_segment_not_flagged(self):
+        # the 27km belongs to last week: it must NOT be compared to this week's 30.5
+        s = "30,5km cette semaine vs 27km semaine dernière."
+        probs = _check_sentence(s, self.WO2, None)
+        assert probs == [], probs
+
+    def test_ordinal_run_count_correct_passes(self):
+        probs = _check_sentence("4e course cette semaine, belle régularité.", self.WO2, None)
+        assert probs == [], probs
+
+    def test_recap_line_verbatim_passes(self):
+        s = "Cette semaine : 4 courses (30,5 km), 2 muscu, 1 PPG, soit 7 séances au total."
+        probs = _check_sentence(s, self.WO2, None)
+        assert probs == [], probs
