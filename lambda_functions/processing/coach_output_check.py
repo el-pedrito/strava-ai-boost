@@ -51,6 +51,10 @@ _STRENGTH_COUNT = re.compile(
 )
 # "3 courses", "1 run"
 _RUN_COUNT = re.compile(rf"{_NUM}\s*(?:courses?|runs?|sorties?)\b", re.IGNORECASE)
+# "8 seances totales", "9 seances au total" -- total sessions of the week.
+_TOTAL_COUNT = re.compile(
+    rf"{_NUM}\s*séances?\s*(?:totales?|au\s+total|en\s+tout)", re.IGNORECASE
+)
 # "35km", "6,4 km". The trailing guard rejects "17-18km/h": \b fires on the slash, so a
 # SPEED was being read as a distance and compared to the weekly total, which would strip
 # the sentence describing the workout itself. Scoped to a following h (or the exotic
@@ -238,6 +242,8 @@ def _check_sentence(
             compare("run count this week", _to_float(m.group(1)), done.get("runs"))
         for m in _KM.finditer(sentence):
             compare("kilometres this week", _to_float(m.group(1)), done.get("run_km"), KM_TOLERANCE)
+        for m in _TOTAL_COUNT.finditer(sentence):
+            compare("total sessions this week", _to_float(m.group(1)), done.get("total"))
 
     # A strength-session count is a weekly claim even without the marker: the
     # production lie was "2e seance muscu en 2 jours", which names no week.
@@ -246,6 +252,13 @@ def _check_sentence(
     # correct sentence from a live output. Remaining claims are checked against
     # own_strength_program.remaining instead.
     own = (week_overview or {}).get("own_strength_program") or {}
+    # A "muscu"/"renfo" count describes the athlete's OWN program, so it is checked
+    # against done['muscu'] (own program only), never done['strength'] (which also
+    # includes the Campus PPG). Comparing against strength let "3 muscu" pass on a
+    # 2 muscu + 1 PPG week AND would now false-flag a correct "2 muscu".
+    muscu_truth = done.get("muscu")
+    if muscu_truth is None:
+        muscu_truth = done.get("strength")
     if _mentions_remaining(sentence):
         for m in _STRENGTH_COUNT.finditer(sentence):
             compare(
@@ -253,9 +266,9 @@ def _check_sentence(
                 _to_float(m.group(1)),
                 own.get("remaining"),
             )
-    elif not counts_incomplete and done.get("strength") is not None and not _mentions_past_week(sentence):
+    elif not counts_incomplete and muscu_truth is not None and not _mentions_past_week(sentence):
         for m in _STRENGTH_COUNT.finditer(sentence):
-            compare("strength sessions this week", _to_float(m.group(1)), done.get("strength"))
+            compare("strength sessions this week", _to_float(m.group(1)), muscu_truth)
 
     for m in _REMAINING.finditer(sentence):
         compare("remaining plan sessions", _to_float(m.group(1)), remaining.get("count"))
