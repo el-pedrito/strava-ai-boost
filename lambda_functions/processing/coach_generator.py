@@ -353,6 +353,13 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     name="CoachClaimMismatch", unit=MetricUnit.Count, value=1
                 )
 
+        # The weekly recap is GUARANTEED in the published block: it is prepended
+        # here, in code, after verification. Relying on the model to copy
+        # recap_line verbatim produced fully-qualitative blocks with no recap at
+        # all (the model chose "say nothing" over "copy verbatim"), and the
+        # athlete wants the figures every time.
+        _inject_recap_line(feedback, week_overview)
+
         # Write coaching observation to memory for long-term learning
         write_coaching_observation(user_id, feedback)
 
@@ -784,6 +791,22 @@ def _monday_of_iso_week(week_label: str) -> Optional[date]:
         return None
 
 
+def _inject_recap_line(
+    feedback: Dict[str, Any], week_overview: Optional[Dict[str, Any]]
+) -> None:
+    """Prepend the code-owned weekly recap to the published coach block.
+
+    Deterministic: injected text equals the computed truth by construction, so it
+    cannot be a false claim. The `not in` guard avoids a duplicate if the model
+    copied the line itself. Mutates feedback in place; no-op when there is no
+    recap (counts_incomplete) or no strava_block to prepend to.
+    """
+    recap_line = (week_overview or {}).get("recap_line")
+    block = feedback.get("strava_block")
+    if recap_line and block and recap_line not in block:
+        feedback["strava_block"] = f"{recap_line} {block}".strip()
+
+
 def build_week_overview(
     user_id: str,
     activity_data: Dict[str, Any],
@@ -860,14 +883,51 @@ def build_week_overview(
         logger.warning(f"Failed to count week activities: {e}")
         overview["counts_incomplete"] = True
 
+    # Split the strength count: a WeightTraining matched to a Campus PPG session
+    # is a PPG, not the athlete's own program (Upper/Rappel). Counting it in both
+    # buckets made the coach state "3 muscu + 1 PPG" for a week that held 2 muscu
+    # + 1 PPG (the renfo WeightTraining counted once as muscu AND once as PPG).
+    ppg_done = len([
+        s for s in campus_current_week
+        if s.get("sport") == "ppg" and effective_status(s) == STATUS_DONE
+    ])
+    muscu = max(0, strength - ppg_done)
+
     overview["done_this_week"] = {
         "runs": runs,
         "run_km": round(run_km, 1),
-        "strength": strength,
+        "strength": strength,   # total strength sessions = muscu + ppg (NOT muscu alone)
+        "muscu": muscu,         # athlete's own program only (Upper A/B, Rappel...)
+        "ppg": ppg_done,        # Campus PPG sessions done this week
         "other": other,
         "total": runs + strength + other,
         "includes_current_activity": True,
     }
+
+    # Code-owned recap line. Four production incidents in a row saw the coach
+    # compose its own weekly arithmetic in free text and get it wrong (5 courses,
+    # 3 muscu, 8 seances, 40km), each time in a phrasing the verifier did not
+    # recognise. So the recap sentence itself is now computed here; the prompt
+    # instructs the coach to copy it VERBATIM when it wants to state the week, and
+    # never to compose weekly figures itself. A verbatim copy passes the verifier
+    # by construction (its figures ARE the computed ones).
+    if not overview.get("counts_incomplete"):
+        bits = []
+        if runs:
+            km_txt = f"{round(run_km, 1):g}".replace(".", ",")
+            bits.append(f"{runs} course{'s' if runs > 1 else ''} ({km_txt} km)")
+        if muscu:
+            bits.append(f"{muscu} muscu")
+        if ppg_done:
+            bits.append(f"{ppg_done} PPG")
+        if other:
+            bits.append(f"{other} autre{'s' if other > 1 else ''}")
+        total = runs + strength + other
+        if bits:
+            overview["recap_line"] = (
+                f"Cette semaine : {', '.join(bits)}, "
+                f"soit {total} séance{'s' if total > 1 else ''} au total."
+            )
 
     remaining = [
         s for s in campus_current_week
@@ -887,8 +947,8 @@ def build_week_overview(
             planned += 2 if freq.startswith("2x") else 1
         overview["own_strength_program"] = {
             "planned_per_week": planned,
-            "done_this_week": strength,
-            "remaining": max(0, planned - strength),
+            "done_this_week": muscu,
+            "remaining": max(0, planned - muscu),
             "session_names": [s.get("name") or s.get("id", "") for s in sessions],
         }
     return overview

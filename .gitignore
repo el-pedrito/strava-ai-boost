@@ -80,6 +80,10 @@ cdk.context.json
 
 # AI assistants
 .claude/
+# .kiro/ stays UNTRACKED on purpose: this repo is PUBLIC and .kiro/skills contains
+# internal-only tooling (prepare-pcsr, setup-federate, toolkit-helper, scan-probe)
+# referencing w.amazon.com / isengard.amazon.com / quip-amazon.com, plus a personal
+# agent config. Sync it to remote dev boxes out-of-band (tar over ssh), never via git.
 .kiro/
 filter-repo-replacements.txt
 .mcp.json

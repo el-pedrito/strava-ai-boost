@@ -49,8 +49,22 @@ _STRENGTH_COUNT = re.compile(
     r"(?:muscu\w*|renfo\w*)",
     re.IGNORECASE,
 )
-# "3 courses", "1 run"
-_RUN_COUNT = re.compile(rf"{_NUM}\s*(?:courses?|runs?|sorties?)\b", re.IGNORECASE)
+# "3 courses", "1 run", and ordinals: "5e course en 7 jours" claims a count of 5.
+# The ordinal escaped the cardinal-only pattern in production.
+_RUN_COUNT = re.compile(
+    rf"{_NUM}\s*(?:e|è?me|ère|er)?\s*(?:courses?|runs?|sorties?)\b", re.IGNORECASE
+)
+# "8 seances totales", "9 seances au total" -- total sessions of the week.
+_TOTAL_COUNT = re.compile(
+    rf"{_NUM}\s*séances?\s*(?:totales?|au\s+total|en\s+tout)", re.IGNORECASE
+)
+# Comparison connectors split a sentence into independently-scoped claims:
+# "40km cette semaine vs 27km semaine derniere" holds a current-week claim AND a
+# past-week claim. Gating on the whole sentence skipped both, and that is exactly
+# how a wrong 40km got published. Each segment is now scoped on its own.
+_COMPARE_SPLIT = re.compile(
+    r"\bvs\.?\b|\bversus\b|\bcontre\b|par\s+rapport\s+[aà]", re.IGNORECASE
+)
 # "35km", "6,4 km". The trailing guard rejects "17-18km/h": \b fires on the slash, so a
 # SPEED was being read as a distance and compared to the weekly total, which would strip
 # the sentence describing the workout itself. Scoped to a following h (or the exotic
@@ -229,15 +243,36 @@ def _check_sentence(
     # sentence is excluded too: "il te reste 3 courses cette semaine" counts sessions
     # still TO DO, so comparing it against runs DONE flags a correct sentence -- the
     # same trap already documented below for strength counts.
-    if (
-        _mentions_current_week(sentence)
-        and not counts_incomplete
-        and not _mentions_remaining(sentence)
-    ):
-        for m in _RUN_COUNT.finditer(sentence):
-            compare("run count this week", _to_float(m.group(1)), done.get("runs"))
-        for m in _KM.finditer(sentence):
-            compare("kilometres this week", _to_float(m.group(1)), done.get("run_km"), KM_TOLERANCE)
+    #
+    # Scoping is done at CLAIM level, not sentence level: the week scope may be
+    # stated once for the whole sentence, but a comparison ("40km cette semaine vs
+    # 27km semaine derniere") holds claims about two different weeks. Excluding the
+    # whole sentence because it mentions the past week let a wrong current-week
+    # figure through; only the segment that mentions the past week is skipped.
+    low_sentence = sentence.lower()
+    sentence_week_scope = bool(_WEEK_SCOPE.search(low_sentence))
+    segments = [s for s in _COMPARE_SPLIT.split(sentence) if s and s.strip()]
+
+    def _segment_disqualified(seg: str) -> bool:
+        """A segment whose own text scopes it away from this week's totals.
+
+        The disqualifiers (_NOT_CURRENT_WEEK: past weeks, averages, 'par semaine',
+        'habituel'...) used to be evaluated on the whole sentence, which let
+        '40km cette semaine vs 27km semaine derniere' escape entirely: the past
+        marker of the SECOND claim shielded the FIRST one. Each comparison segment
+        now answers for itself."""
+        return bool(_NOT_CURRENT_WEEK.search(seg.lower())) or _mentions_past_week(seg)
+
+    if sentence_week_scope and not counts_incomplete and not _mentions_remaining(sentence):
+        for seg in segments:
+            if _segment_disqualified(seg):
+                continue
+            for m in _RUN_COUNT.finditer(seg):
+                compare("run count this week", _to_float(m.group(1)), done.get("runs"))
+            for m in _KM.finditer(seg):
+                compare("kilometres this week", _to_float(m.group(1)), done.get("run_km"), KM_TOLERANCE)
+            for m in _TOTAL_COUNT.finditer(seg):
+                compare("total sessions this week", _to_float(m.group(1)), done.get("total"))
 
     # A strength-session count is a weekly claim even without the marker: the
     # production lie was "2e seance muscu en 2 jours", which names no week.
@@ -246,6 +281,13 @@ def _check_sentence(
     # correct sentence from a live output. Remaining claims are checked against
     # own_strength_program.remaining instead.
     own = (week_overview or {}).get("own_strength_program") or {}
+    # A "muscu"/"renfo" count describes the athlete's OWN program, so it is checked
+    # against done['muscu'] (own program only), never done['strength'] (which also
+    # includes the Campus PPG). Comparing against strength let "3 muscu" pass on a
+    # 2 muscu + 1 PPG week AND would now false-flag a correct "2 muscu".
+    muscu_truth = done.get("muscu")
+    if muscu_truth is None:
+        muscu_truth = done.get("strength")
     if _mentions_remaining(sentence):
         for m in _STRENGTH_COUNT.finditer(sentence):
             compare(
@@ -253,9 +295,12 @@ def _check_sentence(
                 _to_float(m.group(1)),
                 own.get("remaining"),
             )
-    elif not counts_incomplete and done.get("strength") is not None and not _mentions_past_week(sentence):
-        for m in _STRENGTH_COUNT.finditer(sentence):
-            compare("strength sessions this week", _to_float(m.group(1)), done.get("strength"))
+    elif not counts_incomplete and muscu_truth is not None:
+        for seg in segments:
+            if _mentions_past_week(seg):
+                continue
+            for m in _STRENGTH_COUNT.finditer(seg):
+                compare("strength sessions this week", _to_float(m.group(1)), muscu_truth)
 
     for m in _REMAINING.finditer(sentence):
         compare("remaining plan sessions", _to_float(m.group(1)), remaining.get("count"))
