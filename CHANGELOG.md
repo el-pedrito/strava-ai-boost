@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3](https://github.com/el-pedrito/strava-ai-boost/compare/v0.2.2...v0.2.3) (2026-08-09)
+
+
+### Features
+
+* **coach:** always publish the weekly recap, injected in code ([3fb8a67](https://github.com/el-pedrito/strava-ai-boost/commit/3fb8a67d3017fee60d1c0d0a29b22a9e9b69e2b9))
+
+
+### Bug Fixes
+
+* **coach:** code-owned weekly recap line + claim-level verifier ([e638f50](https://github.com/el-pedrito/strava-ai-boost/commit/e638f502ad1bfd300ed47f216e9b65467def4b3a))
+* **coach:** don't count the Campus PPG as an own muscu (week totals) ([2049022](https://github.com/el-pedrito/strava-ai-boost/commit/2049022ae5deb36757e3e3dd2c9a512790962922))
+* **coach:** verifier catches PPG counted as muscu + wrong weekly total ([daaeb56](https://github.com/el-pedrito/strava-ai-boost/commit/daaeb56c71167ecf5d5268c6962df1da6b0de3fc))
+
 ## [0.2.2](https://github.com/el-pedrito/strava-ai-boost/compare/v0.2.1...v0.2.2) (2026-08-08)
 
 
