@@ -507,7 +507,7 @@ The Lambda Layer cannot be replaced via CDK due to CloudFormation cross-stack ex
 ## Testing
 
 ```bash
-# Lambda unit tests (578 tests, ~2s — no AWS credentials needed)
+# Lambda unit tests (621 tests, ~2s — no AWS credentials needed)
 pytest tests/unit/ -v
 
 # Prompt regression evaluators + LLM registry sync (43 tests, free)
@@ -524,16 +524,18 @@ cd frontend && npm test
 pytest tests/ -v
 ```
 
-**Test coverage:** 674 total tests (578 backend unit + 43 regression + 53 frontend), plus integration tests.
+**Test coverage:** 717 total tests (621 backend unit + 43 regression + 53 frontend), plus integration tests.
 
 **Prompt regression (on-demand, live):** after changing prompts and redeploying the agents, replay 8 synthetic reference activities against the deployed runtime:
 
 ```bash
+# Run from the activated project venv (see Phase 1 setup: .venv-deploy, venv or .venv)
+
 # V1 — deterministic checks (banned AI clichés, dashes, length, emoji policy…), ~$0.20/run
-./.venv-test/bin/python scripts/run_prompt_regression.py [--update-baseline]
+python scripts/run_prompt_regression.py [--update-baseline]
 
 # V2 — managed AgentCore Evaluations (built-in + custom LLM-as-a-Judge evaluators), ~$1.2/run
-./.venv-test/bin/python scripts/run_managed_evals.py [--update-baseline]
+python scripts/run_managed_evals.py [--update-baseline]
 ```
 
 Design and findings: [`docs/design/regression-evals.md`](docs/design/regression-evals.md).
