@@ -1146,6 +1146,48 @@ VOCABULAIRE : le renforcement musculaire s'écrit "renfo" (jamais "rando" ni "re
 SÉANCE RENFO / PPG : quand une séance Campus est fournie (CAMPUS COACH SESSION), le commentaire doit INTÉGRER toute la séance, exercice par exercice, dans l'ordre des blocs, d'après campus_coach_session : reprends chaque exercice par son "name" (Extension de Mollet, Gainage Frontal, Mollet statique, Gainage Latéral, Split Squat, Bond sur place, Swing...) avec ses "reps"/"duration". Les CHARGES ne sont pas dans Campus : MAPPE les charges que l'athlète donne dans SA description sur l'exercice correspondant (ex. "mollet 12kg" -> Extension de Mollet, "split squat 2 kettlebells de 20kg" -> Split Squat, "swing 24kg" -> Swing), fidèlement, SANS transformer une charge en nombre de reps ("2 kettlebells de 20kg" n'est PAS "20 fentes") et SANS ajouter de variante non écrite ("bulgare"). Tout exercice pour lequel l'athlète ne précise AUCUNE charge est réalisé AU POIDS DU CORPS : dis-le explicitement (gainages, bonds, mollet statique...) et n'invente jamais de kg.
 
 Generate content now."""
+
+        # Loads resolved per exercise by the FAMILY rule, computed in code from the
+        # athlete's own text. Rendered into the prompt because this agent reads each
+        # payload key explicitly: a key that is not rendered is silently dropped, and the
+        # rule would protect nothing. Placed before the correction block so a second pass
+        # still ends on its corrections.
+        campus_exercise_loads = payload.get('campus_exercise_loads')
+        if campus_exercise_loads:
+            lines = []
+            for row in campus_exercise_loads:
+                name = row.get('exercise', '?')
+                if row.get('bodyweight'):
+                    lines.append(f"- {name} : AU POIDS DU CORPS (aucune charge annoncee)")
+                else:
+                    lines.append(f"- {name} : {row.get('load_kg')} kg")
+            listed = "\n".join(lines)
+            prompt += f"""
+
+CHARGES PAR EXERCICE (calculees, SEULE source, ne les recalcule pas) :
+{listed}
+
+Une charge annoncee couvre TOUTE LA FAMILLE du mouvement : "Mollet 12kg" vaut aussi pour le
+mollet statique. N'ecris JAMAIS "au poids du corps" pour un exercice qui porte une charge
+ci-dessus, et n'invente aucun kg pour un exercice marque AU POIDS DU CORPS."""
+
+        # Second pass: the output guard found the previous attempt contradicting the facts
+        # computed from the laps and the Campus plan. Appended last so it is the final
+        # instruction read, and phrased as a correction rather than a fresh attempt: a
+        # reroll without the diagnosis has no reason to avoid the same error.
+        verification_errors = payload.get('verification_errors')
+        if verification_errors:
+            listed = "\n".join(f"- {problem}" for problem in verification_errors)
+            prompt += f"""
+
+⚠️ CORRECTION OBLIGATOIRE : ta génération précédente contredisait les données calculées.
+Problèmes relevés :
+{listed}
+
+Corrige CHACUN de ces points. Les chiffres calculés (structure Campus, nombre de blocs et
+de tours, complétude de la séance, nombre de fractions, allures issues des laps) sont la
+SEULE source : ne les recalcule pas et ne les contredis pas. Si tu ne peux pas étayer une
+affirmation avec ces données, retire-la au lieu de la reformuler."""
         
         # Invoke agent
         logger.info(f"Invoking agent with prompt length: {len(prompt)} characters")

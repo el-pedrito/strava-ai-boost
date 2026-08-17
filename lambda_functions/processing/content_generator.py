@@ -19,6 +19,8 @@ from processing.workout_analysis import (
     classify_workout_from_laps,
     extract_enduraw_report,
 )
+from processing.content_guard import apply_content_guard
+from shared.campus_structure import resolve_exercise_loads
 from processing.modules_processing import get_active_modules, apply_module_processing
 from shared.iso_week import iso_week_label
 from shared.strength_volume import compute_session_volume
@@ -115,6 +117,48 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             user_profile, athlete_stats, athlete_profile,
             enduraw_data, intervals_icu_data, laps_data
         )
+
+        # Guard the content agent output, which had none.
+        #
+        # Only the coach output was ever checked. The content agent shipped its three
+        # 2026-08-14 errors straight to Strava: it read the athlete's "Partie 1 du jour"
+        # (about his two SESSIONS that day) as "Bloc 1/2", announced the second block as a
+        # future session while listing an exercise from it as done, and compared the 44
+        # minutes performed to the 30 planned for the WHOLE session.
+        #
+        # Regenerate first, strip last: the description is the athlete's main text, so a
+        # regenerated one is whole where a stripped one is amputated.
+        try:
+            def _regenerate_content(problems: List[str]) -> Optional[Dict[str, Any]]:
+                logger.warning(
+                    "Generated content contradicts the computed facts, regenerating once",
+                    extra={"activity_id": activity_id, "problems": problems},
+                )
+                return generate_enhanced_content(
+                    activity_data, user_id, enhanced_modules,
+                    user_profile, athlete_stats, athlete_profile,
+                    enduraw_data, intervals_icu_data, laps_data,
+                    verification_errors=problems,
+                )
+
+            enhanced_content, content_problems, content_removed = apply_content_guard(
+                enhanced_content, activity_data, laps_data, enhanced_modules,
+                _regenerate_content,
+            )
+            if content_removed:
+                enhanced_content['unverified_claims'] = content_removed
+            if content_problems:
+                logger.warning(
+                    "Content still contradicts the computed facts after one retry",
+                    extra={
+                        "activity_id": activity_id,
+                        "problems": content_problems,
+                        "removed": content_removed,
+                    },
+                )
+        except Exception as guard_error:
+            # Never blocking: a published description beats no description.
+            logger.warning(f"Content guard failed, publishing unchecked: {guard_error}")
 
         # Store generated content
         store_generated_content(activity_id, enhanced_content)
@@ -297,9 +341,14 @@ def generate_enhanced_content(
     athlete_profile: Optional[Dict[str, Any]] = None,
     enduraw_data: Optional[Dict[str, Any]] = None,
     intervals_icu_data: Optional[Dict[str, Any]] = None,
-    laps_data: Optional[list] = None
+    laps_data: Optional[list] = None,
+    verification_errors: Optional[List[str]] = None
 ) -> Dict[str, Any]:
-    """Generate enhanced content using AgentCore agent. Raises on failure."""
+    """Generate enhanced content using AgentCore agent. Raises on failure.
+
+    ``verification_errors`` carries the problems found by the output guard on a previous
+    attempt. Passing them is what makes the retry a correction rather than a reroll.
+    """
 
     # Initialize AgentCore client
     try:
@@ -314,6 +363,18 @@ def generate_enhanced_content(
     for module in modules:
         if module.get('name') == 'campus_coach' and module.get('sessions_available'):
             campus_coach_sessions = module.get('campus_coach_sessions', [])
+            break
+
+    # Loads resolved per exercise through the FAMILY rule, from the athlete's own text.
+    # Without this the agent guessed, and on 2026-08-17 published "Mollet statique au poids
+    # du corps" while he had written "Mollet ketle 12kg" for the calf family.
+    campus_exercise_loads = None
+    for module in modules:
+        if module.get('name') == 'campus_coach' and module.get('matched_session'):
+            campus_exercise_loads = resolve_exercise_loads(
+                module['matched_session'],
+                activity_data.get('original_description') or activity_data.get('description'),
+            ) or None
             break
 
     # Classify workout from laps
@@ -382,12 +443,14 @@ def generate_enhanced_content(
         'user_profile': user_profile,
         'active_modules': modules,
         'campus_coach_session': campus_coach_sessions,
+        'campus_exercise_loads': campus_exercise_loads,
         'campus_coach_context': _get_campus_context(),
         'enduraw_data': enduraw_data,
         'intervals_icu_data': intervals_icu_data,
         'workout_type': activity_data.get('workout_type'),
         'use_memory': True,
-        'personalization': True
+        'personalization': True,
+        'verification_errors': verification_errors or None
     }
 
     # Get agent ARN
@@ -776,6 +839,17 @@ _STRENGTH_EXTRACTION_SYSTEM_PROMPT = (
     "Split into TWO objects, matching in order: A with 3 sets of 10 at 15, B with 3 sets of 10 "
     "at 35. The reps pair '10-10' maps to A and B, and so does the load pair '15-35'. Never "
     "drop the first value of a pair.\n"
+    "- DASH SERIES on a SINGLE exercise: when one exercise is named and a load is followed by "
+    "reps joined by dashes, each dashed value is one SET at that load. 'dc 80x10 90 8-8-9' is "
+    "FOUR sets: 10 at 80, then 8, 8 and 9 at 90. Do not collapse repeated values: '8-8-9' is "
+    "three sets, not two. This is the opposite of the PAIRED rule above, where the dashes map "
+    "to two different exercises; here a single exercise is named, so the dashes are successive "
+    "sets. Reps may equally be comma-separated ('10,8,6') with the same meaning.\n"
+    "- 'x' ORDER: 'AxB' is reps x load when B is plainly a load and A a rep count "
+    "('10x80' is 10 reps at 80kg), and load x reps in the reverse case ('80x10' is 10 reps at "
+    "80kg too). Both spellings appear in the same session. When a set count is meant it is "
+    "written first and small ('4x8' is four sets of eight). Never emit a set at a load of 8 or "
+    "10 kg on a barbell press because the order was read backwards.\n"
     f"- exercise: use EXACTLY one canonical name from this list when the movement is represented: "
     f"{_CANONICAL_STRENGTH_EXERCISE_NAMES}.\n"
     "- Normalize spelling, accents, singular/plural, hyphens, abbreviations, and French/English aliases. "
