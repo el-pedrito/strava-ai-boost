@@ -16,11 +16,23 @@ from shared.logger import get_logger, inject_correlation_id, metrics, MetricUnit
 from shared.env_validation import validate_env_vars
 from shared.campus_status import STATUS_DONE, STATUS_SKIP, effective_status
 from processing.coach_output_check import (
+    find_internal_contradictions,
     strip_false_claims,
     verify_weekly_claims,
 )
 from shared.iso_week import iso_week_label
 from shared.coach_context import format_weekly_breakdown
+from shared.campus_structure import (
+    compute_ppg_volume,
+    extract_athlete_loads,
+    is_fully_completed,
+    summarize_structure,
+)
+from shared.strength_progress import (
+    build_exercise_comparisons,
+    split_current_and_history,
+)
+from shared.lap_facts import build_lap_facts
 from processing.modules_processing import match_campus_session
 
 logger = get_logger("coach-generator")
@@ -129,6 +141,30 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 history = prefs["strength_history"]
                 entries = history.get("entries", [])
                 historical_summary["strength_history"] = entries[-8:] if entries else []
+
+                # Current session totals and per-exercise direction, both computed here.
+                #
+                # The coach used to receive the raw history and work the direction out
+                # itself. On 2026-08-14 it concluded the bench press had REGRESSED and
+                # invented a previous "4x8 @90kg" to justify it, while the stored data
+                # showed the same load, the same three work sets and one MORE rep. The
+                # data was right and available; only the reading was wrong. And
+                # `strength_session` was read by the verifier but never written by
+                # anything, so reps, sets and tonnage went unchecked on every session.
+                split = split_current_and_history(activity_id, entries)
+                current_entry = split["current"]
+                if current_entry:
+                    historical_summary["strength_session"] = {
+                        "total_sets": current_entry.get("total_sets"),
+                        "total_reps": current_entry.get("total_reps"),
+                        "volume_kg": current_entry.get("volume_kg"),
+                        "volume_kg_incomplete": current_entry.get("volume_kg_incomplete"),
+                        "body_weight_kg_used": current_entry.get("body_weight_kg_used"),
+                        "excluded_exercises": current_entry.get("excluded_exercises") or [],
+                    }
+                    historical_summary["exercise_comparisons"] = build_exercise_comparisons(
+                        current_entry.get("parsed_sets"), split["earlier"]
+                    )
         except Exception as e:
             logger.warning(f"Failed to enrich historical summary: {e}")
 
@@ -247,6 +283,27 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 )
                 matched_session = matched["matched_session"]
                 if matched_session:
+                    # Structure, volume and completion computed in code.
+                    #
+                    # The plan carries two blocks, four rounds each and six named work
+                    # exercises, and it was already in the context on 2026-08-14. The
+                    # published text still flattened it to the three loads the athlete
+                    # had typed, dropped three exercises (one of them loaded), read his
+                    # "Partie 1 du jour" -- about his two SESSIONS that day -- as "Bloc
+                    # 1/2", and compared the 44 minutes done to the 30 planned as if
+                    # those covered one block. So the summary, the volume and the
+                    # completion verdict are handed over rather than left to be read.
+                    athlete_loads = extract_athlete_loads(
+                        activity_data.get("original_description")
+                        or activity_data.get("description")
+                    )
+                    duration_min = None
+                    moving_time = activity_data.get("moving_time")
+                    if moving_time:
+                        try:
+                            duration_min = float(moving_time) / 60.0
+                        except (TypeError, ValueError):
+                            duration_min = None
                     historical_summary["campus_matched_session"] = {
                         "title": matched_session.get("title", ""),
                         "week_date_iso": matched_session.get("week_date_iso", ""),
@@ -254,6 +311,14 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                         "expected_duration_min": matched_session.get("expected_duration_min"),
                         "intervals": matched_session.get("intervals", []),
                         "match_score": round(matched["match_score"], 2),
+                        "structure": summarize_structure(matched_session),
+                        "fully_completed": is_fully_completed(matched_session, duration_min),
+                        "computed_volume": (
+                            compute_ppg_volume(matched_session, athlete_loads)
+                            if matched_session.get("sport") == "ppg"
+                            else None
+                        ),
+                        "athlete_loads_kg": athlete_loads,
                     }
                     logger.info(
                         "Coach informed of matched session '%s' (%s, score=%.2f)",
@@ -299,7 +364,29 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # every other figure.
         week_overview = (historical_summary or {}).get("week_overview")
         strength_session = (historical_summary or {}).get("strength_session")
-        problems = verify_weekly_claims(feedback, week_overview, strength_session)
+        activity_start = (
+            activity_data.get("start_date_local") or activity_data.get("start_date", "")
+        )
+        # Two families of problem, deliberately handled differently.
+        #
+        # A contradicted FIGURE names the wrong half, so it can end in a strip. A
+        # SELF-contradiction does not: "5 fractions" next to "2 blocs de (35-25-15sec)"
+        # tells us one of the two is wrong, never which. Stripping the correct half
+        # would remove good coaching, so these only ever drive the regeneration and are
+        # reported, never stripped.
+        # Facts computed by the lap, Campus and strength modules. The prompt names them
+        # as the sole source; passing them here is what makes that binding rather than
+        # advisory, which this module's own history says is the difference that matters.
+        computed_facts = {
+            "lap_facts": activity_data.get("_lap_facts"),
+            "exercise_comparisons": (historical_summary or {}).get("exercise_comparisons"),
+            "campus": (historical_summary or {}).get("campus_matched_session"),
+        }
+        figure_problems = verify_weekly_claims(
+            feedback, week_overview, strength_session, computed_facts
+        )
+        contradictions = find_internal_contradictions(feedback, activity_start)
+        problems = figure_problems + contradictions
         if problems:
             logger.warning(
                 "Coach stated figures contradicting the computed ones, regenerating once",
@@ -310,19 +397,29 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             retried = _invoke_coach_agent(activity_data, user_config, retry_summary)
             removed: List[str] = []
             if retried:
-                remaining = verify_weekly_claims(retried, week_overview, strength_session)
-                if not remaining:
+                remaining = verify_weekly_claims(
+                    retried, week_overview, strength_session, computed_facts
+                )
+                remaining_contradictions = find_internal_contradictions(
+                    retried, activity_start
+                )
+                if not remaining and not remaining_contradictions:
                     feedback = retried
                     problems = []
+                elif not remaining:
+                    # Only self-contradictions left: keep the regenerated text, since
+                    # stripping cannot tell the wrong half from the right one.
+                    feedback = retried
+                    problems = remaining_contradictions
                 else:
                     feedback, removed = strip_false_claims(
-                        retried, week_overview, strength_session
+                        retried, week_overview, strength_session, computed_facts
                     )
-                    problems = remaining
+                    problems = remaining + remaining_contradictions
                     feedback["unverified_claims"] = removed
             else:
                 feedback, removed = strip_false_claims(
-                    feedback, week_overview, strength_session
+                    feedback, week_overview, strength_session, computed_facts
                 )
                 feedback["unverified_claims"] = removed
 
@@ -523,6 +620,12 @@ def retrieve_activity_data(activity_id: str) -> Optional[Dict[str, Any]]:
             data["_laps"] = laps
             # Compute Efficiency Factor and zone distribution
             data["_computed_metrics"] = _compute_coach_metrics(laps, data)
+            # Per-lap facts, computed here for the same reason the activity average
+            # already is: the coach converted a raw speed field into a pace and
+            # published "3:16/km" for fractions run at 5:24. build_lap_facts derives
+            # every pace from average_speed alone, keeps max_speed out of the context
+            # entirely, and settles the effort count and the recovery mode in code.
+            data["_lap_facts"] = build_lap_facts(laps)
         return data
     except Exception as e:
         logger.error(f"Failed to retrieve activity {activity_id}: {e}")

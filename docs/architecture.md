@@ -8,8 +8,7 @@
 > stay fully editable — open them directly in
 > [draw.io](https://app.diagrams.net/) (the SVG embeds the diagram XML).
 > Raw sources: [`high-level.drawio`](architecture/high-level.drawio) ·
-> [`detailed.drawio`](architecture/detailed.drawio) ·
-> [`aws-services.drawio`](architecture/aws-services.drawio).
+> [`detailed.drawio`](architecture/detailed.drawio).
 
 ## The AgentCore building blocks used here
 
@@ -70,13 +69,6 @@ Key implementation choices worth stealing:
 - **No proxy for streaming**: the AgentCore data plane returns
   `access-control-allow-origin: *`, so the browser consumes the SSE stream
   directly with a Cognito JWT. One less Lambda, real token-by-token UX.
-
-## AWS services view
-
-The same system, seen through the AWS services involved (official icons —
-handy for slides/posts):
-
-![AWS services](architecture/aws-services.drawio.svg)
 
 ## Documentation map & freshness contract
 
