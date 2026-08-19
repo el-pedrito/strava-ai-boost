@@ -1058,3 +1058,14 @@ aws stepfunctions describe-execution \
 - **AWS CDK:** https://docs.aws.amazon.com/cdk/
 - **Strava API:** https://developers.strava.com/
 - **AgentCore:** https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/
+
+## Hard-Won Gotchas (do not relearn these)
+
+### coach_output_check.py: `_to_float` is a TEXT parser
+`_to_float(160.0)` returns `None` on a real float. A seconds-total guard using it to read computed facts silently became a no-op (admissible-values list empty, returned before comparing), and the non-detection tests still passed, hiding it. Read numeric facts with `isinstance(int/float/Decimal)` checks (`Decimal` because DynamoDB returns numbers as Decimal), never `_to_float`. When adding a verifier, test the FULL chain (`build_facts` -> `verify`) on the real published sentence, not just the regex: a guard that never fires passes every negative test.
+
+### content_agent.py: payload keys are read explicitly
+Adding a new field to the payload (e.g. `verification_errors`) is silently IGNORED unless it is ALSO injected into the prompt string. Without wiring it into the prompt, a "regeneration" pass is just a random reroll with no reason to avoid the same error, while still costing an LLM call and logging correctly. Anti-drift tests must lock this channel.
+
+### Strava lap data: never expose `max_speed` to the LLM coach
+Proven failures on real data: (1) `max_speed` 3.26 m/s rendered as pace "3:16/km" (decimal-minutes misread), (2) `max_speed` of recovery/endurance laps (up to 5.15 m/s) exceeds `average_speed` of sprint laps = systematic work/recovery overlap, (3) `max_speed < average_speed` occurs (noisy lap). All pace must be computed in code from `average_speed` only, formatted mm:ss, with an m/s suffix mandatory if any raw speed appears. `pace_zone` is unreliable for effort counting (active fractions can sit in zone 2 while sprints sit in zone 5-6): classify work vs recovery by relative contrast between laps, not an absolute zone threshold.
