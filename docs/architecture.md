@@ -32,7 +32,7 @@ reading the shared Memory, the fact verifier, and the nightly learning loop.
 
 ![End-to-end process flow](architecture/process-flow.png)
 
-> Raw source: [`process-flow.drawio`](architecture/process-flow.drawio)
+> Raw source: [`process-flow.drawio`](architecture/process-flow.drawio) · Lived version: [worked example on a real activity](worked-example.md)
 
 ## High-level view
 
