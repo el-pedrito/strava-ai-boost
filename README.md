@@ -22,6 +22,12 @@ Strava AI Boost is a modular serverless application that automatically enhances 
 
 Full walkthrough of the frontend (Dashboard, Coach, Quality, Configuration, Preferences). The GIF above is a sped-up preview — see the [full-length walkthrough (MP4)](https://github.com/el-pedrito/strava-ai-boost/releases/tag/v0.1.0) attached to the v0.1.0 release.
 
+## How it works, end to end
+
+One activity, from the run to the published text. The webhook answers in under 5 seconds, then waits 2 minutes (time for the athlete's raw feelings and the Enduraw report to land in the Strava description), fetches all sources, computes everything deterministic in code (paces, workout type, plan matching), runs the content and coach agents in parallel against the shared AgentCore Memory, verifies each output against the computed facts, and publishes one text. At night, if the athlete edited the text, the diff feeds the Memory: the next run writes better.
+
+![End-to-end process flow](docs/architecture/process-flow.png)
+
 ## Quick Start
 
 ### Prerequisites

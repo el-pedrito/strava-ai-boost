@@ -24,6 +24,16 @@
 Not used (yet): Gateway, Identity token vault, Code Interpreter, Policy —
 candidates for future lab iterations.
 
+## Functional process flow
+
+The life of one activity, sources included: the 2-minute enrichment window, the deterministic
+computing stage (paces, workout type, plan matching are never left to the LLM), the two agents
+reading the shared Memory, the fact verifier, and the nightly learning loop.
+
+![End-to-end process flow](architecture/process-flow.png)
+
+> Raw source: [`process-flow.drawio`](architecture/process-flow.drawio)
+
 ## High-level view
 
 ![High-level architecture](architecture/high-level.drawio.svg)
