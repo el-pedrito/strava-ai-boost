@@ -1,6 +1,8 @@
 # Strava AI Boost
 
-![I wanted better Strava titles and descriptions. I ended up with a multi-agent app.](docs/images/hero.png)
+![I built an AI to write my Strava posts. It became my coach.](docs/images/hero.png)
+
+> 📖 **The full story behind this project** (eight months of commits, the failures left in) is published on AWS Builder Center: [I built an AI to write my Strava posts. It became my coach.](https://builder.aws.com/content/3I8cKIgjWTrJYAAH6LZ0P3o8dFV/i-wanted-better-strava-titles-and-descriptions-i-ended-up-with-a-multi-agent-app)
 
 > **⚠️ Disclaimer — demo / personal-use sample, not production software**
 >
