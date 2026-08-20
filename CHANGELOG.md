@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4](https://github.com/el-pedrito/strava-ai-boost/compare/v0.2.3...v0.2.4) (2026-08-20)
+
+
+### Bug Fixes
+
+* **coach:** ground every published figure in a computed fact ([8e665de](https://github.com/el-pedrito/strava-ai-boost/commit/8e665de7fc9002c700a1bc313a0e0e98a1c677a9))
+* **coach:** ground every published figure in a computed fact ([18e7054](https://github.com/el-pedrito/strava-ai-boost/commit/18e70543e77c965b84353773fd6e9e50ce0c4a30))
+
 ## [0.2.3](https://github.com/el-pedrito/strava-ai-boost/compare/v0.2.2...v0.2.3) (2026-08-09)
 
 
