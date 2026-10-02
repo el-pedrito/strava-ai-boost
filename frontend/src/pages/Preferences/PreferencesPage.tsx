@@ -21,6 +21,7 @@ import { getConfig } from '../../config.ts';
 import { useFlash } from '../../layouts/AppLayout.tsx';
 import type { CampusPaceZone, PaceZone, PaceZonesSource } from '../../types/index.ts';
 import { PaceZonesCard, type ZoneMap } from './PaceZonesCard.tsx';
+import { NotificationsCard } from './NotificationsCard.tsx';
 
 const AGE_OPTIONS: SelectOption[] = [
   { value: '18-25', label: '18-25' },
@@ -673,6 +674,9 @@ export function PreferencesPage() {
           </div>
         </div>
       </Card>
+
+      {/* Notifications (opt-in Web Push) */}
+      <NotificationsCard />
 
       {/* Sticky save bar */}
       {dirty && (

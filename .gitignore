@@ -160,3 +160,4 @@ validation-report-*.json
 
 # Local credential notes, never commit
 credentials-local.txt
+lambda_layer_push/python/
