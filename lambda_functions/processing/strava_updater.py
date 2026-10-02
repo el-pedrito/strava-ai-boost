@@ -63,7 +63,11 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         # Update activity status in DynamoDB
         update_activity_status(activity_id, 'completed', enhanced_content)
-        
+
+        # Opt-in Web Push: one neutral "activity enriched" notification per activity.
+        # Best-effort and gated by PUSH_ENABLED; never fails the Strava update.
+        _maybe_push_completed(activity_id, user_id)
+
         return {
             'statusCode': 200,
             'activity_id': activity_id,
@@ -220,3 +224,52 @@ def update_activity_status(
         logger.error(f"Failed to update activity status: {str(e)}")
         # Don't raise - this is not critical for processing
 
+
+def _maybe_push_completed(activity_id: str, user_id: str) -> None:
+    """Trigger one opt-in "activity enriched" push, best-effort.
+
+    Gated by the ``PUSH_ENABLED`` environment flag (CDK context ``push_enabled``,
+    default false). Deduplicated by a conditional ``UpdateItem`` on ``push_sent_at``
+    so a reprocess of the same activity does not re-notify. Reprocess/archive items
+    (``reingest_only`` or ``source == 'strava-archive'``) are skipped. Never raises:
+    a failed notification must never fail the Strava update.
+    """
+    if os.environ.get("PUSH_ENABLED", "").lower() not in ("1", "true", "yes"):
+        return
+    if not activity_id or not user_id:
+        return
+    try:
+        from boto3.dynamodb.conditions import Attr
+
+        from shared.push_notify import notify_activity_enriched
+
+        table = dynamodb.Table(ACTIVITIES_TABLE)
+        item = table.get_item(Key={'activity_id': activity_id}).get('Item', {}) or {}
+
+        if item.get('reingest_only') or item.get('source') == 'strava-archive':
+            return
+
+        # Dedup: only the first completion for this activity sets push_sent_at.
+        try:
+            table.update_item(
+                Key={'activity_id': activity_id},
+                UpdateExpression="SET push_sent_at = :now",
+                ConditionExpression=Attr('push_sent_at').not_exists(),
+                ExpressionAttributeValues={':now': datetime.utcnow().isoformat()},
+            )
+        except ClientError as exc:
+            if exc.response.get('Error', {}).get('Code') == 'ConditionalCheckFailedException':
+                return  # already notified for this activity
+            raise
+
+        # Only the activity title: the description can quote heart rate or pace,
+        # and a notification may show on a locked screen.
+        body = item.get('enhanced_title', '') or "Ta description enrichie est en ligne."
+        notify_activity_enriched(
+            user_id=user_id,
+            activity_id=activity_id,
+            title="Activité enrichie",
+            body=body,
+        )
+    except Exception as exc:  # noqa: BLE001 - best-effort, never fail the Strava update
+        logger.warning(f"push notify skipped (non-blocking): {str(exc)}")

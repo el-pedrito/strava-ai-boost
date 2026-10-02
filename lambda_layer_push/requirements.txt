@@ -1,0 +1,5 @@
+# Web Push only (StravaAIBoost-Push Lambdas): VAPID signing + aes128gcm encryption.
+# Kept out of the shared dependencies layer on purpose: that layer is exported by
+# the Core stack and cannot be replaced (see README "Known Issues"), while this one
+# is owned by the Push stack alone and can be republished freely.
+pywebpush>=1.14.0

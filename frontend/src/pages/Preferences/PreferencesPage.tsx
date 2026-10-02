@@ -21,6 +21,7 @@ import {
 import { api } from '../../api/client.ts';
 import { getConfig } from '../../config.ts';
 import { useFlash } from '../../layouts/AppLayout.tsx';
+import { NotificationsCard } from './NotificationsCard.tsx';
 import type { PaceZones } from '../../types/index.ts';
 
 const AGE_OPTIONS: SelectOption[] = [
@@ -747,6 +748,9 @@ export function PreferencesPage() {
           </div>
         </div>
       </Card>
+
+      {/* Notifications (opt-in Web Push) */}
+      <NotificationsCard />
 
       {/* Sticky save bar */}
       {dirty && (
