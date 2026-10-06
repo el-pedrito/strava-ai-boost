@@ -71,6 +71,8 @@ MODEL_ID = os.environ.get(
 # it is applied natively by Strands' BedrockModel — closes threat-model T4.
 GUARDRAIL_ID = os.environ.get("GUARDRAIL_ID", "")
 GUARDRAIL_VERSION = os.environ.get("GUARDRAIL_VERSION", "DRAFT")
+# Explicit output budget: a bare model-id string makes Strands send no maxTokens.
+CHAT_MAX_TOKENS = int(os.environ.get("CHAT_MAX_TOKENS", "4096"))
 ACTIVITIES_TABLE = os.environ.get("ACTIVITIES_TABLE", "strava-ai-boost-activities")
 USER_CONFIG_TABLE = os.environ.get(
     "USER_CONFIG_TABLE", "strava-ai-boost-user-configuration"
@@ -1113,11 +1115,12 @@ def _build_agent(user_id: str) -> Agent:
     if GUARDRAIL_ID:
         model: Any = BedrockModel(
             model_id=MODEL_ID,
+            max_tokens=CHAT_MAX_TOKENS,
             guardrail_id=GUARDRAIL_ID,
             guardrail_version=GUARDRAIL_VERSION,
         )
     else:
-        model = MODEL_ID
+        model = BedrockModel(model_id=MODEL_ID, max_tokens=CHAT_MAX_TOKENS)
     return Agent(
         model=model,
         system_prompt=_build_system_prompt(user_id),
