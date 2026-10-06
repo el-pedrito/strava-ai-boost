@@ -35,6 +35,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 # Environment variables
 REGION = os.getenv("AWS_REGION", "eu-west-1")
 MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-5")
+# Output budget for one generation (<thinking> block + JSON). Must stay explicit:
+# Strands sends no maxTokens by default.
+CONTENT_MAX_TOKENS = int(os.getenv("CONTENT_MAX_TOKENS", "8192"))
 
 # AgentCore Memory configuration
 MEMORY_ID = os.getenv("BEDROCK_AGENTCORE_MEMORY_ID")
@@ -746,8 +749,12 @@ def invoke(payload, context=None):
         from strands.models import BedrockModel
         
         logger.info(f"Creating agent without model-level guardrails (input validation done separately)")
+        # Explicit output budget: without it Strands sends no maxTokens and the
+        # model default applies. Sonnet 5 writes a longer <thinking> block than
+        # 4.5 on context-rich sessions (intervals, strength, Campus match) and
+        # hit the limit ("unrecoverable state due to max_tokens").
         agent = Agent(
-            model=MODEL_ID,  # No guardrails on model - we validate inputs manually
+            model=BedrockModel(model_id=MODEL_ID, max_tokens=CONTENT_MAX_TOKENS),  # No guardrails on model - we validate inputs manually
             system_prompt=system_prompt,
             hooks=[],  # Disabled: AgentCoreMemoryHook() - Memory writes only after feedback validation
             state={
