@@ -3,7 +3,8 @@
 
 Manual, rare step run by an operator with their own credentials (see README § Web
 Push notifications). The CDK stack creates the Secrets Manager secret
-``strava-ai-boost-vapid-keys`` empty; this script:
+``strava-ai-boost-vapid-keys`` with a random placeholder value (the ``Secret()``
+default), which this script reports as ``placeholder``; this script:
 
 1. writes the VAPID pair into that secret (raw base64url, the format expected by
    ``lambda_functions/push/webpush_core.py``). Only PushSend can read it;
