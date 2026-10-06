@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4](https://github.com/el-pedrito/strava-ai-boost/compare/v0.2.3...v0.2.4) (2026-10-06)
+
+
+### Features
+
+* **llm:** switch main generation from Sonnet 4.5 to Sonnet 5 ([8ed94af](https://github.com/el-pedrito/strava-ai-boost/commit/8ed94af80176db64c296013ad6e31f6135f81ce2))
+
+
+### Bug Fixes
+
+* **coach:** flag next-session announcements whose intense type is not remaining ([c1cdb8b](https://github.com/el-pedrito/strava-ai-boost/commit/c1cdb8ba8f952cd7118fe74b3458f178fde8db85))
+* **coach:** ground every published figure in a computed fact ([8e665de](https://github.com/el-pedrito/strava-ai-boost/commit/8e665de7fc9002c700a1bc313a0e0e98a1c677a9))
+* **coach:** ground every published figure in a computed fact ([18e7054](https://github.com/el-pedrito/strava-ai-boost/commit/18e70543e77c965b84353773fd6e9e50ce0c4a30))
+* **coach:** reconcile campus_remaining with the authoritative session match ([8343d4a](https://github.com/el-pedrito/strava-ai-boost/commit/8343d4a2e8b4372c751bca137c820acf1dde8785))
+* **content:** stop prompt-example leaks and invented sensations ([62255d5](https://github.com/el-pedrito/strava-ai-boost/commit/62255d5f12e6343c2e3ff354312a4931f81c5ce8))
+* **verifier:** weekly-claim shields are per-clause and forward-only ([046ad23](https://github.com/el-pedrito/strava-ai-boost/commit/046ad23a0a2e980d547a2a065ad52c6d4d0bc175))
+
 ## [0.2.3](https://github.com/el-pedrito/strava-ai-boost/compare/v0.2.2...v0.2.3) (2026-08-09)
 
 
