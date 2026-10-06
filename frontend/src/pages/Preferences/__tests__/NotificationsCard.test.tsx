@@ -7,7 +7,7 @@ const getVapidMock = vi.fn();
 const subscribeMock = vi.fn();
 const unsubscribeMock = vi.fn();
 vi.mock('../../../api/push.ts', () => ({
-  getVapidPublicKey: (...a: unknown[]) => getVapidMock(...a),
+  getApplicationServerKey: (...a: unknown[]) => getVapidMock(...a),
   subscribePush: (...a: unknown[]) => subscribeMock(...a),
   unsubscribePush: (...a: unknown[]) => unsubscribeMock(...a),
   // Keep a pure decoder — the component only forwards its result.
@@ -79,7 +79,7 @@ function installPushEnv(options?: {
 describe('NotificationsCard', () => {
   beforeEach(() => {
     pushFlag.enabled = true;
-    getVapidMock.mockReset().mockResolvedValue({ public_key: 'PUB_KEY_B64' });
+    getVapidMock.mockReset().mockResolvedValue({ application_server_key: 'APP_SERVER_KEY_B64' });
     subscribeMock.mockReset().mockResolvedValue({ subscribed: true });
     unsubscribeMock.mockReset().mockResolvedValue({ subscribed: false });
   });

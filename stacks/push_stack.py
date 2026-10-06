@@ -10,20 +10,25 @@ Owns:
   (recreated by a simple re-subscribe), but PITR + AWS-managed encryption for
   consistency with the other tables of this repo.
 - The Secrets Manager secret ``strava-ai-boost-vapid-keys`` (``strava-ai-boost-*``
-  convention): the VAPID key pair. The PRIVATE key is never in the code nor in an
-  environment variable -- only ``PushSend`` can READ it. The public key is exposed by
-  ``GET /push/vapid-public-key`` (served by ``PushApi``). The secret content
-  (``{"public_key","private_key"}`` base64url) is seeded out of CDK by
-  ``scripts/bootstrap_vapid.py``.
+  convention): the VAPID key pair, seeded out of CDK by
+  ``scripts/bootstrap_vapid.py``. The signing key is never in the code nor in an
+  environment variable -- only ``PushSend`` can read this secret.
+- The browser half of the pair (W3C ``applicationServerKey``) is served by
+  ``PushApi`` at ``GET /push/application-server-key``, behind Cognito, from the SSM
+  SecureString ``/strava-ai-boost/push/vapid-application-server-key``. The bootstrap
+  script writes it (CloudFormation cannot create a SecureString); its integrity
+  matters, so nothing in this stack can write it.
 - ``StravaAIBoost-PushApi``: Lambda serving /push/* (routes wired in the API stack).
 - ``StravaAIBoost-PushSend``: send + 410 cleanup Lambda, invoked asynchronously by
   StravaUpdater via ``shared.push_notify``.
 
 Least privilege: each Lambda has its own role. ``PushApi`` reads/writes ITS table and
-reads only the SSM parameter holding the public key, never the secret. ``PushSend`` reads/writes ITS
-table (410 cleanup) and reads the VAPID secret (private key, to sign). ``grant_notify``
-adds a single explicit ``lambda:InvokeFunction`` on the exact PushSend ARN (not
-``grant_invoke``, which also adds the ``:*`` alias/version ARN).
+gets ``ssm:GetParameter`` on that one parameter only (no GetParameters, no
+GetParameterHistory, no Secrets Manager). Decryption needs no ``kms:Decrypt`` grant:
+the AWS managed key ``aws/ssm`` allows it for account principals calling through SSM.
+``PushSend`` reads/writes ITS table (410 cleanup) and reads the VAPID secret (to
+sign). ``grant_notify`` adds a single explicit ``lambda:InvokeFunction`` on the exact
+PushSend ARN (not ``grant_invoke``, which also adds the ``:*`` alias/version ARN).
 """
 
 from __future__ import annotations
@@ -46,8 +51,9 @@ from .layer_hash import compute_layer_asset_hash
 
 PUSH_SUBSCRIPTIONS_TABLE_NAME = "strava-ai-boost-push-subscriptions"
 VAPID_SECRET_NAME = "strava-ai-boost-vapid-keys"
-# Public key only, written by scripts/bootstrap_vapid.py; PushApi reads nothing else.
-VAPID_PUBLIC_KEY_PARAM = "/strava-ai-boost/push/vapid-public-key"
+# Browser half of the VAPID pair (W3C applicationServerKey), SSM SecureString written
+# by scripts/bootstrap_vapid.py. PushApi reads this and nothing else.
+VAPID_APP_SERVER_KEY_PARAM = "/strava-ai-boost/push/vapid-application-server-key"
 PUSH_LAYER_DIR = os.path.join(os.path.dirname(__file__), "..", "lambda_layer_push")
 
 
@@ -158,7 +164,7 @@ class PushStack(Stack):
 
         api_env = {
             "PUSH_SUBSCRIPTIONS_TABLE": self.subscriptions_table.table_name,
-            "VAPID_PUBLIC_KEY_PARAM": VAPID_PUBLIC_KEY_PARAM,
+            "VAPID_APP_SERVER_KEY_PARAM": VAPID_APP_SERVER_KEY_PARAM,
             "DEFAULT_USER_ID": default_user_id,
         }
         send_env = {
@@ -182,8 +188,10 @@ class PushStack(Stack):
             memory_size=256,
             environment=api_env,
         )
-        # Least privilege: RW its table + read ONLY the public-key parameter. It has
-        # no access to the VAPID secret, which holds the private key.
+        # Least privilege: RW its table + ssm:GetParameter on the one SecureString
+        # holding the application server key. Nothing on the Secrets Manager secret,
+        # no GetParameters / GetParameterHistory, no write. No kms:Decrypt either:
+        # the AWS managed key aws/ssm already allows it through SSM for this account.
         self.subscriptions_table.grant_read_write_data(self.push_api_lambda)
         self.push_api_lambda.add_to_role_policy(
             iam.PolicyStatement(
@@ -193,7 +201,8 @@ class PushStack(Stack):
                     self.format_arn(
                         service="ssm",
                         resource="parameter",
-                        resource_name=VAPID_PUBLIC_KEY_PARAM.lstrip("/"),
+                        # No leading slash: the ARN is ...:parameter/strava-ai-boost/...
+                        resource_name=VAPID_APP_SERVER_KEY_PARAM.lstrip("/"),
                     )
                 ],
             )

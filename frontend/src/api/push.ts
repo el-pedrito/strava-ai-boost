@@ -4,13 +4,14 @@ import { api } from './client.ts';
  * Web Push API wrappers over the shared authenticated client (`api`), so these
  * calls carry the same Cognito ID token as every other request. The contract is
  * implemented by the backend:
- *   GET    /push/vapid-public-key -> { public_key }  (base64url, uncompressed P-256)
+ *   GET    /push/application-server-key -> { application_server_key }
+ *          (VAPID, base64url uncompressed P-256, the W3C `applicationServerKey`)
  *   POST   /push/subscribe { endpoint, keys:{ p256dh, auth } } -> { subscribed:true }
  *   DELETE /push/subscribe { endpoint } -> { subscribed:false }
  */
 
-export interface VapidKeyResponse {
-  public_key: string;
+export interface ApplicationServerKeyResponse {
+  application_server_key: string;
 }
 
 export interface SubscribeResponse {
@@ -26,8 +27,8 @@ export interface PushSubscriptionBody {
   };
 }
 
-export function getVapidPublicKey(): Promise<VapidKeyResponse> {
-  return api.get<VapidKeyResponse>('/push/vapid-public-key');
+export function getApplicationServerKey(): Promise<ApplicationServerKeyResponse> {
+  return api.get<ApplicationServerKeyResponse>('/push/application-server-key');
 }
 
 export function subscribePush(body: PushSubscriptionBody): Promise<SubscribeResponse> {
@@ -35,13 +36,12 @@ export function subscribePush(body: PushSubscriptionBody): Promise<SubscribeResp
 }
 
 export function unsubscribePush(endpoint: string): Promise<SubscribeResponse> {
-  // DELETE with a body — the shared client sends no body on delete(), so issue
-  // the request through fetch-compatible options via post-style serialization.
+  // The shared client's delete() sends no body; this endpoint needs { endpoint }.
   return api.deleteWithBody<SubscribeResponse>('/push/subscribe', { endpoint });
 }
 
 /**
- * Convert a base64url VAPID key into the Uint8Array that
+ * Convert a base64url VAPID application server key into the Uint8Array that
  * `pushManager.subscribe({ applicationServerKey })` requires.
  */
 export function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {

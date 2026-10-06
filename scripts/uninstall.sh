@@ -525,8 +525,10 @@ if [ "$KEEP_DATA" = false ]; then
         fi
     done
 
-    # Web Push public key parameter (written by scripts/bootstrap_vapid.py, outside CDK)
-    VAPID_PARAM="/strava-ai-boost/push/vapid-public-key"
+    # Web Push application server key (SecureString written by
+    # scripts/bootstrap_vapid.py, outside CDK). DeleteParameter and DeleteParameters
+    # are authorized separately; this uses the singular form on the exact name.
+    VAPID_PARAM="/strava-ai-boost/push/vapid-application-server-key"
     if aws ssm get-parameter --name "$VAPID_PARAM" --profile $PROFILE --region $REGION > /dev/null 2>&1; then
         print_status "Removing SSM parameter: $VAPID_PARAM"
         aws ssm delete-parameter --name "$VAPID_PARAM" --profile $PROFILE --region $REGION 2>/dev/null || print_warning "Could not remove parameter $VAPID_PARAM"

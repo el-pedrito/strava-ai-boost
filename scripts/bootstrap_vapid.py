@@ -1,19 +1,25 @@
 #!/usr/bin/env python3
-"""Seed the VAPID key pair (Web Push) into Secrets Manager.
+"""Seed the VAPID key pair (Web Push).
 
-Manual, rare step (see README § Web Push notifications): the CDK stack creates the
-secret ``strava-ai-boost-vapid-keys`` empty; this script writes the
-``{"public_key", "private_key"}`` pair into it as raw base64url (65 bytes / 32 bytes),
-the format expected by ``lambda_functions/push/webpush_core.py`` and the browser
-subscription step.
+Manual, rare step run by an operator with their own credentials (see README § Web
+Push notifications). The CDK stack creates the Secrets Manager secret
+``strava-ai-boost-vapid-keys`` empty; this script:
 
-- Default: ``--dry-run`` (shows the secret state, generates nothing).
-- ``--apply``: generates the pair and stores it. Refuses to overwrite an existing
-  valid pair without ``--rotate`` (a rotation invalidates ALL subscriptions).
-- ``--apply`` also copies the PUBLIC key to the SSM parameter
-  ``/strava-ai-boost/push/vapid-public-key``, the only thing PushApi can read
-  (re-running it on an existing pair just re-syncs that parameter).
-- The private key is never printed.
+1. writes the VAPID pair into that secret (raw base64url, the format expected by
+   ``lambda_functions/push/webpush_core.py``). Only PushSend can read it;
+2. copies the browser half of the pair, the *application server key* (W3C Push API
+   ``applicationServerKey``), to the SSM **SecureString** parameter
+   ``/strava-ai-boost/push/vapid-application-server-key``, encrypted with the AWS
+   managed key ``aws/ssm`` and tagged. PushApi reads only this parameter. Its
+   integrity matters (a substituted key would bind new subscriptions to someone
+   else), so only this operator script writes it. CloudFormation cannot create a
+   SecureString, hence this step.
+
+- Default: ``--dry-run`` (shows the state, generates and writes nothing).
+- ``--apply``: generates the pair and stores both. Refuses to overwrite an existing
+  valid pair without ``--rotate`` (a rotation invalidates ALL subscriptions); on an
+  existing pair it only re-syncs the SecureString parameter.
+- The signing key is never printed.
 
 Usage:
     python scripts/bootstrap_vapid.py --dry-run --profile myprofile --region us-east-1
@@ -32,8 +38,16 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
 SECRET_NAME = "strava-ai-boost-vapid-keys"
-PUBLIC_KEY_PARAM = "/strava-ai-boost/push/vapid-public-key"
+APP_SERVER_KEY_PARAM = "/strava-ai-boost/push/vapid-application-server-key"
+PARAM_TAGS = [
+    {"Key": "Project", "Value": "strava-ai-boost"},
+    {"Key": "Component", "Value": "web-push"},
+]
 DEFAULT_REGION = "us-east-1"
+# Field names inside the secret follow the VAPID / py-vapid convention. This JSON
+# never leaves Secrets Manager.
+_SIGNING_FIELD = "private_key"
+_APP_SERVER_FIELD = "public_key"
 
 
 def _b64url(raw: bytes) -> str:
@@ -42,37 +56,53 @@ def _b64url(raw: bytes) -> str:
 
 def generate_pair() -> dict[str, str]:
     key = ec.generate_private_key(ec.SECP256R1())
-    private_raw = key.private_numbers().private_value.to_bytes(32, "big")
-    public_raw = key.public_key().public_bytes(
+    signing_raw = key.private_numbers().private_value.to_bytes(32, "big")
+    app_server_raw = key.public_key().public_bytes(
         serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint
     )
-    assert len(public_raw) == 65 and len(private_raw) == 32
-    return {"public_key": _b64url(public_raw), "private_key": _b64url(private_raw)}
+    assert len(app_server_raw) == 65 and len(signing_raw) == 32
+    return {_APP_SERVER_FIELD: _b64url(app_server_raw), _SIGNING_FIELD: _b64url(signing_raw)}
 
 
-def current_state(sm) -> str:
-    """'valid' | 'placeholder' | 'missing' -- never returns the secret content."""
+def _read_pair(sm) -> dict | None:
+    """Return the stored pair, or None when the secret is missing. Never printed."""
     try:
         value = sm.get_secret_value(SecretId=SECRET_NAME).get("SecretString") or ""
     except sm.exceptions.ResourceNotFoundException:
-        return "missing"
+        return None
     try:
         data = json.loads(value)
     except json.JSONDecodeError:
-        return "placeholder"
-    if isinstance(data, dict) and data.get("public_key") and data.get("private_key"):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def state_of(pair: dict | None) -> str:
+    """'valid' | 'placeholder' | 'missing' -- never the secret content."""
+    if pair is None:
+        return "missing"
+    if pair.get(_APP_SERVER_FIELD) and pair.get(_SIGNING_FIELD):
         return "valid"
     return "placeholder"
 
 
-def publish_public_key(ssm, public_key: str) -> None:
-    """Copy the public key (never the private one) to its own SSM parameter."""
+def publish_application_server_key(ssm, value: str) -> None:
+    """Store the browser half of the pair as a SecureString (aws/ssm), tagged.
+
+    Never the signing key. ``Overwrite`` keeps the parameter in sync after a
+    rotation; tags cannot be passed together with ``Overwrite`` so they are applied
+    separately.
+    """
     ssm.put_parameter(
-        Name=PUBLIC_KEY_PARAM,
-        Value=public_key,
-        Type="String",
+        Name=APP_SERVER_KEY_PARAM,
+        Value=value,
+        Type="SecureString",
         Overwrite=True,
-        Description="VAPID public key for Web Push (read by StravaAIBoost-PushApi)",
+        Tier="Standard",
+        Description="VAPID application server key for Web Push (read by StravaAIBoost-PushApi)",
+    )
+    ssm.add_tags_to_resource(
+        ResourceType="Parameter", ResourceId=APP_SERVER_KEY_PARAM, Tags=PARAM_TAGS
     )
 
 
@@ -89,7 +119,8 @@ def main() -> int:
 
     session = boto3.Session(profile_name=args.profile, region_name=args.region)
     sm = session.client("secretsmanager")
-    state = current_state(sm)
+    pair = _read_pair(sm)
+    state = state_of(pair)
     print(f"secret {SECRET_NAME}: {state}")
 
     if not args.apply:
@@ -100,16 +131,16 @@ def main() -> int:
         return 2
     ssm = session.client("ssm")
     if state == "valid" and not args.rotate:
-        public_key = json.loads(sm.get_secret_value(SecretId=SECRET_NAME)["SecretString"])["public_key"]
-        publish_public_key(ssm, public_key)
-        print("A valid pair already exists (public key parameter re-synced); "
+        publish_application_server_key(ssm, pair[_APP_SERVER_FIELD])
+        print(f"A valid pair already exists ({APP_SERVER_KEY_PARAM} re-synced); "
               "use --rotate to replace it (invalidates all subscriptions).")
         return 0
 
     pair = generate_pair()
     sm.put_secret_value(SecretId=SECRET_NAME, SecretString=json.dumps(pair))
-    publish_public_key(ssm, pair["public_key"])
-    print(f"pair written. public_key={pair['public_key'][:12]}... (private key not shown)")
+    publish_application_server_key(ssm, pair[_APP_SERVER_FIELD])
+    print(f"pair written; application server key stored in {APP_SERVER_KEY_PARAM} "
+          "(SecureString). The signing key is not shown.")
     return 0
 
 

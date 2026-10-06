@@ -5,7 +5,7 @@ import { Alert, Card, CardDescription, CardHeader, CardTitle, Label, Toggle } fr
 import { ApiError } from '../../api/client.ts';
 import { isPushEnabled } from '../../config.ts';
 import {
-  getVapidPublicKey,
+  getApplicationServerKey,
   subscribePush,
   unsubscribePush,
   urlBase64ToUint8Array,
@@ -38,7 +38,7 @@ function pushSupported(): boolean {
 /**
  * "Notifications" card for the Preferences screen. Opt-in Web Push, off by
  * default, and not rendered at all unless config.json sets `pushEnabled: true`.
- * Turning it on first fetches the server VAPID key (so a deployment without
+ * Turning it on first fetches the VAPID application server key (so a deployment without
  * push never registers a service worker or prompts), then registers the
  * service worker, requests permission, subscribes and POSTs the subscription.
  * If the server rejects it, the local subscription is removed again so the
@@ -82,11 +82,11 @@ function NotificationsCardInner() {
     setState('busy');
     setMessage(null);
 
-    // 1. The key first: if the server has no push, stop before touching the
-    //    browser (no service worker registration, no permission prompt).
-    let publicKey: string;
+    // 1. The application server key first: if the server has no push, stop
+    //    before touching the browser (no service worker, no permission prompt).
+    let applicationServerKey: string;
     try {
-      publicKey = (await getVapidPublicKey()).public_key;
+      applicationServerKey = (await getApplicationServerKey()).application_server_key;
     } catch {
       setState('idle');
       setMessage({ variant: 'warning', text: t('preferences.notifications.notDeployed') });
@@ -107,7 +107,7 @@ function NotificationsCardInner() {
 
       sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey),
+        applicationServerKey: urlBase64ToUint8Array(applicationServerKey),
       });
 
       const json = sub.toJSON();

@@ -9,12 +9,18 @@ VAPID keys
 ----------
 The VAPID key pair (P-256 curve) lives in Secrets Manager under
 ``strava-ai-boost-vapid-keys`` (same ``strava-ai-boost-*`` convention as the other
-secrets of this repo). The secret holds a JSON ``{"public_key", "private_key"}`` in
-raw base64url (65 bytes for the public key, 32 for the private one). The private key
-never leaves Secrets Manager: it is neither in the code nor in an environment
-variable, and only PushSend can read the secret. The public key is also copied to
-the SSM parameter ``/strava-ai-boost/push/vapid-public-key``; PushApi reads only that
-parameter to serve ``GET /push/vapid-public-key`` (Cognito-protected).
+secrets of this repo), as a JSON object in raw base64url. Only PushSend can read
+that secret; the signing key never leaves it and is neither in the code nor in an
+environment variable.
+
+The browser needs the other half of the pair, the *application server key* (W3C
+Push API ``applicationServerKey``): it lets the browser bind a subscription to this
+server, and cannot sign anything. It is copied to the SSM SecureString parameter
+``/strava-ai-boost/push/vapid-application-server-key`` (encrypted with ``aws/ssm``),
+which PushApi alone reads to serve ``GET /push/application-server-key`` behind
+Cognito. Integrity is what matters for this value: a substituted key would bind new
+subscriptions to someone else, so only the bootstrap script, run by an operator,
+writes it.
 
 Sending
 -------
@@ -38,10 +44,11 @@ logger = get_logger("push_core")
 
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 VAPID_SECRET_NAME = os.environ.get("VAPID_SECRET", "strava-ai-boost-vapid-keys")
-# Public key only, readable by PushApi without access to the private key. Written by
-# scripts/bootstrap_vapid.py next to the secret.
-VAPID_PUBLIC_KEY_PARAM = os.environ.get(
-    "VAPID_PUBLIC_KEY_PARAM", "/strava-ai-boost/push/vapid-public-key"
+# Application server key only (the browser half of the VAPID pair), readable by
+# PushApi without any access to the Secrets Manager secret. SecureString, written by
+# scripts/bootstrap_vapid.py.
+VAPID_APP_SERVER_KEY_PARAM = os.environ.get(
+    "VAPID_APP_SERVER_KEY_PARAM", "/strava-ai-boost/push/vapid-application-server-key"
 )
 
 
@@ -77,21 +84,23 @@ def _load_vapid() -> dict[str, str]:
     resp = _secrets_client().get_secret_value(SecretId=VAPID_SECRET_NAME)
     data = json.loads(resp["SecretString"])
     if "public_key" not in data or "private_key" not in data:
-        raise ValueError("VAPID secret must contain public_key and private_key")
+        # Field names follow the VAPID / py-vapid convention; this JSON never leaves
+        # the secret, which only PushSend can read.
+        raise ValueError("VAPID secret is incomplete")
     return data
 
 
 @lru_cache(maxsize=1)
-def get_public_key() -> str:
-    """VAPID public key (base64url), exposed to the browser for subscription.
+def get_application_server_key() -> str:
+    """VAPID application server key (base64url), served to the browser.
 
-    Read from its own SSM parameter so the caller never needs the secret that also
-    holds the private key.
+    Read from its own SecureString parameter (decrypted by SSM with ``aws/ssm``) so
+    the caller never needs the Secrets Manager secret that holds the signing key.
     """
-    resp = _ssm_client().get_parameter(Name=VAPID_PUBLIC_KEY_PARAM)
+    resp = _ssm_client().get_parameter(Name=VAPID_APP_SERVER_KEY_PARAM, WithDecryption=True)
     value = (resp.get("Parameter") or {}).get("Value", "").strip()
     if not value:
-        raise ValueError("VAPID public key parameter is empty")
+        raise ValueError("VAPID application server key parameter is empty")
     return value
 
 

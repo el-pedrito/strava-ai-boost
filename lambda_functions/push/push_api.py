@@ -6,7 +6,8 @@ dashboard_api / audio_debrief_api: the ``custom:strava_id`` Cognito claim identi
 the athlete (it maps to the Strava athlete id used as DynamoDB ``user_id``).
 
 Routes (all Cognito-protected):
-- GET    /push/vapid-public-key   -> {public_key}, read from its own SSM parameter
+- GET    /push/application-server-key -> {application_server_key} (VAPID, W3C
+                                           applicationServerKey), from its SecureString
 - POST   /push/subscribe          -> stores the browser subscription
 - DELETE /push/subscribe          -> deletes this device's subscription (endpoint required)
 
@@ -27,7 +28,7 @@ from typing import Any
 import boto3
 from botocore.exceptions import ClientError
 
-from push.webpush_core import get_public_key
+from push.webpush_core import get_application_server_key
 from shared.logger import get_logger, inject_correlation_id
 from shared.responses import (
     CORS_HEADERS_WRITE,
@@ -65,11 +66,11 @@ def _get_user_id(event: dict[str, Any]) -> str:
         return ""
 
 
-def get_vapid_public_key(_event: dict[str, Any]) -> dict[str, Any]:
+def get_vapid_application_server_key(_event: dict[str, Any]) -> dict[str, Any]:
     try:
-        return create_success_response({"public_key": get_public_key()})
+        return create_success_response({"application_server_key": get_application_server_key()})
     except (ClientError, ValueError, KeyError) as exc:
-        logger.error(f"Failed to load VAPID public key: {exc}")
+        logger.error(f"Failed to load the VAPID application server key: {exc}")
         return create_error_response(500, "VAPID key unavailable")
 
 
@@ -141,13 +142,14 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             "body": json.dumps({"status": "ok"}),
         }
 
-    # Every route, the public key included, sits behind the Cognito authorizer.
+    # Every route, the application server key included, sits behind the Cognito
+    # authorizer.
     user_id = _get_user_id(event)
     if not user_id:
         return create_error_response(401, "Unauthenticated: missing identity claim")
 
-    if path.endswith("/vapid-public-key") and method == "GET":
-        return get_vapid_public_key(event)
+    if path.endswith("/application-server-key") and method == "GET":
+        return get_vapid_application_server_key(event)
 
     try:
         if path.endswith("/subscribe") and method == "POST":

@@ -6,7 +6,7 @@ moto-backed end-to-end over the real boto3 path on the (user_id, endpoint_hash) 
 - POST with a missing key is rejected 400;
 - a request without a Cognito identity claim is rejected 401;
 - DELETE /push/subscribe removes only this device and requires the endpoint;
-- GET /push/vapid-public-key needs an identity and reads only its SSM parameter;
+- GET /push/application-server-key needs an identity and reads only its SecureString;
 - PushSend sends to each subscription and DELETES an endpoint returning 410
   (PushExpired), leaving the healthy ones; one failing sub never blocks the others.
 Skipped when moto is not installed.
@@ -250,34 +250,41 @@ def test_send_no_subscriptions_is_noop():
     assert result["sent"] == 0
 
 
+APP_SERVER_KEY_PARAM = "/strava-ai-boost/push/vapid-application-server-key"
+
+
 @mock_aws
-def test_vapid_public_key_comes_from_its_parameter_not_the_secret():
-    """PushApi serves the public key from its own SSM parameter. No VAPID secret
-    exists in this test, so any read of the secret would fail the call."""
+def test_application_server_key_comes_from_its_securestring_not_the_secret():
+    """PushApi serves the application server key from its SecureString parameter
+    (decrypted by SSM). No VAPID secret exists in this test, so any read of the
+    Secrets Manager secret would fail the call."""
     import boto3
 
     _create_table(boto3)
     boto3.client("ssm", region_name=REGION).put_parameter(
-        Name="/strava-ai-boost/push/vapid-public-key", Value="PUBLIC_KEY_B64", Type="String"
+        Name=APP_SERVER_KEY_PARAM, Value="APP_SERVER_KEY_B64", Type="SecureString"
     )
     api = _reload_api()
 
-    resp = api.handler(_sub_event("GET", None) | {"path": "/push/vapid-public-key"}, None)
+    resp = api.handler(_sub_event("GET", None) | {"path": "/push/application-server-key"}, None)
     assert resp["statusCode"] == 200
-    assert json.loads(resp["body"])["public_key"] == "PUBLIC_KEY_B64"
+    assert json.loads(resp["body"]) | {"timestamp": None} == {
+        "application_server_key": "APP_SERVER_KEY_B64",
+        "timestamp": None,
+    }
 
 
 @mock_aws
-def test_vapid_public_key_requires_identity():
+def test_application_server_key_requires_identity():
     import boto3
 
     _create_table(boto3)
     boto3.client("ssm", region_name=REGION).put_parameter(
-        Name="/strava-ai-boost/push/vapid-public-key", Value="PUBLIC_KEY_B64", Type="String"
+        Name=APP_SERVER_KEY_PARAM, Value="APP_SERVER_KEY_B64", Type="SecureString"
     )
     api = _reload_api()
 
-    event = {"httpMethod": "GET", "path": "/push/vapid-public-key", "requestContext": {}}
+    event = {"httpMethod": "GET", "path": "/push/application-server-key", "requestContext": {}}
     assert api.handler(event, None)["statusCode"] == 401
 
 

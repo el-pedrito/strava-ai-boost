@@ -9,7 +9,8 @@ With a fake account/region and no AWS calls:
     private key) and no push role carries a bare Resource: "*";
   * grant_notify adds a lambda:InvokeFunction permission;
   * synth fails without a VAPID subject or with an unbuilt push layer;
-  * PushApi reads only the public-key parameter, never the VAPID secret.
+  * PushApi has no Secrets Manager access and only ssm:GetParameter on the exact
+    application-server-key parameter.
 """
 
 import os
@@ -151,14 +152,37 @@ def _policy_actions_for(template, function_name):
     return actions, next(iter(fns.values()))["Properties"]
 
 
-def test_push_api_cannot_read_the_private_key():
-    """PushApi only reads the public-key parameter; the secret is PushSend's alone."""
+def test_push_api_has_no_access_to_the_vapid_secret():
+    """PushApi reads one SSM parameter and nothing else; the secret is PushSend's."""
     template, _ = _synth()
     actions, props = _policy_actions_for(template, "StravaAIBoost-PushApi")
     assert not any(a.startswith("secretsmanager:") for a in actions)
-    assert "ssm:GetParameter" in actions
     assert "VAPID_SECRET" not in props["Environment"]["Variables"]
     assert len(props["Layers"]) == 1  # no pywebpush layer on the API Lambda
+
+
+def test_push_api_ssm_access_is_exactly_one_get_on_one_parameter():
+    """Only ssm:GetParameter (no plural, no history, no write, no kms) on the exact
+    ARN of the application server key SecureString."""
+    template, _ = _synth()
+    fns = template.find_resources(
+        "AWS::Lambda::Function", {"Properties": {"FunctionName": "StravaAIBoost-PushApi"}}
+    )
+    role_ref = next(iter(fns.values()))["Properties"]["Role"]["Fn::GetAtt"][0]
+    ssm_or_kms = []
+    for pol in template.find_resources("AWS::IAM::Policy").values():
+        if {"Ref": role_ref} not in pol["Properties"]["Roles"]:
+            continue
+        for stmt in pol["Properties"]["PolicyDocument"]["Statement"]:
+            acts = stmt["Action"] if isinstance(stmt["Action"], list) else [stmt["Action"]]
+            if any(a.startswith(("ssm:", "kms:")) for a in acts):
+                ssm_or_kms.append((acts, stmt["Resource"]))
+    assert len(ssm_or_kms) == 1
+    acts, resource = ssm_or_kms[0]
+    assert acts == ["ssm:GetParameter"]
+    arn = "".join(p if isinstance(p, str) else "<ref>" for p in resource["Fn::Join"][1])
+    assert arn.endswith(":parameter/strava-ai-boost/push/vapid-application-server-key")
+    assert "parameter//" not in arn
 
 
 def test_push_send_gets_the_vapid_subject():

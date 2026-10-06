@@ -513,11 +513,12 @@ class ApiGatewayStack(Stack):
         # /push resource for opt-in Web Push subscription
         if self.push_api_lambda is not None:
             push_resource = self.api.root.add_resource("push")
-            # Every push route, the public key included, sits behind Cognito like
-            # the rest of this API (no public endpoint). PushApi still returns 401
-            # by itself when the identity claim is missing.
-            vapid_key_resource = push_resource.add_resource("vapid-public-key")
-            vapid_key_resource.add_method(
+            # Every push route, the VAPID application server key included, sits
+            # behind Cognito like the rest of this API (no unauthenticated
+            # endpoint). PushApi still returns 401 by itself when the identity claim
+            # is missing.
+            app_server_key_resource = push_resource.add_resource("application-server-key")
+            app_server_key_resource.add_method(
                 "GET",
                 apigateway.LambdaIntegration(self.push_api_lambda),
                 authorizer=self.cognito_authorizer,
