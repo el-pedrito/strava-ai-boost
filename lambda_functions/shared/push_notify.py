@@ -34,11 +34,13 @@ def notify_activity_enriched(
     activity_id: str,
     title: str,
     body: str,
-) -> None:
+) -> bool:
     """Trigger the "activity enriched" notification via an async PushSend invocation.
 
     Sent at the ``completed`` step of the pipeline, gated by ``PUSH_ENABLED`` and
     deduplicated by the caller. Best-effort: any error is logged, never raised.
+    Returns True when the invocation was accepted, so the caller can release its
+    dedup marker on failure.
     """
     function_name = os.environ.get("PUSH_SEND_FUNCTION", "StravaAIBoost-PushSend")
     payload = {
@@ -55,5 +57,7 @@ def notify_activity_enriched(
             Payload=_json_bytes(body_payload),
         )
         logger.info(f"notify_activity_enriched dispatched user={user_id} activity={activity_id}")
+        return True
     except Exception as exc:  # noqa: BLE001 - best-effort, never propagate
         logger.warning(f"notify_activity_enriched failed (non-blocking): {exc}")
+        return False

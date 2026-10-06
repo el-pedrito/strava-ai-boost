@@ -10,6 +10,9 @@ subscription step.
 - Default: ``--dry-run`` (shows the secret state, generates nothing).
 - ``--apply``: generates the pair and stores it. Refuses to overwrite an existing
   valid pair without ``--rotate`` (a rotation invalidates ALL subscriptions).
+- ``--apply`` also copies the PUBLIC key to the SSM parameter
+  ``/strava-ai-boost/push/vapid-public-key``, the only thing PushApi can read
+  (re-running it on an existing pair just re-syncs that parameter).
 - The private key is never printed.
 
 Usage:
@@ -29,6 +32,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
 SECRET_NAME = "strava-ai-boost-vapid-keys"
+PUBLIC_KEY_PARAM = "/strava-ai-boost/push/vapid-public-key"
 DEFAULT_REGION = "us-east-1"
 
 
@@ -61,6 +65,17 @@ def current_state(sm) -> str:
     return "placeholder"
 
 
+def publish_public_key(ssm, public_key: str) -> None:
+    """Copy the public key (never the private one) to its own SSM parameter."""
+    ssm.put_parameter(
+        Name=PUBLIC_KEY_PARAM,
+        Value=public_key,
+        Type="String",
+        Overwrite=True,
+        Description="VAPID public key for Web Push (read by StravaAIBoost-PushApi)",
+    )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -83,12 +98,17 @@ def main() -> int:
     if state == "missing":
         print("Secret does not exist: deploy the StravaAIBoost-Push stack first.", file=sys.stderr)
         return 2
+    ssm = session.client("ssm")
     if state == "valid" and not args.rotate:
-        print("A valid pair already exists; use --rotate to replace it (invalidates all subscriptions).")
+        public_key = json.loads(sm.get_secret_value(SecretId=SECRET_NAME)["SecretString"])["public_key"]
+        publish_public_key(ssm, public_key)
+        print("A valid pair already exists (public key parameter re-synced); "
+              "use --rotate to replace it (invalidates all subscriptions).")
         return 0
 
     pair = generate_pair()
     sm.put_secret_value(SecretId=SECRET_NAME, SecretString=json.dumps(pair))
+    publish_public_key(ssm, pair["public_key"])
     print(f"pair written. public_key={pair['public_key'][:12]}... (private key not shown)")
     return 0
 

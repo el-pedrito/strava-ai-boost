@@ -14,6 +14,10 @@ vi.mock('../../../api/push.ts', () => ({
   urlBase64ToUint8Array: () => new Uint8Array([1, 2, 3]),
 }));
 
+// The card only exists when config.json sets pushEnabled: true.
+const pushFlag = vi.hoisted(() => ({ enabled: true }));
+vi.mock('../../../config.ts', () => ({ isPushEnabled: () => pushFlag.enabled }));
+
 // ApiError must be a real class so `instanceof ApiError` branches work.
 import { ApiError } from '../../../api/client.ts';
 import { NotificationsCard } from '../NotificationsCard';
@@ -40,12 +44,14 @@ function installPushEnv(options?: {
       }
     : null;
 
+  const created = {
+    endpoint: 'https://push/ep',
+    unsubscribe: vi.fn().mockResolvedValue(true),
+    toJSON: () => ({ endpoint: 'https://push/ep', keys: { p256dh: 'p256', auth: 'authk' } }),
+  };
   const pushManager = {
     getSubscription: vi.fn().mockResolvedValue(existing),
-    subscribe: vi.fn().mockResolvedValue({
-      endpoint: 'https://push/ep',
-      toJSON: () => ({ endpoint: 'https://push/ep', keys: { p256dh: 'p256', auth: 'authk' } }),
-    }),
+    subscribe: vi.fn().mockResolvedValue(created),
   };
   const registration = { pushManager };
 
@@ -67,11 +73,12 @@ function installPushEnv(options?: {
     requestPermission,
   });
 
-  return { pushManager, serviceWorker, requestPermission, registration };
+  return { pushManager, serviceWorker, requestPermission, registration, created };
 }
 
 describe('NotificationsCard', () => {
   beforeEach(() => {
+    pushFlag.enabled = true;
     getVapidMock.mockReset().mockResolvedValue({ public_key: 'PUB_KEY_B64' });
     subscribeMock.mockReset().mockResolvedValue({ subscribed: true });
     unsubscribeMock.mockReset().mockResolvedValue({ subscribed: false });
@@ -147,7 +154,7 @@ describe('NotificationsCard', () => {
   });
 
   it('shows the not-enabled message when the push API errors', async () => {
-    installPushEnv();
+    const env = installPushEnv();
     getVapidMock.mockRejectedValueOnce(new ApiError('Not Found', 404));
     render(<NotificationsCard />);
 
@@ -158,6 +165,28 @@ describe('NotificationsCard', () => {
       expect(screen.getByText(/not enabled on this deployment/i)).toBeInTheDocument()
     );
     expect(subscribeMock).not.toHaveBeenCalled();
+    // The key is fetched first: no service worker, no permission prompt.
+    expect(env.serviceWorker.register).not.toHaveBeenCalled();
+    expect(env.requestPermission).not.toHaveBeenCalled();
+  });
+
+  it('renders nothing when the deployment has push disabled', () => {
+    pushFlag.enabled = false;
+    const env = installPushEnv();
+    const { container } = render(<NotificationsCard />);
+    expect(container).toBeEmptyDOMElement();
+    expect(env.serviceWorker.getRegistration).not.toHaveBeenCalled();
+  });
+
+  it('drops the local subscription when the server rejects it', async () => {
+    const env = installPushEnv();
+    subscribeMock.mockRejectedValueOnce(new ApiError('Server error', 500));
+    render(<NotificationsCard />);
+
+    await userEvent.click(await screen.findByRole('switch'));
+
+    await waitFor(() => expect(env.created.unsubscribe).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('switch').getAttribute('aria-checked')).toBe('false');
   });
 
   it('shows the iOS home-screen note on iPhone', async () => {

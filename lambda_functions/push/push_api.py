@@ -5,10 +5,10 @@ other API Lambdas of this repo. User resolution follows the same convention as
 dashboard_api / audio_debrief_api: the ``custom:strava_id`` Cognito claim identifies
 the athlete (it maps to the Strava athlete id used as DynamoDB ``user_id``).
 
-Routes (all Cognito-protected except the public key, which is public by design):
-- GET    /push/vapid-public-key   -> {public_key} (no secret: this is the public key)
+Routes (all Cognito-protected):
+- GET    /push/vapid-public-key   -> {public_key}, read from its own SSM parameter
 - POST   /push/subscribe          -> stores the browser subscription
-- DELETE /push/subscribe          -> deletes the subscription(s)
+- DELETE /push/subscribe          -> deletes this device's subscription (endpoint required)
 
 Model (table ``strava-ai-boost-push-subscriptions``, PK user_id, SK endpoint_hash):
     { user_id, endpoint_hash, endpoint, p256dh, auth, created_at }
@@ -25,7 +25,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 import boto3
-from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
 from push.webpush_core import get_public_key
@@ -111,21 +110,18 @@ def subscribe(event: dict[str, Any], user_id: str) -> dict[str, Any]:
 
 
 def unsubscribe(event: dict[str, Any], user_id: str) -> dict[str, Any]:
+    """Delete THIS device's subscription. The endpoint is required: an empty body
+    must never remove every device of the user."""
     try:
         body = json.loads(event.get("body") or "{}")
     except (json.JSONDecodeError, TypeError):
-        body = {}
+        return create_error_response(400, "Invalid JSON body", cors_headers=CORS_HEADERS_WRITE)
     endpoint = (body.get("endpoint") or "").strip() if isinstance(body, dict) else ""
+    if not endpoint:
+        return create_error_response(400, "endpoint is required", cors_headers=CORS_HEADERS_WRITE)
 
     try:
-        table = _table()
-        if endpoint:
-            table.delete_item(Key={"user_id": user_id, "endpoint_hash": _endpoint_hash(endpoint)})
-        else:
-            # No endpoint provided: delete every subscription of this user.
-            resp = table.query(KeyConditionExpression=Key("user_id").eq(user_id))
-            for item in resp.get("Items", []):
-                table.delete_item(Key={"user_id": user_id, "endpoint_hash": item["endpoint_hash"]})
+        _table().delete_item(Key={"user_id": user_id, "endpoint_hash": _endpoint_hash(endpoint)})
     except ClientError as exc:
         logger.error(f"Failed to delete subscription for {user_id}: {exc}")
         return create_error_response(500, "Failed to delete subscription", cors_headers=CORS_HEADERS_WRITE)
@@ -145,14 +141,13 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             "body": json.dumps({"status": "ok"}),
         }
 
-    # Public key: no secret, no identity required (the Cognito authorizer may still
-    # be attached at the API Gateway layer; we do not require it here).
-    if path.endswith("/vapid-public-key") and method == "GET":
-        return get_vapid_public_key(event)
-
+    # Every route, the public key included, sits behind the Cognito authorizer.
     user_id = _get_user_id(event)
     if not user_id:
         return create_error_response(401, "Unauthenticated: missing identity claim")
+
+    if path.endswith("/vapid-public-key") and method == "GET":
+        return get_vapid_public_key(event)
 
     try:
         if path.endswith("/subscribe") and method == "POST":

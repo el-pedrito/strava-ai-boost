@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Bell } from 'lucide-react';
 import { Alert, Card, CardDescription, CardHeader, CardTitle, Label, Toggle } from '@/ui';
 import { ApiError } from '../../api/client.ts';
+import { isPushEnabled } from '../../config.ts';
 import {
   getVapidPublicKey,
   subscribePush,
@@ -36,13 +37,20 @@ function pushSupported(): boolean {
 
 /**
  * "Notifications" card for the Preferences screen. Opt-in Web Push, off by
- * default: the toggle registers the service worker, requests permission and
- * subscribes with the server VAPID key (POST /push/subscribe); turning it off
- * unsubscribes locally and server-side (DELETE /push/subscribe). State is
- * reflected from pushManager.getSubscription(). Errors are non-blocking; if the
- * push API is missing on this deployment we say so instead of failing loudly.
+ * default, and not rendered at all unless config.json sets `pushEnabled: true`.
+ * Turning it on first fetches the server VAPID key (so a deployment without
+ * push never registers a service worker or prompts), then registers the
+ * service worker, requests permission, subscribes and POSTs the subscription.
+ * If the server rejects it, the local subscription is removed again so the
+ * toggle never shows "on" for a device the server does not know. Turning it
+ * off unsubscribes locally and server-side (DELETE /push/subscribe).
  */
 export function NotificationsCard() {
+  if (!isPushEnabled()) return null;
+  return <NotificationsCardInner />;
+}
+
+function NotificationsCardInner() {
   const { t } = useTranslation();
   const [state, setState] = useState<PushState>('idle');
   const [message, setMessage] = useState<{ variant: 'error' | 'warning'; text: string } | null>(
@@ -73,6 +81,19 @@ export function NotificationsCard() {
   const enable = useCallback(async () => {
     setState('busy');
     setMessage(null);
+
+    // 1. The key first: if the server has no push, stop before touching the
+    //    browser (no service worker registration, no permission prompt).
+    let publicKey: string;
+    try {
+      publicKey = (await getVapidPublicKey()).public_key;
+    } catch {
+      setState('idle');
+      setMessage({ variant: 'warning', text: t('preferences.notifications.notDeployed') });
+      return;
+    }
+
+    let sub: PushSubscription | null = null;
     try {
       const reg = await navigator.serviceWorker.register('/sw.js');
       await navigator.serviceWorker.ready;
@@ -84,18 +105,7 @@ export function NotificationsCard() {
         return;
       }
 
-      let publicKey: string;
-      try {
-        const res = await getVapidPublicKey();
-        publicKey = res.public_key;
-      } catch {
-        // 404 / error on the key endpoint means push isn't wired on this deployment.
-        setState('idle');
-        setMessage({ variant: 'warning', text: t('preferences.notifications.notDeployed') });
-        return;
-      }
-
-      const sub = await reg.pushManager.subscribe({
+      sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(publicKey),
       });
@@ -110,6 +120,15 @@ export function NotificationsCard() {
       });
       setState('enabled');
     } catch (err) {
+      // The server does not know this device: drop the local subscription too,
+      // otherwise the toggle would read "on" after a reload.
+      if (sub) {
+        try {
+          await sub.unsubscribe();
+        } catch {
+          // Nothing more to do; the next getSubscription() check will tell.
+        }
+      }
       setState('idle');
       setMessage({
         variant: 'error',

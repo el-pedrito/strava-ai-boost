@@ -20,7 +20,7 @@ Owns:
   StravaUpdater via ``shared.push_notify``.
 
 Least privilege: each Lambda has its own role. ``PushApi`` reads/writes ITS table and
-reads the VAPID secret (to expose only the public key). ``PushSend`` reads/writes ITS
+reads only the SSM parameter holding the public key, never the secret. ``PushSend`` reads/writes ITS
 table (410 cleanup) and reads the VAPID secret (private key, to sign). ``grant_notify``
 adds a single explicit ``lambda:InvokeFunction`` on the exact PushSend ARN (not
 ``grant_invoke``, which also adds the ``:*`` alias/version ARN).
@@ -46,7 +46,37 @@ from .layer_hash import compute_layer_asset_hash
 
 PUSH_SUBSCRIPTIONS_TABLE_NAME = "strava-ai-boost-push-subscriptions"
 VAPID_SECRET_NAME = "strava-ai-boost-vapid-keys"
-PUSH_LAYER_DIR = "lambda_layer_push"
+# Public key only, written by scripts/bootstrap_vapid.py; PushApi reads nothing else.
+VAPID_PUBLIC_KEY_PARAM = "/strava-ai-boost/push/vapid-public-key"
+PUSH_LAYER_DIR = os.path.join(os.path.dirname(__file__), "..", "lambda_layer_push")
+
+
+def require_vapid_subject(value: str) -> str:
+    """Fail synth on a missing or malformed VAPID subject (RFC 8292 ``sub``).
+
+    Push services reject a JWT with an empty ``sub``; an empty value would deploy
+    fine and silently never deliver anything.
+    """
+    subject = (value or "").strip()
+    if not subject.startswith(("mailto:", "https://")) or subject in ("mailto:", "https://"):
+        raise ValueError(
+            "push_enabled requires a VAPID subject: deploy with "
+            "--context vapid_subject=mailto:you@example.com (or https://...)."
+        )
+    return subject
+
+
+def require_built_layer(layer_dir: str) -> None:
+    """Fail synth when the push layer was not built (pywebpush missing).
+
+    Without this check an empty folder ships as the layer and PushSend answers 200
+    with sent=0 forever, because pywebpush is imported lazily.
+    """
+    if not os.path.isfile(os.path.join(layer_dir, "python", "pywebpush", "__init__.py")):
+        raise ValueError(
+            "The Web Push layer is not built: run ./lambda_layer_push/build_layer.sh "
+            "before cdk synth/deploy with push_enabled=true."
+        )
 
 
 class PushStack(Stack):
@@ -57,6 +87,7 @@ class PushStack(Stack):
         scope: Construct,
         construct_id: str,
         core_stack: CoreInfrastructureStack,
+        layer_dir: str = PUSH_LAYER_DIR,
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -65,9 +96,10 @@ class PushStack(Stack):
         default_user_id = os.environ.get("DEFAULT_USER_ID", "") or (
             self.node.try_get_context("default_user_id") or ""
         )
-        vapid_subject = os.environ.get("VAPID_SUBJECT", "") or (
-            self.node.try_get_context("vapid_subject") or ""
+        vapid_subject = require_vapid_subject(
+            os.environ.get("VAPID_SUBJECT", "") or (self.node.try_get_context("vapid_subject") or "")
         )
+        require_built_layer(layer_dir)
 
         # ---- Subscriptions table (PK user_id, SK endpoint_hash) -------------
         self.subscriptions_table = dynamodb.Table(
@@ -106,13 +138,12 @@ class PushStack(Stack):
         # bumping pywebpush never touches the shared layer exported by Core (which
         # cannot be replaced, see README "Known Issues"). Build it first with
         # lambda_layer_push/build_layer.sh; the hash follows its definition files.
-        layer_dir = os.path.join(os.path.dirname(__file__), "..", PUSH_LAYER_DIR)
         self.push_layer = lambda_.LayerVersion(
             self,
             "PushDependenciesLayer",
             layer_version_name="strava-ai-boost-push-dependencies",
             code=lambda_.Code.from_asset(
-                PUSH_LAYER_DIR,
+                layer_dir,
                 asset_hash=compute_layer_asset_hash(layer_dir),
             ),
             compatible_runtimes=[lambda_.Runtime.PYTHON_3_12],
@@ -125,7 +156,12 @@ class PushStack(Stack):
             exclude=["**/__pycache__", "**/*.pyc"],
         )
 
-        push_env = {
+        api_env = {
+            "PUSH_SUBSCRIPTIONS_TABLE": self.subscriptions_table.table_name,
+            "VAPID_PUBLIC_KEY_PARAM": VAPID_PUBLIC_KEY_PARAM,
+            "DEFAULT_USER_ID": default_user_id,
+        }
+        send_env = {
             "PUSH_SUBSCRIPTIONS_TABLE": self.subscriptions_table.table_name,
             "VAPID_SECRET": self.vapid_secret.secret_name,
             "VAPID_SUBJECT": vapid_subject,
@@ -140,14 +176,28 @@ class PushStack(Stack):
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="push.push_api.handler",
             code=common_code,
-            layers=[core_stack.dependencies_layer, self.push_layer],
+            # No push layer: PushApi never signs or encrypts anything.
+            layers=[core_stack.dependencies_layer],
             timeout=Duration.seconds(30),
             memory_size=256,
-            environment=push_env,
+            environment=api_env,
         )
-        # Least privilege: RW its table + read the VAPID secret (public key only).
+        # Least privilege: RW its table + read ONLY the public-key parameter. It has
+        # no access to the VAPID secret, which holds the private key.
         self.subscriptions_table.grant_read_write_data(self.push_api_lambda)
-        self.vapid_secret.grant_read(self.push_api_lambda)
+        self.push_api_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["ssm:GetParameter"],
+                resources=[
+                    self.format_arn(
+                        service="ssm",
+                        resource="parameter",
+                        resource_name=VAPID_PUBLIC_KEY_PARAM.lstrip("/"),
+                    )
+                ],
+            )
+        )
 
         # ---- PushSend: send + 410 cleanup -----------------------------------
         self.push_send_lambda = lambda_.Function(
@@ -160,7 +210,7 @@ class PushStack(Stack):
             layers=[core_stack.dependencies_layer, self.push_layer],
             timeout=Duration.seconds(30),
             memory_size=256,
-            environment=push_env,
+            environment=send_env,
         )
         # Least privilege: RW its table (410 cleanup) + READ the VAPID secret
         # (private key, to sign). Nothing else.

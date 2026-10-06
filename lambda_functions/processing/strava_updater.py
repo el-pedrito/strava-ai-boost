@@ -122,9 +122,11 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         _record_outcome("ok" if update_result.get('status') == 'success' else "empty")
         
 
-        # Opt-in Web Push: one neutral "activity enriched" notification per activity.
-        # Best-effort and gated by PUSH_ENABLED; never fails the Strava update.
-        _maybe_push_completed(activity_id, user_id)
+        # Opt-in Web Push: one neutral "activity enriched" notification per activity,
+        # only when Strava was actually updated. Best-effort and gated by
+        # PUSH_ENABLED; never fails the Strava update.
+        if update_result.get('status') == 'success':
+            _maybe_push_completed(activity_id, user_id)
 
         return {
             'statusCode': 200,
@@ -312,11 +314,11 @@ def update_activity_status(
 def _maybe_push_completed(activity_id: str, user_id: str) -> None:
     """Trigger one opt-in "activity enriched" push, best-effort.
 
-    Gated by the ``PUSH_ENABLED`` environment flag (CDK context ``push_enabled``,
-    default false). Deduplicated by a conditional ``UpdateItem`` on ``push_sent_at``
-    so a reprocess of the same activity does not re-notify. Reprocess/archive items
-    (``reingest_only`` or ``source == 'strava-archive'``) are skipped. Never raises:
-    a failed notification must never fail the Strava update.
+    Gated by the ``PUSH_ENABLED`` environment flag (set only when the Push stack is
+    deployed). Deduplicated by a conditional ``UpdateItem`` on ``push_sent_at`` so a
+    reprocess of the same activity does not re-notify; if the dispatch to PushSend
+    fails, the marker is removed again so a later run can retry. Never raises: a
+    failed notification must never fail the Strava update.
     """
     if os.environ.get("PUSH_ENABLED", "").lower() not in ("1", "true", "yes"):
         return
@@ -330,16 +332,14 @@ def _maybe_push_completed(activity_id: str, user_id: str) -> None:
         table = dynamodb.Table(ACTIVITIES_TABLE)
         item = table.get_item(Key={'activity_id': activity_id}).get('Item', {}) or {}
 
-        if item.get('reingest_only') or item.get('source') == 'strava-archive':
-            return
-
         # Dedup: only the first completion for this activity sets push_sent_at.
+        sent_at = datetime.utcnow().isoformat()
         try:
             table.update_item(
                 Key={'activity_id': activity_id},
                 UpdateExpression="SET push_sent_at = :now",
                 ConditionExpression=Attr('push_sent_at').not_exists(),
-                ExpressionAttributeValues={':now': datetime.utcnow().isoformat()},
+                ExpressionAttributeValues={':now': sent_at},
             )
         except ClientError as exc:
             if exc.response.get('Error', {}).get('Code') == 'ConditionalCheckFailedException':
@@ -349,11 +349,18 @@ def _maybe_push_completed(activity_id: str, user_id: str) -> None:
         # Only the activity title: the description can quote heart rate or pace,
         # and a notification may show on a locked screen.
         body = item.get('enhanced_title', '') or "Ta description enrichie est en ligne."
-        notify_activity_enriched(
+        dispatched = notify_activity_enriched(
             user_id=user_id,
             activity_id=activity_id,
             title="Activité enrichie",
             body=body,
         )
+        if not dispatched:
+            # Give the notification back to a later run instead of losing it.
+            table.update_item(
+                Key={'activity_id': activity_id},
+                UpdateExpression="REMOVE push_sent_at",
+                ConditionExpression=Attr('push_sent_at').eq(sent_at),
+            )
     except Exception as exc:  # noqa: BLE001 - best-effort, never fail the Strava update
         logger.warning(f"push notify skipped (non-blocking): {str(exc)}")

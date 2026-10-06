@@ -68,3 +68,23 @@ def test_shared_layer_does_not_carry_pywebpush():
     never replaced by this feature (cross-stack export constraint)."""
     with open(os.path.join(SHARED_LAYER_DIR, "requirements.txt")) as fh:
         assert "pywebpush" not in fh.read()
+
+
+def test_built_content_changes_hash(tmp_path):
+    """An empty or partial build must not reuse the hash of a complete one."""
+    d = _write_layer(tmp_path, "pywebpush==2.5.0\n", "#!/bin/bash\npip install\n")
+    empty = compute_layer_asset_hash(d)
+    (tmp_path / "python" / "pywebpush").mkdir(parents=True)
+    (tmp_path / "python" / "pywebpush" / "__init__.py").write_text("__version__ = '2.5.0'\n")
+    built = compute_layer_asset_hash(d)
+    assert built != empty
+    # Bytecode and metadata noise never changes it.
+    (tmp_path / "python" / "pywebpush" / "__pycache__").mkdir()
+    (tmp_path / "python" / "pywebpush" / "__pycache__" / "x.pyc").write_bytes(b"\0")
+    assert compute_layer_asset_hash(d) == built
+
+
+def test_real_requirements_are_pinned():
+    with open(os.path.join(LAYER_DIR, "requirements.txt")) as fh:
+        reqs = [l.strip() for l in fh if l.strip() and not l.startswith("#")]
+    assert reqs and all("==" in r for r in reqs), reqs

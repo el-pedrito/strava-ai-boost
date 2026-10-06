@@ -12,8 +12,9 @@ The VAPID key pair (P-256 curve) lives in Secrets Manager under
 secrets of this repo). The secret holds a JSON ``{"public_key", "private_key"}`` in
 raw base64url (65 bytes for the public key, 32 for the private one). The private key
 never leaves Secrets Manager: it is neither in the code nor in an environment
-variable. The public key is served as-is by ``GET /push/vapid-public-key`` for the
-browser subscription step.
+variable, and only PushSend can read the secret. The public key is also copied to
+the SSM parameter ``/strava-ai-boost/push/vapid-public-key``; PushApi reads only that
+parameter to serve ``GET /push/vapid-public-key`` (Cognito-protected).
 
 Sending
 -------
@@ -37,9 +38,11 @@ logger = get_logger("push_core")
 
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 VAPID_SECRET_NAME = os.environ.get("VAPID_SECRET", "strava-ai-boost-vapid-keys")
-# VAPID contact subject (RFC 8292 `sub`). Overridable via env/CDK context; no
-# hardcoded personal email -- an empty default degrades to a mailto with no address.
-VAPID_SUBJECT = os.environ.get("VAPID_SUBJECT", "mailto:")
+# Public key only, readable by PushApi without access to the private key. Written by
+# scripts/bootstrap_vapid.py next to the secret.
+VAPID_PUBLIC_KEY_PARAM = os.environ.get(
+    "VAPID_PUBLIC_KEY_PARAM", "/strava-ai-boost/push/vapid-public-key"
+)
 
 
 class PushExpired(Exception):
@@ -52,6 +55,23 @@ def _secrets_client() -> Any:
 
 
 @lru_cache(maxsize=1)
+def _ssm_client() -> Any:
+    return boto3.client("ssm", region_name=REGION)
+
+
+def vapid_subject() -> str:
+    """VAPID contact subject (RFC 8292 ``sub``), read at call time.
+
+    Push services reject a JWT whose ``sub`` is empty, so a missing or malformed
+    value fails loudly here instead of producing notifications that never arrive.
+    """
+    subject = os.environ.get("VAPID_SUBJECT", "").strip()
+    if not subject.startswith(("mailto:", "https://")) or subject in ("mailto:", "https://"):
+        raise ValueError("VAPID_SUBJECT must be a mailto: or https: URI")
+    return subject
+
+
+@lru_cache(maxsize=1)
 def _load_vapid() -> dict[str, str]:
     """Load the VAPID pair from Secrets Manager (cached per container)."""
     resp = _secrets_client().get_secret_value(SecretId=VAPID_SECRET_NAME)
@@ -61,9 +81,18 @@ def _load_vapid() -> dict[str, str]:
     return data
 
 
+@lru_cache(maxsize=1)
 def get_public_key() -> str:
-    """VAPID public key (base64url), exposed to the browser for subscription."""
-    return _load_vapid()["public_key"]
+    """VAPID public key (base64url), exposed to the browser for subscription.
+
+    Read from its own SSM parameter so the caller never needs the secret that also
+    holds the private key.
+    """
+    resp = _ssm_client().get_parameter(Name=VAPID_PUBLIC_KEY_PARAM)
+    value = (resp.get("Parameter") or {}).get("Value", "").strip()
+    if not value:
+        raise ValueError("VAPID public key parameter is empty")
+    return value
 
 
 def send_push(subscription: dict[str, Any], payload: dict[str, Any]) -> None:
@@ -78,12 +107,13 @@ def send_push(subscription: dict[str, Any], payload: dict[str, Any]) -> None:
     from pywebpush import WebPushException, webpush
 
     vapid = _load_vapid()
+    subject = vapid_subject()
     try:
         webpush(
             subscription_info=subscription,
             data=json.dumps(payload, ensure_ascii=False),
             vapid_private_key=vapid["private_key"],
-            vapid_claims={"sub": VAPID_SUBJECT},
+            vapid_claims={"sub": subject},
         )
     except WebPushException as exc:
         status = getattr(getattr(exc, "response", None), "status_code", None)

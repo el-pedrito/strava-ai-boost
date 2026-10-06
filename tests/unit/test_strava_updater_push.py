@@ -2,9 +2,9 @@
 
 The push fires at the `completed` step, once per activity:
 - nothing when PUSH_ENABLED is off;
-- a single notification: dedup via a conditional UpdateItem on `push_sent_at`;
-- skipped for the archive (`source == 'strava-archive'`) and reprocess
-  (`reingest_only`) items;
+- a single notification: dedup via a conditional UpdateItem on `push_sent_at`,
+  released again when the dispatch to PushSend fails;
+- only when Strava was actually updated (not on `no_update_needed`);
 - body = the enhanced title only (never the description, which can quote HR/pace),
   with a neutral fallback;
 - never raises (best-effort), so a failure never fails the Strava update.
@@ -83,24 +83,40 @@ def test_push_deduped_when_already_sent(monkeypatch):
     assert calls == []  # condition failed -> no notification
 
 
-def test_no_push_for_archive(monkeypatch):
+def test_marker_is_released_when_dispatch_fails(monkeypatch):
+    """A transient invoke failure must not lose the notification for good."""
     monkeypatch.setenv("PUSH_ENABLED", "true")
-    table = FakeTable({"user_id": "u1", "source": "strava-archive", "enhanced_title": "x"})
+    table = FakeTable({"user_id": "u1", "enhanced_title": "x"})
     _patch_table(monkeypatch, table)
-    calls = []
-    with patch("shared.push_notify.notify_activity_enriched", side_effect=lambda **k: calls.append(k)):
+    with patch("shared.push_notify.notify_activity_enriched", return_value=False):
         su._maybe_push_completed("act1", "u1")
-    assert calls == []
+    set_marker, release = table.updates
+    assert set_marker["UpdateExpression"].startswith("SET push_sent_at")
+    assert release["UpdateExpression"] == "REMOVE push_sent_at"
 
 
-def test_no_push_for_reingest(monkeypatch):
+def test_marker_is_kept_when_dispatch_succeeds(monkeypatch):
     monkeypatch.setenv("PUSH_ENABLED", "true")
-    table = FakeTable({"user_id": "u1", "reingest_only": True, "enhanced_title": "x"})
+    table = FakeTable({"user_id": "u1", "enhanced_title": "x"})
     _patch_table(monkeypatch, table)
-    calls = []
-    with patch("shared.push_notify.notify_activity_enriched", side_effect=lambda **k: calls.append(k)):
+    with patch("shared.push_notify.notify_activity_enriched", return_value=True):
         su._maybe_push_completed("act1", "u1")
+    assert [u["UpdateExpression"] for u in table.updates] == ["SET push_sent_at = :now"]
+
+
+def test_no_push_when_strava_had_nothing_to_update(monkeypatch):
+    """The handler only notifies when Strava was actually updated."""
+    monkeypatch.setattr(su, "get_access_token", lambda _u: "tkn")
+    monkeypatch.setattr(su, "update_strava_activity", lambda *_a: {"status": "no_update_needed"})
+    monkeypatch.setattr(su, "update_activity_status", lambda *_a, **_k: None)
+    calls = []
+    monkeypatch.setattr(su, "_maybe_push_completed", lambda *a: calls.append(a))
+    su.handler({"activity_id": "act1", "user_id": "u1", "enhanced_content": {"title": "t"}}, None)
     assert calls == []
+
+    monkeypatch.setattr(su, "update_strava_activity", lambda *_a: {"status": "success"})
+    su.handler({"activity_id": "act1", "user_id": "u1", "enhanced_content": {"title": "t"}}, None)
+    assert calls == [("act1", "u1")]
 
 
 def test_body_never_quotes_the_description(monkeypatch):

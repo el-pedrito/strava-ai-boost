@@ -20,6 +20,23 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+/**
+ * Return a same-origin path for `raw`, or '/' if it points anywhere else.
+ * A plain startsWith('/') check lets protocol-relative URLs such as
+ * '//evil.example' (or '/\\evil.example') through, so resolve the URL against
+ * our own origin and compare origins instead.
+ */
+function safeInternalPath(raw) {
+  if (typeof raw !== 'string' || !raw.startsWith('/')) return '/';
+  try {
+    const resolved = new URL(raw, self.location.origin);
+    if (resolved.origin !== self.location.origin) return '/';
+    return resolved.pathname + resolved.search + resolved.hash;
+  } catch {
+    return '/';
+  }
+}
+
 self.addEventListener('push', (event) => {
   let data = {};
   try {
@@ -33,7 +50,7 @@ self.addEventListener('push', (event) => {
   const body =
     typeof data.body === 'string' && data.body ? data.body : 'A new activity description has been published.';
   // Only ever navigate to internal, same-origin paths.
-  const url = typeof data.url === 'string' && data.url.startsWith('/') ? data.url : '/';
+  const url = safeInternalPath(data.url);
 
   const options = {
     body,
@@ -50,7 +67,7 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const target = event.notification.data && event.notification.data.url;
   // Guard again at click time: never open an external URL.
-  const url = typeof target === 'string' && target.startsWith('/') ? target : '/';
+  const url = safeInternalPath(target);
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {

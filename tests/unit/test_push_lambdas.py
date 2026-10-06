@@ -5,8 +5,8 @@ moto-backed end-to-end over the real boto3 path on the (user_id, endpoint_hash) 
   overwrites (single row);
 - POST with a missing key is rejected 400;
 - a request without a Cognito identity claim is rejected 401;
-- DELETE /push/subscribe removes the user's subscription(s);
-- GET /push/vapid-public-key returns only the public key;
+- DELETE /push/subscribe removes only this device and requires the endpoint;
+- GET /push/vapid-public-key needs an identity and reads only its SSM parameter;
 - PushSend sends to each subscription and DELETES an endpoint returning 410
   (PushExpired), leaving the healthy ones; one failing sub never blocks the others.
 Skipped when moto is not installed.
@@ -137,7 +137,8 @@ def test_subscribe_without_identity_is_401():
 
 
 @mock_aws
-def test_unsubscribe_removes_all_for_user():
+def test_unsubscribe_without_endpoint_is_400_and_keeps_every_device():
+    """An empty DELETE must never wipe all of the user's devices."""
     import boto3
 
     api = _reload_api()
@@ -146,9 +147,24 @@ def test_unsubscribe_removes_all_for_user():
     api.handler(_sub_event("POST", _subscription("https://push.example/ep-B")), None)
 
     resp = api.handler(_sub_event("DELETE", None), None)
+    assert resp["statusCode"] == 400
+    items = table.query(KeyConditionExpression=Key("user_id").eq(USER))["Items"]
+    assert len(items) == 2
+
+
+@mock_aws
+def test_unsubscribe_removes_only_this_device():
+    import boto3
+
+    api = _reload_api()
+    table = _create_table(boto3)
+    api.handler(_sub_event("POST", _subscription("https://push.example/ep-A")), None)
+    api.handler(_sub_event("POST", _subscription("https://push.example/ep-B")), None)
+
+    resp = api.handler(_sub_event("DELETE", {"endpoint": "https://push.example/ep-A"}), None)
     assert resp["statusCode"] == 200
     items = table.query(KeyConditionExpression=Key("user_id").eq(USER))["Items"]
-    assert items == []
+    assert [i["endpoint"] for i in items] == ["https://push.example/ep-B"]
 
 
 @mock_aws
@@ -235,20 +251,45 @@ def test_send_no_subscriptions_is_noop():
 
 
 @mock_aws
-def test_vapid_public_key_returns_only_public():
+def test_vapid_public_key_comes_from_its_parameter_not_the_secret():
+    """PushApi serves the public key from its own SSM parameter. No VAPID secret
+    exists in this test, so any read of the secret would fail the call."""
     import boto3
 
     _create_table(boto3)
-    sm = boto3.client("secretsmanager", region_name=REGION)
-    sm.create_secret(
-        Name="test-vapid",
-        SecretString=json.dumps({"public_key": "PUBLIC_KEY_B64", "private_key": "PRIVATE_KEY_B64"}),
+    boto3.client("ssm", region_name=REGION).put_parameter(
+        Name="/strava-ai-boost/push/vapid-public-key", Value="PUBLIC_KEY_B64", Type="String"
+    )
+    api = _reload_api()
+
+    resp = api.handler(_sub_event("GET", None) | {"path": "/push/vapid-public-key"}, None)
+    assert resp["statusCode"] == 200
+    assert json.loads(resp["body"])["public_key"] == "PUBLIC_KEY_B64"
+
+
+@mock_aws
+def test_vapid_public_key_requires_identity():
+    import boto3
+
+    _create_table(boto3)
+    boto3.client("ssm", region_name=REGION).put_parameter(
+        Name="/strava-ai-boost/push/vapid-public-key", Value="PUBLIC_KEY_B64", Type="String"
     )
     api = _reload_api()
 
     event = {"httpMethod": "GET", "path": "/push/vapid-public-key", "requestContext": {}}
-    resp = api.handler(event, None)
-    assert resp["statusCode"] == 200
-    body = json.loads(resp["body"])
-    assert body["public_key"] == "PUBLIC_KEY_B64"
-    assert "private_key" not in resp["body"]
+    assert api.handler(event, None)["statusCode"] == 401
+
+
+def test_send_refuses_an_empty_vapid_subject(monkeypatch):
+    """An empty `sub` would be rejected by every push service: fail loudly."""
+    import push.webpush_core as core
+
+    monkeypatch.setenv("VAPID_SUBJECT", "")
+    with pytest.raises(ValueError):
+        core.vapid_subject()
+    monkeypatch.setenv("VAPID_SUBJECT", "mailto:")
+    with pytest.raises(ValueError):
+        core.vapid_subject()
+    monkeypatch.setenv("VAPID_SUBJECT", "mailto:ops@example.com")
+    assert core.vapid_subject() == "mailto:ops@example.com"
