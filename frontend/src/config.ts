@@ -13,9 +13,18 @@ export interface AppConfig {
   // CoachChat POSTs straight to the AgentCore data plane with a Bearer Cognito
   // JWT; this is the sole coach chat transport (no buffered fallback).
   coachRuntimeArn?: string;
+  // Opt-in Web Push: true only when the StravaAIBoost-Push stack is deployed
+  // (cdk context push_enabled=true). When absent or false the Notifications card
+  // is not rendered at all, so nothing registers a service worker or prompts.
+  pushEnabled?: boolean;
 }
 
 let _config: AppConfig | null = null;
+
+/** True when the deployment ships Web Push. Safe before the config is loaded. */
+export function isPushEnabled(): boolean {
+  return _config?.pushEnabled === true;
+}
 
 export async function loadConfig(): Promise<AppConfig> {
   if (_config) return _config;
@@ -43,6 +52,7 @@ export async function loadConfig(): Promise<AppConfig> {
     cognitoClientId: (import.meta.env.VITE_COGNITO_CLIENT_ID as string) || '',
     cognitoRegion: (import.meta.env.VITE_COGNITO_REGION as string) || 'us-east-1',
     coachRuntimeArn: (import.meta.env.VITE_COACH_RUNTIME_ARN as string) || undefined,
+    pushEnabled: (import.meta.env.VITE_PUSH_ENABLED as string) === 'true',
   };
 
   return _config;

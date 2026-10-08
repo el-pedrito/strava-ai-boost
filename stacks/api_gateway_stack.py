@@ -37,6 +37,7 @@ class ApiGatewayStack(Stack):
         user_pool_client=None,
         cloudfront_domain: str = None,
         audio_debrief_lambda: lambda_.IFunction = None,
+        push_api_lambda: lambda_.IFunction = None,
         **kwargs
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -48,6 +49,7 @@ class ApiGatewayStack(Stack):
         self.user_pool_client = user_pool_client
         self.cloudfront_domain = cloudfront_domain
         self.audio_debrief_lambda = audio_debrief_lambda
+        self.push_api_lambda = push_api_lambda
 
         # Create Lambda functions for API endpoints
         self._create_lambda_functions()
@@ -458,6 +460,40 @@ class ApiGatewayStack(Stack):
                     apigateway.MethodResponse(status_code="500"),
                 ],
             )
+
+        # /push resource for opt-in Web Push subscription
+        if self.push_api_lambda is not None:
+            push_resource = self.api.root.add_resource("push")
+            # Every push route, the VAPID application server key included, sits
+            # behind Cognito like the rest of this API (no unauthenticated
+            # endpoint). PushApi still returns 401 by itself when the identity claim
+            # is missing.
+            app_server_key_resource = push_resource.add_resource("application-server-key")
+            app_server_key_resource.add_method(
+                "GET",
+                apigateway.LambdaIntegration(self.push_api_lambda),
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
+                method_responses=[
+                    apigateway.MethodResponse(status_code="200"),
+                    apigateway.MethodResponse(status_code="401"),
+                    apigateway.MethodResponse(status_code="500"),
+                ],
+            )
+            push_subscribe_resource = push_resource.add_resource("subscribe")
+            for push_method in ("POST", "DELETE"):
+                push_subscribe_resource.add_method(
+                    push_method,
+                    apigateway.LambdaIntegration(self.push_api_lambda),
+                    authorizer=self.cognito_authorizer,
+                    authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
+                    method_responses=[
+                        apigateway.MethodResponse(status_code="200"),
+                        apigateway.MethodResponse(status_code="400"),
+                        apigateway.MethodResponse(status_code="401"),
+                        apigateway.MethodResponse(status_code="500"),
+                    ],
+                )
 
         # /test resource for connection testing
         test_resource = self.api.root.add_resource("test")

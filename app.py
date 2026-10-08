@@ -15,6 +15,7 @@ from stacks.content_generation_stack import ContentGenerationStack
 from stacks.feedback_loop_stack import FeedbackLoopStack
 from stacks.frontend_hosting_stack import FrontendHostingStack
 from stacks.voice_debrief_stack import VoiceDebriefStack
+from stacks.push_stack import PushStack
 
 app = cdk.App()
 
@@ -85,6 +86,22 @@ voice_debrief_stack = VoiceDebriefStack(
 )
 voice_debrief_stack.add_dependency(core_stack)
 
+# Push stack - opt-in Web Push notifications (subscriptions table, VAPID secret,
+# PushApi + PushSend). Only synthesized with `--context push_enabled=true`, so a
+# default deployment gets no new stack, secret, route or permission.
+# Declared before api_stack so PushApi can be wired into API GW.
+push_enabled = app.node.try_get_context("push_enabled") in (True, "true", "1")
+push_stack = None
+if push_enabled:
+    push_stack = PushStack(
+        app,
+        "StravaAIBoost-Push",
+        core_stack=core_stack,
+        env=env,
+        description="Opt-in Web Push notifications (VAPID + subscriptions + send)"
+    )
+    push_stack.add_dependency(core_stack)
+
 # API Gateway stack - Local interface endpoints
 api_stack = ApiGatewayStack(
     app,
@@ -94,6 +111,7 @@ api_stack = ApiGatewayStack(
     user_pool_client=frontend_stack.user_pool_client,
     cloudfront_domain=frontend_stack.distribution.distribution_domain_name,
     audio_debrief_lambda=voice_debrief_stack.api_lambda,
+    push_api_lambda=push_stack.push_api_lambda if push_stack else None,
     env=env,
     description="API Gateway for local web interface"
 )
@@ -101,6 +119,18 @@ api_stack = ApiGatewayStack(
 api_stack.add_dependency(core_stack)
 api_stack.add_dependency(frontend_stack)
 api_stack.add_dependency(voice_debrief_stack)
+
+# Wire the push trigger into StravaUpdater: it invokes PushSend asynchronously. The
+# grant is an explicit lambda:InvokeFunction on the exact PushSend ARN (see
+# PushStack.grant_notify). Without push_enabled, StravaUpdater is left untouched.
+if push_stack is not None:
+    api_stack.add_dependency(push_stack)
+    content_stack.strava_updater.add_environment("PUSH_ENABLED", "true")
+    content_stack.strava_updater.add_environment(
+        "PUSH_SEND_FUNCTION", push_stack.push_send_lambda.function_name
+    )
+    push_stack.grant_notify(content_stack.strava_updater)
+    content_stack.add_dependency(push_stack)
 
 # Feedback loop stack - Automatic learning from user modifications
 feedback_stack = FeedbackLoopStack(

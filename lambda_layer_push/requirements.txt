@@ -1,0 +1,10 @@
+# Web Push only (StravaAIBoost-Push Lambdas): VAPID signing + aes128gcm encryption.
+# Kept out of the shared dependencies layer on purpose: that layer is exported by
+# the Core stack and cannot be replaced (see README "Known Issues"), while this one
+# is owned by the Push stack alone and can be republished freely.
+# Pinned: the layer hash covers this file and the built folder, so a bump is a
+# deliberate change that republishes the layer.
+pywebpush==2.5.0
+py-vapid==1.9.4
+http-ece==1.2.1
+cryptography==50.0.2
