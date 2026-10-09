@@ -266,7 +266,8 @@ def _generate_script(
             modelId=BEDROCK_MODEL_ID,
             messages=[{"role": "user", "content": [{"text": user_prompt}]}],
             system=[{"text": system_prompt}],
-            inferenceConfig={"maxTokens": 600, "temperature": 0.6},
+            # No temperature: Claude 5.5 models reject it ("deprecated for this model").
+            inferenceConfig={"maxTokens": 600},
         )
     except ClientError as exc:
         logger.error(f"Bedrock converse error: {exc}")

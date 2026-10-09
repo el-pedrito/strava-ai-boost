@@ -312,7 +312,7 @@ Détail des séances :
             body=json.dumps({
                 "anthropic_version": "bedrock-2023-05-31",
                 "max_tokens": 800,
-                "temperature": 0.7,
+                # No temperature: Claude 5.5 models reject it ("deprecated for this model").
                 "system": system_prompt,
                 "messages": [{"role": "user", "content": user_msg}],
             }),

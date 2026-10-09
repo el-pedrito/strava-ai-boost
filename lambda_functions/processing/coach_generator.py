@@ -11,6 +11,7 @@ from datetime import date, datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 import boto3
+from botocore.config import Config as BotoConfig
 
 from shared.logger import get_logger, inject_correlation_id, metrics, MetricUnit
 from shared.env_validation import validate_env_vars
@@ -509,10 +510,14 @@ def _invoke_coach_agent(
     import re
     import time
 
+    # botocore's default 60s read_timeout retries silently and launches a duplicate
+    # agent call mid-generation (seen on content_gen 2026-10-08). Wait longer than a
+    # generation; the cold-start loop below is the only retry.
+    client_config = BotoConfig(read_timeout=170, connect_timeout=10, retries={"total_max_attempts": 1})
     try:
-        agentcore_client = boto3.client("bedrock-agentcore", region_name=REGION)
+        agentcore_client = boto3.client("bedrock-agentcore", region_name=REGION, config=client_config)
     except Exception:
-        agentcore_client = boto3.client("bedrock-agent-runtime", region_name=REGION)
+        agentcore_client = boto3.client("bedrock-agent-runtime", region_name=REGION, config=client_config)
 
     session_id = f"coach-{uuid.uuid4().hex}"
 

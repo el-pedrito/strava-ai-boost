@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 import boto3
+from botocore.config import Config as BotoConfig
 
 from processing.workout_analysis import (
     classify_workout_from_laps,
@@ -31,6 +32,17 @@ from shared.strength_exercises import (
 )
 
 logger = get_logger("content-generator")
+
+# One content generation on Sonnet 5 runs 50-150s (thinking + JSON). botocore's
+# default read_timeout is 60s and it RETRIES on timeout: on 2026-10-08 the first
+# call was still running when botocore fired a duplicate, and the two together
+# blew the Lambda's 120s budget. Read timeout above the worst-case generation,
+# no transport retry (the handler owns the single correction retry).
+AGENTCORE_CLIENT_CONFIG = BotoConfig(
+    read_timeout=300,
+    connect_timeout=10,
+    retries={"total_max_attempts": 1},
+)
 
 
 def _apply_preserved_original(activity_data: dict, item: dict) -> None:
@@ -352,9 +364,9 @@ def generate_enhanced_content(
 
     # Initialize AgentCore client
     try:
-        agentcore_client = boto3.client('bedrock-agentcore', region_name=REGION)
+        agentcore_client = boto3.client('bedrock-agentcore', region_name=REGION, config=AGENTCORE_CLIENT_CONFIG)
     except Exception:
-        agentcore_client = boto3.client('bedrock-agent-runtime', region_name=REGION)
+        agentcore_client = boto3.client('bedrock-agent-runtime', region_name=REGION, config=AGENTCORE_CLIENT_CONFIG)
 
     session_id = f"content-gen-{uuid.uuid4().hex}"
 
@@ -910,7 +922,8 @@ def _extract_strength_sets(description: str) -> List[Dict[str, Any]]:
             # bulk replay then stored as "this session had no exercises" for 52 of
             # 64 sessions. Truncation is silent by construction here, so the budget
             # must fit the worst realistic session.
-            inferenceConfig={"maxTokens": 3000, "temperature": 0.0},
+            # No temperature: Claude 5.5 models reject it ("deprecated for this model").
+            inferenceConfig={"maxTokens": 3000},
         )
     except Exception as e:  # noqa: BLE001 - best-effort, never break the pipeline
         logger.warning(f"Strength extraction Bedrock call failed: {e}")

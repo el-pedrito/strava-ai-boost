@@ -65,14 +65,14 @@ REGION = os.environ.get("AWS_REGION", "us-east-1")
 # Model ID: injected at deploy time from the central registry
 # (src/config/llm_config.py via scripts/deploy_agentcore_agents.sh).
 MODEL_ID = os.environ.get(
-    "BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-5"
+    "BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-5-5"
 )
 # Existing Bedrock Guardrail (same resource as the content pipeline). When set,
 # it is applied natively by Strands' BedrockModel — closes threat-model T4.
 GUARDRAIL_ID = os.environ.get("GUARDRAIL_ID", "")
 GUARDRAIL_VERSION = os.environ.get("GUARDRAIL_VERSION", "DRAFT")
 # Explicit output budget: a bare model-id string makes Strands send no maxTokens.
-CHAT_MAX_TOKENS = int(os.environ.get("CHAT_MAX_TOKENS", "4096"))
+CHAT_MAX_TOKENS = int(os.environ.get("CHAT_MAX_TOKENS", "8192"))
 ACTIVITIES_TABLE = os.environ.get("ACTIVITIES_TABLE", "strava-ai-boost-activities")
 USER_CONFIG_TABLE = os.environ.get(
     "USER_CONFIG_TABLE", "strava-ai-boost-user-configuration"

@@ -34,10 +34,12 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 
 # Environment variables
 REGION = os.getenv("AWS_REGION", "eu-west-1")
-MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-5")
+MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-5-5")
 # Output budget for one generation (<thinking> block + JSON). Must stay explicit:
 # Strands sends no maxTokens by default.
-CONTENT_MAX_TOKENS = int(os.getenv("CONTENT_MAX_TOKENS", "8192"))
+# 8192 was still exhausted by the reasoning alone on a 15-lap interval session with
+# a Campus match (2026-10-08, empty assistant message, MaxTokensReachedException).
+CONTENT_MAX_TOKENS = int(os.getenv("CONTENT_MAX_TOKENS", "32000"))
 
 # AgentCore Memory configuration
 MEMORY_ID = os.getenv("BEDROCK_AGENTCORE_MEMORY_ID")

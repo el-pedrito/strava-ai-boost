@@ -427,6 +427,12 @@ deploy_coach_chat_runtime() {
     local agent_name="coach_chat"
     local memory_id="$1"
 
+    # The caller captures this function's stdout to read the ARN, which used to
+    # swallow every log line AND every error of this step ("deployment failed"
+    # with nothing to read). Send all output to stderr; only the ARN goes to the
+    # captured stdout (fd 3). Safe: the function runs in a $(...) subshell.
+    exec 3>&1 1>&2
+
     print_status ""
     print_status "🤖 Deploying conversational coach runtime: $agent_name (AGUI + customJWT)..."
 
@@ -523,7 +529,7 @@ deploy_coach_chat_runtime() {
     agent_arn=$(grep -A 40 "^  ${agent_name}:" .bedrock_agentcore.yaml | grep "agent_arn:" | head -1 | awk '{print $2}')
     print_success "$agent_name deployed: $agent_arn"
     print_status "➡️  Frontend activation (phase A): set coachRuntimeArn=\"$agent_arn\" in frontend/public/config.json"
-    echo "$agent_arn"
+    echo "$agent_arn" >&3
 }
 
 

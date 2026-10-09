@@ -18,11 +18,11 @@ from embedded_prompts import COACH_AGENT_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
-MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-5")
+MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-5-5")
 # Explicit output budget for every coach call. Strands sends no maxTokens by
 # default, and the old 1500 on the Converse path truncated Sonnet 5's longer
 # feedback JSON.
-COACH_MAX_TOKENS = int(os.environ.get("COACH_MAX_TOKENS", "4096"))
+COACH_MAX_TOKENS = int(os.environ.get("COACH_MAX_TOKENS", "8192"))
 REGION = os.environ.get("AWS_REGION", "eu-west-1")
 MEMORY_ID = os.environ.get("BEDROCK_AGENTCORE_MEMORY_ID")
 
@@ -173,7 +173,8 @@ def generate_coaching_feedback(
             modelId=MODEL_ID,
             messages=[{"role": "user", "content": [{"text": user_message}]}],
             system=[{"text": system_prompt}],
-            inferenceConfig={"maxTokens": COACH_MAX_TOKENS, "temperature": 0.7},
+            # No temperature: Claude 5.5 models reject it ("deprecated for this model").
+            inferenceConfig={"maxTokens": COACH_MAX_TOKENS},
         )
 
         output = response.get("output", {}).get("message", {}).get("content", [])

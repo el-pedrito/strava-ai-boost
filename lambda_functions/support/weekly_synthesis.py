@@ -87,7 +87,8 @@ Réponds en JSON:
             modelId=BEDROCK_MODEL_ID,
             messages=[{"role": "user", "content": [{"text": prompt}]}],
             system=[{"text": "Tu es un coach running expert. Réponds uniquement en JSON valide."}],
-            inferenceConfig={"maxTokens": 500, "temperature": 0.7},
+            # No temperature: Claude 5.5 models reject it ("deprecated for this model").
+            inferenceConfig={"maxTokens": 500},
         )
 
         output = response.get("output", {}).get("message", {}).get("content", [])

@@ -233,7 +233,10 @@ class ContentGenerationStack(Stack):
                 exclude=["**/__pycache__", "**/*.pyc"],
             ),
             layers=[self.core_stack.dependencies_layer],
-            timeout=Duration.minutes(2),
+            # Up to two agent calls (generation + one guarded correction), each
+            # bounded by the client's 300s read timeout. 2 min was below a single
+            # Sonnet 5 generation on context-rich interval sessions.
+            timeout=Duration.minutes(11),
             memory_size=1024,
             role=content_lambda_role,
             environment={
@@ -267,7 +270,9 @@ class ContentGenerationStack(Stack):
                 exclude=["**/__pycache__", "**/*.pyc"],
             ),
             layers=[self.core_stack.dependencies_layer],
-            timeout=Duration.minutes(2),
+            # Coach feedback + one corrective call, each up to the client's 170s
+            # read timeout, plus cold-start backoff.
+            timeout=Duration.minutes(6),
             memory_size=1024,
             role=content_lambda_role,
             environment={
