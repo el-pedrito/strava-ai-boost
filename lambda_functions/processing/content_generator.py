@@ -38,10 +38,15 @@ logger = get_logger("content-generator")
 # call was still running when botocore fired a duplicate, and the two together
 # blew the Lambda's 120s budget. Read timeout above the worst-case generation,
 # no transport retry (the handler owns the single correction retry).
+# Retries stay ON: a cold runtime answers 502 Bad Gateway for a few seconds
+# while its container boots (2026-10-09, activity 20518589504 lost to a 502
+# 4s after the container started, once retries had been disabled). With the
+# 300s read timeout a timeout-triggered retry can only fire after 300s, so
+# the duplicate-call race of 2026-10-08 cannot recur within the Lambda budget.
 AGENTCORE_CLIENT_CONFIG = BotoConfig(
     read_timeout=300,
     connect_timeout=10,
-    retries={"total_max_attempts": 1},
+    retries={"max_attempts": 3, "mode": "standard"},
 )
 
 

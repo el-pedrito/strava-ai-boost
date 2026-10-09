@@ -510,10 +510,10 @@ def _invoke_coach_agent(
     import re
     import time
 
-    # botocore's default 60s read_timeout retries silently and launches a duplicate
-    # agent call mid-generation (seen on content_gen 2026-10-08). Wait longer than a
-    # generation; the cold-start loop below is the only retry.
-    client_config = BotoConfig(read_timeout=170, connect_timeout=10, retries={"total_max_attempts": 1})
+    # botocore's default 60s read_timeout retried mid-generation and launched a
+    # duplicate agent call (content_gen 2026-10-08): wait longer than a generation.
+    # Retries stay ON so a cold runtime's transient 502 is absorbed.
+    client_config = BotoConfig(read_timeout=170, connect_timeout=10, retries={"max_attempts": 3, "mode": "standard"})
     try:
         agentcore_client = boto3.client("bedrock-agentcore", region_name=REGION, config=client_config)
     except Exception:

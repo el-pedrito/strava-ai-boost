@@ -49,7 +49,9 @@ def test_content_generator_timeouts_fit_a_generation() -> None:
     generator = (ROOT / "lambda_functions" / "processing" / "content_generator.py").read_text(encoding="utf-8")
     read_timeout = int(re.search(r"read_timeout=(\d+)", generator).group(1))
     assert read_timeout >= 240
-    assert '"total_max_attempts": 1' in generator
+    # Retries must stay enabled: a cold runtime returns transient 502s (2026-10-09).
+    assert '"total_max_attempts": 1' not in generator
+    assert re.search(r'"max_attempts":\s*[2-9]', generator)
     assert generator.count("config=AGENTCORE_CLIENT_CONFIG") == 2
 
     stack = (ROOT / "stacks" / "content_generation_stack.py").read_text(encoding="utf-8")
