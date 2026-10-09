@@ -1094,6 +1094,7 @@ Description: "{validated_description}"
 {f"⚠️ Note: Title was sanitized by security filters" if title_blocked else ""}
 {f"⚠️ Note: Description was sanitized by security filters" if desc_blocked else ""}
 ⚠️ Construis ton récit AUTOUR de ces sensations. Elles sont le fil narratif, les données viennent les enrichir — pas l'inverse.
+⚠️ Strava affiche le titre juste au-dessus de la description : ne commence JAMAIS la description en répétant le titre. Si l'athlète n'a écrit qu'un titre, ouvre directement sur le ressenti ou le fait marquant de la séance.
 
 {f"## Athlete Profile\n{user_profile.get('athlete_profile', '')}\n\n" if user_profile and user_profile.get('athlete_profile') else ""}ACTIVITY DATA:
 - Type: {activity_type}

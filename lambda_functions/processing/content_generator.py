@@ -492,6 +492,11 @@ def generate_enhanced_content(
     # Remove incomplete fun facts (LLM sometimes cuts mid-sentence)
     result['description'] = _fix_truncated_fun_fact(result.get('description', ''))
 
+    # Never open the description by restating the title (2026-10-09: title
+    # "Footing EF du vendredi, 6,66 km en zone 2", description opened with
+    # "Footing EF du vendredi, 6,66 km en 40:10.").
+    result['description'] = _strip_title_echo(result.get('title', ''), result['description'])
+
     # Enforce user preferences on generated content
     result['title'], result['description'] = enforce_preferences(
         result['title'], result['description'], user_profile
@@ -596,6 +601,35 @@ def _get_campus_context() -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.warning(f"Failed to fetch Campus athlete context: {e}")
         return None
+
+
+_WORD_RE = re.compile(r"[\w']+", re.UNICODE)
+
+
+def _strip_title_echo(title: str, description: str) -> str:
+    """Drop the description's first sentence when it merely restates the title.
+
+    Strava shows the title right above the description, so an opening sentence
+    that repeats it reads as a duplicate. Only the first sentence is ever
+    considered, and only when its opening words ARE the title's opening words
+    (at least 4, or the whole title when shorter): an athlete-written opening
+    that happens to share a word with the title is never touched.
+    """
+    if not title or not description:
+        return description
+    stripped = description.lstrip()
+    match = re.match(r"(.+?[.!?])(\s+|$)", stripped, re.DOTALL)
+    first = match.group(1) if match else stripped.split("\n", 1)[0]
+    if "\n" in first:
+        first = first.split("\n", 1)[0]
+    title_words = [w.lower() for w in _WORD_RE.findall(title)]
+    first_words = [w.lower() for w in _WORD_RE.findall(first)]
+    need = min(4, len(title_words))
+    if need == 0 or first_words[:need] != title_words[:need]:
+        return description
+    rest = stripped[len(first):].lstrip()
+    # Never empty the description: keep it as is if the echo was all there was.
+    return rest if rest else description
 
 
 def _fix_truncated_fun_fact(description: str) -> str:
