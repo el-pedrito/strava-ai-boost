@@ -588,5 +588,17 @@ EOF
 
 print_status "Deployment information saved to: $DEPLOYMENT_INFO_FILE"
 
+# Model contract smoke (reliability plan lot 2): real Converse calls checking that
+# MODEL_PROFILES (thinking off, temperature, budget) matches Bedrock. Uses the venv
+# python3 put on PATH above and the same profile/region. SKIP_SMOKE=1 opts out.
+print_section "🧪 Model smoke test"
+if [ "${SKIP_SMOKE:-0}" = "1" ]; then
+    print_warning "SKIP_SMOKE=1 - model smoke test skipped"
+elif ! AWS_REGION="$REGION" python3 scripts/smoke_models.py; then
+    print_error "Model smoke test failed: a model profile no longer matches Bedrock."
+    print_error "Fix MODEL_PROFILES in src/config/llm_config.py (+ lambda_functions/shared/llm_models.py)."
+    exit 1
+fi
+
 echo ""
 print_status "✨ Deployment completed successfully!"

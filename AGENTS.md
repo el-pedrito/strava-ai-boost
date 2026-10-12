@@ -29,7 +29,7 @@ Strava AI Boost is a **serverless AWS application** that automatically enhances 
 - **18 Lambda functions** (API, processing, webhooks, support, voice — role-based packages)
 - **3 AgentCore Runtimes** — `content_gen`, `strava_ai_boost_coach` (coach), `coach_chat` (agentic conversational coach): 2 agent definitions in `src/agents/` + 1 chat runtime in `src/coach_chat/`, sharing a single AgentCore Memory (`content_gen_mem`, 3 strategies)
 - **8 CDK stacks**
-- **891 tests** (754 backend unit + 84 regression + 53 frontend) + on-demand prompt regression harness (deterministic V1 + managed AgentCore Evaluations V2)
+- **1085 tests** (926 backend unit + 106 regression + 53 frontend) + on-demand prompt regression harness (deterministic V1 + managed AgentCore Evaluations V2)
 - **Centralized LLM registry** — all Bedrock model IDs come from `src/config/llm_config.py` (mirrored in `lambda_functions/shared/llm_models.py` for Lambda bundling); anti-drift sync test
 - **Python 3.12** runtime, **React 19 + TypeScript + Vite** frontend
 - **Cognito authentication** (JWT, custom:strava_id attribute, no self-registration)
@@ -189,7 +189,7 @@ strava-ai-boost/
 │   └── vite.config.ts                  # Vite + Vitest configuration
 │
 ├── tests/                      # Test suite
-│   ├── unit/                           # Lambda unit tests (754 tests)
+│   ├── unit/                           # Lambda unit tests (926 tests)
 │   │   ├── conftest.py                 # Env vars for Lambda imports
 │   │   ├── test_webhook_handler.py     # Validation, routing, signature
 │   │   ├── test_content_generator.py   # DynamoDB, parsing, storage, strength extraction
@@ -199,8 +199,8 @@ strava-ai-boost/
 │   │   ├── test_coach_output_check.py  # Figure verifier: week-scope gate, km vs km/h, strip
 │   │   ├── test_metrics_flush.py       # Anti-drift: add_metric requires @metrics.log_metrics
 │   │   └── test_env_loader_memory_id.py # Synth must fail, not blank, an unreadable memory id
-│   ├── regression/                     # Prompt regression harness (84 tests + live runners)
-│   │   ├── fixtures/                   # 8 synthetic activities (shared by V1 + V2 evals)
+│   ├── regression/                     # Prompt regression harness (106 tests + live runners)
+│   │   ├── fixtures/                   # 10 synthetic activities (shared by V1 + V2 evals)
 │   │   ├── evaluators.py               # Deterministic criteria + BANNED_CLICHES (sync-tested vs prompt)
 │   │   ├── evaluators_managed/         # Custom LLM-as-a-Judge configs (AgentCore Evaluations)
 │   │   ├── test_evaluators.py          # Criteria unit tests + prompt/dataset sync
@@ -406,12 +406,12 @@ class MyModule(BaseModule):
 
 ### Running Tests
 
-**Lambda Unit Tests (754 tests, ~2s):**
+**Lambda Unit Tests (926 tests, ~2s):**
 ```bash
 pytest tests/unit/ -v
 ```
 
-**Regression evaluators + LLM registry sync (84 tests, free, no AWS):**
+**Regression evaluators + LLM registry sync (106 tests, free, no AWS):**
 ```bash
 pytest tests/regression/ -v
 ```
@@ -601,7 +601,7 @@ class TestMyModule:
 
 **Location:** `src/agents/`
 
-**Content Agent** (`content_agent.py`): Generate enhanced activity content with LTM memory, Claude Sonnet 5, Guardrails enabled, max_tokens 4096. Receives device-recorded laps (from Strava Laps API), Campus Coach sessions, Enduraw reports, and Intervals.icu data (CTL/ATL/Form/HRV/Decoupling). User profile includes personal_records, max_hr, and strength_program. Campus Coach context (current + future weeks with structured intervals) injected. Campus Coach matching is **deterministic** (scored in code via `modules_processing.py`, not by LLM). Only the best-matched session is passed to the LLM for narrative enrichment.
+**Content Agent** (`content_agent.py`): Generate enhanced activity content with LTM memory, Claude Sonnet 5.5, Guardrails enabled, max_tokens 32000. Receives device-recorded laps (from Strava Laps API), Campus Coach sessions, Enduraw reports, and Intervals.icu data (CTL/ATL/Form/HRV/Decoupling). User profile includes personal_records, max_hr, and strength_program. Campus Coach context (current + future weeks with structured intervals) injected. Campus Coach matching is **deterministic** (scored in code via `modules_processing.py`, not by LLM). Only the best-matched session is passed to the LLM for narrative enrichment.
 
 **Anti-AI Writing Rules** (enforced in content generation prompts):
 - Em dash (—) and en dash (–) are **banned** from all generated content
@@ -668,7 +668,7 @@ A declaration therefore wins even alongside a movement list, while movements wit
 
 **Campus Coach Sync** (`lambda_functions/webhooks/campus_coach_sync.py`): Direct REST API integration replacing Browser Tool. Login via `POST /account/login` + `GET /smart-training?from=...&to=...` fetches all accessible weeks (1-9 depending on billing cycle). Stores structured sessions in DynamoDB with `is_current_week`/`is_future` flags, including intervals and targets. EventBridge every 2h across the athlete's active window (05:00 to 21:00 UTC, 9 runs/day): a single daily run left the coach up to 13h behind, so a session completed during the day, or a plan edited mid-afternoon, stayed invisible. Only runs if campus_coach module is enabled. Athlete context (goal, assiduity, sport profile) persisted. All future weeks injected into coach context.
 
-**Coach Agent** (`coach_agent.py`): Training feedback agent using Claude Sonnet 5 with LTM memory (`coaching_observations` write session; observations are extracted by the memory strategies and read back via the unified `/strategies/` namespaces with a session-type-aware query). Analyzes activity in context of athlete profile (objectives, history, experience, pace zones, personal records, FCmax), recent training trends (4 weeks via GSI query with EF pace@HR, CTL/Form, segment PRs), and historical observations. Produces training feedback focused on **progression and trends** (not session recap). Runs in parallel with content generation.
+**Coach Agent** (`coach_agent.py`): Training feedback agent using Claude Sonnet 5.5 with LTM memory (`coaching_observations` write session; observations are extracted by the memory strategies and read back via the unified `/strategies/` namespaces with a session-type-aware query). Analyzes activity in context of athlete profile (objectives, history, experience, pace zones, personal records, FCmax), recent training trends (4 weeks via GSI query with EF pace@HR, CTL/Form, segment PRs), and historical observations. Produces training feedback focused on **progression and trends** (not session recap). Runs in parallel with content generation.
 
 **Coach Context (injected):**
 

@@ -15,7 +15,7 @@
       "modelConfig": {
         "bedrockEvaluatorModelConfig": {
           "modelId": "{HAIKU_MODEL_ID}",
-          "inferenceConfig": { "temperature": 0.0, "maxTokens": 1024 }
+          "inferenceConfig": { "maxTokens": 1024 }
         }
       }
     }

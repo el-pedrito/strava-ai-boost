@@ -34,7 +34,16 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 
 # Environment variables
 REGION = os.getenv("AWS_REGION", "eu-west-1")
-MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-5")
+MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-5-5")
+# Output budget for one generation (<thinking> block + JSON). Must stay explicit:
+# Strands sends no maxTokens by default.
+# 8192 was still exhausted by the reasoning alone on a 15-lap interval session with
+# a Campus match (2026-10-08, empty assistant message, MaxTokensReachedException).
+CONTENT_MAX_TOKENS = int(os.getenv("CONTENT_MAX_TOKENS", "32000"))
+
+# Strategy holding the learned content preferences (env override, else the id
+# configured by scripts/configure_memory_strategy.py).
+PREFERENCE_STRATEGY_ID = os.getenv("PREFERENCE_STRATEGY_ID", "StravaContentPreferences-KQBQBfFBLW")
 
 # AgentCore Memory configuration
 MEMORY_ID = os.getenv("BEDROCK_AGENTCORE_MEMORY_ID")
@@ -61,7 +70,12 @@ if MEMORY_ID:
         agentcore_client = None
 
 
-def retrieve_user_preferences(user_id: str, query: str, max_results: int = 10) -> List[Dict]:
+def _is_preference_record(record: Dict) -> bool:
+    """True when the record comes from the content-preference strategy."""
+    return any("StravaContentPreferences" in ns for ns in (record.get('namespaces') or []))
+
+
+def retrieve_user_preferences(user_id: str, query: str, max_results: int = 5) -> List[Dict]:
     """
     Retrieve user preferences from AgentCore Memory using semantic search.
 
@@ -75,10 +89,17 @@ def retrieve_user_preferences(user_id: str, query: str, max_results: int = 10) -
         return []
 
     try:
-        for namespace, needs_user_filter in [
+        # Content preferences only. The bare '/strategies/' prefix also matched the
+        # episodic and semantic records (coach observations), which were then injected
+        # as content rules and contradicted each other (2026-10-12 diag).
+        namespaces = []
+        if PREFERENCE_STRATEGY_ID:
+            namespaces.append((f"/strategies/{PREFERENCE_STRATEGY_ID}/actors/{user_id}/", False))
+        namespaces += [
             ("/strategies/", True),
             (f"/strategy/StravaContentPreferences/actors/{user_id}/", False),
-        ]:
+        ]
+        for namespace, needs_user_filter in namespaces:
             try:
                 response = agentcore_client.retrieve_memory_records(
                     memoryId=MEMORY_ID,
@@ -94,6 +115,7 @@ def retrieve_user_preferences(user_id: str, query: str, max_results: int = 10) -
                     records = [
                         r for r in records
                         if any(f"/actors/{user_id}/" in ns for ns in (r.get('namespaces') or []))
+                        and _is_preference_record(r)
                     ]
                 if records:
                     logger.info(f"Retrieved {len(records)} preference records (namespace={namespace})")
@@ -700,13 +722,13 @@ def invoke(payload, context=None):
                 records = retrieve_user_preferences(
                     user_id=str(user_id),
                     query=query,
-                    max_results=10
+                    max_results=5
                 )
 
                 if records:
-                    feedback_instructions = "\n\n## FEEDBACK UTILISATEUR (Préférences Apprises)\n\n"
-                    feedback_instructions += "**Ces préférences ont été extraites automatiquement depuis tes modifications. RESPECTE-LES.**\n"
-                    feedback_instructions += "**En cas de conflit avec les STYLE INSTRUCTIONS du user prompt, les STYLE INSTRUCTIONS ont priorité (choix explicite de l'utilisateur).**\n\n"
+                    feedback_instructions = "\n\n## FEEDBACK UTILISATEUR (Indices appris)\n\n"
+                    feedback_instructions += "**Ces indices sont déduits automatiquement de ses modifications. Ils orientent le style, ils ne sont pas des ordres.**\n"
+                    feedback_instructions += "**Ils ne priment JAMAIS sur les règles critiques (fidélité au ressenti et aux négations, paragraphes courts, zéro projection) ni sur les STYLE INSTRUCTIONS. S'ils se contredisent entre eux, ignore-les.**\n\n"
 
                     for record in records:
                         content = record.get('content', {})
@@ -746,8 +768,12 @@ def invoke(payload, context=None):
         from strands.models import BedrockModel
         
         logger.info(f"Creating agent without model-level guardrails (input validation done separately)")
+        # Explicit output budget: without it Strands sends no maxTokens and the
+        # model default applies. Sonnet 5 writes a longer <thinking> block than
+        # 4.5 on context-rich sessions (intervals, strength, Campus match) and
+        # hit the limit ("unrecoverable state due to max_tokens").
         agent = Agent(
-            model=MODEL_ID,  # No guardrails on model - we validate inputs manually
+            model=BedrockModel(model_id=MODEL_ID, max_tokens=CONTENT_MAX_TOKENS),  # No guardrails on model - we validate inputs manually
             system_prompt=system_prompt,
             hooks=[],  # Disabled: AgentCoreMemoryHook() - Memory writes only after feedback validation
             state={
@@ -1079,12 +1105,15 @@ Generate ALL content (title + description) in {content_lang.upper()}. Do NOT use
         prompt = f"""{language_override}⚠️ CRITICAL SIZE LIMIT: User preference is "{content_length_pref}" = MAX {max_chars} characters for description (including signature)!
 If you exceed {max_chars} chars, CUT content to fit. Keep most important elements, preserve signature.
 
-🎯 ORIGINAL USER INPUT (PRIORITÉ #1 — REPRENDS CES MOTS TEXTUELLEMENT):
+🎯 ORIGINAL USER INPUT (PRIORITÉ #1):
 Title: "{validated_title}"
 Description: "{validated_description}"
 {f"⚠️ Note: Title was sanitized by security filters" if title_blocked else ""}
 {f"⚠️ Note: Description was sanitized by security filters" if desc_blocked else ""}
-⚠️ Construis ton récit AUTOUR de ces sensations. Elles sont le fil narratif, les données viennent les enrichir — pas l'inverse.
+⚠️ Le RESSENTI et le CONTEXTE de l'athlète (sensations, humeur, événement, rôle) sont repris fidèlement et ouvrent la description. Ses NOTES TECHNIQUES (dates type "10/07", séries "80x10", abréviations) sont des données à exploiter, jamais recopiées telles quelles en tête de texte.
+⚠️ NÉGATIONS : reprends le sens EXACT. "pas une énergie de dingue" reste une séance SANS énergie de dingue, dans la description ET dans le titre. Ne transforme jamais un ressenti négatif ou mitigé en ressenti positif.
+⚠️ Si l'athlète nomme un événement (course, semi, 20km de Paris, rôle de pacer, accompagnement), c'est le sujet principal : mets-le en avant dès la première phrase et dans le titre.
+⚠️ Strava affiche le titre juste au-dessus de la description : ne commence JAMAIS la description en répétant le titre. Si l'athlète n'a écrit qu'un titre, ouvre directement sur le ressenti ou le fait marquant de la séance.
 
 {f"## Athlete Profile\n{user_profile.get('athlete_profile', '')}\n\n" if user_profile and user_profile.get('athlete_profile') else ""}ACTIVITY DATA:
 - Type: {activity_type}
@@ -1126,15 +1155,17 @@ ACTIVE MODULES:
 
 CAMPUS COACH SESSION:
 {campus_session_str}
+{f'MATCH CAMPUS CONFIRMÉ (calculé, ne le remets pas en cause) : cette activité réalise "{payload.get("campus_matched_title")}". La description DOIT contenir la ligne "📋 Séance Campus Coach: {payload.get("campus_matched_title")}" puis comparer prévu vs réalisé.' if payload.get('campus_matched_title') else 'Aucun match Campus confirmé : les séances ci-dessus sont du CONTEXTE, pas la séance réalisée. Pas de ligne 📋.'}
 
 ENDURAW DATA:
 {enduraw_str}
 
 {_build_intervals_icu_context(intervals_icu_data)}
-AVANT DE GÉNÉRER, réfléchis étape par étape (dans un bloc <thinking>):
-1. Quelles sensations/émotions l'utilisateur exprime dans son titre et sa description ?
-2. Comment les données (FC, pace, phases) confirment ou enrichissent ces sensations ?
-3. Quel arc narratif construire autour de ces sensations ?
+AVANT DE RENDRE LE JSON, vérifie :
+1. Le ressenti de l'athlète est repris avec son sens exact (négations comprises) dans le titre et la description.
+2. Chaque paragraphe porte UNE idée, en 2-3 phrases et 250 caractères maximum, séparé du suivant par une ligne vide.
+3. Aucune projection sans source (temps marathon estimé, objectif extrapolé, "athlète hybride", "carburant optimal").
+4. Si un MATCH CAMPUS CONFIRMÉ est indiqué, la description contient la ligne "📋 Séance Campus Coach: <titre>".
 Puis génère le JSON.
 
 RAPPEL FINAL NON NÉGOCIABLE : zéro em dash (—/–), et AUCUNE expression de la liste "Expressions bannies (clichés gen-AI sportif)" du system prompt (ex. "la machine", "le corps se réveille", "rythme de croisière", "les kilomètres défilent", ni aucune variante proche). Relis ta réponse et reformule si besoin AVANT de rendre le JSON.

@@ -7,14 +7,70 @@ Handles error recovery for Strava API updates.
 
 import json
 import os
+import time
 from typing import Dict, Any
 import boto3
+from aws_lambda_powertools.metrics import single_metric
 from botocore.exceptions import ClientError
 import requests
 from datetime import datetime
-from shared.logger import get_logger
+from shared.logger import get_logger, MetricUnit, METRICS_NAMESPACE
 
 logger = get_logger("strava-updater")
+
+# Business metric "the activity was published on Strava" (reliability plan, lot 1).
+# One ActivityPublished datapoint per invocation:
+#   ok     -- Strava accepted the new title/description
+#   empty  -- nothing to publish (no enhanced content, or blank title and description)
+#   failed -- Strava or token error
+# The 72h alarm compares it with ActivitiesProcessed: activities came in, none went out.
+PUBLISHED_METRIC_NAME = "ActivityPublished"
+
+
+class NothingToPublish(ValueError):
+    """The pipeline handed over no content to write on Strava."""
+
+
+class StravaRateLimitError(Exception):
+    """Strava still answered 429 after our own backoff.
+
+    Raised out of the handler (not answered as a 500 payload) so the UpdateStrava
+    task's Retry catches it by name and tries again later (reliability plan, lot 3).
+    """
+
+
+# Local 429 backoff: 3 tries in total, 2s then 4s unless Strava says otherwise via
+# Retry-After, which is honoured but capped so a single invocation stays short.
+RATE_LIMIT_MAX_TRIES = 3
+RATE_LIMIT_BASE_DELAY_S = 2
+RATE_LIMIT_MAX_DELAY_S = 30
+
+
+def _retry_after_seconds(response: Any, attempt: int) -> float:
+    """Delay before the next try: Retry-After if usable, else exponential, capped."""
+    try:
+        header = (response.headers or {}).get('Retry-After')
+    except AttributeError:
+        header = None
+    try:
+        delay = float(header) if header is not None else None
+    except (TypeError, ValueError):
+        delay = None
+    if delay is None or delay < 0:
+        delay = RATE_LIMIT_BASE_DELAY_S * (2 ** attempt)
+    return min(delay, RATE_LIMIT_MAX_DELAY_S)
+
+
+def _record_outcome(outcome: str) -> None:
+    """Emit ActivityPublished{outcome} as its own EMF blob (dimensions: outcome)."""
+    try:
+        with single_metric(
+            name=PUBLISHED_METRIC_NAME, unit=MetricUnit.Count, value=1,
+            namespace=METRICS_NAMESPACE,
+        ) as metric:
+            metric.add_dimension(name="outcome", value=outcome)
+    except Exception as exc:  # noqa: BLE001 - a metric must never break the update
+        logger.warning(f"Could not emit {PUBLISHED_METRIC_NAME}{{outcome={outcome}}}: {exc}")
 
 # Initialize AWS clients
 dynamodb = boto3.resource('dynamodb')
@@ -47,7 +103,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             raise ValueError("Missing required parameters: activity_id, user_id")
         
         if not enhanced_content:
-            raise ValueError("No enhanced content provided")
+            raise NothingToPublish("No enhanced content provided")
         
         logger.info(f"Updating Strava activity {activity_id}")
         
@@ -63,6 +119,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         # Update activity status in DynamoDB
         update_activity_status(activity_id, 'completed', enhanced_content)
+        _record_outcome("ok" if update_result.get('status') == 'success' else "empty")
         
         return {
             'statusCode': 200,
@@ -72,8 +129,18 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'updated_at': datetime.utcnow().isoformat()
         }
         
+    except StravaRateLimitError as e:
+        # Raised so Step Functions retries UpdateStrava later. The status stays
+        # 'processing' (a retry is coming); the outcome is still counted as failed.
+        logger.error(f"Strava updater rate limited after local backoff, raising for retry: {str(e)}")
+        _record_outcome("failed")
+        raise
     except Exception as e:
         logger.error(f"Strava updater error: {str(e)}")
+        if isinstance(e, NothingToPublish):
+            _record_outcome("empty")
+        else:
+            _record_outcome("failed")
         
         # Update activity status to failed
         if 'activity_id' in event:
@@ -115,7 +182,9 @@ def update_strava_activity(
     """
     Update Strava activity with enhanced content
     
-    Updates both title and description with AI-generated content
+    Updates both title and description with AI-generated content.
+    A 429 is retried locally (RATE_LIMIT_MAX_TRIES tries, Retry-After honoured and
+    capped at RATE_LIMIT_MAX_DELAY_S), then raised as StravaRateLimitError.
     """
     try:
         headers = {
@@ -140,13 +209,25 @@ def update_strava_activity(
         
         logger.info(f"Updating activity {activity_id} with: {list(update_data.keys())}")
         
-        # Make API request to update activity
-        response = requests.put(
-            url,
-            headers=headers,
-            json=update_data,
-            timeout=30
-        )
+        # Make API request to update activity, backing off on 429 (rate limit).
+        for attempt in range(RATE_LIMIT_MAX_TRIES):
+            response = requests.put(
+                url,
+                headers=headers,
+                json=update_data,
+                timeout=30
+            )
+            if response.status_code != 429:
+                break
+            if attempt == RATE_LIMIT_MAX_TRIES - 1:
+                logger.error(f"Rate limit exceeded (429) {RATE_LIMIT_MAX_TRIES} times for activity {activity_id}")
+                raise StravaRateLimitError("Strava API rate limit exceeded")
+            delay = _retry_after_seconds(response, attempt)
+            logger.warning(
+                f"Rate limit (429) on activity {activity_id}, try {attempt + 1}/{RATE_LIMIT_MAX_TRIES}, "
+                f"retrying in {delay:.0f}s"
+            )
+            time.sleep(delay)
         
         response.raise_for_status()
         
@@ -164,7 +245,7 @@ def update_strava_activity(
     except requests.exceptions.HTTPError as e:
         if e.response.status_code == 429:
             logger.error("Rate limit exceeded (429)")
-            raise Exception("Strava API rate limit exceeded")
+            raise StravaRateLimitError("Strava API rate limit exceeded")
         elif e.response.status_code == 401:
             logger.error("Unauthorized (401) - token may be expired")
             raise Exception("Strava API authentication failed")
@@ -173,6 +254,8 @@ def update_strava_activity(
             raise
     except requests.exceptions.RequestException as e:
         logger.error(f"Request error updating activity: {str(e)}")
+        raise
+    except StravaRateLimitError:
         raise
     except Exception as e:
         logger.error(f"Failed to update Strava activity: {str(e)}")
@@ -219,4 +302,3 @@ def update_activity_status(
     except Exception as e:
         logger.error(f"Failed to update activity status: {str(e)}")
         # Don't raise - this is not critical for processing
-

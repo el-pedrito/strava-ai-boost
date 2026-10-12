@@ -23,13 +23,21 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from processing.coach_output_check import (
     CONTENT_CHECKED_FIELDS,
     find_internal_contradictions,
+    split_sentences,
     strip_false_claims,
     verify_weekly_claims,
+)
+from processing.content_numeric_check import (
+    athlete_family_loads,
+    check_lap_paces,
+    check_strength_loads,
+    lap_paces_seconds,
 )
 from shared.campus_structure import (
     compute_ppg_volume,
     extract_athlete_loads,
     is_fully_completed,
+    resolve_exercise_loads,
     summarize_structure,
 )
 from shared.lap_facts import build_lap_facts
@@ -62,6 +70,24 @@ def build_content_facts(
         except (TypeError, ValueError):
             duration_min = None
 
+    athlete_text = (
+        (activity_data or {}).get("original_description")
+        or (activity_data or {}).get("description")
+    )
+
+    # Loads the athlete wrote, per exercise family: only for a strength session, where
+    # the text swapped them (split squat 16 kg / mollet 12 kg published as 12 on the
+    # split squat). Same source as the campus_exercise_loads the agent receives.
+    strength_loads = None
+    activity_type = str(
+        (activity_data or {}).get("type") or (activity_data or {}).get("sport_type") or ""
+    )
+    if activity_type == "WeightTraining":
+        strength_loads = athlete_family_loads(
+            athlete_text,
+            resolve_exercise_loads(matched, athlete_text) if matched else None,
+        )
+
     campus = None
     if matched:
         # The volume carries the computed isometric times, which is what the seconds-total
@@ -80,6 +106,9 @@ def build_content_facts(
     return {
         "lap_facts": build_lap_facts(laps_data) if laps_data else None,
         "campus": campus,
+        # Seconds per km of every lap, from average_speed only (never max_speed).
+        "lap_paces_s": lap_paces_seconds(laps_data),
+        "strength_loads": strength_loads,
     }
 
 
@@ -116,6 +145,64 @@ def _check_prompt_example_leak(
     return problems
 
 
+def _numeric_problems(sentence: str, facts: Optional[Dict[str, Any]]) -> List[str]:
+    """Lap paces and strength loads in one sentence that contradict the athlete's data."""
+    if not isinstance(facts, dict):
+        facts = {}
+    return check_lap_paces(sentence, facts.get("lap_paces_s")) + check_strength_loads(
+        sentence, facts.get("strength_loads")
+    )
+
+
+def _check_numeric_claims(
+    content: Dict[str, Any],
+    facts: Optional[Dict[str, Any]],
+    fields: Tuple[str, ...] = CONTENT_CHECKED_FIELDS,
+) -> List[str]:
+    problems: List[str] = []
+    for field in fields:
+        text = content.get(field)
+        if not isinstance(text, str) or not text:
+            continue
+        for sentence in split_sentences(text):
+            problems += [f"{field}: {p}" for p in _numeric_problems(sentence, facts)]
+    return problems
+
+
+def _strip_numeric_claims(
+    content: Dict[str, Any],
+    facts: Optional[Dict[str, Any]],
+) -> Tuple[Dict[str, Any], List[str]]:
+    """Last resort for the pace/load checks, which strip_false_claims does not know.
+
+    A field is rewritten only when a sentence is actually removed, so a clean field keeps
+    its original formatting.
+    """
+    cleaned = dict(content)
+    removed: List[str] = []
+    for field in CONTENT_CHECKED_FIELDS:
+        text = cleaned.get(field)
+        if not isinstance(text, str) or not text:
+            continue
+        kept, dropped = [], []
+        for sentence in split_sentences(text):
+            (dropped if _numeric_problems(sentence, facts) else kept).append(sentence.strip())
+        if dropped:
+            cleaned[field] = " ".join(kept).strip()
+            removed += dropped
+    return cleaned, removed
+
+
+def _strip_all(
+    content: Dict[str, Any], facts: Optional[Dict[str, Any]]
+) -> Tuple[Dict[str, Any], List[str]]:
+    stripped, removed = strip_false_claims(
+        content, None, None, facts, CONTENT_CHECKED_FIELDS
+    )
+    stripped, removed_numeric = _strip_numeric_claims(stripped, facts)
+    return stripped, removed + removed_numeric
+
+
 def verify_content(
     content: Optional[Dict[str, Any]],
     facts: Optional[Dict[str, Any]],
@@ -127,6 +214,7 @@ def verify_content(
     problems = verify_weekly_claims(content, None, None, facts, CONTENT_CHECKED_FIELDS)
     problems += find_internal_contradictions(content, activity_date, CONTENT_CHECKED_FIELDS)
     problems += _check_prompt_example_leak(content)
+    problems += _check_numeric_claims(content, facts)
     return problems
 
 
@@ -191,17 +279,13 @@ def apply_content_guard(
         remaining = verify_content(retried, facts, activity_date)
         if not remaining:
             return retried, [], []
-        stripped, removed = strip_false_claims(
-            retried, None, None, facts, CONTENT_CHECKED_FIELDS
-        )
+        stripped, removed = _strip_all(retried, facts)
         stripped, kept = _restore_emptied_fields(stripped, retried)
         if kept:
             removed = []
         return stripped, remaining, removed
 
-    stripped, removed = strip_false_claims(
-        content, None, None, facts, CONTENT_CHECKED_FIELDS
-    )
+    stripped, removed = _strip_all(content, facts)
     stripped, kept = _restore_emptied_fields(stripped, content)
     if kept:
         removed = []

@@ -18,7 +18,11 @@ from embedded_prompts import COACH_AGENT_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
-MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-5")
+MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-5-5")
+# Explicit output budget for every coach call. Strands sends no maxTokens by
+# default, and the old 1500 on the Converse path truncated Sonnet 5's longer
+# feedback JSON.
+COACH_MAX_TOKENS = int(os.environ.get("COACH_MAX_TOKENS", "8192"))
 REGION = os.environ.get("AWS_REGION", "eu-west-1")
 MEMORY_ID = os.environ.get("BEDROCK_AGENTCORE_MEMORY_ID")
 
@@ -169,7 +173,8 @@ def generate_coaching_feedback(
             modelId=MODEL_ID,
             messages=[{"role": "user", "content": [{"text": user_message}]}],
             system=[{"text": system_prompt}],
-            inferenceConfig={"maxTokens": 1500, "temperature": 0.7},
+            # No temperature: Claude 5.5 models reject it ("deprecated for this model").
+            inferenceConfig={"maxTokens": COACH_MAX_TOKENS},
         )
 
         output = response.get("output", {}).get("message", {}).get("content", [])
@@ -187,8 +192,12 @@ def generate_coaching_feedback(
 try:
     from bedrock_agentcore import BedrockAgentCoreApp
     from strands import Agent
+    from strands.models import BedrockModel
 
     app = BedrockAgentCoreApp()
+
+    def _coach_model() -> "BedrockModel":
+        return BedrockModel(model_id=MODEL_ID, max_tokens=COACH_MAX_TOKENS)
 
     @app.entrypoint
     def invoke(payload, context=None):
@@ -215,7 +224,7 @@ Règles:
 - Texte brut uniquement: PAS de **bold**, PAS de *italic*, PAS de listes à puces, PAS de markdown
 - Utilise des tirets simples ou des retours à la ligne pour structurer si besoin"""
 
-                agent = Agent(model=MODEL_ID, system_prompt=conv_prompt)
+                agent = Agent(model=_coach_model(), system_prompt=conv_prompt)
                 result = agent(question)
                 response_text = result.message.get("content", [{}])[0].get("text", str(result))
                 return {"response": response_text}
@@ -230,7 +239,7 @@ Règles:
                 activity_data, user_config, historical_summary, mem_id
             )
 
-            agent = Agent(model=MODEL_ID, system_prompt=system_prompt)
+            agent = Agent(model=_coach_model(), system_prompt=system_prompt)
             result = agent(user_message)
 
             response_text = result.message.get("content", [{}])[0].get("text", str(result))

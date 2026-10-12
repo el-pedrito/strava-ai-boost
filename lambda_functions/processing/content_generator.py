@@ -14,23 +14,130 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 import boto3
+from aws_lambda_powertools.metrics import single_metric
+from botocore.config import Config as BotoConfig
+from botocore.exceptions import (
+    ClientError,
+    ConnectionClosedError,
+    ConnectTimeoutError,
+    EndpointConnectionError,
+    ReadTimeoutError,
+)
 
 from processing.workout_analysis import (
     classify_workout_from_laps,
     extract_enduraw_report,
 )
 from processing.content_guard import apply_content_guard
+from processing.formatting import format_paragraphs
 from shared.campus_structure import resolve_exercise_loads
 from processing.modules_processing import get_active_modules, apply_module_processing
 from shared.iso_week import iso_week_label
+from shared.llm_models import no_thinking
 from shared.strength_volume import compute_session_volume
-from shared.logger import get_logger, metrics, MetricUnit
+from shared.logger import get_logger, metrics, MetricUnit, METRICS_NAMESPACE
 from shared.strength_exercises import (
     CANONICAL_STRENGTH_EXERCISES,
     canonicalize_exercise_name,
 )
 
 logger = get_logger("content-generator")
+
+# Business metric "an artefact was produced" (reliability plan, lot 1).
+#
+# The Lambda Errors metric never sees a failed generation here: the handler catches
+# everything and answers {"statusCode": 500}. So every invocation records exactly one
+# ContentProduced datapoint whose `outcome` says what actually came out:
+#   ok        -- content stored, nothing degraded
+#   degraded  -- content stored, but a best-effort step failed (guard, strength sets)
+#   empty     -- the agent answered, but with no title/description to publish
+#   failed    -- no content at all
+# Never emitted for preview=true: a preview is a prompt experiment, not production.
+CONTENT_METRIC_NAME = "ContentProduced"
+
+# Best-effort steps that failed during the CURRENT invocation. Reset at handler
+# entry; read once at the end to turn "ok" into "degraded". A module-level list
+# (rather than threading a flag through every helper) because the failing steps sit
+# several calls deep and a Lambda container serves one invocation at a time.
+_DEGRADATIONS: List[str] = []
+
+
+def _mark_degraded(reason: str) -> None:
+    """Record that a best-effort step failed; the artefact is still produced."""
+    _DEGRADATIONS.append(reason)
+
+
+def _record_outcome(outcome: str) -> None:
+    """Emit ContentProduced{outcome} as its own EMF blob, immediately.
+
+    single_metric rather than the shared buffered `metrics`: dimensions on the shared
+    instance apply to every metric of the flush, so `outcome` would leak onto the
+    anomaly metrics recorded in the same invocation. The dimension set is exactly
+    {outcome}, which is what the CloudWatch alarms select on.
+    """
+    try:
+        with single_metric(
+            name=CONTENT_METRIC_NAME, unit=MetricUnit.Count, value=1,
+            namespace=METRICS_NAMESPACE,
+        ) as metric:
+            metric.add_dimension(name="outcome", value=outcome)
+    except Exception as exc:  # noqa: BLE001 - a metric must never break the pipeline
+        logger.warning(f"Could not emit {CONTENT_METRIC_NAME}{{outcome={outcome}}}: {exc}")
+
+# One content generation on Sonnet 5 runs 50-150s (thinking + JSON). botocore's
+# default read_timeout is 60s and it RETRIES on timeout: on 2026-10-08 the first
+# call was still running when botocore fired a duplicate, and the two together
+# blew the Lambda's 120s budget. Read timeout above the worst-case generation,
+# no transport retry (the handler owns the single correction retry).
+# Retries stay ON: a cold runtime answers 502 Bad Gateway for a few seconds
+# while its container boots (2026-10-09, activity 20518589504 lost to a 502
+# 4s after the container started, once retries had been disabled). With the
+# 300s read timeout a timeout-triggered retry can only fire after 300s, so
+# the duplicate-call race of 2026-10-08 cannot recur within the Lambda budget.
+AGENTCORE_CLIENT_CONFIG = BotoConfig(
+    read_timeout=300,
+    connect_timeout=10,
+    retries={"max_attempts": 3, "mode": "standard"},
+)
+
+
+class TransientAgentError(Exception):
+    """The AgentCore runtime failed in a way a later attempt can fix.
+
+    Raised (not answered as a 500 payload) so Step Functions sees a Lambda error
+    named exactly ``TransientAgentError`` and applies the Retry of GenerateContent
+    (reliability plan, lot 3). botocore's own retries have already been spent by
+    the time this is raised: this is the second, slower retry layer.
+    """
+
+
+# HTTP statuses and error codes a cold or throttled runtime answers with.
+_TRANSIENT_HTTP_STATUSES = {429, 502, 503, 504}
+_TRANSIENT_ERROR_CODES = {
+    "ThrottlingException",
+    "TooManyRequestsException",
+    "ServiceUnavailableException",
+    "ServiceUnavailable",
+    "RequestTimeout",
+    "RequestTimeoutException",
+}
+_TRANSIENT_NETWORK_ERRORS = (
+    ReadTimeoutError,
+    ConnectTimeoutError,
+    EndpointConnectionError,
+    ConnectionClosedError,
+)
+
+
+def _is_transient_agent_error(exc: BaseException) -> bool:
+    """True for 502/503/504, throttling and timeouts of the AgentCore call."""
+    if isinstance(exc, _TRANSIENT_NETWORK_ERRORS):
+        return True
+    if isinstance(exc, ClientError):
+        error = exc.response.get("Error", {}) or {}
+        status = (exc.response.get("ResponseMetadata", {}) or {}).get("HTTPStatusCode")
+        return status in _TRANSIENT_HTTP_STATUSES or error.get("Code") in _TRANSIENT_ERROR_CODES
+    return False
 
 
 def _apply_preserved_original(activity_data: dict, item: dict) -> None:
@@ -76,6 +183,8 @@ USER_CONFIG_TABLE = os.environ.get('USER_CONFIG_TABLE', 'strava-ai-boost-user-co
 @metrics.log_metrics
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Lambda handler for content generation"""
+    _DEGRADATIONS.clear()
+    is_preview = bool(event.get('preview'))
     try:
         logger.info(f"Content generator received event: {json.dumps(event, default=str)}")
 
@@ -159,6 +268,21 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         except Exception as guard_error:
             # Never blocking: a published description beats no description.
             logger.warning(f"Content guard failed, publishing unchecked: {guard_error}")
+            _mark_degraded("content_guard")
+
+        # Preview: generate and return only. No DynamoDB write, no Campus "done"
+        # marker, no strength history entry, and the caller does not reach the
+        # Strava updater. Used to compare a prompt change on real activities
+        # without touching what is published (invoke the Lambda directly).
+        if is_preview:
+            logger.info("Preview mode: content returned, nothing stored", extra={"activity_id": activity_id})
+            return {
+                'statusCode': 200,
+                'preview': True,
+                'activity_id': activity_id,
+                'enhanced_content': enhanced_content,
+                'modules_applied': [m['name'] for m in enhanced_modules],
+            }
 
         # Store generated content
         store_generated_content(activity_id, enhanced_content)
@@ -179,6 +303,17 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         if sport_type == 'WeightTraining':
             _track_strength_history(user_id, activity_id, activity_data)
 
+        if not (enhanced_content or {}).get('title') or not (enhanced_content or {}).get('description'):
+            # Stored as before (the updater skips blank fields), but nothing worth
+            # publishing came out of the agent: that must not look like a success.
+            logger.warning("Generated content has no title or no description", extra={"activity_id": activity_id})
+            _record_outcome("empty")
+        elif _DEGRADATIONS:
+            logger.warning("Content produced with degraded steps", extra={"activity_id": activity_id, "degraded": list(_DEGRADATIONS)})
+            _record_outcome("degraded")
+        else:
+            _record_outcome("ok")
+
         return {
             'statusCode': 200,
             'activity_id': activity_id,
@@ -187,8 +322,16 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'modules_applied': [m['name'] for m in enhanced_modules]
         }
 
+    except TransientAgentError as e:
+        # Raised, not answered as a 500: Step Functions retries GenerateContent on it.
+        logger.error(f"Content generation transient AgentCore error, raising for retry: {str(e)}")
+        if not is_preview:
+            _record_outcome("failed")
+        raise
     except Exception as e:
         logger.error(f"Content generation error: {str(e)}")
+        if not is_preview:
+            _record_outcome("failed")
         return {
             'statusCode': 500,
             'error': str(e),
@@ -352,9 +495,9 @@ def generate_enhanced_content(
 
     # Initialize AgentCore client
     try:
-        agentcore_client = boto3.client('bedrock-agentcore', region_name=REGION)
+        agentcore_client = boto3.client('bedrock-agentcore', region_name=REGION, config=AGENTCORE_CLIENT_CONFIG)
     except Exception:
-        agentcore_client = boto3.client('bedrock-agent-runtime', region_name=REGION)
+        agentcore_client = boto3.client('bedrock-agent-runtime', region_name=REGION, config=AGENTCORE_CLIENT_CONFIG)
 
     session_id = f"content-gen-{uuid.uuid4().hex}"
 
@@ -443,6 +586,14 @@ def generate_enhanced_content(
         'user_profile': user_profile,
         'active_modules': modules,
         'campus_coach_session': campus_coach_sessions,
+        # Title of the session the deterministic matcher bound to this activity, or
+        # None when the sessions are passed as context only. The agent cannot see the
+        # match score, so without this it could not know when the 📋 header is due.
+        'campus_matched_title': next(
+            (m['matched_session'].get('title') for m in modules
+             if m.get('name') == 'campus_coach' and m.get('matched_session')),
+            None,
+        ),
         'campus_exercise_loads': campus_exercise_loads,
         'campus_coach_context': _get_campus_context(),
         'enduraw_data': enduraw_data,
@@ -460,20 +611,35 @@ def generate_enhanced_content(
 
     # Invoke agent
     payload = json.dumps(agent_input, default=str).encode('utf-8')
-    response = agentcore_client.invoke_agent_runtime(
-        agentRuntimeArn=agent_arn,
-        runtimeSessionId=session_id,
-        payload=payload
-    )
+    try:
+        response = agentcore_client.invoke_agent_runtime(
+            agentRuntimeArn=agent_arn,
+            runtimeSessionId=session_id,
+            payload=payload
+        )
 
-    # Process response
-    completion = _process_agent_response(response)
+        # Process response (the streamed body can still time out here)
+        completion = _process_agent_response(response)
+    except Exception as invoke_error:
+        if _is_transient_agent_error(invoke_error):
+            raise TransientAgentError(f"AgentCore content agent transient failure: {invoke_error}") from invoke_error
+        raise
 
     # Parse agent response
     result = _parse_agent_response(completion, workout_classification, modules)
 
     # Remove incomplete fun facts (LLM sometimes cuts mid-sentence)
     result['description'] = _fix_truncated_fun_fact(result.get('description', ''))
+
+    # Never open the description by restating the title (2026-10-09: title
+    # "Footing EF du vendredi, 6,66 km en zone 2", description opened with
+    # "Footing EF du vendredi, 6,66 km en 40:10.").
+    result['description'] = _strip_title_echo(result.get('title', ''), result['description'])
+
+    # Short paragraphs, deterministically (reliability lot 4): the athlete re-split
+    # every long block by hand. Only whitespace changes; coach block and signature
+    # are left verbatim.
+    result['description'] = format_paragraphs(result['description'])
 
     # Enforce user preferences on generated content
     result['title'], result['description'] = enforce_preferences(
@@ -579,6 +745,35 @@ def _get_campus_context() -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.warning(f"Failed to fetch Campus athlete context: {e}")
         return None
+
+
+_WORD_RE = re.compile(r"[\w']+", re.UNICODE)
+
+
+def _strip_title_echo(title: str, description: str) -> str:
+    """Drop the description's first sentence when it merely restates the title.
+
+    Strava shows the title right above the description, so an opening sentence
+    that repeats it reads as a duplicate. Only the first sentence is ever
+    considered, and only when its opening words ARE the title's opening words
+    (at least 4, or the whole title when shorter): an athlete-written opening
+    that happens to share a word with the title is never touched.
+    """
+    if not title or not description:
+        return description
+    stripped = description.lstrip()
+    match = re.match(r"(.+?[.!?])(\s+|$)", stripped, re.DOTALL)
+    first = match.group(1) if match else stripped.split("\n", 1)[0]
+    if "\n" in first:
+        first = first.split("\n", 1)[0]
+    title_words = [w.lower() for w in _WORD_RE.findall(title)]
+    first_words = [w.lower() for w in _WORD_RE.findall(first)]
+    need = min(4, len(title_words))
+    if need == 0 or first_words[:need] != title_words[:need]:
+        return description
+    rest = stripped[len(first):].lstrip()
+    # Never empty the description: keep it as is if the echo was all there was.
+    return rest if rest else description
 
 
 def _fix_truncated_fun_fact(description: str) -> str:
@@ -910,10 +1105,14 @@ def _extract_strength_sets(description: str) -> List[Dict[str, Any]]:
             # bulk replay then stored as "this session had no exercises" for 52 of
             # 64 sessions. Truncation is silent by construction here, so the budget
             # must fit the worst realistic session.
-            inferenceConfig={"maxTokens": 3000, "temperature": 0.0},
+            # No temperature: Claude 5.5 models reject it ("deprecated for this model").
+            inferenceConfig={"maxTokens": 3000},
+            # Deterministic extraction: reasoning only eats the budget on 5.5.
+            additionalModelRequestFields=no_thinking(STRENGTH_EXTRACTION_MODEL_ID),
         )
     except Exception as e:  # noqa: BLE001 - best-effort, never break the pipeline
         logger.warning(f"Strength extraction Bedrock call failed: {e}")
+        _mark_degraded("strength_extraction")
         return []
 
     output = response.get("output", {}).get("message", {}).get("content", [])
@@ -930,6 +1129,7 @@ def _extract_strength_sets(description: str) -> List[Dict[str, Any]]:
         parsed = json.loads(text)
     except (json.JSONDecodeError, ValueError) as e:
         logger.warning(f"Strength extraction returned non-JSON: {e}")
+        _mark_degraded("strength_extraction")
         return []
 
     if not isinstance(parsed, list):
@@ -1101,6 +1301,7 @@ def _track_strength_history(user_id: str, activity_id: str, activity_data: Dict[
         # showed a single warning nobody read. A data-loss path needs a metric.
         logger.warning(f"Failed to track strength history: {e}")
         metrics.add_metric(name="StrengthHistoryWriteFailed", unit=MetricUnit.Count, value=1)
+        _mark_degraded("strength_history_write")
 
 
 def _convert_floats_to_decimal(obj: Any) -> Any:

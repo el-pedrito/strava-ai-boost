@@ -53,7 +53,14 @@ class CoreInfrastructureStack(Stack):
         self._add_secrets_permissions()
 
     def _create_dynamodb_tables(self) -> None:
-        """Create all required DynamoDB tables with encryption"""
+        """Create all required DynamoDB tables with encryption.
+
+        RETAIN + PITR on every table (reliability plan lot 7): they hold the only
+        copy of the athlete's history, so a stack deletion or an accidental
+        replacement must orphan them, never delete them. Changing a removal
+        policy only rewrites DeletionPolicy/UpdateReplacePolicy in the template,
+        it does not replace the table.
+        """
         
         # Strava Activities table - stores activity data and processing status
         self.activities_table = dynamodb.Table(
@@ -68,7 +75,7 @@ class CoreInfrastructureStack(Stack):
             point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
                 point_in_time_recovery_enabled=True
             ),
-            removal_policy=RemovalPolicy.DESTROY,  # For development
+            removal_policy=RemovalPolicy.RETAIN,  # user data: survives a stack deletion
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
             time_to_live_attribute="expires_at"
         )
@@ -112,7 +119,7 @@ class CoreInfrastructureStack(Stack):
             point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
                 point_in_time_recovery_enabled=True
             ),
-            removal_policy=RemovalPolicy.DESTROY
+            removal_policy=RemovalPolicy.RETAIN
         )
 
         # Campus Coaching Sessions table - stores extracted training sessions
@@ -132,7 +139,7 @@ class CoreInfrastructureStack(Stack):
             point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
                 point_in_time_recovery_enabled=True
             ),
-            removal_policy=RemovalPolicy.DESTROY
+            removal_policy=RemovalPolicy.RETAIN
         )
 
         # Add GSI for querying by week number
@@ -250,10 +257,8 @@ class CoreInfrastructureStack(Stack):
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
-                resources=[
-                    f"arn:aws:bedrock:{Aws.REGION}:{Aws.ACCOUNT_ID}:inference-profile/*",
-                    "arn:aws:bedrock:*::foundation-model/*"
-                ]
+                # Registry models only (src/config/llm_config.py), no foundation-model/*.
+                resources=all_iam_resources(region=Aws.REGION, account=Aws.ACCOUNT_ID)
             )
         )
 
@@ -285,11 +290,8 @@ class CoreInfrastructureStack(Stack):
                     "bedrock:InvokeModel",
                     "bedrock:InvokeModelWithResponseStream"
                 ],
-                resources=[
-                    *all_iam_resources(region=self.region, account=Aws.ACCOUNT_ID),
-                    f"arn:aws:bedrock:{self.region}:{Aws.ACCOUNT_ID}:inference-profile/*",
-                    "arn:aws:bedrock:*::foundation-model/*"
-                ]
+                # Registry models only (src/config/llm_config.py), no foundation-model/*.
+                resources=all_iam_resources(region=self.region, account=Aws.ACCOUNT_ID)
             )
         )
 
@@ -333,7 +335,7 @@ class CoreInfrastructureStack(Stack):
             self, "StravaOAuthSecret",
             secret_name="strava-ai-boost-oauth-tokens",
             description="Strava OAuth access and refresh tokens for AI Boost",
-            removal_policy=RemovalPolicy.DESTROY
+            removal_policy=RemovalPolicy.RETAIN
         )
 
         # Strava App credentials (client_id and client_secret)
@@ -341,7 +343,7 @@ class CoreInfrastructureStack(Stack):
             self, "StravaAppSecret",
             secret_name="strava-ai-boost-app-config",
             description="Strava application client ID and secret",
-            removal_policy=RemovalPolicy.DESTROY
+            removal_policy=RemovalPolicy.RETAIN
         )
 
         # Campus Coach credentials
@@ -349,7 +351,7 @@ class CoreInfrastructureStack(Stack):
             self, "CampusCoachSecret",
             secret_name="strava-ai-boost-campus-coach-credentials",
             description="Campus Coach login credentials for AgentCore Browser Tool",
-            removal_policy=RemovalPolicy.DESTROY
+            removal_policy=RemovalPolicy.RETAIN
         )
 
         # Intervals.icu API credentials
@@ -357,7 +359,7 @@ class CoreInfrastructureStack(Stack):
             self, "IntervalsICUSecret",
             secret_name="strava-ai-boost-intervals-icu-credentials",
             description="Intervals.icu API key for fitness metrics",
-            removal_policy=RemovalPolicy.DESTROY
+            removal_policy=RemovalPolicy.RETAIN
         )
 
     @property

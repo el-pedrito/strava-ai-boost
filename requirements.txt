@@ -1,6 +1,9 @@
 # AWS CDK Development Dependencies
 aws-cdk-lib==2.219.0
 constructs>=10.0.0,<11.0.0
+# cdk-nag AwsSolutions checks, enabled with `cdk synth -c nag=true` (CI). 2.x is the
+# last line compatible with aws-cdk-lib 2.219 (3.x needs a newer aws-cdk-lib).
+cdk-nag==2.38.2
 # Required at SYNTH time: .bedrock_agentcore.yaml is the only source of
 # BEDROCK_AGENTCORE_MEMORY_ID, and a venv without PyYAML used to make
 # load_agentcore_memory_id() return '' silently, blanking that variable on every

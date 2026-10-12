@@ -11,8 +11,17 @@ from datetime import date, datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 import boto3
+from aws_lambda_powertools.metrics import single_metric
+from botocore.config import Config as BotoConfig
+from botocore.exceptions import (
+    ClientError,
+    ConnectionClosedError,
+    ConnectTimeoutError,
+    EndpointConnectionError,
+    ReadTimeoutError,
+)
 
-from shared.logger import get_logger, inject_correlation_id, metrics, MetricUnit
+from shared.logger import get_logger, inject_correlation_id, metrics, MetricUnit, METRICS_NAMESPACE
 from shared.env_validation import validate_env_vars
 from shared.campus_status import STATUS_DONE, STATUS_SKIP, effective_status
 from processing.coach_output_check import (
@@ -37,6 +46,43 @@ from processing.modules_processing import match_campus_session
 
 logger = get_logger("coach-generator")
 
+# Business metric "an artefact was produced" (reliability plan, lot 1).
+#
+# The handler catches everything and answers {"statusCode": 500}, so Lambda Errors
+# never moves. Every invocation records exactly one CoachProduced datapoint:
+#   ok        -- feedback stored, nothing degraded
+#   degraded  -- feedback stored, but a best-effort step failed (context enrichment,
+#                Campus sessions, memory write)
+#   empty     -- the agent answered nothing usable (empty or unparsable response)
+#   failed    -- exception, no feedback at all
+COACH_METRIC_NAME = "CoachProduced"
+
+# Best-effort steps that failed during the CURRENT invocation, reset at handler entry.
+# Module-level because the failing steps sit in helpers; one invocation per container.
+_DEGRADATIONS: List[str] = []
+
+
+def _mark_degraded(reason: str) -> None:
+    """Record that a best-effort step failed; the feedback is still produced."""
+    _DEGRADATIONS.append(reason)
+
+
+def _record_outcome(outcome: str) -> None:
+    """Emit CoachProduced{outcome} as its own EMF blob, immediately.
+
+    single_metric, not the shared buffered `metrics`: a dimension on the shared
+    instance would also land on CoachClaimMismatch. Dimension set is exactly
+    {outcome}, which is what the CloudWatch alarm selects on.
+    """
+    try:
+        with single_metric(
+            name=COACH_METRIC_NAME, unit=MetricUnit.Count, value=1,
+            namespace=METRICS_NAMESPACE,
+        ) as metric:
+            metric.add_dimension(name="outcome", value=outcome)
+    except Exception as exc:  # noqa: BLE001 - a metric must never break the pipeline
+        logger.warning(f"Could not emit {COACH_METRIC_NAME}{{outcome={outcome}}}: {exc}")
+
 # AWS clients
 REGION = os.environ.get("AWS_REGION", "eu-west-1")
 dynamodb = boto3.resource("dynamodb", region_name=REGION)
@@ -48,11 +94,50 @@ MEMORY_ID = os.environ.get("BEDROCK_AGENTCORE_MEMORY_ID") or os.environ.get("MEM
 COACH_AGENT_ARN = os.environ.get("COACH_AGENT_ARN", "")
 
 
+class TransientAgentError(Exception):
+    """The AgentCore coach runtime failed in a way a later attempt can fix.
+
+    Raised (not answered as a 500 payload) so Step Functions sees a Lambda error
+    named exactly ``TransientAgentError`` and applies the Retry of GenerateCoach
+    (reliability plan, lot 3). Defined locally: content_generator has its own.
+    """
+
+
+# HTTP statuses and error codes a cold or throttled runtime answers with.
+_TRANSIENT_HTTP_STATUSES = {429, 502, 503, 504}
+_TRANSIENT_ERROR_CODES = {
+    "ThrottlingException",
+    "TooManyRequestsException",
+    "ServiceUnavailableException",
+    "ServiceUnavailable",
+    "RequestTimeout",
+    "RequestTimeoutException",
+}
+_TRANSIENT_NETWORK_ERRORS = (
+    ReadTimeoutError,
+    ConnectTimeoutError,
+    EndpointConnectionError,
+    ConnectionClosedError,
+)
+
+
+def _is_transient_agent_error(exc: BaseException) -> bool:
+    """True for 502/503/504, throttling and timeouts of the AgentCore call."""
+    if isinstance(exc, _TRANSIENT_NETWORK_ERRORS):
+        return True
+    if isinstance(exc, ClientError):
+        error = exc.response.get("Error", {}) or {}
+        status = (exc.response.get("ResponseMetadata", {}) or {}).get("HTTPStatusCode")
+        return status in _TRANSIENT_HTTP_STATUSES or error.get("Code") in _TRANSIENT_ERROR_CODES
+    return False
+
+
 # @log_metrics is what flushes add_metric to CloudWatch (EMF on stdout).
 # Without it the metrics are buffered and silently dropped.
 @metrics.log_metrics
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Lambda handler for coaching feedback generation."""
+    _DEGRADATIONS.clear()
     try:
         inject_correlation_id(logger, event)
         logger.info(f"Coach generator received event: {json.dumps(event, default=str)}")
@@ -167,6 +252,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     )
         except Exception as e:
             logger.warning(f"Failed to enrich historical summary: {e}")
+            _mark_degraded("historical_enrichment")
 
         # Add suffer_score and athlete_stats from current activity
         suffer_score = activity_data.get("suffer_score")
@@ -354,6 +440,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 )
         except Exception as e:
             logger.warning(f"Failed to fetch Campus Coach sessions: {e}")
+            _mark_degraded("campus_sessions")
 
         feedback = _invoke_coach_agent(
             activity_data, user_config, historical_summary
@@ -361,6 +448,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
         if not feedback:
             logger.warning(f"Coach agent returned no feedback for activity {activity_id}")
+            _record_outcome("empty")
             return {
                 "statusCode": 200,
                 "activity_id": activity_id,
@@ -483,6 +571,15 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             if key in feedback and isinstance(feedback[key], str):
                 feedback[key] = feedback[key].replace('—', ',').replace('–', ',')
 
+        if _DEGRADATIONS:
+            logger.warning(
+                "Coach feedback produced with degraded steps",
+                extra={"activity_id": activity_id, "degraded": list(_DEGRADATIONS)},
+            )
+            _record_outcome("degraded")
+        else:
+            _record_outcome("ok")
+
         return {
             "statusCode": 200,
             "activity_id": activity_id,
@@ -490,8 +587,15 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             "coach_feedback": feedback,
         }
 
+    except TransientAgentError as e:
+        # Raised, not answered as a 500: Step Functions retries GenerateCoach on it
+        # (its CoachErrorFallback catch still applies once the retries are spent).
+        logger.error(f"Coach generation transient AgentCore error, raising for retry: {e}")
+        _record_outcome("failed")
+        raise
     except Exception as e:
         logger.error(f"Coach generation error: {e}")
+        _record_outcome("failed")
         return {
             "statusCode": 500,
             "error": str(e),
@@ -509,10 +613,14 @@ def _invoke_coach_agent(
     import re
     import time
 
+    # botocore's default 60s read_timeout retried mid-generation and launched a
+    # duplicate agent call (content_gen 2026-10-08): wait longer than a generation.
+    # Retries stay ON so a cold runtime's transient 502 is absorbed.
+    client_config = BotoConfig(read_timeout=170, connect_timeout=10, retries={"max_attempts": 3, "mode": "standard"})
     try:
-        agentcore_client = boto3.client("bedrock-agentcore", region_name=REGION)
+        agentcore_client = boto3.client("bedrock-agentcore", region_name=REGION, config=client_config)
     except Exception:
-        agentcore_client = boto3.client("bedrock-agent-runtime", region_name=REGION)
+        agentcore_client = boto3.client("bedrock-agent-runtime", region_name=REGION, config=client_config)
 
     session_id = f"coach-{uuid.uuid4().hex}"
 
@@ -560,6 +668,8 @@ def _invoke_coach_agent(
                 logger.warning(f"Coach agent cold start (attempt {attempt+1}), retrying in {wait}s...")
                 time.sleep(wait)
             else:
+                if _is_transient_agent_error(e):
+                    raise TransientAgentError(f"AgentCore coach agent transient failure: {e}") from e
                 raise
 
     # Process response (same pattern as content_generator.py)
@@ -1377,3 +1487,4 @@ def write_coaching_observation(user_id: str, feedback: Dict[str, Any]) -> None:
         logger.info(f"Wrote coaching observation to memory for user {user_id}")
     except Exception as e:
         logger.warning(f"Failed to write coaching observation to memory: {e}")
+        _mark_degraded("memory_write")

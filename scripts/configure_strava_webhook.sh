@@ -27,7 +27,13 @@ if [ -n "$PROFILE" ]; then
 else
     PROFILE_ARGS=()
 fi
-VERIFY_TOKEN="strava-ai-boost-verify-token-${ENVIRONMENT}"
+# Subscription-validation token. Random, stored as `webhook_verify_token` in the
+# Strava APP secret (never in the OAuth secret: token refreshes rewrite that one
+# wholesale). Generated once by ensure_verify_token, then read back from Secrets
+# Manager -- never derived from the environment name, never printed.
+APP_SECRET_NAME="${STRAVA_APP_SECRET:-strava-ai-boost-app-config}"
+VERIFY_TOKEN=""
+VERIFY_TOKEN_HINT="<webhook_verify_token from secret ${APP_SECRET_NAME}>"
 AUTO_CONFIGURE=false
 CLEANUP_MODE=false
 VALIDATE_ONLY=false
@@ -147,6 +153,62 @@ retrieve_strava_credentials_from_secrets() {
     print_status "✅ Successfully retrieved Strava credentials from Secrets Manager"
 }
 
+read_verify_token() {
+    # Print the stored webhook_verify_token (empty if none). Read-only.
+    aws secretsmanager get-secret-value --secret-id "$APP_SECRET_NAME" \
+        "${PROFILE_ARGS[@]}" --region "$REGION" --query SecretString --output text \
+        | jq -r '.webhook_verify_token // empty'
+}
+
+ensure_verify_token() {
+    # BACKLOG order, step 1 + 2: make sure a random webhook_verify_token exists in
+    # the app secret, then load it from Secrets Manager into VERIFY_TOKEN. Writes
+    # the secret only when the key is absent (re-runs keep the same token).
+    local current
+    current=$(aws secretsmanager get-secret-value --secret-id "$APP_SECRET_NAME" \
+        "${PROFILE_ARGS[@]}" --region "$REGION" --query SecretString --output text) || {
+        print_error "Cannot read secret '$APP_SECRET_NAME'"
+        exit 1
+    }
+    if ! echo "$current" | jq -e 'type == "object"' > /dev/null 2>&1; then
+        print_error "Secret '$APP_SECRET_NAME' is not a JSON object, not touching it"
+        exit 1
+    fi
+
+    if [ -z "$(echo "$current" | jq -r '.webhook_verify_token // empty')" ]; then
+        print_status "No webhook_verify_token yet: generating a random one in '$APP_SECRET_NAME'"
+        local token
+        token=$(openssl rand -hex 32 2>/dev/null || python3 -c 'import secrets; print(secrets.token_hex(32))')
+        if [ "${#token}" -ne 64 ]; then
+            print_error "Could not generate a random verify token"
+            exit 1
+        fi
+        # Merge into the existing JSON (client_id/client_secret kept) through a
+        # private temp file, so the secret never appears on a command line.
+        local tmp
+        tmp=$(umask 077 && mktemp)
+        echo "$current" | jq -c --arg t "$token" '. + {webhook_verify_token: $t}' > "$tmp"
+        if ! aws secretsmanager put-secret-value --secret-id "$APP_SECRET_NAME" \
+            --secret-string "file://$tmp" "${PROFILE_ARGS[@]}" --region "$REGION" > /dev/null; then
+            rm "$tmp"
+            print_error "Failed to store webhook_verify_token in '$APP_SECRET_NAME'"
+            exit 1
+        fi
+        rm "$tmp"
+        token=""
+    else
+        print_status "Reusing the webhook_verify_token already stored in '$APP_SECRET_NAME'"
+    fi
+
+    # Always use the value read back from Secrets Manager, never a local copy.
+    VERIFY_TOKEN=$(read_verify_token)
+    if [ -z "$VERIFY_TOKEN" ]; then
+        print_error "webhook_verify_token missing from '$APP_SECRET_NAME' after write"
+        exit 1
+    fi
+    print_status "✅ Verify token loaded from Secrets Manager (value not shown)"
+}
+
 cleanup_webhook_subscriptions() {
     # Remove all existing webhook subscriptions
     print_status "Retrieving existing webhook subscriptions..."
@@ -206,10 +268,13 @@ validate_webhook_configuration() {
         local webhook_url="https://${api_id}.execute-api.${REGION}.amazonaws.com/prod/webhook"
         validation_results+=("✅ API Gateway deployed: $webhook_url")
         
-        # Test webhook endpoint
+        # Test webhook endpoint with the stored token (read-only; the handler is
+        # open while no token is stored, so any probe value works then).
         print_status "Testing webhook endpoint availability..."
-        local http_status
-        http_status=$(curl -s -o /dev/null -w "%{http_code}" -X GET "$webhook_url?hub.mode=subscribe&hub.challenge=test&hub.verify_token=$VERIFY_TOKEN" || echo "000")
+        local http_status probe_token
+        probe_token=$(read_verify_token 2>/dev/null || true)
+        probe_token="${probe_token:-unset-probe}"
+        http_status=$(curl -s -o /dev/null -w "%{http_code}" -X GET "$webhook_url?hub.mode=subscribe&hub.challenge=test&hub.verify_token=$probe_token" || echo "000")
         
         if [ "$http_status" = "200" ]; then
             validation_results+=("✅ Webhook endpoint responding correctly")
@@ -246,7 +311,7 @@ validate_webhook_configuration() {
             if [ "$has_verify_token" -gt 0 ]; then
                 validation_results+=("✅ Webhook verify token configured")
             else
-                validation_results+=("⚠️  Webhook verify token not configured (will use default)")
+                validation_results+=("⚠️  Webhook verify token not configured: run this script without --validate-only to generate it")
             fi
         else
             validation_results+=("❌ Unable to read secret value")
@@ -357,6 +422,9 @@ fi
 
 # Check required environment variables after attempting to retrieve from Secrets Manager
 validate_environment_variables
+
+# Random verify token in Secrets Manager, read back (BACKLOG order steps 1-2).
+ensure_verify_token
 
 # Get webhook URL from CloudFormation outputs
 print_status "Retrieving webhook URL from CloudFormation outputs..."
@@ -522,7 +590,7 @@ if echo "$SUBSCRIPTION_RESPONSE" | jq -e '.id' > /dev/null 2>&1; then
     print_status "✅ Webhook subscription created successfully!"
     print_status "Subscription ID: $SUBSCRIPTION_ID"
     print_status "Callback URL: $WEBHOOK_URL"
-    print_status "Verify Token: $VERIFY_TOKEN"
+    print_status "Verify Token: stored in ${APP_SECRET_NAME} (webhook_verify_token)"
     
     # Display subscription details
     echo ""
@@ -543,7 +611,7 @@ if echo "$SUBSCRIPTION_RESPONSE" | jq -e '.id' > /dev/null 2>&1; then
 {
   "subscription_id": "$SUBSCRIPTION_ID",
   "callback_url": "$WEBHOOK_URL",
-  "verify_token": "$VERIFY_TOKEN",
+  "verify_token_secret": "${APP_SECRET_NAME}#webhook_verify_token",
   "environment": "$ENVIRONMENT",
   "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "client_id": "$STRAVA_CLIENT_ID",
@@ -576,7 +644,7 @@ else
     if echo "$SUBSCRIPTION_RESPONSE" | grep -q "callback_url"; then
         print_error "Callback URL validation failed"
         print_error "Make sure your webhook endpoint is accessible and responds correctly"
-        print_error "Test manually: curl -X GET '$WEBHOOK_URL?hub.mode=subscribe&hub.challenge=test&hub.verify_token=$VERIFY_TOKEN'"
+        print_error "Test manually: curl -X GET '$WEBHOOK_URL?hub.mode=subscribe&hub.challenge=test&hub.verify_token=$VERIFY_TOKEN_HINT'"
     elif echo "$SUBSCRIPTION_RESPONSE" | grep -q "client_id\|client_secret"; then
         print_error "Invalid Strava client credentials"
         print_error "Check your STRAVA_CLIENT_ID and STRAVA_CLIENT_SECRET"
@@ -601,7 +669,7 @@ else
     echo "  2. Check API Gateway deployment:"
     echo "     aws apigateway get-rest-apis ${PROFILE:+--profile $PROFILE}"
     echo "  3. Test webhook endpoint manually:"
-    echo "     curl -X GET '$WEBHOOK_URL?hub.mode=subscribe&hub.challenge=test&hub.verify_token=$VERIFY_TOKEN'"
+    echo "     curl -X GET '$WEBHOOK_URL?hub.mode=subscribe&hub.challenge=test&hub.verify_token=$VERIFY_TOKEN_HINT'"
     echo "  4. Check Lambda function logs:"
     echo "     aws logs tail /aws/lambda/StravaAIBoost-WebhookHandler ${PROFILE:+--profile $PROFILE}"
     

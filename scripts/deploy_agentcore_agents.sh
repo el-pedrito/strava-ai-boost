@@ -427,6 +427,12 @@ deploy_coach_chat_runtime() {
     local agent_name="coach_chat"
     local memory_id="$1"
 
+    # The caller captures this function's stdout to read the ARN, which used to
+    # swallow every log line AND every error of this step ("deployment failed"
+    # with nothing to read). Send all output to stderr; only the ARN goes to the
+    # captured stdout (fd 3). Safe: the function runs in a $(...) subshell.
+    exec 3>&1 1>&2
+
     print_status ""
     print_status "🤖 Deploying conversational coach runtime: $agent_name (AGUI + customJWT)..."
 
@@ -523,7 +529,7 @@ deploy_coach_chat_runtime() {
     agent_arn=$(grep -A 40 "^  ${agent_name}:" .bedrock_agentcore.yaml | grep "agent_arn:" | head -1 | awk '{print $2}')
     print_success "$agent_name deployed: $agent_arn"
     print_status "➡️  Frontend activation (phase A): set coachRuntimeArn=\"$agent_arn\" in frontend/public/config.json"
-    echo "$agent_arn"
+    echo "$agent_arn" >&3
 }
 
 
@@ -627,6 +633,34 @@ main() {
     print_status "🔧 Next Step:"
     print_status "  Configure Lambda integration:"
     print_status "  ./scripts/configure_agentcore_integration.sh"
+
+    run_post_deploy_smoke
+}
+
+# Post-deploy smoke (reliability plan lot 2): model contract + one real content_gen
+# invocation (run_easy fixture). The runtime check imports the Lambda parser, which
+# needs the project deps, hence the project venv when there is one. SKIP_SMOKE=1
+# opts out. Credentials/region: AWS_PROFILE / AWS_DEFAULT_REGION exported by main().
+run_post_deploy_smoke() {
+    print_status ""
+    print_status "🧪 Post-deploy smoke test (models + content_gen runtime)..."
+    if [ "${SKIP_SMOKE:-0}" = "1" ]; then
+        print_warning "SKIP_SMOKE=1 - post-deploy smoke test skipped"
+        return 0
+    fi
+    local repo_root="$SCRIPT_DIR/.."
+    local smoke_python="python3"
+    for candidate in .venv-deploy venv .venv; do
+        if [ -x "$repo_root/$candidate/bin/python" ]; then
+            smoke_python="$repo_root/$candidate/bin/python"
+            break
+        fi
+    done
+    if ! AWS_REGION="$AWS_REGION" "$smoke_python" "$SCRIPT_DIR/smoke_models.py" --runtimes; then
+        print_error "Post-deploy smoke test failed (see above)."
+        exit 1
+    fi
+    print_success "Post-deploy smoke test passed"
 }
 
 # Function to check AgentCore CLI availability

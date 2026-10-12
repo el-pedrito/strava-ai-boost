@@ -62,8 +62,18 @@ class TestCoreInfrastructureStack:
         """Test Secrets Manager secrets are created"""
         template = assertions.Template.from_stack(core_stack)
         
-        # Should have 3 secrets
-        template.resource_count_is("AWS::SecretsManager::Secret", 3)
+        # 4 secrets: Strava OAuth tokens, Strava app config, Campus Coach and
+        # Intervals.icu credentials
+        template.resource_count_is("AWS::SecretsManager::Secret", 4)
+        for name in (
+            "strava-ai-boost-oauth-tokens",
+            "strava-ai-boost-app-config",
+            "strava-ai-boost-campus-coach-credentials",
+            "strava-ai-boost-intervals-icu-credentials",
+        ):
+            template.has_resource_properties(
+                "AWS::SecretsManager::Secret", {"Name": name}
+            )
     
     def test_lambda_layer_created(self, core_stack):
         """Test Lambda Layer is created"""
@@ -104,8 +114,18 @@ class TestContentGenerationStack:
         """Test that all Lambda functions are created"""
         template = assertions.Template.from_stack(content_stack)
         
-        # Should have 4 Lambda functions
-        template.resource_count_is("AWS::Lambda::Function", 4)
+        # 5 Lambda functions: fetcher, content, coach, assembly, Strava updater
+        template.resource_count_is("AWS::Lambda::Function", 5)
+        for name in (
+            "StravaAIBoost-ActivityFetcher",
+            "StravaAIBoost-ContentGenerator",
+            "StravaAIBoost-CoachGenerator",
+            "StravaAIBoost-Assembly",
+            "StravaAIBoost-StravaUpdater",
+        ):
+            template.has_resource_properties(
+                "AWS::Lambda::Function", {"FunctionName": name}
+            )
     
     def test_step_functions_workflow(self, content_stack):
         """Test Step Functions state machine is created"""
@@ -113,14 +133,11 @@ class TestContentGenerationStack:
         
         template.resource_count_is("AWS::StepFunctions::StateMachine", 1)
     
-    def test_eventbridge_schedule(self, content_stack):
-        """Test EventBridge schedule for Campus Coach"""
+    def test_no_eventbridge_schedule(self, content_stack):
+        """The Campus Coach schedule moved to the webhook stack (REST sync)"""
         template = assertions.Template.from_stack(content_stack)
-        
-        # Should have EventBridge rule for Campus Coach
-        template.has_resource_properties("AWS::Events::Rule", {
-            "ScheduleExpression": assertions.Match.string_like_regexp("cron.*")
-        })
+
+        template.resource_count_is("AWS::Events::Rule", 0)
     
     def test_lambda_environment_variables(self, content_stack):
         """Test Lambda functions have required environment variables"""
@@ -189,13 +206,25 @@ class TestWebhookProcessingStack:
         template = assertions.Template.from_stack(webhook_stack)
         
         # Should have alarms for DLQ, old messages, Lambda errors
-        template.resource_count_is("AWS::CloudWatch::Alarm", 3)
+        template.resource_count_is("AWS::CloudWatch::Alarm", 14)
     
     def test_api_gateway_created(self, webhook_stack):
         """Test API Gateway is created for webhooks"""
         template = assertions.Template.from_stack(webhook_stack)
         
         template.resource_count_is("AWS::ApiGateway::RestApi", 1)
+
+    def test_eventbridge_schedule(self, webhook_stack):
+        """Test EventBridge schedule for the Campus Coach REST sync"""
+        template = assertions.Template.from_stack(webhook_stack)
+
+        template.has_resource_properties("AWS::Events::Rule", {
+            "Name": "strava-ai-boost-campus-coach-daily-sync",
+            "ScheduleExpression": assertions.Match.string_like_regexp("cron.*"),
+            "Targets": assertions.Match.array_with([
+                assertions.Match.object_like({"Arn": assertions.Match.any_value()})
+            ]),
+        })
 
 
 class TestApiGatewayStack:
@@ -263,8 +292,19 @@ class TestApiGatewayStack:
         """Test Lambda functions for API endpoints"""
         template = assertions.Template.from_stack(api_stack)
         
-        # Config, dashboard, preferences, health, coach ask, coach stream
-        template.resource_count_is("AWS::Lambda::Function", 6)
+        # Config, dashboard, preferences, health. The coach ask/stream Lambdas
+        # were replaced by the coach_chat AgentCore Runtime (outside CDK), and
+        # the audio debrief Lambda belongs to the voice debrief stack.
+        template.resource_count_is("AWS::Lambda::Function", 4)
+        for name in (
+            "StravaAIBoost-ConfigurationAPI",
+            "StravaAIBoost-DashboardAPI",
+            "StravaAIBoost-UserPreferencesAPI",
+            "StravaAIBoost-AgentCoreHealthCheck",
+        ):
+            template.has_resource_properties(
+                "AWS::Lambda::Function", {"FunctionName": name}
+            )
 
 
 class TestSecurityCompliance:
@@ -311,7 +351,7 @@ class TestSecurityCompliance:
         core_template = assertions.Template.from_stack(all_stacks["core"])
         
         # Secrets should be created (encryption is default)
-        core_template.resource_count_is("AWS::SecretsManager::Secret", 3)
+        core_template.resource_count_is("AWS::SecretsManager::Secret", 4)
     
     def test_lambda_timeout_configuration(self, all_stacks):
         """Test Lambda functions have appropriate timeouts"""

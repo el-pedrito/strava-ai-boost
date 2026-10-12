@@ -1,0 +1,18 @@
+# Exact pins for the CI test/security jobs, installed on top of requirements.txt
+# (pip install -r requirements.txt -r requirements-ci.txt). Same versions as the
+# local dev venv, except pytest/requests bumped to their pip-audit fix versions.
+
+# Test runners
+pytest==9.0.3
+pytest-asyncio==1.3.0
+hypothesis==6.148.7
+moto==5.1.18
+
+# Lambda runtime deps imported by the unit tests (shipped in the Lambda layer,
+# see lambda_layer/requirements.txt)
+aws-lambda-powertools==3.31.1
+requests==2.33.0
+
+# Security tooling
+pip-audit==2.10.1
+detect-secrets==1.5.0

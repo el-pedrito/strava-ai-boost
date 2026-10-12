@@ -12,14 +12,55 @@ Flow: DynamoDB query (7 days) → Bedrock script → Polly TTS → S3 → Dynamo
 import json
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import boto3
+from aws_lambda_powertools.metrics import single_metric
 from botocore.exceptions import ClientError
 
-from shared.logger import get_logger
+from shared.llm_models import no_thinking
+
+from shared.logger import get_logger, MetricUnit, METRICS_NAMESPACE
 
 logger = get_logger("weekly_audio_recap")
+
+# Business metric "an artefact was produced" (reliability plan, lot 1).
+#
+# Failures used to answer {"statusCode": 500}, which no alarm reads. Now every run that
+# reaches a decision records one WeeklyRecapProduced datapoint, and a failure RAISES so
+# Lambda Errors counts it (and the async invocation retries; the recap is idempotent):
+#   ok        -- MP3 + metadata stored
+#   degraded  -- stored, but a best-effort context read failed (memory, Campus goal)
+#   empty     -- no activity in the window: nothing to recap (not raised, keeps the
+#                "recap missing" alarm quiet on a rest week)
+#   failed    -- script, audio or storage failed (raised)
+# An idempotent skip (recap already stored for that week) emits nothing: the run
+# that stored it already emitted ok.
+RECAP_METRIC_NAME = "WeeklyRecapProduced"
+
+# Best-effort reads that failed during the CURRENT invocation, reset at handler entry.
+_DEGRADATIONS: List[str] = []
+
+
+class GenerationFailed(RuntimeError):
+    """The recap could not be produced."""
+
+
+def _mark_degraded(reason: str) -> None:
+    """Record that a best-effort read failed; the recap is still produced."""
+    _DEGRADATIONS.append(reason)
+
+
+def _record_outcome(outcome: str) -> None:
+    """Emit WeeklyRecapProduced{outcome} as its own EMF blob (dimensions: outcome)."""
+    try:
+        with single_metric(
+            name=RECAP_METRIC_NAME, unit=MetricUnit.Count, value=1,
+            namespace=METRICS_NAMESPACE,
+        ) as metric:
+            metric.add_dimension(name="outcome", value=outcome)
+    except Exception as exc:  # noqa: BLE001 - a metric must never mask the real error
+        logger.warning(f"Could not emit {RECAP_METRIC_NAME}{{outcome={outcome}}}: {exc}")
 
 # AWS clients
 dynamodb = boto3.resource("dynamodb")
@@ -43,10 +84,27 @@ DEFAULT_USER_ID = os.environ.get("DEFAULT_USER_ID", "")
 
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """Lambda handler. Supports EventBridge schedule and API invocation."""
+    """Lambda handler. Supports EventBridge schedule and API invocation.
+
+    Raises on failure, after emitting outcome=failed.
+    """
+    _DEGRADATIONS.clear()
+    try:
+        result, outcome = _generate_recap(event)
+    except Exception as exc:
+        logger.exception(f"Weekly audio recap not produced: {exc}")
+        _record_outcome("failed")
+        raise
+    if outcome:
+        _record_outcome(outcome)
+    return result
+
+
+def _generate_recap(event: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[str]]:
+    """Produce and store the recap. Returns (response payload, metric outcome or None)."""
     user_id = event.get("user_id") or DEFAULT_USER_ID
     if not user_id:
-        return {"statusCode": 400, "error": "No user_id"}
+        raise GenerationFailed("No user_id")
 
     # Determine which week to generate
     target_date = event.get("target_date")  # ISO date string, optional
@@ -74,13 +132,15 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     existing = _get_existing_recap(recap_table, user_id, week_label)
     if existing and not event.get("force"):
         logger.info(f"Recap already exists for {week_label}, skipping")
-        return {"statusCode": 200, "recap": existing}
+        # Counted (outcome=exists) so the weekly "missing" alarm sees that this
+        # week is covered; emitting nothing let it fire on a week already done.
+        return {"statusCode": 200, "recap": existing}, "exists"
 
     # Fetch week activities
     activities = _fetch_week_activities(user_id, start)
     if not activities:
         logger.info(f"No activities for {week_label}, skipping")
-        return {"statusCode": 200, "message": "No activities this week"}
+        return {"statusCode": 200, "message": "No activities this week"}, "empty"
 
     # Get user config for language and profile
     user_config = _get_user_config(user_id)
@@ -90,13 +150,13 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     # Generate script via Bedrock
     script = _generate_script(activities, athlete_profile, language, week_label, user_config=user_config, user_id=user_id)
     if not script:
-        return {"statusCode": 500, "error": "Script generation failed"}
+        raise GenerationFailed("Script generation failed")
 
     # Synthesize audio via Polly
     voice = POLLY_VOICE_FR if language == "fr" else POLLY_VOICE_EN
     audio_bytes, duration_sec = _synthesize_audio(script, voice)
     if not audio_bytes:
-        return {"statusCode": 500, "error": "Audio synthesis failed"}
+        raise GenerationFailed("Audio synthesis failed")
 
     # Store in S3
     s3_key = f"recaps/{user_id}/{week_label}.mp3"
@@ -117,7 +177,10 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     recap_table.put_item(Item=recap_item)
 
     logger.info(f"Recap generated: {week_label}, {duration_sec}s, {len(activities)} activities")
-    return {"statusCode": 200, "recap": recap_item}
+    if _DEGRADATIONS:
+        logger.warning("Recap produced with degraded context", extra={"degraded": list(_DEGRADATIONS)})
+        return {"statusCode": 200, "recap": recap_item}, "degraded"
+    return {"statusCode": 200, "recap": recap_item}, "ok"
 
 
 def _get_existing_recap(table, user_id: str, week: str) -> Optional[Dict]:
@@ -181,7 +244,9 @@ def _get_campus_goal_context() -> str:
             f"{goal.get('trainings_done', '?')}/{goal.get('trainings_total', '?')} séances | "
             f"Assiduité : {ctx.get('assiduity', '?')}"
         )
-    except Exception:
+    except Exception as e:  # noqa: BLE001 - best-effort context
+        logger.warning(f"Failed to read Campus goal context for recap: {e}")
+        _mark_degraded("campus_goal")
         return ""
 
 
@@ -219,6 +284,7 @@ def _retrieve_memory_observations(user_id: str) -> str:
             return " | ".join(t[:200] for t in texts)
     except Exception as e:
         logger.warning(f"Failed to retrieve memory for recap: {e}")
+        _mark_degraded("memory_read")
     return ""
 
 
@@ -312,13 +378,17 @@ Détail des séances :
             body=json.dumps({
                 "anthropic_version": "bedrock-2023-05-31",
                 "max_tokens": 800,
-                "temperature": 0.7,
+                # No temperature: Claude 5.5 models reject it ("deprecated for this model").
                 "system": system_prompt,
                 "messages": [{"role": "user", "content": user_msg}],
+                # Claude 5.5 thinks by default: content[0] became a thinking block
+                # and `["text"]` raised KeyError (2026-10-11 recap lost).
+                **no_thinking(MODEL_ID),
             }),
         )
         result = json.loads(resp["body"].read())
-        return result["content"][0]["text"].strip()
+        text = "".join(b.get("text", "") for b in result.get("content", []) if b.get("type") == "text")
+        return text.strip() or None
     except Exception as e:
         logger.error(f"Bedrock script generation failed: {e}")
         return None
