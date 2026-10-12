@@ -132,7 +132,9 @@ def _generate_recap(event: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[str
     existing = _get_existing_recap(recap_table, user_id, week_label)
     if existing and not event.get("force"):
         logger.info(f"Recap already exists for {week_label}, skipping")
-        return {"statusCode": 200, "recap": existing}, None
+        # Counted (outcome=exists) so the weekly "missing" alarm sees that this
+        # week is covered; emitting nothing let it fire on a week already done.
+        return {"statusCode": 200, "recap": existing}, "exists"
 
     # Fetch week activities
     activities = _fetch_week_activities(user_id, start)

@@ -520,7 +520,7 @@ class WebhookProcessingStack(Stack):
             ("WeeklySynthesisMissingAlarm", "strava-ai-boost-weekly-synthesis-missing",
              "WeeklySynthesisProduced", ("ok", "empty")),
             ("WeeklyRecapMissingAlarm", "strava-ai-boost-weekly-recap-missing",
-             "WeeklyRecapProduced", ("ok", "degraded", "empty")),
+             "WeeklyRecapProduced", ("ok", "degraded", "empty", "exists")),
         ):
             using = {o: produced(metric_name, o, period_7d) for o in outcomes}
             alarm = cloudwatch.Alarm(

@@ -88,7 +88,7 @@ FAILED_ALARMS = [
 ]
 MISSING_ALARMS = [
     ("strava-ai-boost-weekly-synthesis-missing", "WeeklySynthesisProduced", {"ok", "empty"}),
-    ("strava-ai-boost-weekly-recap-missing", "WeeklyRecapProduced", {"ok", "degraded", "empty"}),
+    ("strava-ai-boost-weekly-recap-missing", "WeeklyRecapProduced", {"ok", "degraded", "empty", "exists"}),
 ]
 
 

@@ -346,10 +346,11 @@ class TestWeeklyAudioRecap:
         assert result["statusCode"] == 200
         env["rec"].assert_called_once_with("empty")
 
-    def test_existing_recap_emits_nothing(self, env):
+    def test_existing_recap_emits_exists(self, env):
+        # The week is covered: counted so the "missing" alarm does not fire.
         env["existing"].return_value = {"week": "2026-W41"}
         recap.handler(dict(self.EVENT), None)
-        env["rec"].assert_not_called()
+        env["rec"].assert_called_once_with("exists")
 
     def test_script_failure_emits_failed_and_raises(self, env):
         env["script"].return_value = None
