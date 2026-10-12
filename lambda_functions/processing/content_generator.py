@@ -461,6 +461,14 @@ def generate_enhanced_content(
         'user_profile': user_profile,
         'active_modules': modules,
         'campus_coach_session': campus_coach_sessions,
+        # Title of the session the deterministic matcher bound to this activity, or
+        # None when the sessions are passed as context only. The agent cannot see the
+        # match score, so without this it could not know when the 📋 header is due.
+        'campus_matched_title': next(
+            (m['matched_session'].get('title') for m in modules
+             if m.get('name') == 'campus_coach' and m.get('matched_session')),
+            None,
+        ),
         'campus_exercise_loads': campus_exercise_loads,
         'campus_coach_context': _get_campus_context(),
         'enduraw_data': enduraw_data,

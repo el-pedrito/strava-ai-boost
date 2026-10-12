@@ -137,7 +137,7 @@ class TestEvaluateOutput:
             {"language": "fr", "max_chars": 1200, "emoji_policy": "minimal"},
         )
         by_id = {r["criterion"]: r for r in results}
-        assert len(results) == 8
+        assert len(results) == 10
         assert all(r["passed"] for r in results), [r for r in results if not r["passed"]]
         assert by_id["no_banned_cliche"]["severity"] == "fail"
         assert by_id["no_forbidden_dashes"]["severity"] == "warn"
@@ -189,3 +189,47 @@ class TestManagedDatasetConversion:
             assert isinstance(scenario.turns[0].input, dict)
             assert scenario.turns[0].input["user_id"] == "regression_eval"
             assert scenario.assertions and len(scenario.assertions) >= 3
+
+
+# --- Formalism criteria (2026-10-12, from the athlete's own edits) ---------
+
+from tests.regression.evaluators import (  # noqa: E402
+    check_forbidden_phrases,
+    check_no_projection,
+    check_paragraph_length,
+    check_required_phrases,
+)
+
+
+def test_paragraph_length_flags_long_block_but_ignores_coach_block() -> None:
+    long_block = "x" * 480
+    desc = f"Court.\n\n{long_block}\n\n📊 Strava AI Boost Coach\n{'y' * 600}"
+    assert not check_paragraph_length(desc)["passed"]
+    assert check_paragraph_length(f"Court.\n\n📊 Strava AI Boost Coach\n{'y' * 600}")["passed"]
+
+
+def test_no_projection_catches_the_lines_the_athlete_removed() -> None:
+    assert not check_no_projection("À ce rythme, un marathon prendrait 3h56.")["passed"]
+    assert not check_no_projection("Du carburant optimal pour l'athlète hybride.")["passed"]
+    assert check_no_projection("Sortie de 20 km à 5:36/km.")["passed"]
+
+
+def test_negation_is_checked_both_ways() -> None:
+    inverted = "Séance de poids du matin avec une force et une énergie de dingue dès les premières séries."
+    kept = "Pas une énergie de dingue aujourd'hui, mais la séance est faite."
+    assert not check_required_phrases(inverted, ["pas une"])["passed"]
+    assert not check_forbidden_phrases(inverted, ["force et une energie de dingue"])["passed"]
+    assert check_required_phrases(kept, ["pas une"])["passed"]
+    assert check_forbidden_phrases(kept, ["force et une energie de dingue"])["passed"]
+
+
+def test_new_fixtures_carry_their_formalism_checks() -> None:
+    import json
+    from pathlib import Path
+
+    fx = Path(__file__).parent / "fixtures"
+    neg = json.loads((fx / "strength_negated_feeling.json").read_text(encoding="utf-8"))
+    pacer = json.loads((fx / "run_event_pacer.json").read_text(encoding="utf-8"))
+    assert "pas une" in neg["eval"]["required_phrases"]
+    assert "pas de chrono" in pacer["eval"]["forbidden_phrases"]
+    assert "20km de Paris" in pacer["eval"]["required_phrases"]

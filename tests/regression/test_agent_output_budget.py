@@ -95,3 +95,39 @@ def test_short_structured_bedrock_calls_disable_thinking() -> None:
         assert marker in (ROOT / rel).read_text(encoding="utf-8"), rel
     recap = (ROOT / "lambda_functions/support/weekly_audio_recap.py").read_text(encoding="utf-8")
     assert '["content"][0]["text"]' not in recap
+
+
+def test_formalism_rules_are_in_the_prompts() -> None:
+    """Rules derived from the athlete's 2026-10 edits must stay in the prompts."""
+    system = (ROOT / "src/agents/embedded_prompts.py").read_text(encoding="utf-8")
+    agent = (ROOT / "src/agents/content_agent.py").read_text(encoding="utf-8")
+    assert "250 caractères maximum" in system and "250 caractères maximum" in agent
+    assert "NÉGATIONS" in system and "NÉGATIONS" in agent
+    assert "ZÉRO PROJECTION SANS SOURCE" in system
+    assert "N'invente AUCUN cadre de séance" in system
+    # The "copy verbatim" order made the model paste raw notes (e.g. a date) on top.
+    assert "REPRENDS CES MOTS TEXTUELLEMENT" not in agent
+    # Campus header is driven by the deterministic match, rendered for the model.
+    assert "MATCH CAMPUS CONFIRMÉ" in agent
+    gen = (ROOT / "lambda_functions/processing/content_generator.py").read_text(encoding="utf-8")
+    assert "'campus_matched_title'" in gen
+
+
+def test_prompt_examples_are_free_of_banned_cliches() -> None:
+    """The model copies the style of its examples, so they must obey the rules."""
+    from tests.regression.evaluators import BANNED_CLICHES, normalize
+
+    system = (ROOT / "src/agents/embedded_prompts.py").read_text(encoding="utf-8")
+    start = system.index("### Example 1:")
+    examples = normalize(system[start:system.index("## Enduraw Detection Logic")])
+    hits = [c for c in BANNED_CLICHES if normalize(c) in examples]
+    assert hits == [], hits
+    for fragment in ("se reveiller", "tournait rond", "un marathon prendrait"):
+        assert fragment not in examples, fragment
+
+
+def test_memory_preferences_are_hints_from_the_preference_strategy() -> None:
+    agent = (ROOT / "src/agents/content_agent.py").read_text(encoding="utf-8")
+    assert "RESPECTE-LES" not in agent
+    assert "_is_preference_record(r)" in agent
+    assert "max_results=5" in agent
