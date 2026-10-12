@@ -6,6 +6,21 @@ import boto3
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict
 from shared.logger import get_logger
+from shared.llm_models import no_thinking, text_from_converse
+
+
+def _activity_hr(item: Dict[str, Any]) -> Any:
+    """Average HR of an activity item, from the top level or activity_data_json."""
+    hr = item.get("average_heartrate")
+    if not hr:
+        try:
+            hr = json.loads(item.get("activity_data_json") or "{}").get("average_heartrate")
+        except (TypeError, ValueError):
+            hr = None
+    try:
+        return float(hr) if hr else None
+    except (TypeError, ValueError):
+        return None
 
 logger = get_logger("weekly-synthesis")
 
@@ -48,10 +63,11 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         total_sessions = len(activities)
         total_time_min = sum(float(a.get("moving_time", 0)) for a in activities) / 60
         run_activities = [a for a in activities if a.get("activity_type") == "Run"]
-        avg_hr = 0
-        if run_activities:
-            hrs = [float(a.get("average_heartrate", 0)) for a in run_activities if a.get("average_heartrate")]
-            avg_hr = round(sum(hrs) / len(hrs)) if hrs else 0
+        # average_heartrate is not a top-level attribute of the activity item: it
+        # lives in activity_data_json. Reading only the top level always gave 0,
+        # and the synthesis told the athlete his HR strap was broken (2026-10-12).
+        hrs = [hr for hr in (_activity_hr(a) for a in run_activities) if hr]
+        avg_hr = round(sum(hrs) / len(hrs)) if hrs else None
 
         # Get user profile for context
         config_table = dynamodb.Table(USER_CONFIG_TABLE)
@@ -71,7 +87,7 @@ Records: {records_str}
 
 Semaine écoulée:
 - {total_sessions} séances, {total_km:.1f} km, {total_time_min:.0f} min total
-- FC moyenne (runs): {avg_hr} bpm
+- FC moyenne (runs): {f"{avg_hr} bpm" if avg_hr else "non disponible (ne pas commenter)"}
 - Types: {', '.join(set(a.get('activity_type', 'Unknown') for a in activities))}
 
 Réponds en JSON:
@@ -88,11 +104,13 @@ Réponds en JSON:
             messages=[{"role": "user", "content": [{"text": prompt}]}],
             system=[{"text": "Tu es un coach running expert. Réponds uniquement en JSON valide."}],
             # No temperature: Claude 5.5 models reject it ("deprecated for this model").
-            inferenceConfig={"maxTokens": 500},
+            # 1500, not 500: the 2026-10-11 synthesis was cut mid-string and the
+            # json.loads failed. Thinking off, it is a short JSON, not a reasoning task.
+            inferenceConfig={"maxTokens": 1500},
+            additionalModelRequestFields=no_thinking(BEDROCK_MODEL_ID),
         )
 
-        output = response.get("output", {}).get("message", {}).get("content", [])
-        response_text = "".join(block.get("text", "") for block in output)
+        response_text = text_from_converse(response)
 
         # Parse JSON response
         import re

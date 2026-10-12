@@ -17,6 +17,8 @@ from typing import Any, Dict, Optional
 import boto3
 from botocore.exceptions import ClientError
 
+from shared.llm_models import no_thinking
+
 from shared.logger import get_logger
 
 logger = get_logger("weekly_audio_recap")
@@ -315,10 +317,14 @@ Détail des séances :
                 # No temperature: Claude 5.5 models reject it ("deprecated for this model").
                 "system": system_prompt,
                 "messages": [{"role": "user", "content": user_msg}],
+                # Claude 5.5 thinks by default: content[0] became a thinking block
+                # and `["text"]` raised KeyError (2026-10-11 recap lost).
+                **no_thinking(MODEL_ID),
             }),
         )
         result = json.loads(resp["body"].read())
-        return result["content"][0]["text"].strip()
+        text = "".join(b.get("text", "") for b in result.get("content", []) if b.get("type") == "text")
+        return text.strip() or None
     except Exception as e:
         logger.error(f"Bedrock script generation failed: {e}")
         return None

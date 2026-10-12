@@ -28,6 +28,8 @@ import os
 import re
 import sys
 from datetime import datetime, timezone
+
+from shared.llm_models import no_thinking
 from typing import Any, Dict, List, Optional
 
 import boto3
@@ -268,6 +270,8 @@ def _generate_script(
             system=[{"text": system_prompt}],
             # No temperature: Claude 5.5 models reject it ("deprecated for this model").
             inferenceConfig={"maxTokens": 600},
+            # Without this the reasoning ate all 600 tokens: empty script every time.
+            additionalModelRequestFields=no_thinking(BEDROCK_MODEL_ID),
         )
     except ClientError as exc:
         logger.error(f"Bedrock converse error: {exc}")

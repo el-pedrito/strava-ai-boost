@@ -77,3 +77,21 @@ def test_no_temperature_sent_to_claude_5_5() -> None:
         and pattern.search(p.read_text(encoding="utf-8"))
     ]
     assert offenders == []
+
+
+def test_short_structured_bedrock_calls_disable_thinking() -> None:
+    """Claude 5.5 thinks by default and reasoning counts against maxTokens.
+
+    On these short calls it consumed the whole budget and returned no text
+    (empty voice scripts, truncated weekly JSON, KeyError on the audio recap).
+    """
+    calls = {
+        "lambda_functions/processing/voice_debrief_generator.py": "additionalModelRequestFields=no_thinking(",
+        "lambda_functions/support/weekly_synthesis.py": "additionalModelRequestFields=no_thinking(",
+        "lambda_functions/processing/content_generator.py": "additionalModelRequestFields=no_thinking(",
+        "lambda_functions/support/weekly_audio_recap.py": "**no_thinking(MODEL_ID)",
+    }
+    for rel, marker in calls.items():
+        assert marker in (ROOT / rel).read_text(encoding="utf-8"), rel
+    recap = (ROOT / "lambda_functions/support/weekly_audio_recap.py").read_text(encoding="utf-8")
+    assert '["content"][0]["text"]' not in recap

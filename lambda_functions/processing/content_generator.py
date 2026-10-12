@@ -24,6 +24,7 @@ from processing.content_guard import apply_content_guard
 from shared.campus_structure import resolve_exercise_loads
 from processing.modules_processing import get_active_modules, apply_module_processing
 from shared.iso_week import iso_week_label
+from shared.llm_models import no_thinking
 from shared.strength_volume import compute_session_volume
 from shared.logger import get_logger, metrics, MetricUnit
 from shared.strength_exercises import (
@@ -963,6 +964,8 @@ def _extract_strength_sets(description: str) -> List[Dict[str, Any]]:
             # must fit the worst realistic session.
             # No temperature: Claude 5.5 models reject it ("deprecated for this model").
             inferenceConfig={"maxTokens": 3000},
+            # Deterministic extraction: reasoning only eats the budget on 5.5.
+            additionalModelRequestFields=no_thinking(STRENGTH_EXTRACTION_MODEL_ID),
         )
     except Exception as e:  # noqa: BLE001 - best-effort, never break the pipeline
         logger.warning(f"Strength extraction Bedrock call failed: {e}")
