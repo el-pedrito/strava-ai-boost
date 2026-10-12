@@ -74,7 +74,18 @@
 
 ## Next
 
-> **Par où commencer (ordre suggéré)** : ~~quick wins ops~~ ✅ →
+> **⚠️ Priorité depuis le 2026-10-12 : fiabilité avant toute feature et avant la publication.**
+> Plan détaillé : [design/reliability-plan-2026-10.md](./design/reliability-plan-2026-10.md)
+> (revue multi-modèles Opus 5.5 / Opus 4.8 / Sonnet 5.5 après l'incident 5.5 : voice debrief,
+> synthèse et récap muets plusieurs jours sans aucun signal). Ordre :
+> **1** sorties vides détectées + alarmes · **2** contrat de modèle + smoke test ·
+> **3** idempotence, retries, rejeu, P1 dictée tardive · **4** mémoire phase 1 (fin de la
+> pollution coach, formateur déterministe) · **6** CI minimale · **7** durcissement ·
+> **8** déploiement reproductible des runtimes · **9** mémoire phase 2 puis publication.
+> Gelé jusqu'à la fin du lot 4 : Chronos-2, Strava MCP, PWA push, briefing, revue de cycle,
+> race readiness, backfill PRs, Nova Sonic, app mobile. Le runtime coach est conservé.
+>
+> **Historique — par où commencer (ordre suggéré, avant 2026-10-12)** : ~~quick wins ops~~ ✅ →
 > ~~prérequis release OSS (disclaimer, fichiers standards, threat model, scan ASH,
 > historique git nettoyé, tag v0.1.0, screenshots/GIF README)~~ ✅ (2026-07-15) →
 > ~~A2a (multi-tour chat)~~ ✅ → ~~A1 (tools) + A2b (runtime AGUI)~~ ✅ (2026-07-16) →
