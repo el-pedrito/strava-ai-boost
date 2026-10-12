@@ -55,6 +55,18 @@ def _get_http_session() -> requests.Session:
     return _http_session
 MEMORY_ID = os.environ.get('BEDROCK_AGENTCORE_MEMORY_ID', '')
 
+
+def feedback_to_memory_enabled() -> bool:
+    """Whether edit diffs are written as events into the shared AgentCore memory.
+
+    Off by default (reliability lot 4): the memory is shared with the coach, and the
+    semantic/episodic strategies turned these description diffs into "coaching"
+    observations about editing AI text. The DynamoDB feedback (final_description,
+    similarity) and the metrics are unaffected. Read at call time so a redeploy with
+    FEEDBACK_TO_MEMORY=true restores the old behaviour without code change.
+    """
+    return os.environ.get('FEEDBACK_TO_MEMORY', 'false').strip().lower() in ('1', 'true', 'yes')
+
 # Configuration
 ANALYSIS_WINDOW_HOURS = 24  # Minimum delay before analyzing (give user time to edit)
 MAX_CONTENT_LENGTH = 4000   # Max chars per message written to memory (AgentCore limit ~9000)
@@ -88,7 +100,7 @@ def lambda_handler(event, context):
 
         # Initialize AgentCore client for memory writes
         agentcore_client = None
-        if MEMORY_ID:
+        if MEMORY_ID and feedback_to_memory_enabled():
             agentcore_client = boto3.client(
                 'bedrock-agentcore',
                 region_name=os.getenv('AWS_REGION', 'eu-west-1')
@@ -403,7 +415,12 @@ def write_feedback_to_memory(
     Format:
     - ASSISTANT message: the AI-generated description (with context)
     - USER message: the user's edited version (with context about what changed)
+
+    No-op (returns False) unless FEEDBACK_TO_MEMORY is enabled.
     """
+    if not feedback_to_memory_enabled():
+        logger.info(f"FEEDBACK_TO_MEMORY disabled, skipping memory write for {activity_id}")
+        return False
     try:
         # Build context-rich ASSISTANT message (what was generated)
         sport_type = activity_data.get('sport_type', 'Run')

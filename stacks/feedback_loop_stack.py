@@ -74,7 +74,10 @@ class FeedbackLoopStack(Stack):
             environment={
                 'ACTIVITIES_TABLE': activities_table.table_name,
                 'STRAVA_OAUTH_SECRET': strava_oauth_secret.secret_name,
-                'BEDROCK_AGENTCORE_MEMORY_ID': memory_id  # Loaded from .env.agentcore
+                'BEDROCK_AGENTCORE_MEMORY_ID': memory_id,  # Loaded from .env.agentcore
+                # Edit diffs no longer go into the memory shared with the coach
+                # (reliability lot 4). Set to "true" to restore the old writes.
+                'FEEDBACK_TO_MEMORY': 'false',
                 # AWS_REGION is automatically set by Lambda runtime
             },
             log_retention=logs.RetentionDays.ONE_WEEK
