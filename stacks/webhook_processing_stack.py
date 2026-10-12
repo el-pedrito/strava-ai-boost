@@ -128,6 +128,8 @@ class WebhookProcessingStack(Stack):
                 "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
                 # Holds webhook_verify_token (subscription-validation GET), see handler.
                 "STRAVA_APP_SECRET": self.core_stack.strava_app_secret.secret_name,
+                # Token written 2026-10-12: an absent key must reject too (fail closed).
+                "WEBHOOK_VERIFY_TOKEN_REQUIRED": "true",
                 # Origin filtering for unsigned Strava webhook events. Both are
                 # optional: when a value is absent the corresponding check is
                 # skipped so ingestion can never break on missing config.
