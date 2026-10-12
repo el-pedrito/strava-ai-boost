@@ -633,6 +633,34 @@ main() {
     print_status "🔧 Next Step:"
     print_status "  Configure Lambda integration:"
     print_status "  ./scripts/configure_agentcore_integration.sh"
+
+    run_post_deploy_smoke
+}
+
+# Post-deploy smoke (reliability plan lot 2): model contract + one real content_gen
+# invocation (run_easy fixture). The runtime check imports the Lambda parser, which
+# needs the project deps, hence the project venv when there is one. SKIP_SMOKE=1
+# opts out. Credentials/region: AWS_PROFILE / AWS_DEFAULT_REGION exported by main().
+run_post_deploy_smoke() {
+    print_status ""
+    print_status "🧪 Post-deploy smoke test (models + content_gen runtime)..."
+    if [ "${SKIP_SMOKE:-0}" = "1" ]; then
+        print_warning "SKIP_SMOKE=1 - post-deploy smoke test skipped"
+        return 0
+    fi
+    local repo_root="$SCRIPT_DIR/.."
+    local smoke_python="python3"
+    for candidate in .venv-deploy venv .venv; do
+        if [ -x "$repo_root/$candidate/bin/python" ]; then
+            smoke_python="$repo_root/$candidate/bin/python"
+            break
+        fi
+    done
+    if ! AWS_REGION="$AWS_REGION" "$smoke_python" "$SCRIPT_DIR/smoke_models.py" --runtimes; then
+        print_error "Post-deploy smoke test failed (see above)."
+        exit 1
+    fi
+    print_success "Post-deploy smoke test passed"
 }
 
 # Function to check AgentCore CLI availability

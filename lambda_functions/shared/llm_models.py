@@ -9,6 +9,7 @@ registry) -> these fallbacks. Always go through resolve_*() below; never
 hardcode a model ID in a Lambda.
 """
 
+import copy
 import os
 
 # Keep in sync with src/config/llm_config.py DEFAULT_* constants.
@@ -26,21 +27,47 @@ def resolve_haiku_model_id() -> str:
     return os.environ.get("BEDROCK_HAIKU_MODEL_ID", DEFAULT_HAIKU_MODEL_ID)
 
 
+# MIRROR of MODEL_PROFILES in src/config/llm_config.py (see the rationale
+# there). Keep the two dicts identical: the sync test compares them.
+#
 # Claude 5.5 models think by default and the reasoning counts against maxTokens.
 # On short structured tasks (voice script, weekly JSON, set extraction) the whole
-# budget went to an empty reasoning block and no text came back (2026-10-09..11:
-# "Bedrock returned an empty script", truncated weekly synthesis JSON).
-#
-# The "off" value differs per model (verified 2026-10-12 against Bedrock):
-# Haiku 5.5 accepts {"type": "disabled"} and rejects "between_tools"; Sonnet 5.5
-# rejects "disabled" and asks for {"type": "between_tools"} (no thinking before
-# answering). Pass the result as Converse `additionalModelRequestFields`, or
-# merge it into an InvokeModel body.
+# budget went to an empty reasoning block and no text came back (2026-10-09..11).
+# The "off" value differs per model (Haiku 5.5: "disabled"; Sonnet 5.5:
+# "between_tools", verified 2026-10-12), hence a per-model profile rather than
+# guessing from the model name.
+MODEL_PROFILES = {
+    # Keyed by LITERAL ids on purpose: pointing a DEFAULT_* constant at a new
+    # model must leave it without a profile until one is written (and smoked).
+    "global.anthropic.claude-sonnet-5-5": {
+        "thinking_off": {"thinking": {"type": "between_tools"}},
+        "accepts_temperature": False,
+        "default_max_tokens": 32000,
+    },
+    "global.anthropic.claude-haiku-5-5": {
+        "thinking_off": {"thinking": {"type": "disabled"}},
+        "accepts_temperature": False,
+        "default_max_tokens": 8192,
+    },
+}
+
+
+def model_profile(model_id: str) -> dict:
+    """Contract of `model_id`. Raises KeyError for a model without a profile."""
+    try:
+        return MODEL_PROFILES[model_id]
+    except KeyError:
+        raise KeyError(
+            f"No model profile for {model_id!r}: add it to MODEL_PROFILES in "
+            "src/config/llm_config.py and lambda_functions/shared/llm_models.py"
+        ) from None
+
+
+# Pass the result as Converse `additionalModelRequestFields`, or merge it into
+# an InvokeModel body. Returns a fresh copy: callers may mutate it.
 def no_thinking(model_id: str) -> dict:
     """Request fields that turn reasoning off for `model_id`."""
-    if "sonnet" in model_id or "opus" in model_id:
-        return {"thinking": {"type": "between_tools"}}
-    return {"thinking": {"type": "disabled"}}
+    return copy.deepcopy(model_profile(model_id)["thinking_off"])
 
 
 def text_from_converse(response: dict) -> str:
