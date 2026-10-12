@@ -5,6 +5,37 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4](https://github.com/el-pedrito/strava-ai-boost/compare/v0.2.3...v0.2.4) (2026-10-12)
+
+
+### Features
+
+* **content:** deterministic paragraph formatter, stop coach memory pollution (reliability lot 4) ([a311f5e](https://github.com/el-pedrito/strava-ai-boost/commit/a311f5eb59185f26f36f39c97b737e1b575e90a8))
+* **content:** guard lap paces and strength loads against the athlete's data ([b0b7a1c](https://github.com/el-pedrito/strava-ai-boost/commit/b0b7a1c4c2c70e869fabec68961296e726464b3e))
+* **content:** preview mode to regenerate without storing anything ([fef8390](https://github.com/el-pedrito/strava-ai-boost/commit/fef839036ea85ac32d1722ddf704b95ad3c19266))
+* **llm:** model contract profiles and live smoke test (reliability lot 2) ([5830552](https://github.com/el-pedrito/strava-ai-boost/commit/5830552b62053d6ef5a5f0e1531f05581300b040))
+* **llm:** switch main generation from Sonnet 4.5 to Sonnet 5 ([8ed94af](https://github.com/el-pedrito/strava-ai-boost/commit/8ed94af80176db64c296013ad6e31f6135f81ce2))
+* **llm:** switch to Sonnet 5.5 / Haiku 5.5, fix content_gen timeouts ([712878c](https://github.com/el-pedrito/strava-ai-boost/commit/712878c8174dd0b6f35d22207cdaa14b1d3d86bf))
+* **ops:** artefact-produced metrics and alarms (reliability lot 1) ([1b0dc78](https://github.com/el-pedrito/strava-ai-boost/commit/1b0dc789fdc3992bc2b552f58ecd5aa9864c8835))
+* **pipeline:** retries, idempotent executions, late dictation (reliability lot 3) ([eab5012](https://github.com/el-pedrito/strava-ai-boost/commit/eab501216ba82459d22ea57aaa297bb87fbdb5f5))
+* **security:** pre-publication hardening (reliability lot 7) ([a6303c0](https://github.com/el-pedrito/strava-ai-boost/commit/a6303c0abbf1da56587cd690c48bb8c255a8b0e9))
+
+
+### Bug Fixes
+
+* **agents:** keep transport retries so cold-runtime 502s are absorbed ([12d180b](https://github.com/el-pedrito/strava-ai-boost/commit/12d180b14762ea73b61756c51d6bf83d7d6c2d0a))
+* **agents:** set explicit output budgets for Sonnet 5 ([b2640b5](https://github.com/el-pedrito/strava-ai-boost/commit/b2640b538bef4193fa268d067a2fc870fca0eadb))
+* **coach:** flag next-session announcements whose intense type is not remaining ([c1cdb8b](https://github.com/el-pedrito/strava-ai-boost/commit/c1cdb8ba8f952cd7118fe74b3458f178fde8db85))
+* **coach:** ground every published figure in a computed fact ([8e665de](https://github.com/el-pedrito/strava-ai-boost/commit/8e665de7fc9002c700a1bc313a0e0e98a1c677a9))
+* **coach:** ground every published figure in a computed fact ([18e7054](https://github.com/el-pedrito/strava-ai-boost/commit/18e70543e77c965b84353773fd6e9e50ce0c4a30))
+* **coach:** reconcile campus_remaining with the authoritative session match ([8343d4a](https://github.com/el-pedrito/strava-ai-boost/commit/8343d4a2e8b4372c751bca137c820acf1dde8785))
+* **content:** formalism rules from the athlete's 2026-10 edits ([b51e386](https://github.com/el-pedrito/strava-ai-boost/commit/b51e386e018c115a292625ed2f5d8ae7f2f2c226))
+* **content:** never open the description by restating the title ([133b774](https://github.com/el-pedrito/strava-ai-boost/commit/133b774574b1a1e093254b21deb6df710f4f8ea5))
+* **content:** stop prompt-example leaks and invented sensations ([62255d5](https://github.com/el-pedrito/strava-ai-boost/commit/62255d5f12e6343c2e3ff354312a4931f81c5ce8))
+* **llm:** turn reasoning off on short Claude 5.5 calls ([98bf46d](https://github.com/el-pedrito/strava-ai-boost/commit/98bf46dd879321d9b320a8231afb21e89b96fe72))
+* **ops:** count an already-existing weekly recap for the missing alarm ([8289a7e](https://github.com/el-pedrito/strava-ai-boost/commit/8289a7e510bf70e8ec182e92f98eb76ef7f62257))
+* **verifier:** weekly-claim shields are per-clause and forward-only ([046ad23](https://github.com/el-pedrito/strava-ai-boost/commit/046ad23a0a2e980d547a2a065ad52c6d4d0bc175))
+
 ## [0.2.3](https://github.com/el-pedrito/strava-ai-boost/compare/v0.2.2...v0.2.3) (2026-08-09)
 
 
