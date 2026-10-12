@@ -233,3 +233,7 @@ def test_new_fixtures_carry_their_formalism_checks() -> None:
     assert "pas une" in neg["eval"]["required_phrases"]
     assert "pas de chrono" in pacer["eval"]["forbidden_phrases"]
     assert "20km de Paris" in pacer["eval"]["required_phrases"]
+
+
+def test_required_phrases_ignore_spacing() -> None:
+    assert check_required_phrases("Pacer sur les 20 km de Paris", ["20km de Paris"])["passed"]

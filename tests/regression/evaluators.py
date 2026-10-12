@@ -202,10 +202,15 @@ def check_no_projection(text: str) -> Dict[str, Any]:
     return _result("no_projection", "fail", not hits, f"found: {hits}" if hits else "")
 
 
+def _squash(text: str) -> str:
+    """normalize() without whitespace: "20 km" and "20km" are the same fact."""
+    return re.sub(r"\s+", "", normalize(text))
+
+
 def check_required_phrases(text: str, phrases: List[str]) -> Dict[str, Any]:
     """fail — fixture-specific facts that must survive (e.g. a kept negation, an event name)."""
-    norm = normalize(text)
-    missing = [p for p in phrases if normalize(p) not in norm]
+    norm = _squash(text)
+    missing = [p for p in phrases if _squash(p) not in norm]
     return _result("required_phrases", "fail", not missing, f"missing: {missing}" if missing else "")
 
 
