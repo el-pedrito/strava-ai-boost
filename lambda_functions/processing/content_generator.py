@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 import boto3
+from aws_lambda_powertools.metrics import single_metric
 from botocore.config import Config as BotoConfig
 
 from processing.workout_analysis import (
@@ -26,13 +27,54 @@ from processing.modules_processing import get_active_modules, apply_module_proce
 from shared.iso_week import iso_week_label
 from shared.llm_models import no_thinking
 from shared.strength_volume import compute_session_volume
-from shared.logger import get_logger, metrics, MetricUnit
+from shared.logger import get_logger, metrics, MetricUnit, METRICS_NAMESPACE
 from shared.strength_exercises import (
     CANONICAL_STRENGTH_EXERCISES,
     canonicalize_exercise_name,
 )
 
 logger = get_logger("content-generator")
+
+# Business metric "an artefact was produced" (reliability plan, lot 1).
+#
+# The Lambda Errors metric never sees a failed generation here: the handler catches
+# everything and answers {"statusCode": 500}. So every invocation records exactly one
+# ContentProduced datapoint whose `outcome` says what actually came out:
+#   ok        -- content stored, nothing degraded
+#   degraded  -- content stored, but a best-effort step failed (guard, strength sets)
+#   empty     -- the agent answered, but with no title/description to publish
+#   failed    -- no content at all
+# Never emitted for preview=true: a preview is a prompt experiment, not production.
+CONTENT_METRIC_NAME = "ContentProduced"
+
+# Best-effort steps that failed during the CURRENT invocation. Reset at handler
+# entry; read once at the end to turn "ok" into "degraded". A module-level list
+# (rather than threading a flag through every helper) because the failing steps sit
+# several calls deep and a Lambda container serves one invocation at a time.
+_DEGRADATIONS: List[str] = []
+
+
+def _mark_degraded(reason: str) -> None:
+    """Record that a best-effort step failed; the artefact is still produced."""
+    _DEGRADATIONS.append(reason)
+
+
+def _record_outcome(outcome: str) -> None:
+    """Emit ContentProduced{outcome} as its own EMF blob, immediately.
+
+    single_metric rather than the shared buffered `metrics`: dimensions on the shared
+    instance apply to every metric of the flush, so `outcome` would leak onto the
+    anomaly metrics recorded in the same invocation. The dimension set is exactly
+    {outcome}, which is what the CloudWatch alarms select on.
+    """
+    try:
+        with single_metric(
+            name=CONTENT_METRIC_NAME, unit=MetricUnit.Count, value=1,
+            namespace=METRICS_NAMESPACE,
+        ) as metric:
+            metric.add_dimension(name="outcome", value=outcome)
+    except Exception as exc:  # noqa: BLE001 - a metric must never break the pipeline
+        logger.warning(f"Could not emit {CONTENT_METRIC_NAME}{{outcome={outcome}}}: {exc}")
 
 # One content generation on Sonnet 5 runs 50-150s (thinking + JSON). botocore's
 # default read_timeout is 60s and it RETRIES on timeout: on 2026-10-08 the first
@@ -94,6 +136,8 @@ USER_CONFIG_TABLE = os.environ.get('USER_CONFIG_TABLE', 'strava-ai-boost-user-co
 @metrics.log_metrics
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Lambda handler for content generation"""
+    _DEGRADATIONS.clear()
+    is_preview = bool(event.get('preview'))
     try:
         logger.info(f"Content generator received event: {json.dumps(event, default=str)}")
 
@@ -177,12 +221,13 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         except Exception as guard_error:
             # Never blocking: a published description beats no description.
             logger.warning(f"Content guard failed, publishing unchecked: {guard_error}")
+            _mark_degraded("content_guard")
 
         # Preview: generate and return only. No DynamoDB write, no Campus "done"
         # marker, no strength history entry, and the caller does not reach the
         # Strava updater. Used to compare a prompt change on real activities
         # without touching what is published (invoke the Lambda directly).
-        if event.get('preview'):
+        if is_preview:
             logger.info("Preview mode: content returned, nothing stored", extra={"activity_id": activity_id})
             return {
                 'statusCode': 200,
@@ -211,6 +256,17 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         if sport_type == 'WeightTraining':
             _track_strength_history(user_id, activity_id, activity_data)
 
+        if not (enhanced_content or {}).get('title') or not (enhanced_content or {}).get('description'):
+            # Stored as before (the updater skips blank fields), but nothing worth
+            # publishing came out of the agent: that must not look like a success.
+            logger.warning("Generated content has no title or no description", extra={"activity_id": activity_id})
+            _record_outcome("empty")
+        elif _DEGRADATIONS:
+            logger.warning("Content produced with degraded steps", extra={"activity_id": activity_id, "degraded": list(_DEGRADATIONS)})
+            _record_outcome("degraded")
+        else:
+            _record_outcome("ok")
+
         return {
             'statusCode': 200,
             'activity_id': activity_id,
@@ -221,6 +277,8 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
     except Exception as e:
         logger.error(f"Content generation error: {str(e)}")
+        if not is_preview:
+            _record_outcome("failed")
         return {
             'statusCode': 500,
             'error': str(e),
@@ -991,6 +1049,7 @@ def _extract_strength_sets(description: str) -> List[Dict[str, Any]]:
         )
     except Exception as e:  # noqa: BLE001 - best-effort, never break the pipeline
         logger.warning(f"Strength extraction Bedrock call failed: {e}")
+        _mark_degraded("strength_extraction")
         return []
 
     output = response.get("output", {}).get("message", {}).get("content", [])
@@ -1007,6 +1066,7 @@ def _extract_strength_sets(description: str) -> List[Dict[str, Any]]:
         parsed = json.loads(text)
     except (json.JSONDecodeError, ValueError) as e:
         logger.warning(f"Strength extraction returned non-JSON: {e}")
+        _mark_degraded("strength_extraction")
         return []
 
     if not isinstance(parsed, list):
@@ -1178,6 +1238,7 @@ def _track_strength_history(user_id: str, activity_id: str, activity_data: Dict[
         # showed a single warning nobody read. A data-loss path needs a metric.
         logger.warning(f"Failed to track strength history: {e}")
         metrics.add_metric(name="StrengthHistoryWriteFailed", unit=MetricUnit.Count, value=1)
+        _mark_degraded("strength_history_write")
 
 
 def _convert_floats_to_decimal(obj: Any) -> Any:

@@ -11,9 +11,10 @@ from datetime import date, datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 import boto3
+from aws_lambda_powertools.metrics import single_metric
 from botocore.config import Config as BotoConfig
 
-from shared.logger import get_logger, inject_correlation_id, metrics, MetricUnit
+from shared.logger import get_logger, inject_correlation_id, metrics, MetricUnit, METRICS_NAMESPACE
 from shared.env_validation import validate_env_vars
 from shared.campus_status import STATUS_DONE, STATUS_SKIP, effective_status
 from processing.coach_output_check import (
@@ -38,6 +39,43 @@ from processing.modules_processing import match_campus_session
 
 logger = get_logger("coach-generator")
 
+# Business metric "an artefact was produced" (reliability plan, lot 1).
+#
+# The handler catches everything and answers {"statusCode": 500}, so Lambda Errors
+# never moves. Every invocation records exactly one CoachProduced datapoint:
+#   ok        -- feedback stored, nothing degraded
+#   degraded  -- feedback stored, but a best-effort step failed (context enrichment,
+#                Campus sessions, memory write)
+#   empty     -- the agent answered nothing usable (empty or unparsable response)
+#   failed    -- exception, no feedback at all
+COACH_METRIC_NAME = "CoachProduced"
+
+# Best-effort steps that failed during the CURRENT invocation, reset at handler entry.
+# Module-level because the failing steps sit in helpers; one invocation per container.
+_DEGRADATIONS: List[str] = []
+
+
+def _mark_degraded(reason: str) -> None:
+    """Record that a best-effort step failed; the feedback is still produced."""
+    _DEGRADATIONS.append(reason)
+
+
+def _record_outcome(outcome: str) -> None:
+    """Emit CoachProduced{outcome} as its own EMF blob, immediately.
+
+    single_metric, not the shared buffered `metrics`: a dimension on the shared
+    instance would also land on CoachClaimMismatch. Dimension set is exactly
+    {outcome}, which is what the CloudWatch alarm selects on.
+    """
+    try:
+        with single_metric(
+            name=COACH_METRIC_NAME, unit=MetricUnit.Count, value=1,
+            namespace=METRICS_NAMESPACE,
+        ) as metric:
+            metric.add_dimension(name="outcome", value=outcome)
+    except Exception as exc:  # noqa: BLE001 - a metric must never break the pipeline
+        logger.warning(f"Could not emit {COACH_METRIC_NAME}{{outcome={outcome}}}: {exc}")
+
 # AWS clients
 REGION = os.environ.get("AWS_REGION", "eu-west-1")
 dynamodb = boto3.resource("dynamodb", region_name=REGION)
@@ -54,6 +92,7 @@ COACH_AGENT_ARN = os.environ.get("COACH_AGENT_ARN", "")
 @metrics.log_metrics
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Lambda handler for coaching feedback generation."""
+    _DEGRADATIONS.clear()
     try:
         inject_correlation_id(logger, event)
         logger.info(f"Coach generator received event: {json.dumps(event, default=str)}")
@@ -168,6 +207,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     )
         except Exception as e:
             logger.warning(f"Failed to enrich historical summary: {e}")
+            _mark_degraded("historical_enrichment")
 
         # Add suffer_score and athlete_stats from current activity
         suffer_score = activity_data.get("suffer_score")
@@ -355,6 +395,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 )
         except Exception as e:
             logger.warning(f"Failed to fetch Campus Coach sessions: {e}")
+            _mark_degraded("campus_sessions")
 
         feedback = _invoke_coach_agent(
             activity_data, user_config, historical_summary
@@ -362,6 +403,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
         if not feedback:
             logger.warning(f"Coach agent returned no feedback for activity {activity_id}")
+            _record_outcome("empty")
             return {
                 "statusCode": 200,
                 "activity_id": activity_id,
@@ -484,6 +526,15 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             if key in feedback and isinstance(feedback[key], str):
                 feedback[key] = feedback[key].replace('—', ',').replace('–', ',')
 
+        if _DEGRADATIONS:
+            logger.warning(
+                "Coach feedback produced with degraded steps",
+                extra={"activity_id": activity_id, "degraded": list(_DEGRADATIONS)},
+            )
+            _record_outcome("degraded")
+        else:
+            _record_outcome("ok")
+
         return {
             "statusCode": 200,
             "activity_id": activity_id,
@@ -493,6 +544,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
     except Exception as e:
         logger.error(f"Coach generation error: {e}")
+        _record_outcome("failed")
         return {
             "statusCode": 500,
             "error": str(e),
@@ -1382,3 +1434,4 @@ def write_coaching_observation(user_id: str, feedback: Dict[str, Any]) -> None:
         logger.info(f"Wrote coaching observation to memory for user {user_id}")
     except Exception as e:
         logger.warning(f"Failed to write coaching observation to memory: {e}")
+        _mark_degraded("memory_write")

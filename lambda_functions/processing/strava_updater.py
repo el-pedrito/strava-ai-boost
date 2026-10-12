@@ -9,12 +9,37 @@ import json
 import os
 from typing import Dict, Any
 import boto3
+from aws_lambda_powertools.metrics import single_metric
 from botocore.exceptions import ClientError
 import requests
 from datetime import datetime
-from shared.logger import get_logger
+from shared.logger import get_logger, MetricUnit, METRICS_NAMESPACE
 
 logger = get_logger("strava-updater")
+
+# Business metric "the activity was published on Strava" (reliability plan, lot 1).
+# One ActivityPublished datapoint per invocation:
+#   ok     -- Strava accepted the new title/description
+#   empty  -- nothing to publish (no enhanced content, or blank title and description)
+#   failed -- Strava or token error
+# The 72h alarm compares it with ActivitiesProcessed: activities came in, none went out.
+PUBLISHED_METRIC_NAME = "ActivityPublished"
+
+
+class NothingToPublish(ValueError):
+    """The pipeline handed over no content to write on Strava."""
+
+
+def _record_outcome(outcome: str) -> None:
+    """Emit ActivityPublished{outcome} as its own EMF blob (dimensions: outcome)."""
+    try:
+        with single_metric(
+            name=PUBLISHED_METRIC_NAME, unit=MetricUnit.Count, value=1,
+            namespace=METRICS_NAMESPACE,
+        ) as metric:
+            metric.add_dimension(name="outcome", value=outcome)
+    except Exception as exc:  # noqa: BLE001 - a metric must never break the update
+        logger.warning(f"Could not emit {PUBLISHED_METRIC_NAME}{{outcome={outcome}}}: {exc}")
 
 # Initialize AWS clients
 dynamodb = boto3.resource('dynamodb')
@@ -47,7 +72,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             raise ValueError("Missing required parameters: activity_id, user_id")
         
         if not enhanced_content:
-            raise ValueError("No enhanced content provided")
+            raise NothingToPublish("No enhanced content provided")
         
         logger.info(f"Updating Strava activity {activity_id}")
         
@@ -63,6 +88,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         # Update activity status in DynamoDB
         update_activity_status(activity_id, 'completed', enhanced_content)
+        _record_outcome("ok" if update_result.get('status') == 'success' else "empty")
         
         return {
             'statusCode': 200,
@@ -74,6 +100,10 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
     except Exception as e:
         logger.error(f"Strava updater error: {str(e)}")
+        if isinstance(e, NothingToPublish):
+            _record_outcome("empty")
+        else:
+            _record_outcome("failed")
         
         # Update activity status to failed
         if 'activity_id' in event:

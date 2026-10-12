@@ -33,9 +33,10 @@ from shared.llm_models import no_thinking
 from typing import Any, Dict, List, Optional
 
 import boto3
+from aws_lambda_powertools.metrics import single_metric
 from botocore.exceptions import ClientError
 
-from shared.logger import get_logger, inject_correlation_id
+from shared.logger import get_logger, inject_correlation_id, MetricUnit, METRICS_NAMESPACE
 
 # Load shared prompts from src/agents (mounted into the layer at runtime)
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "src"))
@@ -65,6 +66,38 @@ except ImportError:
 
 
 logger = get_logger("voice-debrief-generator")
+
+# Business metric "an artefact was produced" (reliability plan, lot 1).
+#
+# This handler returns batchItemFailures instead of raising, so Lambda Errors stayed at
+# 0 while every debrief failed for days. One VoiceDebriefProduced datapoint per record
+# that was meant to produce audio (skipped records emit nothing):
+#   ok      -- MP3 stored and activity updated
+#   empty   -- Bedrock gave no script, or Polly gave no audio
+#   failed  -- any other exception, or the bucket is not configured
+# The record still goes to batchItemFailures on empty/failed: the stream retries it,
+# and each retry emits again, which is fine for a ">= 1" alarm.
+VOICE_METRIC_NAME = "VoiceDebriefProduced"
+
+
+class EmptyOutput(RuntimeError):
+    """A model or TTS call answered, but with nothing usable."""
+
+
+def _record_outcome(outcome: str) -> None:
+    """Emit VoiceDebriefProduced{outcome} as its own EMF blob, immediately.
+
+    single_metric because one batch can mix outcomes: the shared buffered `metrics`
+    holds one dimension set per flush. Dimension set is exactly {outcome}.
+    """
+    try:
+        with single_metric(
+            name=VOICE_METRIC_NAME, unit=MetricUnit.Count, value=1,
+            namespace=METRICS_NAMESPACE,
+        ) as metric:
+            metric.add_dimension(name="outcome", value=outcome)
+    except Exception as exc:  # noqa: BLE001 - a metric must never break the pipeline
+        logger.warning(f"Could not emit {VOICE_METRIC_NAME}{{outcome={outcome}}}: {exc}")
 
 # ----------------------------------------------------------------------
 # Configuration
@@ -98,7 +131,9 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     inject_correlation_id(logger, event)
 
     if not AUDIO_BUCKET:
+        # Nothing can ever be produced: loud, once per invocation.
         logger.error("AUDIO_DEBRIEF_BUCKET env var not configured")
+        _record_outcome("failed")
         return {"batchItemFailures": []}
 
     failures: List[Dict[str, str]] = []
@@ -108,23 +143,35 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     for record in records:
         sequence_number = record.get("dynamodb", {}).get("SequenceNumber", "")
         try:
-            _process_record(record)
+            if _process_record(record):
+                _record_outcome("ok")
+        except EmptyOutput as exc:
+            logger.error(f"Record {sequence_number} produced no output: {exc}")
+            _record_outcome("empty")
+            if sequence_number:
+                failures.append({"itemIdentifier": sequence_number})
         except Exception as exc:  # noqa: BLE001 — we want to mark the record as failed
             logger.error(f"Record {sequence_number} failed: {exc}", exc_info=True)
+            _record_outcome("failed")
             if sequence_number:
                 failures.append({"itemIdentifier": sequence_number})
 
     return {"batchItemFailures": failures}
 
 
-def _process_record(record: Dict[str, Any]) -> None:
+def _process_record(record: Dict[str, Any]) -> bool:
+    """Generate the debrief for one stream record.
+
+    Returns True when a debrief was produced, False when the record is skipped (not
+    eligible, already done). Raises EmptyOutput / any exception on failure.
+    """
     event_name = record.get("eventName", "")
     if event_name not in ("INSERT", "MODIFY"):
-        return
+        return False
 
     new_image = record.get("dynamodb", {}).get("NewImage")
     if not new_image:
-        return
+        return False
 
     item = _deserialize_image(new_image)
     activity_id = item.get("activity_id")
@@ -132,23 +179,23 @@ def _process_record(record: Dict[str, Any]) -> None:
 
     if not activity_id or not user_id:
         logger.debug("Stream record missing activity_id/user_id, skipping")
-        return
+        return False
 
     # Idempotency: skip if already generated
     if item.get("audio_debrief_generated_at"):
-        return
+        return False
 
     # Only after enrichment is complete
     processing_status = item.get("processing_status")
     if processing_status != "completed":
-        return
+        return False
 
     # Skip if neither coach feedback nor enhanced description is present
     if not item.get("coach_feedback") and not item.get("enhanced_description"):
         logger.info(
             f"Activity {activity_id}: no coach_feedback / enhanced_description yet, skipping"
         )
-        return
+        return False
 
     logger.info(f"Generating voice debrief for activity {activity_id} (user {user_id})")
 
@@ -157,12 +204,12 @@ def _process_record(record: Dict[str, Any]) -> None:
 
     script = _generate_script(item, activity_data, language)
     if not script:
-        raise RuntimeError("Bedrock returned an empty script")
+        raise EmptyOutput("Bedrock returned an empty script")
 
     voice_id = POLLY_VOICE_FR if language == "fr" else POLLY_VOICE_EN
     mp3_bytes = _synthesize_speech(script, voice_id)
     if not mp3_bytes:
-        raise RuntimeError("Polly returned empty audio bytes")
+        raise EmptyOutput("Polly returned empty audio bytes")
 
     s3_key = f"{user_id}/{activity_id}.mp3"
     _upload_to_s3(mp3_bytes, s3_key, activity_id, user_id, language)
@@ -181,6 +228,7 @@ def _process_record(record: Dict[str, Any]) -> None:
         f"Voice debrief stored s3://{AUDIO_BUCKET}/{s3_key} "
         f"({len(mp3_bytes)} bytes, ~{duration_sec}s, {language}/{voice_id})"
     )
+    return True
 
 
 # ----------------------------------------------------------------------

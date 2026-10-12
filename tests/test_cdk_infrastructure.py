@@ -189,7 +189,7 @@ class TestWebhookProcessingStack:
         template = assertions.Template.from_stack(webhook_stack)
         
         # Should have alarms for DLQ, old messages, Lambda errors
-        template.resource_count_is("AWS::CloudWatch::Alarm", 3)
+        template.resource_count_is("AWS::CloudWatch::Alarm", 13)
     
     def test_api_gateway_created(self, webhook_stack):
         """Test API Gateway is created for webhooks"""

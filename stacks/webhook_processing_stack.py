@@ -362,6 +362,9 @@ class WebhookProcessingStack(Stack):
         )
         lambda_errors_alarm.add_alarm_action(alarm_action)
 
+        # Business alarms: "an artefact that should exist was not produced".
+        self._create_ops_alarms(alarm_action)
+
         # Monthly cost budget with email notification at 80% actual and 100% forecasted
         if not alert_email:
             return  # Budget notifications require an email; set alert_email in cdk.context.json
@@ -401,6 +404,189 @@ class WebhookProcessingStack(Stack):
                 ),
             ],
         )
+
+    def _create_ops_alarms(self, alarm_action: cw_actions.SnsAction) -> None:
+        """Alarms on the business metrics of the pipeline (reliability plan, lot 1).
+
+        WHY: after a model switch, voice debrief, weekly synthesis and weekly recap
+        produced nothing for days with every Lambda `Errors` metric at ~0, because the
+        handlers return batchItemFailures or {"statusCode": 500} instead of raising.
+        Each producer now emits `<Artefact>Produced{outcome=ok|empty|failed|degraded}`
+        (namespace StravaAIBoost, dimension set exactly {outcome}); these alarms read
+        them. All land on the existing ops-alerts topic.
+
+        The metric names and dimensions here are a contract with the Lambdas; it is
+        pinned by tests/unit/test_produced_metrics.py.
+        """
+        ns = "StravaAIBoost"
+
+        def produced(metric_name: str, outcome: str, period: Duration) -> cloudwatch.Metric:
+            return cloudwatch.Metric(
+                namespace=ns,
+                metric_name=metric_name,
+                dimensions_map={"outcome": outcome},
+                statistic="Sum",
+                period=period,
+            )
+
+        # 1. Activities came in, none was published (72h).
+        #    ActivitiesProcessed is emitted by the activity processor through the shared
+        #    Powertools instance, hence its {service} dimension. FILL turns a missing
+        #    published series into 0 so "processed but nothing published" breaches,
+        #    while a window with no activity at all yields no data (rest days are
+        #    not an incident).
+        period_72h = Duration.hours(72)
+        not_published = cloudwatch.Alarm(
+            self, "ActivityNotPublishedAlarm",
+            alarm_name="strava-ai-boost-activity-not-published",
+            alarm_description=(
+                "Activities were processed in the last 72h but none was published on "
+                "Strava (ActivityPublished{outcome=ok} absent or 0)"
+            ),
+            metric=cloudwatch.MathExpression(
+                expression="IF(FILL(processed, 0) > 0 AND FILL(published, 0) == 0, 1, 0)",
+                using_metrics={
+                    "processed": cloudwatch.Metric(
+                        namespace=ns,
+                        metric_name="ActivitiesProcessed",
+                        dimensions_map={"service": "strava-ai-boost"},
+                        statistic="Sum",
+                        period=period_72h,
+                    ),
+                    "published": produced("ActivityPublished", "ok", period_72h),
+                },
+                period=period_72h,
+                label="ProcessedButNotPublished",
+            ),
+            threshold=1,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+        )
+        not_published.add_alarm_action(alarm_action)
+
+        # 2. An artefact failed (or came out empty) in the last hour.
+        #    Per-activity producers: `empty` alarms too, on purpose -- the incident that
+        #    motivated this was an empty Bedrock script, not an exception.
+        #    Weekly producers: `failed` only, since their `empty` means "no activity
+        #    this week". They are alarmed here as well because a mid-week on-demand
+        #    run would otherwise keep the "missing" alarm below satisfied while the
+        #    Sunday run failed.
+        period_1h = Duration.hours(1)
+        for alarm_id, alarm_name, metric_name, outcomes in (
+            ("ContentFailedAlarm", "strava-ai-boost-content-failed",
+             "ContentProduced", ("failed", "empty")),
+            ("CoachFailedAlarm", "strava-ai-boost-coach-failed",
+             "CoachProduced", ("failed", "empty")),
+            ("VoiceDebriefFailedAlarm", "strava-ai-boost-voice-debrief-failed",
+             "VoiceDebriefProduced", ("failed", "empty")),
+            ("WeeklySynthesisFailedAlarm", "strava-ai-boost-weekly-synthesis-failed",
+             "WeeklySynthesisProduced", ("failed",)),
+            ("WeeklyRecapFailedAlarm", "strava-ai-boost-weekly-recap-failed",
+             "WeeklyRecapProduced", ("failed",)),
+        ):
+            alarm = cloudwatch.Alarm(
+                self, alarm_id,
+                alarm_name=alarm_name,
+                alarm_description=(
+                    f"{metric_name} reported outcome={'|'.join(outcomes)} in the last hour"
+                ),
+                metric=cloudwatch.MathExpression(
+                    expression=" + ".join(f"FILL({o}, 0)" for o in outcomes),
+                    using_metrics={o: produced(metric_name, o, period_1h) for o in outcomes},
+                    period=period_1h,
+                    label=f"{metric_name}NotOk",
+                ),
+                threshold=1,
+                evaluation_periods=1,
+                comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+                treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+            )
+            alarm.add_alarm_action(alarm_action)
+
+        # 3. The Sunday weekly run did not happen.
+        #    Both are scheduled Sunday 20:00 UTC. The alarm sums every "ran" outcome
+        #    (ok, degraded, and empty = rest week, nothing to summarise) over a sliding
+        #    7-day window -- the longest an alarm may look back (Period x
+        #    EvaluationPeriods <= 604800 s). Missing data is BREACHING, so the alarm
+        #    fires as soon as last Sunday's datapoint leaves the window without a new
+        #    one: a few minutes after Sunday 20:00 UTC, well before Monday 06:00 UTC.
+        #    Caveat: if this week's run is slower than last week's by more than the
+        #    alarm's evaluation lag, it can flap to ALARM for minutes before the new
+        #    datapoint lands (an email followed by OK). Accepted over a scheduled
+        #    checker Lambda, which would be more code to keep alive than it protects.
+        period_7d = Duration.days(7)
+        for alarm_id, alarm_name, metric_name, outcomes in (
+            ("WeeklySynthesisMissingAlarm", "strava-ai-boost-weekly-synthesis-missing",
+             "WeeklySynthesisProduced", ("ok", "empty")),
+            ("WeeklyRecapMissingAlarm", "strava-ai-boost-weekly-recap-missing",
+             "WeeklyRecapProduced", ("ok", "degraded", "empty")),
+        ):
+            using = {o: produced(metric_name, o, period_7d) for o in outcomes}
+            alarm = cloudwatch.Alarm(
+                self, alarm_id,
+                alarm_name=alarm_name,
+                alarm_description=(
+                    f"No {metric_name} ({'/'.join(outcomes)}) in the last 7 days: the Sunday 20:00 UTC "
+                    "run did not produce anything"
+                ),
+                metric=cloudwatch.MathExpression(
+                    expression=" + ".join(f"FILL({o}, 0)" for o in outcomes),
+                    using_metrics=using,
+                    period=period_7d,
+                    label=f"{metric_name}Ran",
+                ),
+                threshold=1,
+                evaluation_periods=1,
+                comparison_operator=cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+                treat_missing_data=cloudwatch.TreatMissingData.BREACHING,
+            )
+            alarm.add_alarm_action(alarm_action)
+
+        # 4. Voice debrief ratio: fewer than half the published activities got audio
+        #    in 24h. Catches the "silently skipped" case the failed alarm cannot see
+        #    (a record that never reaches the generator emits nothing). No published
+        #    activity -> ratio forced to 1 (no data, no alarm).
+        period_24h = Duration.hours(24)
+        voice_ratio = cloudwatch.Alarm(
+            self, "VoiceDebriefRatioAlarm",
+            alarm_name="strava-ai-boost-voice-debrief-ratio",
+            alarm_description="Less than 50% of published activities got a voice debrief in 24h",
+            metric=cloudwatch.MathExpression(
+                expression="IF(FILL(published, 0) > 0, FILL(voice, 0) / FILL(published, 0), 1)",
+                using_metrics={
+                    "published": produced("ActivityPublished", "ok", period_24h),
+                    "voice": produced("VoiceDebriefProduced", "ok", period_24h),
+                },
+                period=period_24h,
+                label="VoiceDebriefRatio",
+            ),
+            threshold=0.5,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+        )
+        voice_ratio.add_alarm_action(alarm_action)
+
+        # 5. Any content-generation Step Functions execution failed.
+        if self.step_functions_arn:
+            sfn_failed = cloudwatch.Alarm(
+                self, "StepFunctionsExecutionsFailedAlarm",
+                alarm_name="strava-ai-boost-sfn-executions-failed",
+                alarm_description="A content-generation Step Functions execution failed",
+                metric=cloudwatch.Metric(
+                    namespace="AWS/States",
+                    metric_name="ExecutionsFailed",
+                    dimensions_map={"StateMachineArn": self.step_functions_arn},
+                    statistic="Sum",
+                    period=period_1h,
+                ),
+                threshold=1,
+                evaluation_periods=1,
+                comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+                treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+            )
+            sfn_failed.add_alarm_action(alarm_action)
 
     def _create_webhook_api(self) -> None:
         """Create API Gateway for Strava webhook endpoints"""
