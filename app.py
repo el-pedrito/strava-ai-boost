@@ -7,6 +7,7 @@ for the Strava AI Boost system.
 """
 
 import aws_cdk as cdk
+from cdk_nag import AwsSolutionsChecks
 from stacks.core_infrastructure_stack import CoreInfrastructureStack
 from stacks.security_stack import SecurityStack
 from stacks.api_gateway_stack import ApiGatewayStack
@@ -15,6 +16,7 @@ from stacks.content_generation_stack import ContentGenerationStack
 from stacks.feedback_loop_stack import FeedbackLoopStack
 from stacks.frontend_hosting_stack import FrontendHostingStack
 from stacks.voice_debrief_stack import VoiceDebriefStack
+from stacks.nag_suppressions import apply_nag_suppressions
 
 app = cdk.App()
 
@@ -122,6 +124,13 @@ cdk.Tags.of(app).add('Environment', environment)
 cdk.Tags.of(app).add('Owner', app.node.try_get_context('owner') or 'admin')
 cdk.Tags.of(app).add('CostCenter', 'strava-ai-boost')
 cdk.Tags.of(app).add('ManagedBy', 'CDK')
+
+# cdk-nag (AwsSolutions) behind `-c nag=true`: off by default so local synth/deploy
+# output is unchanged, on in CI where unsuppressed errors fail the build.
+# Suppressions live in stacks/nag_suppressions.py, each with a justification.
+if str(app.node.try_get_context("nag")).lower() == "true":
+    cdk.Aspects.of(app).add(AwsSolutionsChecks(verbose=True))
+    apply_nag_suppressions(app)
 
 # Synthesize the CDK app
 app.synth()
