@@ -18,6 +18,15 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SCAN_DIRS = ["lambda_functions", "src", "stacks", "scripts", "tests/regression/evaluators_managed"]
 SCAN_SUFFIXES = {".py", ".sh", ".json", ".yaml", ".yml"}
 
+# Model ids that are NOT in the registry but are still invoked by a live AWS path,
+# so IAM must keep allowing them. Keep this list short and dated.
+# - Haiku 4.5: model of the deployed custom memory strategy (StravaContentPreferences,
+#   checked with get-memory 2026-10). The AgentCore Memory service invokes it via the
+#   memory execution role. Remove once configure_memory_strategy.py has been re-run.
+LIVE_NON_REGISTRY_MODEL_IDS = {
+    "global.anthropic.claude-haiku-4-5-20251001-v1:0": "stacks/security_stack.py",
+}
+
 # Matches Bedrock model ids, both dated/versioned ones
 # (global.anthropic.claude-haiku-4-5-20251001-v1:0) and the newer version-less
 # Anthropic ids (global.anthropic.claude-sonnet-5). Without the second branch
@@ -64,8 +73,14 @@ class TestLLMRegistry:
         """Every model-id literal in prod code must belong to the registry."""
         registry = _registry()
         allowed = set(registry.DEFAULT_MODEL_IDS)
+        allowed_by_file: dict = {}
         # Foundation-model variants (prefix stripped) appear legitimately in IAM docs.
         allowed |= {registry._foundation_model_id(m) for m in registry.DEFAULT_MODEL_IDS}
+        # Live, non-registry models that IAM must still allow until migrated. Each
+        # entry names the one file allowed to carry it (reliability plan lot 7).
+        for model_id, owner in LIVE_NON_REGISTRY_MODEL_IDS.items():
+            allowed_in_file = {model_id, registry._foundation_model_id(model_id)}
+            allowed_by_file.setdefault(owner, set()).update(allowed_in_file)
 
         offenders = []
         for scan_dir in SCAN_DIRS:
@@ -81,9 +96,10 @@ class TestLLMRegistry:
                     text = path.read_text(encoding="utf-8")
                 except (UnicodeDecodeError, OSError):
                     continue
+                rel = str(path.relative_to(REPO_ROOT))
                 for match in MODEL_ID_RE.finditer(text):
                     model_id = match.group(0)
-                    if model_id not in allowed:
+                    if model_id not in allowed and model_id not in allowed_by_file.get(rel, set()):
                         offenders.append(f"{path.relative_to(REPO_ROOT)}: {model_id}")
 
         assert not offenders, (

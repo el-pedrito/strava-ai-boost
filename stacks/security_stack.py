@@ -17,6 +17,33 @@ from aws_cdk import (
 )
 from constructs import Construct
 import json
+import os
+import sys
+
+# Add src directory to path for config imports
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
+
+# Central Bedrock model registry — single source of truth for model IDs.
+from config.llm_config import all_iam_resources, iam_resources_for
+
+# Model the LIVE custom memory strategy (StravaContentPreferences) runs with.
+# It was configured before the registry moved to Haiku 5.5 and is not in the
+# registry: the AgentCore Memory service invokes it through the role below, so
+# narrowing the role to the registry alone would silently break preference
+# extraction. Verified on the deployed memory (get-memory, 2026-10). Drop this
+# once scripts/configure_memory_strategy.py has been re-run on a registry model.
+LIVE_MEMORY_STRATEGY_MODEL_ID = os.environ.get(
+    "MEMORY_STRATEGY_MODEL_ID", "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+)
+
+
+def memory_role_model_resources(region: str, account: str) -> list:
+    """Bedrock ARNs the memory execution role may invoke: registry + live strategy model."""
+    resources = list(all_iam_resources(region=region, account=account))
+    for arn in iam_resources_for(LIVE_MEMORY_STRATEGY_MODEL_ID, region=region, account=account):
+        if arn not in resources:
+            resources.append(arn)
+    return resources
 
 
 class SecurityStack(Stack):
@@ -120,10 +147,8 @@ class SecurityStack(Stack):
                     "bedrock:InvokeModel",
                     "bedrock:InvokeModelWithResponseStream"
                 ],
-                resources=[
-                    "arn:aws:bedrock:*::foundation-model/*",
-                    f"arn:aws:bedrock:{Aws.REGION}:{Aws.ACCOUNT_ID}:inference-profile/*"
-                ]
+                # Registry models + the live strategy model only (no foundation-model/*).
+                resources=memory_role_model_resources(region=Aws.REGION, account=Aws.ACCOUNT_ID)
             )
         )
 

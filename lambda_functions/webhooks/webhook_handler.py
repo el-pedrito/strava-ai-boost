@@ -37,6 +37,22 @@ WEBHOOK_STRICT_ORIGIN = os.environ.get(
 # obtainable with the app's client_id/client_secret.
 EXPECTED_SUBSCRIPTION_ID = os.environ.get('STRAVA_SUBSCRIPTION_ID', '').strip()
 
+# Subscription-validation GET (reliability plan lot 7, BACKLOG "verify_token").
+# The token lives in the Strava APP secret (client_id/client_secret), NOT in the
+# OAuth secret: every token refresh (activity_fetcher, feedback_analyzer) rewrites
+# the OAuth secret wholesale with only the new tokens, which would silently wipe
+# the key and reopen the check every ~6 h. No Lambda writes the app secret.
+# Once `webhook_verify_token` exists in that secret, the GET is FAIL CLOSED:
+# only that exact token passes, and any read/parse error rejects. While the key is
+# absent the GET stays open, so the live subscription keeps validating until
+# scripts/configure_strava_webhook.sh has written the random token (rollout order:
+# write token -> script reads it -> close). Setting WEBHOOK_VERIFY_TOKEN_REQUIRED
+# to a truthy value is that last step: an absent token then rejects as well.
+STRAVA_APP_SECRET = os.environ.get('STRAVA_APP_SECRET', 'strava-ai-boost-app-config')
+WEBHOOK_VERIFY_TOKEN_REQUIRED = os.environ.get(
+    'WEBHOOK_VERIFY_TOKEN_REQUIRED', 'false'
+).strip().lower() in ('1', 'true', 'yes', 'on')
+
 
 def is_known_athlete(owner_id: str) -> bool:
     """Return True when owner_id matches a configured athlete.
@@ -152,7 +168,8 @@ def handle_webhook_verification(event: Dict[str, Any]) -> Dict[str, Any]:
         
         # Validate verify_token against stored value
         if not validate_verify_token(hub_verify_token):
-            logger.warning(f"Invalid verify token received: {hub_verify_token}")
+            # Never log the received token: it is the shared secret when it matches.
+            logger.warning("Invalid webhook verify token received")
             return {
                 'statusCode': 403,
                 'body': json.dumps({'error': 'Invalid verify token'})
@@ -180,51 +197,66 @@ def handle_webhook_verification(event: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
-def validate_verify_token(received_token: str) -> bool:
-    """
-    Validate webhook verify token against stored value
-    
+def validate_verify_token(received_token: Optional[str]) -> bool:
+    """Validate the subscription-validation token against the stored one.
+
+    The token is read from the Strava app secret (STRAVA_APP_SECRET).
+    Fail closed as soon as `webhook_verify_token` is configured: a mismatch, a
+    missing token, or any error reading/parsing the secret returns False. While
+    the key (or the whole secret) is absent, the check stays open unless
+    WEBHOOK_VERIFY_TOKEN_REQUIRED is set, so an existing subscription keeps
+    validating until the random token has been written (see module header).
+
     Args:
-        received_token: Token received from Strava
-        
+        received_token: `hub.verify_token` sent by Strava
+
     Returns:
-        True if token is valid, False otherwise
+        True if the token is accepted, False otherwise
     """
-    try:
-        if not received_token:
-            return False
-        
-        # Get stored verify token from Secrets Manager
-        secrets_client = get_secretsmanager_client()
-        
-        try:
-            response = secrets_client.get_secret_value(
-                SecretId=STRAVA_OAUTH_SECRET
-            )
-            
-            secret_data = json.loads(response['SecretString'])
-            stored_verify_token = secret_data.get('webhook_verify_token')
-            
-            if not stored_verify_token:
-                logger.warning("No webhook verify token found in secrets")
-                # For development, allow any token if none is configured
-                return True
-            
-            # Compare tokens securely
-            return received_token == stored_verify_token
-            
-        except ClientError as e:
-            error_code = e.response['Error']['Code']
-            if error_code == 'ResourceNotFoundException':
-                logger.warning("Strava OAuth secret not found, allowing verification")
-                return True  # Allow verification if secret doesn't exist yet
-            else:
-                logger.error(f"Failed to retrieve webhook verify token: {str(e)}")
-                return False
-                
-    except Exception as e:
-        logger.error(f"Error validating verify token: {str(e)}")
+    if not received_token or not isinstance(received_token, str):
         return False
+
+    try:
+        response = get_secretsmanager_client().get_secret_value(
+            SecretId=STRAVA_APP_SECRET
+        )
+    except ClientError as e:
+        if e.response.get('Error', {}).get('Code') == 'ResourceNotFoundException':
+            if WEBHOOK_VERIFY_TOKEN_REQUIRED:
+                logger.warning("App secret not found and verify token required, rejecting")
+                return False
+            logger.warning("Strava app secret not found, allowing verification")
+            return True
+        logger.error(f"Failed to retrieve webhook verify token: {e}")
+        return False
+    except Exception as e:  # network, credentials: never open on an unknown error
+        logger.error(f"Error reading webhook verify token: {e}")
+        return False
+
+    try:
+        secret_data = json.loads(response['SecretString'])
+    except (KeyError, TypeError, ValueError) as e:
+        logger.error(f"App secret is not valid JSON, rejecting verification: {e}")
+        return False
+    if not isinstance(secret_data, dict):
+        logger.error("App secret is not a JSON object, rejecting verification")
+        return False
+
+    if 'webhook_verify_token' not in secret_data:
+        if WEBHOOK_VERIFY_TOKEN_REQUIRED:
+            logger.warning("No webhook verify token configured and token required, rejecting")
+            return False
+        logger.warning("No webhook verify token found in secrets, allowing verification")
+        return True
+
+    stored_verify_token = secret_data.get('webhook_verify_token')
+    if not isinstance(stored_verify_token, str) or not stored_verify_token:
+        # Key present but empty/garbled: the owner meant to close it, so do not reopen.
+        logger.error("Webhook verify token is configured but empty or invalid, rejecting")
+        return False
+
+    # Constant-time comparison: the token is a shared secret.
+    return hmac.compare_digest(received_token.encode('utf-8'), stored_verify_token.encode('utf-8'))
 
 
 def handle_webhook_notification(event: Dict[str, Any]) -> Dict[str, Any]:
