@@ -178,6 +178,20 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             # Never blocking: a published description beats no description.
             logger.warning(f"Content guard failed, publishing unchecked: {guard_error}")
 
+        # Preview: generate and return only. No DynamoDB write, no Campus "done"
+        # marker, no strength history entry, and the caller does not reach the
+        # Strava updater. Used to compare a prompt change on real activities
+        # without touching what is published (invoke the Lambda directly).
+        if event.get('preview'):
+            logger.info("Preview mode: content returned, nothing stored", extra={"activity_id": activity_id})
+            return {
+                'statusCode': 200,
+                'preview': True,
+                'activity_id': activity_id,
+                'enhanced_content': enhanced_content,
+                'modules_applied': [m['name'] for m in enhanced_modules],
+            }
+
         # Store generated content
         store_generated_content(activity_id, enhanced_content)
 
