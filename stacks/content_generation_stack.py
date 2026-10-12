@@ -358,6 +358,47 @@ class ContentGenerationStack(Stack):
             }
         )
 
+    # Errors a later attempt can fix (reliability plan, lot 3). TransientAgentError is
+    # raised by content_generator / coach_generator on a 502/503/504, throttling or
+    # timeout of the AgentCore runtime (2026-10-09: activity 20518589504 lost to one
+    # 502 of a cold content_gen runtime). StravaRateLimitError is raised by
+    # strava_updater once its own 429 backoff is spent.
+    TRANSIENT_TASK_ERRORS = [
+        "Lambda.ServiceException",
+        "Lambda.TooManyRequestsException",
+        "Sandbox.Timedout",
+        "TransientAgentError",
+    ]
+    # What retry_on_service_exceptions=True used to cover minus Lambda.ServiceException,
+    # which now belongs to the transient retrier above (one error, one retrier).
+    LAMBDA_SDK_ERRORS = [
+        "Lambda.AWSLambdaException",
+        "Lambda.SdkClientException",
+        "Lambda.ClientExecutionTimeoutException",
+    ]
+
+    @classmethod
+    def _add_transient_retries(
+        cls, task: sfn_tasks.LambdaInvoke, extra_errors: list = None
+    ) -> None:
+        """Retry a generation/publish task on transient errors.
+
+        2 attempts, 10s then 20s: enough for a cold AgentCore container to boot
+        (a few seconds) without stretching a genuinely broken run.
+        """
+        task.add_retry(
+            errors=cls.TRANSIENT_TASK_ERRORS + list(extra_errors or []),
+            interval=Duration.seconds(10),
+            max_attempts=2,
+            backoff_rate=2,
+        )
+        task.add_retry(
+            errors=cls.LAMBDA_SDK_ERRORS,
+            interval=Duration.seconds(2),
+            max_attempts=6,
+            backoff_rate=2,
+        )
+
     def _create_step_functions_workflow(self) -> None:
         """Create Step Functions workflow for activity processing"""
         
@@ -459,7 +500,7 @@ class ContentGenerationStack(Stack):
             lambda_function=self.content_generator,
             comment="Generate enhanced content using Bedrock AI and AgentCore Memory",
             payload_response_only=True,
-            retry_on_service_exceptions=True
+            retry_on_service_exceptions=False  # explicit retriers below
         )
 
         # Coach generator task (Branch 2)
@@ -468,8 +509,12 @@ class ContentGenerationStack(Stack):
             lambda_function=self.coach_generator,
             comment="Generate coaching feedback with historical context",
             payload_response_only=True,
-            retry_on_service_exceptions=True
+            retry_on_service_exceptions=False  # explicit retriers below
         )
+
+        # Retries come before the catches below: Step Functions evaluates Retry first.
+        self._add_transient_retries(generate_content)
+        self._add_transient_retries(generate_coach)
 
         # Coach branch catches errors and returns null result
         coach_error_fallback = sfn.Pass(
@@ -501,8 +546,10 @@ class ContentGenerationStack(Stack):
             lambda_function=self.strava_updater,
             comment="Update Strava activity with enhanced content",
             payload_response_only=True,
-            retry_on_service_exceptions=True
+            retry_on_service_exceptions=False  # explicit retriers below
         )
+
+        self._add_transient_retries(update_strava, extra_errors=["StravaRateLimitError"])
 
         # Success state
         success = sfn.Succeed(

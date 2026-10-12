@@ -16,12 +16,20 @@ from decimal import Decimal
 import boto3
 from aws_lambda_powertools.metrics import single_metric
 from botocore.config import Config as BotoConfig
+from botocore.exceptions import (
+    ClientError,
+    ConnectionClosedError,
+    ConnectTimeoutError,
+    EndpointConnectionError,
+    ReadTimeoutError,
+)
 
 from processing.workout_analysis import (
     classify_workout_from_laps,
     extract_enduraw_report,
 )
 from processing.content_guard import apply_content_guard
+from processing.formatting import format_paragraphs
 from shared.campus_structure import resolve_exercise_loads
 from processing.modules_processing import get_active_modules, apply_module_processing
 from shared.iso_week import iso_week_label
@@ -91,6 +99,45 @@ AGENTCORE_CLIENT_CONFIG = BotoConfig(
     connect_timeout=10,
     retries={"max_attempts": 3, "mode": "standard"},
 )
+
+
+class TransientAgentError(Exception):
+    """The AgentCore runtime failed in a way a later attempt can fix.
+
+    Raised (not answered as a 500 payload) so Step Functions sees a Lambda error
+    named exactly ``TransientAgentError`` and applies the Retry of GenerateContent
+    (reliability plan, lot 3). botocore's own retries have already been spent by
+    the time this is raised: this is the second, slower retry layer.
+    """
+
+
+# HTTP statuses and error codes a cold or throttled runtime answers with.
+_TRANSIENT_HTTP_STATUSES = {429, 502, 503, 504}
+_TRANSIENT_ERROR_CODES = {
+    "ThrottlingException",
+    "TooManyRequestsException",
+    "ServiceUnavailableException",
+    "ServiceUnavailable",
+    "RequestTimeout",
+    "RequestTimeoutException",
+}
+_TRANSIENT_NETWORK_ERRORS = (
+    ReadTimeoutError,
+    ConnectTimeoutError,
+    EndpointConnectionError,
+    ConnectionClosedError,
+)
+
+
+def _is_transient_agent_error(exc: BaseException) -> bool:
+    """True for 502/503/504, throttling and timeouts of the AgentCore call."""
+    if isinstance(exc, _TRANSIENT_NETWORK_ERRORS):
+        return True
+    if isinstance(exc, ClientError):
+        error = exc.response.get("Error", {}) or {}
+        status = (exc.response.get("ResponseMetadata", {}) or {}).get("HTTPStatusCode")
+        return status in _TRANSIENT_HTTP_STATUSES or error.get("Code") in _TRANSIENT_ERROR_CODES
+    return False
 
 
 def _apply_preserved_original(activity_data: dict, item: dict) -> None:
@@ -275,6 +322,12 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'modules_applied': [m['name'] for m in enhanced_modules]
         }
 
+    except TransientAgentError as e:
+        # Raised, not answered as a 500: Step Functions retries GenerateContent on it.
+        logger.error(f"Content generation transient AgentCore error, raising for retry: {str(e)}")
+        if not is_preview:
+            _record_outcome("failed")
+        raise
     except Exception as e:
         logger.error(f"Content generation error: {str(e)}")
         if not is_preview:
@@ -558,14 +611,19 @@ def generate_enhanced_content(
 
     # Invoke agent
     payload = json.dumps(agent_input, default=str).encode('utf-8')
-    response = agentcore_client.invoke_agent_runtime(
-        agentRuntimeArn=agent_arn,
-        runtimeSessionId=session_id,
-        payload=payload
-    )
+    try:
+        response = agentcore_client.invoke_agent_runtime(
+            agentRuntimeArn=agent_arn,
+            runtimeSessionId=session_id,
+            payload=payload
+        )
 
-    # Process response
-    completion = _process_agent_response(response)
+        # Process response (the streamed body can still time out here)
+        completion = _process_agent_response(response)
+    except Exception as invoke_error:
+        if _is_transient_agent_error(invoke_error):
+            raise TransientAgentError(f"AgentCore content agent transient failure: {invoke_error}") from invoke_error
+        raise
 
     # Parse agent response
     result = _parse_agent_response(completion, workout_classification, modules)
@@ -577,6 +635,11 @@ def generate_enhanced_content(
     # "Footing EF du vendredi, 6,66 km en zone 2", description opened with
     # "Footing EF du vendredi, 6,66 km en 40:10.").
     result['description'] = _strip_title_echo(result.get('title', ''), result['description'])
+
+    # Short paragraphs, deterministically (reliability lot 4): the athlete re-split
+    # every long block by hand. Only whitespace changes; coach block and signature
+    # are left verbatim.
+    result['description'] = format_paragraphs(result['description'])
 
     # Enforce user preferences on generated content
     result['title'], result['description'] = enforce_preferences(

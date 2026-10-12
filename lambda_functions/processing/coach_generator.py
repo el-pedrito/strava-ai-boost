@@ -13,6 +13,13 @@ from typing import Any, Dict, List, Optional
 import boto3
 from aws_lambda_powertools.metrics import single_metric
 from botocore.config import Config as BotoConfig
+from botocore.exceptions import (
+    ClientError,
+    ConnectionClosedError,
+    ConnectTimeoutError,
+    EndpointConnectionError,
+    ReadTimeoutError,
+)
 
 from shared.logger import get_logger, inject_correlation_id, metrics, MetricUnit, METRICS_NAMESPACE
 from shared.env_validation import validate_env_vars
@@ -85,6 +92,44 @@ ACTIVITIES_TABLE = os.environ.get("ACTIVITIES_TABLE", "strava-ai-boost-activitie
 USER_CONFIG_TABLE = os.environ.get("USER_CONFIG_TABLE", "strava-ai-boost-user-configuration")
 MEMORY_ID = os.environ.get("BEDROCK_AGENTCORE_MEMORY_ID") or os.environ.get("MEMORY_ID")
 COACH_AGENT_ARN = os.environ.get("COACH_AGENT_ARN", "")
+
+
+class TransientAgentError(Exception):
+    """The AgentCore coach runtime failed in a way a later attempt can fix.
+
+    Raised (not answered as a 500 payload) so Step Functions sees a Lambda error
+    named exactly ``TransientAgentError`` and applies the Retry of GenerateCoach
+    (reliability plan, lot 3). Defined locally: content_generator has its own.
+    """
+
+
+# HTTP statuses and error codes a cold or throttled runtime answers with.
+_TRANSIENT_HTTP_STATUSES = {429, 502, 503, 504}
+_TRANSIENT_ERROR_CODES = {
+    "ThrottlingException",
+    "TooManyRequestsException",
+    "ServiceUnavailableException",
+    "ServiceUnavailable",
+    "RequestTimeout",
+    "RequestTimeoutException",
+}
+_TRANSIENT_NETWORK_ERRORS = (
+    ReadTimeoutError,
+    ConnectTimeoutError,
+    EndpointConnectionError,
+    ConnectionClosedError,
+)
+
+
+def _is_transient_agent_error(exc: BaseException) -> bool:
+    """True for 502/503/504, throttling and timeouts of the AgentCore call."""
+    if isinstance(exc, _TRANSIENT_NETWORK_ERRORS):
+        return True
+    if isinstance(exc, ClientError):
+        error = exc.response.get("Error", {}) or {}
+        status = (exc.response.get("ResponseMetadata", {}) or {}).get("HTTPStatusCode")
+        return status in _TRANSIENT_HTTP_STATUSES or error.get("Code") in _TRANSIENT_ERROR_CODES
+    return False
 
 
 # @log_metrics is what flushes add_metric to CloudWatch (EMF on stdout).
@@ -542,6 +587,12 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             "coach_feedback": feedback,
         }
 
+    except TransientAgentError as e:
+        # Raised, not answered as a 500: Step Functions retries GenerateCoach on it
+        # (its CoachErrorFallback catch still applies once the retries are spent).
+        logger.error(f"Coach generation transient AgentCore error, raising for retry: {e}")
+        _record_outcome("failed")
+        raise
     except Exception as e:
         logger.error(f"Coach generation error: {e}")
         _record_outcome("failed")
@@ -617,6 +668,8 @@ def _invoke_coach_agent(
                 logger.warning(f"Coach agent cold start (attempt {attempt+1}), retrying in {wait}s...")
                 time.sleep(wait)
             else:
+                if _is_transient_agent_error(e):
+                    raise TransientAgentError(f"AgentCore coach agent transient failure: {e}") from e
                 raise
 
     # Process response (same pattern as content_generator.py)
