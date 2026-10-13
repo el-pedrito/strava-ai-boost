@@ -122,7 +122,7 @@ def compute_session_volume(
 
     for entry in parsed_sets or []:
         canonical = canonicalize_exercise_name(entry.get('exercise', ''))
-        sides = UNILATERAL_EXERCISES.get(canonical, 1)
+        sides = _sides_for(entry, canonical)
         is_unilateral = sides > 1
 
         sets_detail = entry.get('sets_detail')
@@ -137,10 +137,24 @@ def compute_session_volume(
         exercise_reps = 0
         exercise_volume = 0.0
         exercise_incomplete = False
+        contributing_sets = 0
 
         for raw_set in sets_detail:
             reps = _coerce_optional_number(raw_set.get('reps'))
+            load = _resolve_set_load(
+                canonical,
+                _coerce_optional_number(raw_set.get('weight_kg')),
+                body_weight_kg,
+            )
             if reps is None:
+                if _coerce_optional_number(raw_set.get('duration_s')) is not None:
+                    # A planned hold (Campus "Gainage 30 s"): a real set with no
+                    # reps. Bodyweight hold -> nothing is unknown. Loaded hold -> real
+                    # work that reps x load cannot express, so the total says so.
+                    exercise_sets += 1
+                    if raw_set.get('weight_kg') is not None:
+                        exercise_incomplete = True
+                    continue
                 # reps null -> the whole series is excluded and signalled; it
                 # contributes to no count, only to the incomplete flag.
                 exercise_incomplete = True
@@ -149,17 +163,18 @@ def compute_session_volume(
             exercise_sets += 1
             exercise_reps += int(reps)
 
-            load = _resolve_set_load(
-                canonical,
-                _coerce_optional_number(raw_set.get('weight_kg')),
-                body_weight_kg,
-            )
             if load is None:
                 # Load unknown: reps still count, but this set's tonnage is
                 # excluded rather than guessed.
                 exercise_incomplete = True
                 continue
             exercise_volume += int(reps) * load
+            contributing_sets += 1
+
+        if exercise_sets == 0:
+            # Listed but nothing countable (empty or reps-less detail): a silent 0
+            # presented as complete is the exact lie this module exists to prevent.
+            exercise_incomplete = True
 
         # Expand both sides together so sets x reps x load still equals volume.
         exercise_sets *= sides
@@ -175,7 +190,9 @@ def compute_session_volume(
             'exercise': canonical,
             'sets': exercise_sets,
             'reps': exercise_reps,
-            'volume_kg': round(exercise_volume, 2),
+            # None, not 0, when no set has a computable reps x load: a 0 kg point on
+            # the progression chart would be a session that never happened.
+            'volume_kg': round(exercise_volume, 2) if contributing_sets else None,
             'unilateral': is_unilateral,
             'volume_incomplete': exercise_incomplete,
         })
@@ -184,6 +201,12 @@ def compute_session_volume(
         total_reps += exercise_reps
         volume_kg += exercise_volume
 
+    incomplete_reason = None
+    if not parsed_sets:
+        # Nothing extracted at all: never a complete session of zero.
+        volume_incomplete = True
+        incomplete_reason = 'nothing_extracted'
+
     return {
         'total_sets': total_sets,
         'total_reps': total_reps,
@@ -191,5 +214,24 @@ def compute_session_volume(
         'body_weight_kg_used': body_weight_kg,
         'per_exercise': per_exercise,
         'volume_kg_incomplete': volume_incomplete,
+        'incomplete_reason': incomplete_reason,
         'excluded_exercises': excluded_exercises,
     }
+
+
+def _sides_for(entry: Dict[str, Any], canonical: str) -> int:
+    """Sides performed for one exercise.
+
+    An explicit ``sides`` on the item wins (the Campus plan path sets 2 for the split
+    squat, planned per leg). Otherwise the UNILATERAL_EXERCISES table decides, so the
+    athlete's free text keeps its current meaning. Anything but an int >= 1 is ignored.
+    """
+    raw = entry.get('sides')
+    if raw is not None:
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            value = 0
+        if value >= 1 and value == raw:
+            return value
+    return UNILATERAL_EXERCISES.get(canonical, 1)

@@ -22,8 +22,9 @@ def _assert_coherent(result: dict) -> None:
     """
     assert result['total_sets'] == sum(e['sets'] for e in result['per_exercise'])
     assert result['total_reps'] == sum(e['reps'] for e in result['per_exercise'])
+    # An exercise with no computable reps x load carries None, not 0.
     assert result['volume_kg'] == round(
-        sum(e['volume_kg'] for e in result['per_exercise']), 2
+        sum(e['volume_kg'] or 0 for e in result['per_exercise']), 2
     )
 
 
@@ -201,7 +202,9 @@ class TestEdgeCases:
         assert result['total_sets'] == 0
         assert result['total_reps'] == 0
         assert result['volume_kg'] == 0
-        assert result['volume_kg_incomplete'] is False
+        # Nothing extracted is never "a complete session of 0 kg".
+        assert result['volume_kg_incomplete'] is True
+        assert result['incomplete_reason'] == 'nothing_extracted'
         assert result['excluded_exercises'] == []
         assert result['body_weight_kg_used'] == 92
 

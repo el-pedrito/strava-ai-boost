@@ -244,12 +244,17 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                         "total_reps": current_entry.get("total_reps"),
                         "volume_kg": current_entry.get("volume_kg"),
                         "volume_kg_incomplete": current_entry.get("volume_kg_incomplete"),
+                        "incomplete_reason": current_entry.get("incomplete_reason"),
+                        "sets_source": current_entry.get("sets_source") or "athlete_text",
                         "body_weight_kg_used": current_entry.get("body_weight_kg_used"),
                         "excluded_exercises": current_entry.get("excluded_exercises") or [],
                     }
-                    historical_summary["exercise_comparisons"] = build_exercise_comparisons(
-                        current_entry.get("parsed_sets"), split["earlier"]
-                    )
+                    # A Campus renfo's sets and reps are the plan's: comparing them with
+                    # earlier sessions would report the plan's progression as his.
+                    if current_entry.get("sets_source") != "campus_plan":
+                        historical_summary["exercise_comparisons"] = build_exercise_comparisons(
+                            current_entry.get("parsed_sets"), split["earlier"]
+                        )
         except Exception as e:
             logger.warning(f"Failed to enrich historical summary: {e}")
             _mark_degraded("historical_enrichment")

@@ -225,6 +225,76 @@ def _plan_family(exercise_name: str) -> Optional[str]:
     return None
 
 
+# Families planned PER LEG by Campus: the plan's reps are for one leg, both legs are done
+# (athlete, 2026-10-13). Only the plan path uses this: his own free text is unchanged.
+_PER_LEG_FAMILIES = frozenset({"split squat"})
+
+# Canonical strength names (shared/strength_exercises) for the plan's REP-BASED family
+# moves, so a Campus session continues the athlete's existing "Fentes" / "Mollets" series
+# instead of opening "Split Squat avec charge additionnelle". Holds keep their plan name:
+# a loaded hold has no tonnage and must not mark the counted family row as excluded.
+_FAMILY_CANONICAL_NAME = {"split squat": "Fentes", "mollet": "Mollets"}
+
+
+def _plan_sides(exercise_name: str) -> int:
+    return 2 if _plan_family(exercise_name) in _PER_LEG_FAMILIES else 1
+
+
+def ppg_history_sets(
+    session: Optional[Dict[str, Any]],
+    loads_kg: Optional[Dict[str, float]] = None,
+) -> List[Dict[str, Any]]:
+    """The Campus PLAN as strength-history sets, in the shape ``compute_session_volume`` reads.
+
+    Athlete rule (2026-10-13): for a Campus renfo the sets and reps come from the plan and
+    only the loads from his text. One item per exercise, in order of first appearance;
+    one ``sets_detail`` entry per planned round (per occurrence in the legacy flat shape).
+    Holds carry ``reps: None`` and ``duration_s``. ``sides`` marks the per-leg moves.
+    """
+    items: Dict[str, Dict[str, Any]] = {}
+    for block in _blocks(session):
+        rounds = block["repeat"]
+        for exercise in block["exercises"]:
+            if not isinstance(exercise, dict) or exercise.get("type") == "recovery":
+                continue
+            name = str(exercise.get("name") or "").strip()
+            if not name:
+                continue
+            reps = _to_float(exercise.get("reps"))
+            hold_s = _parse_duration_seconds(exercise.get("duration"))
+            family = _plan_family(name)
+            label = _FAMILY_CANONICAL_NAME.get(family, name) if reps is not None else name
+            load = _load_for(name, loads_kg)
+            item = items.setdefault(
+                label,
+                {"exercise": label, "sides": _plan_sides(name), "sets_detail": []},
+            )
+            for _ in range(rounds):
+                item["sets_detail"].append(
+                    {
+                        "reps": int(reps) if reps is not None else None,
+                        "weight_kg": load,
+                        "duration_s": hold_s if reps is None else None,
+                    }
+                )
+    result: List[Dict[str, Any]] = []
+    for item in items.values():
+        detail = item["sets_detail"]
+        loads = [s["weight_kg"] for s in detail if s["weight_kg"] is not None]
+        reps_list = [s["reps"] for s in detail if s["reps"] is not None]
+        result.append(
+            {
+                "exercise": item["exercise"],
+                "sets": len(detail),
+                "reps": max(set(reps_list), key=reps_list.count) if reps_list else None,
+                "weight_kg": max(loads) if loads else None,
+                "sides": item["sides"],
+                "sets_detail": detail,
+            }
+        )
+    return result
+
+
 def extract_athlete_loads(description: Optional[str]) -> Dict[str, float]:
     """Loads the athlete logged, keyed by canonical family (or by his own term).
 
@@ -377,6 +447,10 @@ def compute_ppg_volume(
     athlete stated one for that family, as bodyweight time otherwise. Any loaded hold
     forces ``volume_kg_incomplete``, because its work is real but not expressible as
     ``reps x load``.
+
+    The split squat is planned PER LEG (athlete, 2026-10-13: "4 reps" = 4 per leg), so
+    its sets, reps and volume count both legs. ``ppg_history_sets`` applies the same
+    rule through ``sides``, so the coach's figure and the stored history agree.
     """
     per_exercise: List[Dict[str, Any]] = []
     total_sets = 0
@@ -398,21 +472,23 @@ def compute_ppg_volume(
             reps = _to_float(exercise.get("reps"))
             hold_s = _parse_duration_seconds(exercise.get("duration"))
             load = _load_for(name, loads_kg)
+            sides = _plan_sides(name)
             entry: Dict[str, Any] = {
                 "exercise": name,
-                "sets": rounds,
+                "sets": rounds * sides,
+                "sides": sides,
                 "reps_per_set": reps,
                 "hold_s": hold_s,
                 "weight_kg": load,
                 "volume_kg": 0.0,
                 "time_under_load_s": 0.0,
             }
-            total_sets += rounds
+            total_sets += rounds * sides
 
             if reps is not None:
-                total_reps += int(reps * rounds)
+                total_reps += int(reps * rounds * sides)
                 if load is not None:
-                    entry["volume_kg"] = float(reps * rounds * load)
+                    entry["volume_kg"] = float(reps * rounds * sides * load)
                     volume_kg += entry["volume_kg"]
                 else:
                     # A rep-based exercise whose load the athlete did not state.

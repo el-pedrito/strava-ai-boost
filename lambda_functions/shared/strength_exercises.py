@@ -98,6 +98,12 @@ _ALIAS_GROUPS = (
     )),
     _aliases('Curl barre', ('Biceps barre',)),
     _aliases('Curl marteau', ('Curl marteau biceps',)),
+    # Every stored "biceps larry scott" row (10 of 11 on 2026-10-13) was already logged
+    # as 'Curl biceps'; the odd 'Curl Larry Scott' split the progression series.
+    _aliases('Curl biceps', (
+        'Curl Larry Scott', 'Larry Scott', 'Biceps larry scott',
+        'Biceps larry scott guide', 'Curl biceps Larry Scott',
+    )),
     _aliases('Tirage horizontal machine', ('Low row', 'Rowing machine')),
 )
 

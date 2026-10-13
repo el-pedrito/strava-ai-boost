@@ -202,5 +202,5 @@ class TestEndToEndOnTheLatestText:
 
     def test_volume(self):
         volume = compute_ppg_volume(W42_RENFORCEMENT, extract_athlete_loads(self.TEXT))
-        # 4 x 8 x 32 + 4 x 15 x 12
-        assert volume["volume_kg"] == 1744.0
+        # 4 x 8 x 2 legs x 32 + 4 x 15 x 12
+        assert volume["volume_kg"] == 2768.0

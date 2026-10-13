@@ -120,7 +120,9 @@ class TestPpgVolume:
             e["exercise"]: e
             for e in compute_ppg_volume(W33_RENFORCEMENT, ATHLETE_LOADS)["per_exercise"]
         }
-        assert by_name["Split Squat avec charge additionnelle"]["volume_kg"] == 1280.0
+        # Planned per leg (athlete, 2026-10-13): 4 rounds x 8 reps x 2 legs x 40 kg.
+        assert by_name["Split Squat avec charge additionnelle"]["volume_kg"] == 2560.0
+        assert by_name["Split Squat avec charge additionnelle"]["sides"] == 2
         assert by_name["Extension de Mollet"]["volume_kg"] == 576.0
         assert by_name["Swing avec charge"]["volume_kg"] == 768.0
 
@@ -134,9 +136,10 @@ class TestPpgVolume:
 
     def test_totals_and_incompleteness(self):
         volume = compute_ppg_volume(W33_RENFORCEMENT, ATHLETE_LOADS)
-        assert volume["total_sets"] == 24
-        assert volume["total_reps"] == 112
-        assert volume["volume_kg"] == 2624.0
+        # Split squat counted per leg: 24 + 4 sets, 112 + 32 reps, 2624 + 1280 kg.
+        assert volume["total_sets"] == 28
+        assert volume["total_reps"] == 144
+        assert volume["volume_kg"] == 3904.0
         # A loaded isometric carries real work that reps x load cannot express, so the
         # tonnage must stay explicitly partial rather than look complete.
         assert volume["volume_kg_incomplete"] is True
@@ -150,7 +153,7 @@ class TestPpgVolume:
         volume = compute_ppg_volume(W33_RENFORCEMENT, {})
         assert volume["volume_kg"] == 0.0
         assert volume["volume_kg_incomplete"] is True
-        assert volume["total_sets"] == 24
+        assert volume["total_sets"] == 28
 
     def test_never_raises_on_malformed_input(self):
         assert compute_ppg_volume(None, None)["total_sets"] == 0
