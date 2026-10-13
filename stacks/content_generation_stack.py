@@ -18,7 +18,7 @@ from aws_cdk import (
     Aws
 )
 from constructs import Construct
-from .core_infrastructure_stack import CoreInfrastructureStack
+from .core_infrastructure_stack import ACTIVITY_STATE_MACHINE_NAME, CoreInfrastructureStack
 from typing import Dict
 import os
 import sys
@@ -408,18 +408,8 @@ class ContentGenerationStack(Stack):
             assumed_by=iam.ServicePrincipal("states.amazonaws.com")
         )
 
-        # Add permissions for Lambda invocation
-        step_functions_role.add_to_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=[
-                    "lambda:InvokeFunction"
-                ],
-                resources=[
-                    f"arn:aws:lambda:{self.region}:{self.account}:function:StravaAIBoost-*"
-                ]
-            )
-        )
+        # Lambda invoke: granted per function (grant_invoke loop after the state
+        # machine, plus the LambdaInvoke tasks themselves), no StravaAIBoost-* wildcard.
 
         # Add permissions for CloudWatch Logs
         step_functions_role.add_to_policy(
@@ -590,14 +580,20 @@ class ContentGenerationStack(Stack):
         # Create Step Functions state machine
         self.state_machine = sfn.StateMachine(
             self, "ActivityProcessingWorkflow",
-            state_machine_name="StravaAIBoost-ActivityProcessing",
+            state_machine_name=ACTIVITY_STATE_MACHINE_NAME,
             definition_body=sfn.DefinitionBody.from_chainable(definition),
             timeout=Duration.minutes(30),
             role=step_functions_role,
+            # ALL events (cdk-nag SF1), but WITHOUT execution data: state inputs and
+            # outputs carry the athlete's activity, titles and coach text, which have
+            # no business in a 1-week troubleshooting log. Volume is a few executions
+            # a day, so the extra events cost nothing measurable.
             logs=sfn.LogOptions(
                 destination=log_group,
-                level=sfn.LogLevel.ERROR
-            )
+                level=sfn.LogLevel.ALL,
+                include_execution_data=False,
+            ),
+            tracing_enabled=True,  # X-Ray (cdk-nag SF2); Lambdas already trace.
         )
 
         # Grant Step Functions permission to invoke Lambda functions

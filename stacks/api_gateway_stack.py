@@ -20,6 +20,7 @@ from aws_cdk import (
     CfnOutput
 )
 from constructs import Construct
+from .api_logging import api_stage_logging_options
 from .core_infrastructure_stack import CoreInfrastructureStack
 
 
@@ -258,6 +259,7 @@ class ApiGatewayStack(Stack):
             deploy_options=apigateway.StageOptions(
                 throttling_rate_limit=100,
                 throttling_burst_limit=200,
+                **api_stage_logging_options(self, "ApiAccessLogs"),
             )
         )
 

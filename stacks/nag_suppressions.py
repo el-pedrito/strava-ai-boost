@@ -63,7 +63,14 @@ _GLOBAL: List[NagPackSuppression] = [
     NagPackSuppression(
         id="AwsSolutions-IAM5",
         reason="Execution names are generated at runtime; scoped to the single activity state machine.",
-        applies_to=[_rx(r"^Resource::<ActivityProcessingWorkflow[A-Za-z0-9]+>:\*$")],
+        applies_to=[
+            _rx(r"^Resource::<ActivityProcessingWorkflow[A-Za-z0-9]+>:\*$"),
+            # Same scope written by name from Core (cannot import Content's ARN).
+            _rx(
+                r"^Resource::arn:aws:states:<AWS::Region>:<AWS::AccountId>:"
+                r"execution:StravaAIBoost-ActivityProcessing:\*$"
+            ),
+        ],
     ),
     NagPackSuppression(
         id="AwsSolutions-IAM5",

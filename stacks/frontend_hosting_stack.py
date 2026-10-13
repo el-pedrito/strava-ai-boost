@@ -27,6 +27,20 @@ class FrontendHostingStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
+        # Access logs for the website bucket (cdk-nag S1) and the distribution
+        # (CFR3). CloudFront standard logging writes with the awslogsdelivery ACL,
+        # so ACLs must be enabled (BucketOwnerPreferred); public access stays blocked.
+        self._access_logs_bucket = s3.Bucket(
+            self, "FrontendAccessLogsBucket",
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            enforce_ssl=True,
+            object_ownership=s3.ObjectOwnership.BUCKET_OWNER_PREFERRED,
+            lifecycle_rules=[s3.LifecycleRule(id="ExpireAccessLogs", expiration=Duration.days(90))],
+            removal_policy=RemovalPolicy.DESTROY,
+            auto_delete_objects=True,
+        )
+
         # S3 bucket for frontend assets
         self._website_bucket = s3.Bucket(
             self, "WebsiteBucket",
@@ -34,6 +48,8 @@ class FrontendHostingStack(Stack):
             encryption=s3.BucketEncryption.S3_MANAGED,
             enforce_ssl=True,
             versioned=True,
+            server_access_logs_bucket=self._access_logs_bucket,
+            server_access_logs_prefix="website/",
             removal_policy=RemovalPolicy.DESTROY,
             auto_delete_objects=True,
         )
@@ -57,6 +73,9 @@ class FrontendHostingStack(Stack):
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
             ),
             default_root_object="index.html",
+            enable_logging=True,
+            log_bucket=self._access_logs_bucket,
+            log_file_prefix="cloudfront/",
             error_responses=[
                 cloudfront.ErrorResponse(
                     http_status=403,
