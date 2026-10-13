@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5](https://github.com/el-pedrito/strava-ai-boost/compare/v0.2.4...v0.2.5) (2026-10-13)
+
+
+### Bug Fixes
+
+* **deps:** bump aws-cdk-lib, coach_chat runtime and frontend dev deps for CVEs ([c5c3a87](https://github.com/el-pedrito/strava-ai-boost/commit/c5c3a87f9cc110c0a585955e6c747fd2d0a06b83))
+* **infra:** API Gateway access and execution logging, cdk-nag suppressions ([564283a](https://github.com/el-pedrito/strava-ai-boost/commit/564283a31feaec58c0ef5adc613643fb6040ecf0))
+
 ## [0.2.4](https://github.com/el-pedrito/strava-ai-boost/compare/v0.2.3...v0.2.4) (2026-10-12)
 
 
