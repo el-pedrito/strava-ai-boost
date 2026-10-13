@@ -1,8 +1,10 @@
 # AWS CDK Development Dependencies
-aws-cdk-lib==2.219.0
+# 2.253.0+ fixes GHSA-464c-974j-9xm6 (pip-audit in CI).
+aws-cdk-lib==2.273.0
 constructs>=10.0.0,<11.0.0
-# cdk-nag AwsSolutions checks, enabled with `cdk synth -c nag=true` (CI). 2.x is the
-# last line compatible with aws-cdk-lib 2.219 (3.x needs a newer aws-cdk-lib).
+# cdk-nag AwsSolutions checks, enabled with `cdk synth -c nag=true` (CI).
+# Kept on 2.x (supports aws-cdk-lib >=2.176,<3): 3.x drops NagSuppressions /
+# NagPackSuppression, which stacks/nag_suppressions.py is built on.
 cdk-nag==2.38.2
 # Required at SYNTH time: .bedrock_agentcore.yaml is the only source of
 # BEDROCK_AGENTCORE_MEMORY_ID, and a venv without PyYAML used to make
