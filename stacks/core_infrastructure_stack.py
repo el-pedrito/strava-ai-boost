@@ -24,6 +24,10 @@ from typing import Dict, Any
 import os
 import sys
 
+# Fixed name of the activity state machine created in content_generation_stack.py
+# (kept here because Core is deployed first and cannot import Content's ARN).
+ACTIVITY_STATE_MACHINE_NAME = "StravaAIBoost-ActivityProcessing"
+
 # Add src directory to path for config imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
@@ -245,9 +249,11 @@ class CoreInfrastructureStack(Stack):
                     "states:DescribeExecution",
                     "states:GetExecutionHistory"
                 ],
+                # The single state machine (Content stack, fixed name). Not a token
+                # reference: Content depends on Core, so Core cannot import its ARN.
                 resources=[
-                    f"arn:aws:states:{Aws.REGION}:{Aws.ACCOUNT_ID}:stateMachine:StravaAIBoost-*",
-                    f"arn:aws:states:{Aws.REGION}:{Aws.ACCOUNT_ID}:execution:StravaAIBoost-*:*"
+                    f"arn:aws:states:{Aws.REGION}:{Aws.ACCOUNT_ID}:stateMachine:{ACTIVITY_STATE_MACHINE_NAME}",
+                    f"arn:aws:states:{Aws.REGION}:{Aws.ACCOUNT_ID}:execution:{ACTIVITY_STATE_MACHINE_NAME}:*"
                 ]
             )
         )
@@ -310,22 +316,9 @@ class CoreInfrastructureStack(Stack):
             )
         )
 
-        # Step Functions execution role
-        self.step_functions_role = iam.Role(
-            self, "StepFunctionsRole",
-            assumed_by=iam.ServicePrincipal("states.amazonaws.com"),
-        )
-
-        # Add permissions for Lambda invocation
-        self.step_functions_role.add_to_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=[
-                    "lambda:InvokeFunction"
-                ],
-                resources=[f"arn:aws:lambda:{self.region}:{self.account}:function:StravaAIBoost-*"]
-            )
-        )
+        # (No Step Functions role here: the state machine's role lives in the
+        # Content stack, next to the functions it invokes. The unused Core copy,
+        # with its StravaAIBoost-* invoke grant, was removed 2026-10-12.)
 
     def _create_secrets(self) -> None:
         """Create Secrets Manager secrets for secure credential storage"""

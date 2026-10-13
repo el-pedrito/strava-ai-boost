@@ -26,6 +26,7 @@ from aws_cdk import (
     Duration
 )
 from constructs import Construct
+from .api_logging import api_stage_logging_options
 from .core_infrastructure_stack import CoreInfrastructureStack
 
 # Daily Bedrock cost guard, in "input-equivalent tokens" = input + 5 x output
@@ -84,7 +85,8 @@ class WebhookProcessingStack(Stack):
             self, "ActivityProcessingDLQ",
             queue_name="strava-ai-boost-activity-processing-dlq",
             retention_period=Duration.days(14),
-            encryption=sqs.QueueEncryption.KMS_MANAGED
+            encryption=sqs.QueueEncryption.KMS_MANAGED,
+            enforce_ssl=True,  # deny non-TLS requests (cdk-nag SQS4)
         )
 
         # Main processing queue
@@ -94,6 +96,7 @@ class WebhookProcessingStack(Stack):
             visibility_timeout=Duration.minutes(35),  # Longer than Step Functions timeout
             retention_period=Duration.days(14),
             encryption=sqs.QueueEncryption.KMS_MANAGED,
+            enforce_ssl=True,  # deny non-TLS requests (cdk-nag SQS4)
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=3,
                 queue=self.dlq
@@ -329,7 +332,8 @@ class WebhookProcessingStack(Stack):
         self.alerts_topic = sns.Topic(
             self, "OpsAlertsTopic",
             topic_name="strava-ai-boost-ops-alerts",
-            display_name="Strava AI Boost Ops Alerts"
+            display_name="Strava AI Boost Ops Alerts",
+            enforce_ssl=True,  # deny non-TLS publishes (cdk-nag SNS3)
         )
         alert_email = self.node.try_get_context("alert_email")
         if alert_email:
@@ -677,6 +681,7 @@ class WebhookProcessingStack(Stack):
             deploy_options=apigateway.StageOptions(
                 throttling_rate_limit=WEBHOOK_THROTTLE_RATE_LIMIT,
                 throttling_burst_limit=WEBHOOK_THROTTLE_BURST_LIMIT,
+                **api_stage_logging_options(self, "WebhookApiAccessLogs"),
             ),
         )
 
