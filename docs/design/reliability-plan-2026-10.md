@@ -148,6 +148,9 @@ constructs CDK AgentCore si disponibles pour `direct_code_deploy`, sinon le CLI
 `@aws/agentcore`. Objectif : `./scripts/deploy.sh dev` déploie tout, sans étape
 ⚙️ manuelle, avec le smoke du lot 2 en fin.
 
+Plan détaillé validé (blue/green via CDK, non implémenté) :
+[lot8-agentcore-blue-green.md](lot8-agentcore-blue-green.md).
+
 ## Lot 9 — Mémoire, phase 2 puis publication (L)
 
 1. Deuxième ressource mémoire « préférences » (stratégie built-in conservée), diff
