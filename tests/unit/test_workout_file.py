@@ -61,10 +61,10 @@ def _recovery_60s():
 class TestAppleFilesRebuiltByteForByte:
     def test_fixture_hashes_match_readme(self):
         expected = {
-            "Run_Average.workout": "462cfe698ddc4e7c3c2102672fcb2654423668924b2288a045995a6987767c8e",
-            "ProbeAlertsRange.workout": "d587f78eb4623b117f5b38af3bc0bf191214b874a08fef17b686ef9e931f0dfc",
-            "Probe_Alerts_Zones.workout": "2728d6a51f9f3a5feb359f6d191a04e3da34a7b79e666bdb83bf47d612db6979",
-            "custom-hiit-mixed.workout": "5ad2274b2a18e9ff67d088b9aab6f70505a8a28704351e1e7ee27f9473080cb8",
+            "Run_Average.workout": "462cfe698ddc4e7c3c2102672fcb2654423668924b2288a045995a6987767c8e",  # pragma: allowlist secret
+            "ProbeAlertsRange.workout": "d587f78eb4623b117f5b38af3bc0bf191214b874a08fef17b686ef9e931f0dfc",  # pragma: allowlist secret
+            "Probe_Alerts_Zones.workout": "2728d6a51f9f3a5feb359f6d191a04e3da34a7b79e666bdb83bf47d612db6979",  # pragma: allowlist secret
+            "custom-hiit-mixed.workout": "5ad2274b2a18e9ff67d088b9aab6f70505a8a28704351e1e7ee27f9473080cb8",  # pragma: allowlist secret
         }
         with open(os.path.join(APPLE_DIR, "README.md"), encoding="utf-8") as fh:
             readme = fh.read()
