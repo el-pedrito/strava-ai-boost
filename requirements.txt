@@ -30,6 +30,9 @@ typing-extensions>=4.0.0
 # Strands Agents framework for AI agent development
 strands-agents>=1.0.0
 strands-agents-tools>=0.2.0
+# Transitive via strands-agents (which caps mcp<2.2). Pinned to the patched 1.x
+# line for CVE-2026-59951 (fixed in 1.30.0 and 2.2.0; 2.2.0 is out of range).
+mcp==1.30.0
 
 # AgentCore starter toolkit for enhanced AI agent capabilities
 bedrock-agentcore-starter-toolkit>=0.1.21
