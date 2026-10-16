@@ -26,6 +26,8 @@ export default defineConfig(({ mode }) => {
     proxy: apiTarget ? {
       '^/dashboard/': proxyEntry,
       '^/coach/': proxyEntry,
+      // Trailing slash on purpose: `/plan` itself is an SPA route, only the API lives below it.
+      '^/plan/': proxyEntry,
       '^/config/': proxyEntry,
       '^/preferences': {
         ...proxyEntry,

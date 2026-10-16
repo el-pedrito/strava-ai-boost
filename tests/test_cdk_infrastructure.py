@@ -10,6 +10,7 @@ Tests the CDK stacks and infrastructure configuration:
 """
 
 import pytest
+import json
 import aws_cdk as cdk
 from aws_cdk import assertions
 import sys
@@ -305,6 +306,75 @@ class TestApiGatewayStack:
             template.has_resource_properties(
                 "AWS::Lambda::Function", {"FunctionName": name}
             )
+
+
+class TestPlanWorkoutsRoute:
+    """GET /plan/workouts: Cognito route, owner env var, client cannot write the claim."""
+
+    OWNER = "424242"
+
+    @pytest.fixture(scope="class")
+    def stacks(self):
+        from pathlib import Path
+        from stacks.frontend_hosting_stack import FrontendHostingStack
+        cdk_context = json.loads(
+            (Path(__file__).parent.parent / "cdk.json").read_text()
+        ).get("context", {})
+        app = cdk.App(context={**cdk_context, "default_user_id": self.OWNER})
+        env = cdk.Environment(account="123456789012", region="us-east-1")
+        core = CoreInfrastructureStack(app, "TestCoreStack", env=env)
+        frontend = FrontendHostingStack(app, "TestFrontendStack", env=env)
+        api = ApiGatewayStack(
+            app, "TestAPIStack", core_stack=core,
+            user_pool=frontend.user_pool, user_pool_client=frontend.user_pool_client,
+            env=env,
+        )
+        return {
+            "api": assertions.Template.from_stack(api),
+            "frontend": assertions.Template.from_stack(frontend),
+        }
+
+    def test_route_uses_cognito_authorizer(self, stacks):
+        template = stacks["api"]
+        resources = template.find_resources("AWS::ApiGateway::Resource")
+        by_id = {lid: r["Properties"] for lid, r in resources.items()}
+        workouts_ids = [
+            lid for lid, props in by_id.items()
+            if props["PathPart"] == "workouts"
+            and by_id.get(props["ParentId"].get("Ref"), {}).get("PathPart") == "plan"
+        ]
+        assert len(workouts_ids) == 1
+        methods = [
+            m["Properties"] for m in template.find_resources("AWS::ApiGateway::Method").values()
+            if m["Properties"].get("ResourceId", {}).get("Ref") == workouts_ids[0]
+        ]
+        get = [m for m in methods if m["HttpMethod"] == "GET"]
+        assert len(get) == 1
+        assert get[0]["AuthorizationType"] == "COGNITO_USER_POOLS"
+        assert get[0]["AuthorizerId"] == {"Ref": next(iter(template.find_resources("AWS::ApiGateway::Authorizer")))}
+        assert "DashboardAPI" in json.dumps(get[0]["Integration"]["Uri"])
+
+    def test_owner_env_var_on_dashboard_lambda(self, stacks):
+        stacks["api"].has_resource_properties("AWS::Lambda::Function", {
+            "FunctionName": "StravaAIBoost-DashboardAPI",
+            "Environment": {"Variables": assertions.Match.object_like({
+                "CAMPUS_OWNER_STRAVA_ID": self.OWNER,
+            })},
+        })
+
+    def test_lambda_function_count_unchanged(self, stacks):
+        stacks["api"].resource_count_is("AWS::Lambda::Function", 4)
+
+    def test_client_cannot_write_strava_claim(self, stacks):
+        clients = stacks["frontend"].find_resources("AWS::Cognito::UserPoolClient")
+        assert len(clients) == 1
+        props = next(iter(clients.values()))["Properties"]
+        write = props.get("WriteAttributes")
+        assert write, "WriteAttributes must be explicit (unset means every attribute is writable)"
+        assert "custom:strava_id" not in write
+        assert not any(attr.startswith("custom:") for attr in write)
+        read = props.get("ReadAttributes")
+        assert read is None or "custom:strava_id" in read
 
 
 class TestSecurityCompliance:

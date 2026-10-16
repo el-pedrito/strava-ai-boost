@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Menu, Sun, Moon } from 'lucide-react';
 import { useTheme } from '@/theme/ThemeProvider';
 import { setLanguage } from '@/i18n';
-import { NAV_ITEMS } from './navItems';
+import { getNavItems } from './navItems';
 import { UserMenu } from './UserMenu';
 
 interface TopbarProps {
@@ -15,7 +15,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
   const { t, i18n } = useTranslation();
   const { theme, toggleTheme } = useTheme();
 
-  const currentItem = NAV_ITEMS.find((item) =>
+  const currentItem = getNavItems().find((item) =>
     item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to)
   );
   const breadcrumbLabel = currentItem ? t(currentItem.labelKey) : '';

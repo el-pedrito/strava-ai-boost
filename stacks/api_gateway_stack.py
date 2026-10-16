@@ -131,6 +131,9 @@ class ApiGatewayStack(Stack):
                 "COACHING_SESSIONS_TABLE": self.core_stack.table_names["coaching_sessions"],
                 "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
                 "DEFAULT_USER_ID": self.node.try_get_context("default_user_id") or "",
+                # Sole owner of the Campus plan (the table has no user key): GET
+                # /plan/workouts answers 403 to any other claim, or to all when empty.
+                "CAMPUS_OWNER_STRAVA_ID": str(self.node.try_get_context("default_user_id") or ""),
                 "RECAP_TABLE": "strava-ai-boost-weekly-recaps",
                 "AUDIO_DEBRIEF_BUCKET": f"strava-ai-boost-audio-debriefs-{Aws.ACCOUNT_ID}",
             }
@@ -412,6 +415,17 @@ class ApiGatewayStack(Stack):
         )
         coach_recaps_resource.add_method(
             "POST",
+            apigateway.LambdaIntegration(self.dashboard_lambda),
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
+        )
+
+        # /plan/workouts: remaining Campus sessions as Apple .workout files.
+        # Cognito here; the handler then requires custom:strava_id == CAMPUS_OWNER_STRAVA_ID.
+        plan_resource = self.api.root.add_resource("plan")
+        plan_workouts_resource = plan_resource.add_resource("workouts")
+        plan_workouts_resource.add_method(
+            "GET",
             apigateway.LambdaIntegration(self.dashboard_lambda),
             authorizer=self.cognito_authorizer,
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,

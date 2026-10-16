@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+* **auth:** the SPA Cognito app client can no longer write `custom:strava_id` (write attributes limited to `email`, `name`, `given_name`, `family_name`). The claim was previously user-writable with the user's own access token, which let any pool user impersonate the athlete on the claim-based routes and the `coach_chat` runtime (THREAT-MODEL T3b). Only the OAuth callback sets it, through the admin API.
+* **watch:** `GET /plan/workouts` is owner-only (claim must equal `CAMPUS_OWNER_STRAVA_ID`, fail closed when unset) and every response, errors included, is `Cache-Control: no-store`.
+
+### Bug Fixes
+
+* **watch:** a malformed Campus row (for example a lone surrogate in its title) no longer fails the whole `/plan/workouts` list; strings are sanitized and the row is isolated as an `internal` item. Sorting uses the numeric week, and the size ceilings drop whole weeks only.
+
 ## [0.2.5](https://github.com/el-pedrito/strava-ai-boost/compare/v0.2.4...v0.2.5) (2026-10-13)
 
 
