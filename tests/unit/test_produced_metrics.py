@@ -174,7 +174,6 @@ class TestCoachGenerator:
              patch.object(coach_generator, "verify_weekly_claims", return_value=[]), \
              patch.object(coach_generator, "find_internal_contradictions", return_value=[]), \
              patch.object(coach_generator, "_inject_recap_line"), \
-             patch.object(coach_generator, "write_coaching_observation"), \
              patch.object(coach_generator, "store_coach_feedback"), \
              patch.object(coach_generator, "_record_outcome") as rec:
             yield {"ddb": ddb, "retrieve": retrieve, "invoke": invoke, "rec": rec}
@@ -203,13 +202,14 @@ class TestCoachGenerator:
         coach_generator.handler(dict(self.EVENT), None)
         pipeline["rec"].assert_called_once_with("degraded")
 
-    def test_memory_write_failure_marks_degraded(self):
-        coach_generator._DEGRADATIONS.clear()
-        with patch.object(coach_generator, "MEMORY_ID", "mem-1"), \
-             patch.object(coach_generator.boto3, "client", side_effect=RuntimeError("down")):
-            coach_generator.write_coaching_observation("u1", {"strava_block": "x"})
-        assert coach_generator._DEGRADATIONS == ["memory_write"]
-        coach_generator._DEGRADATIONS.clear()
+    def test_coach_lambda_never_writes_agentcore_memory(self):
+        # Decision 2026-10-16: the coach's own output must never reach the
+        # shared memory (undated model text re-read as fact by the coach).
+        import inspect
+        source = inspect.getsource(coach_generator)
+        assert "create_event" not in source
+        assert "write_coaching_observation" not in source
+        assert not hasattr(coach_generator, "MEMORY_ID")
 
 
 class TestVoiceDebrief:

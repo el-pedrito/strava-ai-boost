@@ -30,9 +30,9 @@ RENFO_FACTS = {
     "campus": {
         "fully_completed": True,
         "computed_volume": {
-            "total_sets": 24,
-            "total_reps": 112,
-            "volume_kg": 2624.0,
+            "total_sets": 28,
+            "total_reps": 144,
+            "volume_kg": 3904.0,
             "time_under_load_s": 160.0,
             "bodyweight_time_s": 240.0,
         },

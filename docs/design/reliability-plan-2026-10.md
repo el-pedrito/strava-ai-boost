@@ -111,6 +111,15 @@ ignore les `update` après traitement).
    suppression).
 - **Fait quand** : plus aucun événement de diff dans la mémoire coach après une nuit,
   aucun paragraphe > 280 caractères sur 10 fixtures.
+- **Suite 2026-10-16 (observations du coach)** : l'audit a montré que
+  `coach_generator.write_coaching_observation` ne tournait plus depuis le 26/07
+  (`BEDROCK_AGENTCORE_MEMORY_ID=""` sur la Lambda). Revue à deux modèles : ne pas
+  rallumer. Le coach y écrivait sa propre prose, sans date, que les stratégies
+  extrayaient en « faits » relus dans son prompt système. Décision : écrivain
+  supprimé (plus la clé vide, le `memory_id` du payload et les helpers morts de
+  `shared/coach_context.py`), et purge des records extraits de ces 19 événements.
+  La continuité datée reste `prev_coach_note`. Le chat écrit toujours dans la
+  mémoire (non traité ici).
 
 ## Lot 5 — ~~Supprimer le runtime coach~~ (retiré le 2026-10-12)
 
@@ -147,6 +156,9 @@ Migrer `content_gen` et `coach_chat` hors du starter toolkit (déprécié côté
 constructs CDK AgentCore si disponibles pour `direct_code_deploy`, sinon le CLI
 `@aws/agentcore`. Objectif : `./scripts/deploy.sh dev` déploie tout, sans étape
 ⚙️ manuelle, avec le smoke du lot 2 en fin.
+
+Plan détaillé validé (blue/green via CDK, non implémenté) :
+[lot8-agentcore-blue-green.md](lot8-agentcore-blue-green.md).
 
 ## Lot 9 — Mémoire, phase 2 puis publication (L)
 

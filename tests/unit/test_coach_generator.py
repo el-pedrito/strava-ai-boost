@@ -37,12 +37,11 @@ def coach_feedback():
 
 class TestHandler:
 
-    @patch('processing.coach_generator.write_coaching_observation')
     @patch('processing.coach_generator.store_coach_feedback')
     @patch('processing.coach_generator.build_historical_summary', return_value={"weeks": 4, "total_activities": 0})
     @patch('processing.coach_generator.retrieve_activity_data')
     @patch('processing.coach_generator._invoke_coach_agent')
-    def test_handler_success(self, mock_invoke, mock_retrieve, mock_history, mock_store, mock_write,
+    def test_handler_success(self, mock_invoke, mock_retrieve, mock_history, mock_store,
                              activity_event, activity_data, coach_feedback):
         mock_retrieve.return_value = activity_data
         mock_invoke.return_value = coach_feedback
@@ -76,20 +75,23 @@ class TestHandler:
         assert response["statusCode"] == 500
         assert "Missing required" in response["error"]
 
-    @patch('processing.coach_generator.write_coaching_observation')
+    @patch('processing.coach_generator.boto3')
     @patch('processing.coach_generator.store_coach_feedback')
     @patch('processing.coach_generator._invoke_coach_agent')
     @patch('processing.coach_generator.build_historical_summary', return_value={"weeks": 4, "total_activities": 0})
     @patch('processing.coach_generator.retrieve_activity_data')
-    @patch.dict(os.environ, {"MEMORY_ID": ""}, clear=False)
-    def test_handler_no_memory_id(self, mock_retrieve, mock_history, mock_invoke, mock_store, mock_write,
-                                  activity_event, activity_data, coach_feedback):
+    def test_handler_writes_nothing_to_memory(self, mock_retrieve, mock_history, mock_invoke, mock_store,
+                                              mock_boto3, activity_event, activity_data, coach_feedback):
         mock_retrieve.return_value = activity_data
         mock_invoke.return_value = coach_feedback
 
         response = handler(activity_event, None)
 
         assert response["statusCode"] == 200
+        # No AgentCore client is ever built by the handler itself (the coach
+        # runtime call is mocked above), so no memory event can be created.
+        services = [c.args[0] for c in mock_boto3.client.call_args_list if c.args]
+        assert "bedrock-agentcore" not in services
 
 
 class TestBuildHistoricalSummary:

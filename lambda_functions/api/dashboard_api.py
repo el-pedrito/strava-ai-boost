@@ -608,6 +608,8 @@ def _build_strength_sessions(entries: List[Dict[str, Any]]) -> List[Dict[str, An
             ),
             # True when a load was unknown: the tonnage is a floor, not a total.
             'volume_incomplete': bool(entry.get('volume_kg_incomplete')) or total_reps is None,
+            'incomplete_reason': entry.get('incomplete_reason'),
+            'sets_source': entry.get('sets_source') or 'athlete_text',
             'excluded_exercises': list(entry.get('excluded_exercises') or []),
         })
 

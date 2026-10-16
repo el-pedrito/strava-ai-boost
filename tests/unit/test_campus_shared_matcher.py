@@ -266,7 +266,6 @@ class TestCoachReceivesAuthoritativeSignal:
                 patch.object(cg, 'build_historical_summary', return_value={}), \
                 patch.object(cg, 'extract_and_store_prs'), \
                 patch.object(cg, 'store_coach_feedback'), \
-                patch.object(cg, 'write_coaching_observation'), \
                 patch.object(cg, '_invoke_coach_agent', side_effect=_fake_invoke):
             response = cg.handler(
                 {'activity_id': '19559992637', 'user_id': 'u1', 'user_config': {}}, None
@@ -334,7 +333,6 @@ class TestCoachReceivesAuthoritativeSignal:
                 patch.object(cg, 'build_historical_summary', return_value={}), \
                 patch.object(cg, 'extract_and_store_prs'), \
                 patch.object(cg, 'store_coach_feedback'), \
-                patch.object(cg, 'write_coaching_observation'), \
                 patch.object(cg, '_invoke_coach_agent', side_effect=_fake_invoke):
             response = cg.handler(
                 {'activity_id': '19559992637', 'user_id': 'u1', 'user_config': {}}, None

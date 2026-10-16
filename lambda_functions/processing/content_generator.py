@@ -30,7 +30,11 @@ from processing.workout_analysis import (
 )
 from processing.content_guard import apply_content_guard
 from processing.formatting import format_paragraphs
-from shared.campus_structure import resolve_exercise_loads
+from shared.campus_structure import (
+    extract_athlete_loads,
+    ppg_history_sets,
+    resolve_exercise_loads,
+)
 from processing.modules_processing import get_active_modules, apply_module_processing
 from shared.iso_week import iso_week_label
 from shared.llm_models import no_thinking
@@ -301,7 +305,9 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Track strength history for WeightTraining activities
         sport_type = activity_data.get('sport_type', activity_data.get('type', ''))
         if sport_type == 'WeightTraining':
-            _track_strength_history(user_id, activity_id, activity_data)
+            _track_strength_history(
+                user_id, activity_id, activity_data, matched_session=matched_session
+            )
 
         if not (enhanced_content or {}).get('title') or not (enhanced_content or {}).get('description'):
             # Stored as before (the updater skips blank fields), but nothing worth
@@ -1051,7 +1057,7 @@ _STRENGTH_EXTRACTION_SYSTEM_PROMPT = (
     "Required mappings include: Facepull -> 'Face pull'; Élévation latérale -> 'Élévations latérales'; "
     "Pullover -> 'Pull-over'; DC/DC barre -> 'Développé couché'; DC halt/DC haltères -> "
     "'Développé couché haltères'; all écart pec/pectoral cable variants -> "
-    "'Écartés pectoraux à la poulie'.\n"
+    "'Écartés pectoraux à la poulie'; biceps larry scott (guide or machine) -> 'Curl biceps'.\n"
     "- Keep materially different equipment variants separate: 'Développé couché' (barbell/default) and "
     "'Développé couché haltères' are not interchangeable because their loads are not comparable.\n"
     "- If a real resistance exercise is not represented in the canonical list, return one concise French "
@@ -1078,7 +1084,13 @@ _STRENGTH_EXTRACTION_SYSTEM_PROMPT = (
     "{\"reps\":10,\"weight_kg\":15}]},"
     "{\"exercise\":\"Face pull\",\"sets\":3,\"reps\":10,\"weight_kg\":35,"
     "\"sets_detail\":[{\"reps\":10,\"weight_kg\":35},{\"reps\":10,\"weight_kg\":35},"
-    "{\"reps\":10,\"weight_kg\":35}]}]"
+    "{\"reps\":10,\"weight_kg\":35}]}]\n"
+    # Verbatim from his log (2026-10-10), lost one set before: after a load, a bare
+    # number is the reps of ONE set; 'L NxR' is N sets of R at L.
+    "'Face pull 40 10 45 2x10' -> "
+    "[{\"exercise\":\"Face pull\",\"sets\":3,\"reps\":10,\"weight_kg\":45,"
+    "\"sets_detail\":[{\"reps\":10,\"weight_kg\":40},{\"reps\":10,\"weight_kg\":45},"
+    "{\"reps\":10,\"weight_kg\":45}]}]"
 )
 
 
@@ -1207,8 +1219,20 @@ def _athlete_body_weight_kg(user_id: str) -> Optional[float]:
         return None
 
 
-def _track_strength_history(user_id: str, activity_id: str, activity_data: Dict[str, Any]) -> None:
-    """Parse WeightTraining description and append to strength_history for progression tracking."""
+def _track_strength_history(
+    user_id: str,
+    activity_id: str,
+    activity_data: Dict[str, Any],
+    matched_session: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Parse WeightTraining description and append to strength_history for progression tracking.
+
+    A gym activity only matches a Campus PPG session when the athlete declares it in his
+    text (modules_processing._score_gym_against_ppg), and he never logs an upper session
+    and a Campus renfo in the same activity (confirmed 2026-10-13). So a matched session
+    means "this activity IS the Campus renfo": its sets and reps come from the plan, only
+    the loads from his text, and the LLM extraction is skipped.
+    """
     try:
         description = activity_data.get('description', '')
         if not description or len(description) < 10:
@@ -1234,7 +1258,17 @@ def _track_strength_history(user_id: str, activity_id: str, activity_data: Dict[
         # Store raw description as a history entry — the coach LLM will interpret it
         # against the strength_program to track progressions. In addition, a
         # best-effort LLM extraction produces structured sets for progression charts.
-        parsed_sets = _extract_strength_sets(description)
+        if matched_session:
+            parsed_sets = ppg_history_sets(
+                matched_session,
+                extract_athlete_loads(
+                    activity_data.get('original_description') or description
+                ),
+            )
+            sets_source = 'campus_plan'
+        else:
+            parsed_sets = _extract_strength_sets(description)
+            sets_source = 'athlete_text'
 
         # Compute the tonnage ONCE, here, and store it.
         #
@@ -1258,7 +1292,11 @@ def _track_strength_history(user_id: str, activity_id: str, activity_data: Dict[
             'volume_kg': volume['volume_kg'],
             'body_weight_kg_used': volume['body_weight_kg_used'],
             'volume_kg_incomplete': volume['volume_kg_incomplete'],
+            'incomplete_reason': volume['incomplete_reason'],
             'excluded_exercises': volume['excluded_exercises'],
+            # Where sets and reps come from: the Campus plan, or his own text. Rows
+            # written before this field are athlete_text.
+            'sets_source': sets_source,
             # Per-exercise figures feed the dashboard progression chart. Stored
             # rather than recomputed there, so the chart and the coach cannot
             # disagree on the same session.

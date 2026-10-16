@@ -5,6 +5,7 @@ Handles module discovery, activation, and per-module processing
 (Campus Coach session matching, Enduraw, etc.)
 """
 
+import json
 import os
 from typing import Dict, Any, Optional, List
 from decimal import Decimal
@@ -144,7 +145,12 @@ def _apply_campus_coach_processing(
             enhanced_module['campus_coach_sessions'] = sessions
             enhanced_module['sessions_available'] = True
             enhanced_module['session_count'] = len(sessions)
-            enhanced_module['note'] = 'No strong match found, passing all sessions to LLM'
+            enhanced_module['match_ambiguous'] = bool(result.get('match_ambiguous'))
+            enhanced_module['note'] = (
+                'Ambiguous Campus match: do not claim a session was completed'
+                if result.get('match_ambiguous')
+                else 'No strong match found, passing all sessions to LLM'
+            )
 
         return enhanced_module
 
@@ -187,8 +193,7 @@ def match_campus_session(
 
     effective_laps = laps if laps is not None else activity_data.get('laps', [])
 
-    best_match: Optional[Dict[str, Any]] = None
-    best_score = 0.0
+    scored: List[tuple] = []
     for session in sessions:
         score = _score_session_match(
             session, effective_laps, duration_min, activity_type, activity_data
@@ -200,15 +205,70 @@ def match_campus_session(
             session.get('week_date_iso'),
             score,
         )
-        if score > best_score:
-            best_score = score
-            best_match = session
+        scored.append((score, session))
+
+    best_score = max((score for score, _ in scored), default=0.0)
+    best = [session for score, session in scored if abs(score - best_score) < 1e-9]
+    best_match: Optional[Dict[str, Any]] = None
+    ambiguous = False
+    if best:
+        signatures = {_session_signature(session) for session in best}
+        if len(signatures) == 1:
+            # Interchangeable candidates (two identical footings): any of them is the
+            # right one, picked by session_id so both parallel branches agree.
+            best_match = min(best, key=lambda s: str(s.get('session_id') or ''))
+        else:
+            # Different plans that score the same: closing either one, or writing its
+            # sets into the history, would be a guess presented as a fact.
+            ambiguous = best_score >= MATCH_THRESHOLD
+            logger.warning(
+                "Ambiguous Campus match (score=%.2f) between %s",
+                best_score,
+                [(s.get('session_id'), _session_signature(s)[:200]) for s in best],
+            )
 
     return {
         'sessions': sessions,
-        'matched_session': best_match if best_score >= MATCH_THRESHOLD else None,
+        'matched_session': (
+            best_match if best_match is not None and best_score >= MATCH_THRESHOLD else None
+        ),
         'match_score': best_score,
+        'match_ambiguous': ambiguous,
     }
+
+
+# Fields that define WHAT a session prescribes. An allowlist on purpose: everything else
+# (session_id, dates, status, matched activity, sync stamps, coach text, importance...)
+# may differ between two genuinely interchangeable sessions of one week.
+_SIGNATURE_FIELDS = ('title', 'sport', 'training_type', 'expected_duration_min', 'intervals')
+
+
+def _signature_value(value: Any) -> Any:
+    """Normalize so 4.0 (from Decimal) and 4 (a fresh fixture) compare equal, and a missing
+    duration or pace equals an empty one."""
+    if isinstance(value, dict):
+        return {
+            key: _signature_value(item)
+            for key, item in value.items()
+            if item not in (None, '')
+        }
+    if isinstance(value, list):
+        return [_signature_value(item) for item in value]
+    if isinstance(value, Decimal):
+        value = float(value)
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
+def _session_signature(session: Dict[str, Any]) -> str:
+    """Canonical identity of what a session prescribes (exercises, reps, durations...).
+
+    Not ``_normalize_intervals``: that view keeps only type, duration and pace, so two
+    PPG plans differing only by exercise or reps would look identical.
+    """
+    payload = {field: _signature_value(session.get(field)) for field in _SIGNATURE_FIELDS}
+    return json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
 
 
 # Wording the athlete uses to state that a gym activity WAS the planned

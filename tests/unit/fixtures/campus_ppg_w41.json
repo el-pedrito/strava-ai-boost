@@ -1,0 +1,171 @@
+{
+ "session_id": "1791158400000_2",
+ "session_date": "week-2026-W41",
+ "title": "Renforcement",
+ "sport": "ppg",
+ "training_type": "PPG",
+ "expected_duration_min": 30.0,
+ "intervals": [
+  {
+   "pace": "",
+   "name": "Split Squat avec charge additionnelle",
+   "type": "work",
+   "reps": 3.0,
+   "duration": ""
+  },
+  {
+   "duration": "",
+   "pace": "",
+   "reps": 4.0,
+   "name": "Swing avec charge",
+   "type": "work"
+  },
+  {
+   "duration": "",
+   "pace": "",
+   "name": "Bond sur place",
+   "type": "work",
+   "reps": 5.0
+  },
+  {
+   "duration": "2:00 min",
+   "type": "recovery",
+   "pace": "",
+   "name": "Récupération"
+  },
+  {
+   "type": "work",
+   "duration": "",
+   "reps": 3.0,
+   "pace": "",
+   "name": "Split Squat avec charge additionnelle"
+  },
+  {
+   "reps": 5.0,
+   "duration": "",
+   "name": "Swing avec charge",
+   "pace": "",
+   "type": "work"
+  },
+  {
+   "type": "work",
+   "name": "Bond sur place",
+   "pace": "",
+   "reps": 5.0,
+   "duration": ""
+  },
+  {
+   "type": "recovery",
+   "duration": "2:00 min",
+   "name": "Récupération",
+   "pace": ""
+  },
+  {
+   "name": "Split Squat avec charge additionnelle",
+   "duration": "",
+   "type": "work",
+   "reps": 4.0,
+   "pace": ""
+  },
+  {
+   "pace": "",
+   "type": "work",
+   "name": "Swing avec charge",
+   "duration": "",
+   "reps": 5.0
+  },
+  {
+   "duration": "",
+   "pace": "",
+   "name": "Bond sur place",
+   "reps": 6.0,
+   "type": "work"
+  },
+  {
+   "duration": "2:00 min",
+   "name": "Récupération",
+   "type": "recovery",
+   "pace": ""
+  },
+  {
+   "duration": "",
+   "reps": 4.0,
+   "type": "work",
+   "name": "Split Squat avec charge additionnelle",
+   "pace": ""
+  },
+  {
+   "duration": "",
+   "reps": 5.0,
+   "name": "Swing avec charge",
+   "type": "work",
+   "pace": ""
+  },
+  {
+   "duration": "",
+   "reps": 6.0,
+   "type": "work",
+   "name": "Bond sur place",
+   "pace": ""
+  },
+  {
+   "name": "Récupération",
+   "type": "recovery",
+   "duration": "2:00 min",
+   "pace": ""
+  },
+  {
+   "name": "Split Squat avec charge additionnelle",
+   "reps": 4.0,
+   "type": "work",
+   "duration": "",
+   "pace": ""
+  },
+  {
+   "type": "work",
+   "pace": "",
+   "duration": "",
+   "name": "Swing avec charge",
+   "reps": 6.0
+  },
+  {
+   "reps": 7.0,
+   "name": "Bond sur place",
+   "duration": "",
+   "type": "work",
+   "pace": ""
+  },
+  {
+   "pace": "",
+   "duration": "2:00 min",
+   "type": "recovery",
+   "name": "Récupération"
+  },
+  {
+   "type": "block",
+   "repeat": 3.0,
+   "exercises": [
+    {
+     "reps": 12.0,
+     "pace": "",
+     "name": "Flexion de Genou",
+     "duration": "",
+     "type": "work"
+    },
+    {
+     "reps": 12.0,
+     "duration": "",
+     "name": "Extension de Mollet",
+     "pace": "",
+     "type": "work"
+    },
+    {
+     "pace": "",
+     "type": "recovery",
+     "name": "Récupération",
+     "duration": "1:00 min"
+    }
+   ]
+  }
+ ]
+}

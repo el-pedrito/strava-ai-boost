@@ -63,7 +63,9 @@ class ContentGenerationStack(Stack):
         env_vars = {
             "CONTENT_GENERATION_AGENT_ARN": "",
             "COACH_AGENT_ARN": "",
-            "BEDROCK_AGENTCORE_MEMORY_ID": "",
+            # No BEDROCK_AGENTCORE_MEMORY_ID here: neither Lambda of this stack
+            # touches AgentCore Memory (the runtimes carry their own id). A key
+            # set to "" looked configured and hid 11 weeks of skipped writes.
             "AGENTCORE_AGENTS_AVAILABLE": "false",
             # Central model registry (src/config/llm_config.py)
             "BEDROCK_HAIKU_MODEL_ID": get_haiku_model_id(),

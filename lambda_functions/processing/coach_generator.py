@@ -90,7 +90,6 @@ dynamodb = boto3.resource("dynamodb", region_name=REGION)
 # Environment variables
 ACTIVITIES_TABLE = os.environ.get("ACTIVITIES_TABLE", "strava-ai-boost-activities")
 USER_CONFIG_TABLE = os.environ.get("USER_CONFIG_TABLE", "strava-ai-boost-user-configuration")
-MEMORY_ID = os.environ.get("BEDROCK_AGENTCORE_MEMORY_ID") or os.environ.get("MEMORY_ID")
 COACH_AGENT_ARN = os.environ.get("COACH_AGENT_ARN", "")
 
 
@@ -244,12 +243,17 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                         "total_reps": current_entry.get("total_reps"),
                         "volume_kg": current_entry.get("volume_kg"),
                         "volume_kg_incomplete": current_entry.get("volume_kg_incomplete"),
+                        "incomplete_reason": current_entry.get("incomplete_reason"),
+                        "sets_source": current_entry.get("sets_source") or "athlete_text",
                         "body_weight_kg_used": current_entry.get("body_weight_kg_used"),
                         "excluded_exercises": current_entry.get("excluded_exercises") or [],
                     }
-                    historical_summary["exercise_comparisons"] = build_exercise_comparisons(
-                        current_entry.get("parsed_sets"), split["earlier"]
-                    )
+                    # A Campus renfo's sets and reps are the plan's: comparing them with
+                    # earlier sessions would report the plan's progression as his.
+                    if current_entry.get("sets_source") != "campus_plan":
+                        historical_summary["exercise_comparisons"] = build_exercise_comparisons(
+                            current_entry.get("parsed_sets"), split["earlier"]
+                        )
         except Exception as e:
             logger.warning(f"Failed to enrich historical summary: {e}")
             _mark_degraded("historical_enrichment")
@@ -560,8 +564,11 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # athlete wants the figures every time.
         _inject_recap_line(feedback, week_overview)
 
-        # Write coaching observation to memory for long-term learning
-        write_coaching_observation(user_id, feedback)
+        # The coach never writes its own output to AgentCore Memory: an undated
+        # model text, re-extracted as a "fact" and read back into the coach's
+        # system prompt, turns a coach error into memory (decision 2026-10-16,
+        # same pollution class as reliability lot 4). Dated continuity comes
+        # from prev_coach_note in DynamoDB instead.
 
         # Store feedback in DynamoDB
         store_coach_feedback(activity_id, feedback)
@@ -649,7 +656,6 @@ def _invoke_coach_agent(
         "activity_weekday": activity_weekday,
         "user_config": user_config,
         "historical_summary": historical_summary,
-        "memory_id": MEMORY_ID,
     }, default=lambda o: float(o) if hasattr(o, '__float__') else str(o)).encode("utf-8")
 
     # Retry with exponential backoff for cold start (up to 3 attempts)
@@ -1455,36 +1461,3 @@ def store_coach_feedback(activity_id: str, feedback: Dict[str, Any]) -> None:
         logger.info(f"Stored coach feedback for activity {activity_id}")
     except Exception as e:
         logger.error(f"Failed to store coach feedback: {e}")
-
-
-def write_coaching_observation(user_id: str, feedback: Dict[str, Any]) -> None:
-    """Write a coaching observation summary to AgentCore Memory."""
-    if not MEMORY_ID:
-        return
-    try:
-        # Both strava_block and detailed_analysis are strings
-        strava_block = feedback.get("strava_block", "")
-        detailed_analysis = feedback.get("detailed_analysis", "")
-
-        observation_text = detailed_analysis or strava_block
-        if not observation_text:
-            return
-        if not isinstance(observation_text, str):
-            observation_text = json.dumps(observation_text, ensure_ascii=False)
-
-        # Truncate to reasonable size for memory storage
-        observation_text = observation_text[:1000]
-
-        import time
-        client = boto3.client("bedrock-agentcore", region_name=REGION)
-        client.create_event(
-            memoryId=MEMORY_ID,
-            actorId=str(user_id),
-            sessionId=f"coaching-observations-{user_id}",
-            payload=[{"conversational": {"role": "ASSISTANT", "content": {"text": observation_text}}}],
-            eventTimestamp=time.time(),
-        )
-        logger.info(f"Wrote coaching observation to memory for user {user_id}")
-    except Exception as e:
-        logger.warning(f"Failed to write coaching observation to memory: {e}")
-        _mark_degraded("memory_write")

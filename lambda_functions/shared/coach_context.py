@@ -23,7 +23,6 @@ USER_CONFIG_TABLE = os.environ.get("USER_CONFIG_TABLE", "strava-ai-boost-user-co
 COACHING_SESSIONS_TABLE = os.environ.get(
     "COACHING_SESSIONS_TABLE", "strava-ai-boost-campus-coaching-sessions"
 )
-MEMORY_ID = os.environ.get("BEDROCK_AGENTCORE_MEMORY_ID", "")
 
 dynamodb = boto3.resource("dynamodb", region_name=REGION)
 
@@ -493,57 +492,6 @@ def format_recent_activities(activities: list) -> str:
             logger.debug(f"Skipping activity in context: {e}")
             continue
     return "\n".join(lines)
-
-
-def retrieve_memory_observations(user_id: str) -> str:
-    """Retrieve past coaching observations from AgentCore Memory."""
-    if not MEMORY_ID:
-        return ""
-    try:
-        client = boto3.client("bedrock-agentcore", region_name=REGION)
-        response = client.retrieve_memory_records(
-            memoryId=MEMORY_ID,
-            namespace=user_id,
-            searchCriteria={
-                "semanticSearch": {
-                    "query": "coaching observations athlete patterns progression"
-                }
-            },
-            maxResults=3,
-        )
-        records = response.get("memoryRecords", [])
-        if records:
-            texts = [r.get("content", {}).get("text", "") for r in records if r.get("content")]
-            return " | ".join(t[:150] for t in texts if t)
-    except Exception as e:
-        logger.warning(f"Failed to retrieve memory: {e}")
-    return ""
-
-
-def write_chat_to_memory(user_id: str, question: str, answer: str) -> None:
-    """Write chat exchange to memory for long-term learning."""
-    if not MEMORY_ID:
-        return
-    # Only write substantial exchanges (not greetings or short questions)
-    if len(question) < 20 or len(answer) < 100:
-        return
-    try:
-        import time
-
-        client = boto3.client("bedrock-agentcore", region_name=REGION)
-        client.create_event(
-            memoryId=MEMORY_ID,
-            actorId=str(user_id),
-            sessionId=f"coach-chat-{user_id}",
-            payload=[
-                {"conversational": {"role": "USER", "content": {"text": question}}},
-                {"conversational": {"role": "ASSISTANT", "content": {"text": answer[:500]}}},
-            ],
-            eventTimestamp=time.time(),
-        )
-        logger.info(f"Wrote chat exchange to memory for user {user_id}")
-    except Exception as e:
-        logger.warning(f"Failed to write chat to memory: {e}")
 
 
 COACH_CONVERSATION_PROMPT = """Tu es un coach running expert, bienveillant et direct. Tu réponds aux questions de l'athlète.

@@ -781,6 +781,8 @@ def _get_strength_sessions_impl(user_id: str, weeks_back: int) -> list:
                 "volume_kg": entry.get("volume_kg"),
                 "body_weight_kg_used": entry.get("body_weight_kg_used"),
                 "volume_kg_incomplete": bool(entry.get("volume_kg_incomplete")),
+                "incomplete_reason": entry.get("incomplete_reason"),
+                "sets_source": entry.get("sets_source") or "athlete_text",
                 "excluded_exercises": entry.get("excluded_exercises") or [],
                 "figures_source": "pipeline",
             }

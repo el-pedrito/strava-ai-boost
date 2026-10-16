@@ -184,6 +184,10 @@ def build_exercise_comparisons(
             parsed = entry.get("parsed_sets")
             if not isinstance(parsed, list):
                 continue
+            if entry.get("sets_source") == "campus_plan":
+                # Prescribed reps: a "+reps" against them would be the plan's
+                # progression, not the athlete's.
+                continue
             for item in parsed:
                 if not isinstance(item, dict):
                     continue

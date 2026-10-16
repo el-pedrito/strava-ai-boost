@@ -193,6 +193,7 @@ def check_lap_paces(sentence: str, lap_paces: Optional[List[int]]) -> List[str]:
 # calf load covers every calf exercise.
 _LOCAL_FAMILIES: Tuple[Tuple[str, str], ...] = (
     ("split squat", "fente"),
+    ("split quat", "fente"),  # his own typo, 2026-10-10
     ("fentes", "fente"),
     ("fente", "fente"),
     ("extensions de mollet", "mollet"),
