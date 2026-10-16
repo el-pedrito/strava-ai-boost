@@ -1,0 +1,19 @@
+{
+  "guid": "0A7E0000-0000-4000-8000-000000000005",
+  "session": {
+    "session_id": "gate0-race",
+    "title": "Semi-marathon",
+    "week_date_iso": "2026-W51",
+    "training_index": 3,
+    "sport": "road",
+    "training_type": "Competition",
+    "expected_duration_min": 97,
+    "intervals": [
+      {
+        "duration": "96:42 min",
+        "pace": "course (4:28/km)",
+        "type": "work"
+      }
+    ]
+  }
+}

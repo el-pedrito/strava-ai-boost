@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:gate0": "tsc -p gate0/tsconfig.json && vite build -c vite.gate0.config.ts && node gate0/inline.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",

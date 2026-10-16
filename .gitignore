@@ -33,6 +33,8 @@ env/
 # Frontend (React)
 node_modules/
 frontend/dist/
+# Gate 0 single-file test page (npm run build:gate0), embeds real workouts
+frontend/dist-gate0/
 
 # Lambda Layer build artifacts
 lambda_layer/python/

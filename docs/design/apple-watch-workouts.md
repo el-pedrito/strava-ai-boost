@@ -50,17 +50,18 @@ bytes?, summary?}`.
 | Règle | Choix |
 |---|---|
 | Sport | `road` -> RUNNING extérieur ; `ppg` -> TRADITIONAL_STRENGTH_TRAINING intérieur ; autre -> `unsupported_sport` |
-| Forme legacy | entrée plate avec `repeat > 1` -> `legacy_shape` (structure perdue, on ne devine pas) |
+| Forme legacy | entrée plate avec `repeat > 1` -> `legacy_shape` (structure perdue, on ne devine pas) ; `repeat` hors 1..98 -> `bad_repeat` d'abord |
 | Échauffement / retour au calme | seulement l'index 0 / le dernier index ; les autres deviennent des étapes WORK |
-| Blocs | étapes plates consécutives -> 1 bloc x1 ; `block` -> bloc x clamp(repeat, 1, 100) ; `bad_repeat` sinon |
+| Blocs | étapes plates consécutives -> 1 bloc x1 ; `block` -> bloc x repeat si 1 <= repeat <= 98 (98 = maximum vérifié, dw-format.md §4) ; hors bornes, non entier, NaN ou infini -> `bad_repeat` (refus, jamais de clamp) ; aucun bloc (échauffement et/ou retour au calme seuls) -> `no_intervals` |
 | Durées | `N sec`, `N min`, `M:SS min`, `N h`/`hour`/`hours` ; sinon objectif OPEN + métrique `WorkoutStepOpenFallback` |
-| Alertes d'allure | seulement sur les étapes WORK >= 180 s d'une famille qualité ; RANGE CURRENT, `PACE_TOLERANCE = 0.025` ; courses (`Competition`, `low-priority-race`) en AVERAGE |
+| Alertes d'allure | seulement sur les étapes WORK >= 180 s d'une famille qualité ; RANGE CURRENT, `PACE_TOLERANCE = 0.025` ; courses (`Competition`, `low-priority-race`) en AVERAGE ; allure cible hors 2:00..15:00 /km -> pas d'alerte, pas d'allure dans le nom, métrique `WorkoutPaceOutOfRange` |
 | Familles | normalisées (minuscules, sans accents, chiffres et ponctuation retirés, espaces fusionnés) ; qualité = {semi marathon, tempo, seuil, course, allure, marathon} ; sans alerte = {ef, lent, aerobie, rapide} ; inconnue -> pas d'alerte + métrique `WorkoutUnknownPaceFamily` |
-| Noms d'étape | course « Semi Marathon 4:35 » ; renfo « <exercice> x<n> rép. », 32 caractères max avec table d'abréviations testée (« avec charge additionnelle » -> « lesté ») |
+| Noms d'étape | course « Semi Marathon 4:28 » ; renfo « <exercice> x<n> rép. », 32 caractères max avec table d'abréviations testée (« avec charge additionnelle » -> « lesté »/« lestée » accordé au nom, « jambe tendue » -> « j. tendue », « Soulevé de terre » -> « SDT ») |
 | Nom de l'exercice | « <titre> W<nn> » ; les mots `campus` et `ppg` sont retirés (le matcher ne doit rien changer) |
 | Limites | > 30 étapes par bloc, total d'étapes ou octets au-delà de `MAX_TOTAL_STEPS_PER_WORKOUT` / `MAX_WORKOUT_BYTES` -> item non encodable |
-| GUID | UUIDv4 neuf à chaque export (GUID fixe seulement dans les tests) |
-| Résumé | une ligne tirée de la même structure (« WU 15' · 4x(9' Semi 4:35 + 2') · CD 5' ») |
+| GUID | UUIDv4 neuf à chaque export (GUID fixe seulement dans les tests) ; l'encodeur refuse tout GUID qui n'est pas un UUID v4 variante RFC 4122 en majuscules canoniques |
+| Robustesse | `map_session` ne lève jamais : ligne malformée (types, NaN, surrogates isolés) -> `bad_shape` |
+| Résumé | une ligne tirée de la même structure (« WU 15' · 4x(9' Semi 4:28 + 2') · CD 5' ») |
 
 ### C. API `GET /plan/workouts` (Lambda DashboardAPI existante)
 

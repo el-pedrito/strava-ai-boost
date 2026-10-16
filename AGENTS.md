@@ -29,7 +29,7 @@ Strava AI Boost is a **serverless AWS application** that automatically enhances 
 - **18 Lambda functions** (API, processing, webhooks, support, voice — role-based packages)
 - **3 AgentCore Runtimes** — `content_gen`, `strava_ai_boost_coach` (coach), `coach_chat` (agentic conversational coach): 2 agent definitions in `src/agents/` + 1 chat runtime in `src/coach_chat/`, sharing a single AgentCore Memory (`content_gen_mem`, 3 strategies)
 - **8 CDK stacks**
-- **1129 tests** (970 backend unit + 106 regression + 53 frontend) + on-demand prompt regression harness (deterministic V1 + managed AgentCore Evaluations V2)
+- **1265 tests** (1098 backend unit + 106 regression + 61 frontend) + on-demand prompt regression harness (deterministic V1 + managed AgentCore Evaluations V2)
 - **Centralized LLM registry** — all Bedrock model IDs come from `src/config/llm_config.py` (mirrored in `lambda_functions/shared/llm_models.py` for Lambda bundling); anti-drift sync test
 - **Python 3.12** runtime, **React 19 + TypeScript + Vite** frontend
 - **Cognito authentication** (JWT, custom:strava_id attribute, no self-registration)
@@ -146,6 +146,8 @@ strava-ai-boost/
 │       ├── iso_week.py                 # Canonical ISO week label 'YYYY-Www' (never a bare week number)
 │       ├── strength_exercises.py       # Canonical strength exercise vocabulary + alias resolver (extraction + Coach charts)
 │       ├── llm_models.py               # Bedrock model IDs mirrored from src/config/llm_config.py
+│       ├── workout_file.py             # Zero-dependency Apple .workout (WorkoutKit) protobuf writer
+│       ├── campus_workout.py           # Pure mapper: Campus session -> .workout bytes (not exposed yet)
 │       └── strava_oauth.py             # OAuth token management
 │
 ├── src/
@@ -189,7 +191,7 @@ strava-ai-boost/
 │   └── vite.config.ts                  # Vite + Vitest configuration
 │
 ├── tests/                      # Test suite
-│   ├── unit/                           # Lambda unit tests (970 tests)
+│   ├── unit/                           # Lambda unit tests (1098 tests)
 │   │   ├── conftest.py                 # Env vars for Lambda imports
 │   │   ├── test_webhook_handler.py     # Validation, routing, signature
 │   │   ├── test_content_generator.py   # DynamoDB, parsing, storage, strength extraction
@@ -406,7 +408,7 @@ class MyModule(BaseModule):
 
 ### Running Tests
 
-**Lambda Unit Tests (970 tests, ~2s):**
+**Lambda Unit Tests (1098 tests, ~2s):**
 ```bash
 pytest tests/unit/ -v
 ```
@@ -431,7 +433,7 @@ export AWS_PROFILE=your-aws-profile
 pytest tests/ -v --ignore=tests/unit/
 ```
 
-**Frontend Tests (53 tests, ~4s):**
+**Frontend Tests (61 tests, ~4s):**
 ```bash
 cd frontend && npm test
 ```
