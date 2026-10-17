@@ -136,3 +136,26 @@ def test_step_functions_executions_failed(alarms):
     assert props["Dimensions"] == [{"Name": "StateMachineArn", "Value": SFN_ARN}]
     assert props["Threshold"] == 1
     assert props["TreatMissingData"] == "notBreaching"
+
+
+def test_step_functions_executions_timed_out(alarms):
+    """ExecutionsFailed does not count TIMED_OUT: the 120 min timeout has its own alarm."""
+    props = alarms["strava-ai-boost-sfn-executions-timed-out"]
+    assert props["Namespace"] == "AWS/States"
+    assert props["MetricName"] == "ExecutionsTimedOut"
+    assert props["Dimensions"] == [{"Name": "StateMachineArn", "Value": SFN_ARN}]
+    assert props["Threshold"] == 1
+    assert props["ComparisonOperator"] == "GreaterThanOrEqualToThreshold"
+    assert props["TreatMissingData"] == "notBreaching"
+    assert props.get("AlarmActions")
+
+
+def test_input_wait_error_alarm(alarms):
+    """InputWait fails open: this alarm is the only signal of a broken wait."""
+    props = alarms["strava-ai-boost-input-wait-error"]
+    assert props["Namespace"] == "StravaAIBoost"
+    assert props["MetricName"] == "InputWait"
+    assert props["Dimensions"] == [{"Name": "outcome", "Value": "error"}]
+    assert props["Threshold"] == 1
+    assert props["TreatMissingData"] == "notBreaching"
+    assert props.get("AlarmActions")

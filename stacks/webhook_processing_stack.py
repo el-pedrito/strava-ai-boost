@@ -602,6 +602,21 @@ class WebhookProcessingStack(Stack):
         )
         voice_ratio.add_alarm_action(alarm_action)
 
+        # 4b. The athlete-input wait failed (InputWait{outcome=error}, emitted by
+        #     InputWait). The run is released anyway (fail open, D8), so nothing
+        #     else would ever surface it.
+        input_wait_error = cloudwatch.Alarm(
+            self, "InputWaitErrorAlarm",
+            alarm_name="strava-ai-boost-input-wait-error",
+            alarm_description="InputWait reported outcome=error in the last hour",
+            metric=produced("InputWait", "error", period_1h),
+            threshold=1,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+        )
+        input_wait_error.add_alarm_action(alarm_action)
+
         # 5. Any content-generation Step Functions execution failed.
         if self.step_functions_arn:
             sfn_failed = cloudwatch.Alarm(
@@ -621,6 +636,27 @@ class WebhookProcessingStack(Stack):
                 treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
             )
             sfn_failed.add_alarm_action(alarm_action)
+
+            # 6. ...or hit its overall timeout (120 min). ExecutionsFailed does not
+            #    count TIMED_OUT. A caught athlete-input wait timeout never lands
+            #    here: it is the normal "no input" path (InputWait{outcome=expired}).
+            sfn_timed_out = cloudwatch.Alarm(
+                self, "StepFunctionsExecutionsTimedOutAlarm",
+                alarm_name="strava-ai-boost-sfn-executions-timed-out",
+                alarm_description="A content-generation Step Functions execution timed out",
+                metric=cloudwatch.Metric(
+                    namespace="AWS/States",
+                    metric_name="ExecutionsTimedOut",
+                    dimensions_map={"StateMachineArn": self.step_functions_arn},
+                    statistic="Sum",
+                    period=period_1h,
+                ),
+                threshold=1,
+                evaluation_periods=1,
+                comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+                treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+            )
+            sfn_timed_out.add_alarm_action(alarm_action)
 
     def _create_bedrock_cost_alarm(self, alarm_action: cw_actions.SnsAction) -> None:
         """Alarm when one day of Bedrock tokens exceeds the cost guard.
