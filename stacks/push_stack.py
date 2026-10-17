@@ -39,10 +39,13 @@ from aws_cdk import (
     Duration,
     RemovalPolicy,
     Stack,
+    aws_cloudwatch as cloudwatch,
+    aws_cloudwatch_actions as cw_actions,
     aws_dynamodb as dynamodb,
     aws_iam as iam,
     aws_lambda as lambda_,
     aws_secretsmanager as secretsmanager,
+    aws_sns as sns,
 )
 from constructs import Construct
 
@@ -224,12 +227,48 @@ class PushStack(Stack):
             # the subscriptions already served, so a failed run is not retried:
             # a notification is best-effort, a duplicate is worse than a miss.
             retry_attempts=0,
-            max_event_age=Duration.hours(6),
+            max_event_age=Duration.hours(1),
         )
         # Least privilege: RW its table (410 cleanup) + READ the VAPID secret
         # (private key, to sign). Nothing else.
         self.subscriptions_table.grant_read_write_data(self.push_send_lambda)
         self.vapid_secret.grant_read(self.push_send_lambda)
+
+    def add_delivery_alarm(self, alerts_topic_name: str) -> cloudwatch.Alarm:
+        """Alarm when a push could not be delivered to any device.
+
+        PushSend is not retried and swallows per-device errors, so its Lambda
+        ``Errors`` metric stays at 0. It emits ``PushDelivery{outcome=failed}``
+        instead; this alarm reads it and lands on the ops-alerts topic, imported
+        by ARN so the Push stack takes no dependency on the Webhook stack.
+        """
+        alarm = cloudwatch.Alarm(
+            self,
+            "PushDeliveryFailedAlarm",
+            alarm_name="strava-ai-boost-push-delivery-failed",
+            alarm_description=(
+                "A Web Push notification failed on at least one device in the last "
+                "hour (PushDelivery{outcome=failed} > 0)"
+            ),
+            metric=cloudwatch.Metric(
+                namespace="StravaAIBoost",
+                metric_name="PushDelivery",
+                dimensions_map={"outcome": "failed"},
+                statistic="Sum",
+                period=Duration.hours(1),
+            ),
+            threshold=1,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+        )
+        topic = sns.Topic.from_topic_arn(
+            self,
+            "OpsAlertsTopicRef",
+            self.format_arn(service="sns", resource=alerts_topic_name),
+        )
+        alarm.add_alarm_action(cw_actions.SnsAction(topic))
+        return alarm
 
     def grant_notify(self, grantee: iam.IGrantable) -> None:
         """Allow ``grantee`` (StravaUpdater) to invoke PushSend asynchronously.

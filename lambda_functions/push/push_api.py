@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -52,6 +53,14 @@ def _table() -> Any:
     # Read at call time, not at import: this keeps the module importable in a
     # runtime that does not define PUSH_SUBSCRIPTIONS_TABLE (invariant 8).
     return _dynamodb.Table(os.environ["PUSH_SUBSCRIPTIONS_TABLE"])
+
+
+_B64URL = re.compile(r"^[A-Za-z0-9_-]+={0,2}$")
+
+
+def _is_b64url_key(value: str) -> bool:
+    """Browser subscription keys are base64url strings (p256dh ~87, auth ~22)."""
+    return 0 < len(value) <= MAX_KEY_LENGTH and bool(_B64URL.match(value))
 
 
 def _endpoint_hash(endpoint: str) -> str:
@@ -87,10 +96,14 @@ def subscribe(event: dict[str, Any], user_id: str) -> dict[str, Any]:
     if not isinstance(body, dict):
         return create_error_response(400, "Body must be a JSON object", cors_headers=CORS_HEADERS_WRITE)
 
-    endpoint = (body.get("endpoint") or "").strip()
-    keys = body.get("keys") or {}
-    p256dh = (keys.get("p256dh") or "").strip() if isinstance(keys, dict) else ""
-    auth = (keys.get("auth") or "").strip() if isinstance(keys, dict) else ""
+    def _text(value: Any) -> str:
+        # Wrong JSON types (numbers, lists...) are treated as missing -> 400.
+        return value.strip() if isinstance(value, str) else ""
+
+    endpoint = _text(body.get("endpoint"))
+    keys = body.get("keys") if isinstance(body.get("keys"), dict) else {}
+    p256dh = _text(keys.get("p256dh"))
+    auth = _text(keys.get("auth"))
     if not endpoint or not p256dh or not auth:
         return create_error_response(
             400,
@@ -103,8 +116,8 @@ def subscribe(event: dict[str, Any], user_id: str) -> dict[str, Any]:
             "endpoint must be an https URL on a browser push service",
             cors_headers=CORS_HEADERS_WRITE,
         )
-    if len(p256dh) > MAX_KEY_LENGTH or len(auth) > MAX_KEY_LENGTH:
-        return create_error_response(400, "subscription keys are too long", cors_headers=CORS_HEADERS_WRITE)
+    if not (_is_b64url_key(p256dh) and _is_b64url_key(auth)):
+        return create_error_response(400, "invalid subscription keys", cors_headers=CORS_HEADERS_WRITE)
 
     endpoint_hash = _endpoint_hash(endpoint)
     try:
@@ -147,7 +160,8 @@ def unsubscribe(event: dict[str, Any], user_id: str) -> dict[str, Any]:
         body = json.loads(event.get("body") or "{}")
     except (json.JSONDecodeError, TypeError):
         return create_error_response(400, "Invalid JSON body", cors_headers=CORS_HEADERS_WRITE)
-    endpoint = (body.get("endpoint") or "").strip() if isinstance(body, dict) else ""
+    raw = body.get("endpoint") if isinstance(body, dict) else None
+    endpoint = raw.strip() if isinstance(raw, str) else ""
     if not endpoint:
         return create_error_response(400, "endpoint is required", cors_headers=CORS_HEADERS_WRITE)
 

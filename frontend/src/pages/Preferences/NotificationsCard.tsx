@@ -43,6 +43,15 @@ function toSubscriptionBody(sub: PushSubscription) {
   };
 }
 
+/** True when `sub` was created with this application server key (or we cannot tell). */
+function sameKey(sub: PushSubscription, key: string): boolean {
+  const current = sub.options?.applicationServerKey;
+  if (!current) return true;
+  const a = new Uint8Array(current);
+  const b = urlBase64ToUint8Array(key);
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
 /** Web Push is only usable when all three browser APIs are present. */
 function pushSupported(): boolean {
   return (
@@ -57,9 +66,11 @@ function pushSupported(): boolean {
 /**
  * "Notifications" card for the Preferences screen. Opt-in Web Push, off by
  * default, and not rendered at all unless config.json sets `pushEnabled: true`.
- * Turning it on first fetches the VAPID application server key (so a deployment without
- * push never registers a service worker or prompts), then registers the
- * service worker, requests permission, subscribes and POSTs the subscription.
+ * Turning it on first asks for permission, inside the tap (iOS only prompts
+ * during the user gesture), then uses the application server key prefetched
+ * on mount, registers the service worker, subscribes and POSTs the
+ * subscription. On mount, an existing subscription is re-sent to the server,
+ * or dropped when it was made with an older server key.
  * If the server rejects it, the local subscription is removed again so the
  * toggle never shows "on" for a device the server does not know. Turning it
  * off unsubscribes locally and server-side (DELETE /push/subscribe).
@@ -90,33 +101,49 @@ function NotificationsCardInner() {
       return;
     }
     let cancelled = false;
+    const keyRequest = getApplicationServerKey()
+      .then((res) => {
+        serverKey.current = res.application_server_key;
+        return res.application_server_key;
+      })
+      .catch(() => null); // Fetched again on click; a failure there shows "not deployed".
     (async () => {
       try {
         const reg = await navigator.serviceWorker.getRegistration();
         const sub = reg ? await reg.pushManager.getSubscription() : null;
-        if (!cancelled) setState(sub ? 'enabled' : 'idle');
-        if (sub) {
+        if (!sub) {
+          if (!cancelled) setState('idle');
+          return;
+        }
+        const key = await keyRequest;
+        if (key && !sameKey(sub, key)) {
+          // Bound to an older server key (VAPID rotation): it can never be
+          // delivered again. Drop it and ask for a new opt-in.
           try {
-            await subscribePush(toSubscriptionBody(sub));
+            await sub.unsubscribe();
           } catch {
-            // Best-effort refresh; the toggle still lets the user re-subscribe.
+            // The next getSubscription() check will tell.
           }
+          if (!cancelled) {
+            setState('idle');
+            setMessage({ variant: 'warning', text: t('preferences.notifications.keyChanged') });
+          }
+          return;
+        }
+        if (!cancelled) setState('enabled');
+        try {
+          await subscribePush(toSubscriptionBody(sub));
+        } catch {
+          // Best-effort refresh; the toggle still lets the user re-subscribe.
         }
       } catch {
         if (!cancelled) setState('idle');
       }
     })();
-    getApplicationServerKey()
-      .then((res) => {
-        serverKey.current = res.application_server_key;
-      })
-      .catch(() => {
-        // Fetched again on click; a failure there shows "not deployed".
-      });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [t]);
 
   const enable = useCallback(async () => {
     // 1. Ask for permission FIRST, before any await: iOS only shows the prompt
@@ -182,9 +209,11 @@ function NotificationsCardInner() {
       setMessage({
         variant: 'error',
         text:
-          err instanceof ApiError
-            ? t('preferences.notifications.notDeployed')
-            : t('preferences.notifications.error'),
+          err instanceof ApiError && err.status === 409
+            ? t('preferences.notifications.tooMany')
+            : err instanceof ApiError && err.status === 404
+              ? t('preferences.notifications.notDeployed')
+              : t('preferences.notifications.error'),
       });
     }
   }, [t]);

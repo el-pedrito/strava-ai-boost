@@ -45,6 +45,9 @@ WEBHOOK_THROTTLE_RATE_LIMIT = 5
 WEBHOOK_THROTTLE_BURST_LIMIT = 10
 
 
+# Ops alerts topic name; also used (by ARN, no stack dependency) by the Push stack.
+OPS_ALERTS_TOPIC_NAME = "strava-ai-boost-ops-alerts"
+
 class WebhookProcessingStack(Stack):
     """Webhook processing stack for Strava webhooks and SQS queuing"""
 
@@ -337,7 +340,7 @@ class WebhookProcessingStack(Stack):
         # SNS topic for operational alerts (alarms + budget)
         self.alerts_topic = sns.Topic(
             self, "OpsAlertsTopic",
-            topic_name="strava-ai-boost-ops-alerts",
+            topic_name=OPS_ALERTS_TOPIC_NAME,
             display_name="Strava AI Boost Ops Alerts",
             enforce_ssl=True,  # deny non-TLS publishes (cdk-nag SNS3)
         )

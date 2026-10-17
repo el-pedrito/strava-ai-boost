@@ -197,6 +197,51 @@ describe('NotificationsCard', () => {
     );
   });
 
+  it('drops a subscription made with an older server key on mount', async () => {
+    const env = installPushEnv();
+    const stale = {
+      endpoint: 'https://push/old',
+      options: { applicationServerKey: new Uint8Array([9, 9, 9]).buffer },
+      unsubscribe: vi.fn().mockResolvedValue(true),
+      toJSON: () => ({ endpoint: 'https://push/old', keys: { p256dh: 'p', auth: 'a' } }),
+    };
+    env.pushManager.getSubscription.mockResolvedValue(stale);
+    render(<NotificationsCard />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/reset on the server/i)).toBeInTheDocument()
+    );
+    expect(stale.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(subscribeMock).not.toHaveBeenCalled();
+    expect(screen.getByRole('switch').getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('keeps a subscription made with the current server key', async () => {
+    const env = installPushEnv();
+    const current = {
+      endpoint: 'https://push/ep',
+      options: { applicationServerKey: new Uint8Array([1, 2, 3]).buffer },
+      unsubscribe: vi.fn().mockResolvedValue(true),
+      toJSON: () => ({ endpoint: 'https://push/ep', keys: { p256dh: 'p', auth: 'a' } }),
+    };
+    env.pushManager.getSubscription.mockResolvedValue(current);
+    render(<NotificationsCard />);
+
+    await waitFor(() => expect(subscribeMock).toHaveBeenCalledTimes(1));
+    expect(current.unsubscribe).not.toHaveBeenCalled();
+    expect(screen.getByRole('switch').getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('explains the device cap when the server answers 409', async () => {
+    installPushEnv();
+    subscribeMock.mockRejectedValueOnce(new ApiError('too many devices', 409));
+    render(<NotificationsCard />);
+
+    await userEvent.click(await screen.findByRole('switch'));
+
+    await waitFor(() => expect(screen.getByText(/too many devices/i)).toBeInTheDocument());
+  });
+
   it('drops an older subscription before subscribing again', async () => {
     const env = installPushEnv();
     const stale = { unsubscribe: vi.fn().mockResolvedValue(true) };

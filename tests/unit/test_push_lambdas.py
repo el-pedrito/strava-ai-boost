@@ -93,7 +93,7 @@ def _sub_event(method: str, body: dict[str, Any] | None, with_identity: bool = T
 
 
 def _subscription(endpoint: str) -> dict[str, Any]:
-    return {"endpoint": endpoint, "keys": {"p256dh": "BPk...pub", "auth": "aUtH=="}}
+    return {"endpoint": endpoint, "keys": {"p256dh": "BPkPub_Key-01", "auth": "aUtH=="}}
 
 
 @mock_aws

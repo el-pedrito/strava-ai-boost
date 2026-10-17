@@ -98,6 +98,16 @@ jobs:
         run: >-
           npx --yes aws-cdk@${{ env.CDK_CLI_VERSION }} synth --quiet
           -c account=123456789012 -c region=us-east-1 -c nag=true
+      # Same synth with the opt-in Web Push stack on: catches cross-stack cycles
+      # and nag findings that the default (push off) synth never builds.
+      - name: Build the Web Push layer
+        run: ./lambda_layer_push/build_layer.sh
+      - name: cdk synth with Web Push enabled + cdk-nag
+        run: >-
+          npx --yes aws-cdk@${{ env.CDK_CLI_VERSION }} synth --quiet
+          -c account=123456789012 -c region=us-east-1 -c nag=true
+          -c push_enabled=true -c vapid_subject=mailto:ci@example.com
+          -o cdk.out.push
       - name: Upload cdk-nag reports
         if: success() || failure()
         uses: actions/upload-artifact@v4

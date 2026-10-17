@@ -57,8 +57,13 @@ VAPID_APP_SERVER_KEY_PARAM = os.environ.get(
 # defaults to 0, which makes a phone that is asleep or offline lose the
 # notification: Apple tries once and stores nothing.
 PUSH_TTL_SECONDS = 24 * 3600
-# Network timeout for one push service call, well under the Lambda timeout.
-PUSH_HTTP_TIMEOUT_SECONDS = 10
+# Network timeout for one push service call: (connect, read) seconds. Sends run
+# one after the other, up to MAX_SUBSCRIPTIONS_PER_USER (10), so even ten slow
+# endpoints (10 x 8 s) stay inside the PushSend timeout.
+PUSH_HTTP_TIMEOUT_SECONDS = (3, 5)
+# Longest url / tag we put in a payload (ours are short internal paths).
+MAX_URL_LENGTH = 512
+MAX_TAG_LENGTH = 64
 # Push services reject encrypted payloads above 4096 bytes; keep the clear text
 # well under that once aes128gcm padding and headers are added.
 MAX_PAYLOAD_BYTES = 3000
@@ -83,12 +88,15 @@ class PushExpired(Exception):
 def is_allowed_endpoint(endpoint: str) -> bool:
     """True when ``endpoint`` is an https URL on a known browser push service.
 
-    No credentials, no explicit port other than 443, no IP literal: only the
-    push service hosts in :data:`ALLOWED_PUSH_HOST_SUFFIXES`.
+    No credentials, no explicit port other than 443, no control character, no IP
+    literal: only :data:`ALLOWED_PUSH_HOSTS` and :data:`ALLOWED_PUSH_DOMAIN_SUFFIXES`.
     """
     from urllib.parse import urlsplit
 
     if not isinstance(endpoint, str) or not endpoint or len(endpoint) > MAX_ENDPOINT_LENGTH:
+        return False
+    if any(ord(ch) < 0x21 or ord(ch) == 0x7F for ch in endpoint):
+        # urlsplit silently strips tabs and newlines; refuse them instead.
         return False
     try:
         parts = urlsplit(endpoint)
@@ -110,14 +118,36 @@ def _encoded_size(data: dict[str, Any]) -> int:
 
 
 def fit_payload(payload: dict[str, Any]) -> str:
-    """JSON-encode ``payload``, shortening ``body`` then ``title`` to fit the limit."""
-    data = dict(payload)
+    """JSON-encode ``payload`` within :data:`MAX_PAYLOAD_BYTES`, always.
+
+    ``url`` and ``tag`` longer than their caps fall back to safe defaults
+    (the worker maps a missing url to '/'); then ``body`` and ``title`` are
+    shortened. The result can never exceed the limit.
+    """
+    data = {k: v for k, v in payload.items() if k in ("title", "body", "url", "tag")}
+    if len(str(data.get("url") or "")) > MAX_URL_LENGTH:
+        data["url"] = "/"
+    if len(str(data.get("tag") or "")) > MAX_TAG_LENGTH:
+        data["tag"] = "strava-ai-boost"
     for field in ("body", "title"):
         text = str(data.get(field) or "")
         while _encoded_size(data) > MAX_PAYLOAD_BYTES and text:
             text = text[: max(0, len(text) - 40)].rstrip()
             data[field] = (text + "…") if text else ""
     return json.dumps(data, ensure_ascii=False)
+
+
+def _no_redirect_session() -> Any:
+    """A requests session that refuses redirects.
+
+    The allowlist checks the endpoint we POST to; a redirect would send the
+    request somewhere unchecked, so any 3xx raises instead of being followed.
+    """
+    import requests
+
+    session = requests.Session()
+    session.max_redirects = 0
+    return session
 
 
 @lru_cache(maxsize=1)
@@ -195,6 +225,7 @@ def send_push(subscription: dict[str, Any], payload: dict[str, Any]) -> None:
             ttl=PUSH_TTL_SECONDS,
             timeout=PUSH_HTTP_TIMEOUT_SECONDS,
             headers={"Urgency": "normal"},
+            requests_session=_no_redirect_session(),
         )
     except WebPushException as exc:
         status = getattr(getattr(exc, "response", None), "status_code", None)

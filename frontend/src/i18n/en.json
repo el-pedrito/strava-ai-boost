@@ -391,6 +391,8 @@
   "preferences.notifications.denied": "Notification permission was denied. Enable it in your browser settings to turn notifications on.",
   "preferences.notifications.error": "Something went wrong. Please try again.",
   "preferences.notifications.notDeployed": "Notifications are not enabled on this deployment.",
+  "preferences.notifications.keyChanged": "Notifications were reset on the server. Turn them on again on this device.",
+  "preferences.notifications.tooMany": "Too many devices have notifications on. Turn them off on an old device first.",
   "preferences.athleteProfile.title": "Athlete Profile",
   "preferences.athleteProfile.description": "Describe your profile so the AI can better personalize your descriptions",
   "preferences.athleteProfile.label": "Your athlete profile",

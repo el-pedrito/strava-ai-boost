@@ -22,8 +22,10 @@ import boto3
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
+from aws_lambda_powertools.metrics import single_metric
+
 from push.webpush_core import PushExpired, send_push
-from shared.logger import get_logger, inject_correlation_id
+from shared.logger import METRICS_NAMESPACE, MetricUnit, get_logger, inject_correlation_id
 
 logger = get_logger("push_send")
 
@@ -92,9 +94,11 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
     sent = 0
     cleaned = 0
+    skipped = 0
     for sub in subs:
         if not (sub.get("endpoint") and sub.get("p256dh") and sub.get("auth")):
             # Not a subscription row: never let one bad item stop the others.
+            skipped += 1
             continue
         subscription_info = {
             "endpoint": sub["endpoint"],
@@ -109,5 +113,24 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         except Exception as exc:  # noqa: BLE001 - one failing sub never blocks the others
             logger.warning(f"push_send error user={user_id}: {exc}")
 
-    logger.info(f"push_send user={user_id} activity={activity_id} sent={sent} cleaned={cleaned}")
-    return {"statusCode": 200, "sent": sent, "cleaned": cleaned}
+    failed = len(subs) - sent - cleaned - skipped
+    _record_delivery(sent=sent, failed=failed)
+    if sent == 0 and failed > 0:
+        # Every device failed (e.g. VAPID secret never bootstrapped). Not retried
+        # by design, so make it visible.
+        logger.error(f"push_send delivered nothing user={user_id} failed={failed}")
+    logger.info(f"push_send user={user_id} activity={activity_id} sent={sent} cleaned={cleaned} failed={failed}")
+    return {"statusCode": 200, "sent": sent, "cleaned": cleaned, "failed": failed}
+
+
+def _record_delivery(sent: int, failed: int) -> None:
+    """Emit PushDelivery{outcome=sent|failed} counts (EMF), never raising."""
+    for outcome, value in (("sent", sent), ("failed", failed)):
+        try:
+            with single_metric(
+                name="PushDelivery", unit=MetricUnit.Count, value=value,
+                namespace=METRICS_NAMESPACE,
+            ) as metric:
+                metric.add_dimension(name="outcome", value=outcome)
+        except Exception as exc:  # noqa: BLE001 - a metric must never break the send
+            logger.warning(f"Could not emit PushDelivery{{outcome={outcome}}}: {exc}")

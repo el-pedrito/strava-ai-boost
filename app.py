@@ -11,7 +11,7 @@ from cdk_nag import AwsSolutionsChecks
 from stacks.core_infrastructure_stack import CoreInfrastructureStack
 from stacks.security_stack import SecurityStack
 from stacks.api_gateway_stack import ApiGatewayStack
-from stacks.webhook_processing_stack import WebhookProcessingStack
+from stacks.webhook_processing_stack import OPS_ALERTS_TOPIC_NAME, WebhookProcessingStack
 from stacks.content_generation_stack import ContentGenerationStack
 from stacks.feedback_loop_stack import FeedbackLoopStack
 from stacks.frontend_hosting_stack import FrontendHostingStack
@@ -133,6 +133,11 @@ if push_stack is not None:
     )
     push_stack.grant_notify(content_stack.strava_updater)
     content_stack.add_dependency(push_stack)
+    # PushSend swallows per-device errors (best-effort, no retry): alarm on its
+    # PushDelivery{outcome=failed} metric, on the existing ops-alerts topic. The
+    # topic is referenced by name: a stack dependency on Webhook would make a
+    # cycle (Webhook -> Content -> Push).
+    push_stack.add_delivery_alarm(OPS_ALERTS_TOPIC_NAME)
 
 # Feedback loop stack - Automatic learning from user modifications
 feedback_stack = FeedbackLoopStack(

@@ -391,6 +391,8 @@
   "preferences.notifications.denied": "L'autorisation de notification a été refusée. Active-la dans les réglages de ton navigateur pour recevoir les notifications.",
   "preferences.notifications.error": "Une erreur est survenue. Réessaie.",
   "preferences.notifications.notDeployed": "Les notifications ne sont pas activées sur ce déploiement.",
+  "preferences.notifications.keyChanged": "Les notifications ont été réinitialisées sur le serveur. Réactive-les sur cet appareil.",
+  "preferences.notifications.tooMany": "Trop d'appareils ont les notifications activées. Désactive-les d'abord sur un ancien appareil.",
   "preferences.athleteProfile.title": "Profil Athlète",
   "preferences.athleteProfile.description": "Décris ton profil pour que l'IA personnalise encore mieux tes descriptions",
   "preferences.athleteProfile.label": "Ton profil athlète",

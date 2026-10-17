@@ -250,7 +250,7 @@ def test_push_send_is_not_retried_by_async_invoke():
     assert len(configs) == 1
     props = next(iter(configs.values()))["Properties"]
     assert props["MaximumRetryAttempts"] == 0
-    assert props["MaximumEventAgeInSeconds"] == 6 * 3600
+    assert props["MaximumEventAgeInSeconds"] == 3600
 
 
 def test_push_stack_has_no_cdk_nag_error():
@@ -259,3 +259,99 @@ def test_push_stack_has_no_cdk_nag_error():
         "*", assertions.Match.string_like_regexp("AwsSolutions-.*")
     )
     assert errors == [], [e.entry.data for e in errors]
+
+
+# ---- round 2 ---------------------------------------------------------------
+
+
+def test_allowlist_refuses_control_characters():
+    core = _core()
+    assert not core.is_allowed_endpoint("https://web.push.apple.com/a\nb")
+    assert not core.is_allowed_endpoint("https://web.push.apple.com/a\tb")
+    assert not core.is_allowed_endpoint("https://web.push.apple.com/a b")
+
+
+@mock_aws
+def test_subscribe_refuses_wrong_json_types_and_bad_keys():
+    import boto3
+    import push.push_api as api_mod
+
+    _core()
+    api = importlib.reload(api_mod)
+    table = _create_table(boto3)
+
+    def post(body):
+        event = {
+            "httpMethod": "POST",
+            "path": "/push/subscribe",
+            "body": json.dumps(body),
+            "requestContext": {"authorizer": {"claims": {"custom:strava_id": USER}}},
+        }
+        return api.handler(event, None)["statusCode"]
+
+    assert post({"endpoint": 42, "keys": {"p256dh": "p", "auth": "a"}}) == 400
+    assert post({"endpoint": APPLE, "keys": "not-an-object"}) == 400
+    assert post({"endpoint": APPLE, "keys": {"p256dh": 1, "auth": "a"}}) == 400
+    assert post({"endpoint": APPLE, "keys": {"p256dh": "not base64!", "auth": "a"}}) == 400
+    assert table.scan()["Items"] == []
+
+
+def test_payload_never_exceeds_the_limit_whatever_the_fields():
+    core = _core()
+    payload = {"title": "t" * 5000, "body": "b" * 5000, "url": "/" + "u" * 5000, "tag": "x" * 5000}
+    encoded = core.fit_payload(payload)
+    data = json.loads(encoded)
+    assert len(encoded.encode("utf-8")) <= core.MAX_PAYLOAD_BYTES
+    assert data["url"] == "/"
+    assert data["tag"] == "strava-ai-boost"
+
+
+def test_send_push_refuses_redirects(monkeypatch):
+    core = _core()
+    calls = _fake_pywebpush(monkeypatch)
+    monkeypatch.setattr(core, "_load_vapid", lambda: {"public_key": "pub", "private_key": "priv"})  # pragma: allowlist secret
+
+    core.send_push({"endpoint": APPLE, "keys": {"p256dh": "p", "auth": "a"}}, {"title": "t"})
+
+    session = calls[0]["requests_session"]
+    assert session.max_redirects == 0
+
+
+@mock_aws
+def test_send_reports_failed_deliveries(monkeypatch, caplog):
+    import boto3
+    import push.push_send as send_mod
+
+    _core()
+    send = importlib.reload(send_mod)
+    table = _create_table(boto3)
+    table.put_item(
+        Item={"user_id": USER, "endpoint_hash": "h1", "endpoint": APPLE, "p256dh": "p", "auth": "a"}
+    )
+
+    def boom(sub, payload):
+        raise ValueError("VAPID secret is incomplete")
+
+    recorded: list[tuple[int, int]] = []
+    monkeypatch.setattr(send, "send_push", boom)
+    monkeypatch.setattr(send, "_record_delivery", lambda sent, failed: recorded.append((sent, failed)))
+
+    result = send.handler({"user_id": USER, "activity_id": "a1"}, None)
+
+    assert result["sent"] == 0 and result["failed"] == 1
+    assert recorded == [(0, 1)]
+
+
+def test_push_stack_alarms_on_failed_deliveries():
+    _app, push = _push_app()
+    push.add_delivery_alarm("strava-ai-boost-ops-alerts")
+    template = assertions.Template.from_stack(push)
+    template.has_resource_properties(
+        "AWS::CloudWatch::Alarm",
+        {
+            "MetricName": "PushDelivery",
+            "Namespace": "StravaAIBoost",
+            "Dimensions": [{"Name": "outcome", "Value": "failed"}],
+            "TreatMissingData": "notBreaching",
+        },
+    )
