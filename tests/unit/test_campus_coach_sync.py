@@ -115,7 +115,12 @@ class TestProbeSchema:
         assert probe["pace_keys"] == ["min", "name", "value"]
         assert probe["estimated_paces"][0]["max"] == 365
         assert "description" in probe["session_keys"]
-        assert "texte privé" not in json.dumps(probe, ensure_ascii=False)
+        # The bounded sample keeps every key but cuts long texts to 80 chars.
+        assert "description" in probe["sample_week"]["sessions"][0]
+        long_week = dict(self.WEEK, coach="x" * 500)
+        mock_fetch.return_value = [long_week]
+        sampled = handler({"probe_schema": True, "user_id": "u1"}, None)["probe"]["sample_week"]
+        assert sampled["coach"] == "x" * 80 + "..."
         assert probe["other_endpoints_keys"]["goal/active"] == ["date", "type"]
         # Nothing touched in DynamoDB: no table handle, no write.
         mock_ddb.Table.assert_not_called()
