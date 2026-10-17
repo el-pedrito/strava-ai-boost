@@ -40,6 +40,9 @@ class TestHomeSummaryAuth:
         assert resp['statusCode'] == 403
 
     def test_owner_path_is_no_store_and_bypasses_cache(self):
+        # Snapshot the shared module cache: the home route must not ADD to it
+        # (other dashboard tests may have populated it, so assert "no new keys").
+        before = set(dashboard_api._cache)
         with patch.dict(os.environ, {'CAMPUS_OWNER_STRAVA_ID': OWNER}, clear=False), \
              patch.object(dashboard_api, 'dynamodb') as mock_ddb, \
              patch.object(dashboard_api.home_summary, 'build_home_summary',
@@ -49,8 +52,7 @@ class TestHomeSummaryAuth:
         assert resp['statusCode'] == 200
         assert resp['headers']['Cache-Control'] == 'no-store'
         assert b.called
-        # The module cache must not be touched by this route.
-        assert dashboard_api._cache == {}
+        assert set(dashboard_api._cache) == before  # route added nothing to _cache
 
     def test_handler_routes_home_before_validate(self):
         with patch.dict(os.environ, {'CAMPUS_OWNER_STRAVA_ID': OWNER}, clear=False), \
