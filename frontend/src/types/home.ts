@@ -88,6 +88,16 @@ export interface HomeNextSession {
   title: string | null;
   training_type: string | null;
   duration_min: number | null;
+  /** Campus session id (same as `PlanWorkoutItem.session_id`). */
+  session_id?: string | null;
+  /** Campus coach word, trimmed, capped at 2000 chars; may hold `**bold**` and URLs. */
+  coach_advice?: string | null;
+  /** Campus instructions, same rules as `coach_advice`. */
+  description?: string | null;
+  /** Base64 Apple `.workout` bytes (same mapper as `/plan/workouts`); null if not encodable. */
+  workout_b64?: string | null;
+  /** `.workout` filename; null whenever `workout_b64` is null. */
+  filename?: string | null;
 }
 
 /** A single dated health signal. `kind` only present on HRV. */

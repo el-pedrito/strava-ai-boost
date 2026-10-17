@@ -84,7 +84,10 @@ bytes?, summary?}`.
   branche). Plafond 120 items et plafond d'octets de la réponse : au-delà, on garde les
   semaines les plus proches et `truncated:true`. Pas de cache module.
 - Item : `session_id, week_iso, training_index, title, training_type, sport, duration_min`
-  (= `expected_duration_min`), `summary, filename, encodable, reason_code, workout_b64?`.
+  (= `expected_duration_min`), `summary, filename, encodable, reason_code, workout_b64?`,
+  plus `description` and `coach_advice` (texte Campus brut, rogné, 2000 caractères max,
+  `null` si absent ou vide). `/home/summary` reprend ces textes et le fichier `.workout`
+  sur `next_session`, construits par le même `plan_workouts.workout_item`.
   Nom de fichier `<semaine>-<index>-<slug>.workout`, ASCII, 60 caractères max.
 - IAM inchangé. Nouvelle ressource et méthode API, test CDK de la route et de l'autorizer.
 
