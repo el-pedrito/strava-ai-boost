@@ -45,6 +45,11 @@ def table(monkeypatch):
         yield ddb.Table(TABLE)
 
 
+@pytest.fixture(autouse=True)
+def no_backoff(monkeypatch):
+    monkeypatch.setattr(activity_fetcher, "CLOSE_BACKOFF_SECONDS", (0, 0))
+
+
 @pytest.fixture
 def outcomes(monkeypatch):
     seen = []
@@ -264,3 +269,181 @@ def test_handler_wires_close_input_and_store(table, outcomes):
     assert stored["athlete_summary"] == "Jambes lourdes au début"
     assert row["original_description"] == "Enduraw Report: 4:12/km"
     assert outcomes == ["submitted"]
+
+
+_THROTTLE = {"Error": {"Code": "ProvisionedThroughputExceededException", "Message": "slow down"}}
+
+
+def _flaky_close(monkeypatch, table, failures):
+    """Real moto table; the first ``failures`` close UpdateItems are throttled."""
+    from unittest.mock import MagicMock
+
+    from botocore.exceptions import ClientError
+
+    calls = {"n": 0}
+    real_update = table.update_item
+
+    def update_item(**kwargs):
+        calls["n"] += 1
+        if calls["n"] <= failures:
+            raise ClientError(_THROTTLE, "UpdateItem")
+        return real_update(**kwargs)
+
+    wrapped = MagicMock(wraps=table)
+    wrapped.update_item.side_effect = update_item
+    resource = MagicMock()
+    resource.Table.return_value = wrapped
+    monkeypatch.setattr(activity_fetcher, "dynamodb", resource)
+    return wrapped, calls
+
+
+def test_close_is_retried_before_the_fallback(table, outcomes, monkeypatch):
+    """Two throttles then success: a real conditional close, no guarded store needed."""
+    table.put_item(Item={"activity_id": "777", "athlete_input_state": "submitted", "athlete_input": INPUT,
+                         "input_task_token": "tok"})
+    wrapped, calls = _flaky_close(monkeypatch, table, failures=2)
+
+    athlete_input, state, guard = activity_fetcher._close_window("777")
+
+    assert calls["n"] == 3
+    assert (state, guard) == ("closed", None)
+    assert athlete_input["rpe"] == 7
+    wrapped.get_item.assert_not_called()
+    assert outcomes == ["submitted"]
+    assert "input_task_token" not in table.get_item(Key={"activity_id": "777"})["Item"]
+
+
+def test_close_retries_are_bounded(table, outcomes, monkeypatch):
+    table.put_item(Item={"activity_id": "777", "athlete_input_state": "awaiting", "input_task_token": "tok"})
+    _wrapped, calls = _flaky_close(monkeypatch, table, failures=99)
+    sleeps = []
+    monkeypatch.setattr(activity_fetcher.time, "sleep", sleeps.append)
+
+    athlete_input, state, guard = activity_fetcher._close_window("777")
+
+    assert calls["n"] == activity_fetcher.CLOSE_ATTEMPTS == 3
+    assert len(sleeps) == 2
+    assert (athlete_input, state, guard) == (None, "closed", {"observed_state": "awaiting"})
+
+
+def test_fallback_without_window_guards_on_absent_state(table, outcomes, monkeypatch):
+    table.put_item(Item={"activity_id": "777", "processing_status": "processing"})
+    _flaky_close(monkeypatch, table, failures=99)
+
+    assert activity_fetcher._close_window("777") == (None, None, {"observed_state": None})
+
+
+def test_guarded_store_refuses_a_changed_state(table):
+    """observed=awaiting but a submit made it submitted: no overwrite."""
+    table.put_item(Item={"activity_id": "777", "athlete_input_state": "submitted", "athlete_input": INPUT})
+
+    with pytest.raises(activity_fetcher.InputStateChanged):
+        activity_fetcher.store_activity_data(
+            "777", _activity(), None, None, {"user_id": "42"},
+            athlete_input=None, athlete_input_state="closed", input_guard={"observed_state": "awaiting"},
+        )
+
+    row = table.get_item(Key={"activity_id": "777"})["Item"]
+    assert row["athlete_input_state"] == "submitted"
+    assert row["athlete_input"]["rpe"] == 7
+
+
+def test_guarded_store_on_absent_state_refuses_a_window(table):
+    table.put_item(Item={"activity_id": "777", "athlete_input_state": "awaiting", "input_task_token": "tok"})
+
+    with pytest.raises(activity_fetcher.InputStateChanged):
+        activity_fetcher.store_activity_data(
+            "777", _activity(), None, None, {"user_id": "42"}, input_guard={"observed_state": None},
+        )
+    assert table.get_item(Key={"activity_id": "777"})["Item"]["input_task_token"] == "tok"
+
+
+def test_guarded_store_writes_when_state_unchanged(table):
+    table.put_item(Item={"activity_id": "777", "athlete_input_state": "awaiting", "input_task_token": "tok"})
+
+    activity_fetcher.store_activity_data(
+        "777", _activity(), None, None, {"user_id": "42"},
+        athlete_input=None, athlete_input_state="closed", input_guard={"observed_state": "awaiting"},
+    )
+
+    row = table.get_item(Key={"activity_id": "777"})["Item"]
+    assert row["athlete_input_state"] == "closed"
+    assert "input_task_token" not in row
+
+
+def _run_handler():
+    stubs = {
+        "get_access_token": "token",
+        "fetch_activity_data": _activity(),
+        "fetch_laps_data": None,
+        "fetch_activity_zones": None,
+        "fetch_athlete_stats": None,
+        "fetch_athlete_profile": None,
+        "fetch_user_configuration": {"user_id": "42", "modules_config": {}},
+        "persist_body_weight_from_strava": None,
+        "fetch_intervals_icu_data": None,
+    }
+    patches = [patch.object(activity_fetcher, name, return_value=value) for name, value in stubs.items()]
+    for p in patches:
+        p.start()
+    try:
+        return activity_fetcher.handler({"activity_id": "777", "user_id": "42"}, None)
+    finally:
+        for p in patches:
+            p.stop()
+
+
+def test_submit_between_fallback_read_and_store_is_kept(table, outcomes, monkeypatch):
+    """The exact race: close throttled 3x, consistent read sees awaiting, the real
+    submit API answers 202 before the store, then the store must not erase it."""
+    import athlete_input.input_submit as input_submit
+    from unittest.mock import MagicMock
+
+    table.put_item(Item={"activity_id": "777", "user_id": "42", "athlete_input_state": "awaiting",
+                         "input_task_token": "tok", "input_deadline_at": "2099-01-01T00:00:00+00:00"})
+    monkeypatch.setenv("ACTIVITIES_TABLE", TABLE)
+    monkeypatch.setattr(input_submit, "dynamodb", boto3.resource("dynamodb", region_name="eu-west-1"))
+    monkeypatch.setattr(input_submit, "stepfunctions", MagicMock())
+    monkeypatch.setattr(input_submit, "_record_outcome", lambda _o: None)
+    wrapped, _calls = _flaky_close(monkeypatch, table, failures=3)
+    real_get = table.get_item
+    submits = []
+
+    def get_item(**kwargs):
+        result = real_get(**kwargs)
+        if kwargs.get("ConsistentRead") and not submits:
+            submits.append(input_submit.handler({
+                "httpMethod": "POST",
+                "pathParameters": {"activityId": "777"},
+                "requestContext": {"authorizer": {"claims": {"custom:strava_id": "42"}}, "requestId": "r"},
+                "body": json.dumps({"rpe": 8, "summary": "Dur sur la fin"}),
+            }, None))
+        return result
+
+    wrapped.get_item.side_effect = get_item
+
+    result = _run_handler()
+
+    assert result["statusCode"] == 200
+    assert submits[0]["statusCode"] == 202
+    row = table.get_item(Key={"activity_id": "777"})["Item"]
+    assert row["athlete_input_state"] == "closed"
+    assert row["athlete_input"]["rpe"] == 8
+    assert "input_task_token" not in row
+    stored = json.loads(row["activity_data_json"])
+    assert stored["athlete_rpe"] == 8
+    assert stored["athlete_summary"] == "Dur sur la fin"
+    assert outcomes == ["submitted"]  # the second, successful close
+
+
+def test_fallback_store_without_race_closes_the_row(table, outcomes, monkeypatch):
+    table.put_item(Item={"activity_id": "777", "user_id": "42", "athlete_input_state": "awaiting",
+                         "input_task_token": "tok"})
+    _flaky_close(monkeypatch, table, failures=99)
+
+    assert _run_handler()["statusCode"] == 200
+
+    row = table.get_item(Key={"activity_id": "777"})["Item"]
+    assert row["athlete_input_state"] == "closed"
+    assert "input_task_token" not in row
+    assert "athlete_rpe" not in json.loads(row["activity_data_json"])

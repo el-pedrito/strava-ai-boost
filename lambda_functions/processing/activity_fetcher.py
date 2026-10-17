@@ -7,6 +7,7 @@ Handles comprehensive data retrieval for analysis.
 
 import json
 import os
+import time
 from decimal import Decimal
 from typing import Dict, Any, Optional
 import boto3
@@ -105,7 +106,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
         # Athlete input (RPE): close the window first, so a submit arriving from
         # now on gets a 409 and the input read here is final (sole arbiter, §7).
-        athlete_input, athlete_input_state = close_athlete_input_window(str(activity_id))
+        athlete_input, athlete_input_state, input_guard = _close_window(str(activity_id))
 
         # Get OAuth tokens
         access_token = get_access_token(user_id)
@@ -150,7 +151,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         apply_athlete_input(activity_data, athlete_input)
 
         # Store ALL data in DynamoDB to avoid Step Functions 256KB payload limit
-        store_activity_data(
+        store_kwargs = dict(
             activity_id=activity_id,
             activity_data=activity_data,
             athlete_stats=athlete_stats,
@@ -158,9 +159,28 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             user_config=user_config,
             intervals_icu_data=intervals_icu_data,
             laps_data=laps_data,
-            athlete_input=athlete_input,
-            athlete_input_state=athlete_input_state,
         )
+        try:
+            store_activity_data(
+                **store_kwargs,
+                athlete_input=athlete_input,
+                athlete_input_state=athlete_input_state,
+                input_guard=input_guard,
+            )
+        except InputStateChanged:
+            # The close had fallen back to a read and a submit landed before the
+            # store (§7): close again, re-read the input and store once more. A
+            # second mismatch propagates (fetch fails rather than drop a 202 input).
+            athlete_input, athlete_input_state, input_guard = _close_window(str(activity_id))
+            activity_data.pop('athlete_rpe', None)
+            activity_data.pop('athlete_summary', None)
+            apply_athlete_input(activity_data, athlete_input)
+            store_activity_data(
+                **store_kwargs,
+                athlete_input=athlete_input,
+                athlete_input_state=athlete_input_state,
+                input_guard=input_guard,
+            )
         
         # Return minimal payload - only references, no large data
         return {
@@ -871,13 +891,26 @@ def _record_input_wait(outcome: str) -> None:
         logger.warning(f"Could not emit InputWait{{outcome={outcome}}}: {exc}")
 
 
-def _read_input_after_failed_close(table: Any, activity_id: str) -> tuple:
-    """Fallback when the close UpdateItem failed for a non-conditional reason.
+# Non-conditional close errors (throttling, 5xx) are retried this many times in
+# total, with these pauses between attempts, before the consistent-read fallback.
+CLOSE_ATTEMPTS = 3
+CLOSE_BACKOFF_SECONDS = (0.05, 0.2)
 
-    Without it the store would rewrite the row with neither ``athlete_input``
-    nor ``athlete_input_state``: a submitted RPE lost for good, and a second
-    ("enriched") push after the input request. ConsistentRead, unlike the
-    fetcher's own get_item, so a submit that already landed is seen.
+
+class InputStateChanged(Exception):
+    """The guarded store found an athlete-input state other than the one observed."""
+
+
+def _read_input_after_failed_close(table: Any, activity_id: str) -> tuple:
+    """Fallback when every close UpdateItem failed for a non-conditional reason.
+
+    Returns ``(athlete_input, state, observed_state)``. Without it the store would
+    rewrite the row with neither ``athlete_input`` nor ``athlete_input_state``: a
+    submitted RPE lost for good, and a second ("enriched") push after the input
+    request. ConsistentRead, unlike the fetcher's own get_item, so a submit that
+    already landed is seen. ``observed_state`` is what the store's put_item is
+    then conditioned on (None: the attribute was absent or the read failed), so a
+    submit landing between this read and the store cannot be overwritten.
     """
     try:
         response = table.get_item(
@@ -887,12 +920,77 @@ def _read_input_after_failed_close(table: Any, activity_id: str) -> tuple:
         )
     except Exception as exc:  # noqa: BLE001 - fail open (D8)
         logger.warning(f"Could not read athlete input for {activity_id}: {type(exc).__name__}")
-        return None, None
+        return None, None, None
     old = response.get('Item') or {}
     if 'athlete_input_state' not in old:
-        return None, None
+        return None, None, None
     athlete_input = old.get('athlete_input')
-    return (athlete_input if isinstance(athlete_input, dict) else None), INPUT_STATE_CLOSED
+    return (
+        (athlete_input if isinstance(athlete_input, dict) else None),
+        INPUT_STATE_CLOSED,
+        old.get('athlete_input_state'),
+    )
+
+
+def _close_window(activity_id: str) -> tuple:
+    """Close the window; return ``(athlete_input, state, store_guard)``.
+
+    ``store_guard`` is None when the conditional close settled the row (closed by
+    us, or already closed / no window): the store may then put_item freely, since
+    no submit can land on a closed or window-less row. On the fallback path it is
+    ``{'observed_state': <state or None>}`` and the store must be conditional on it.
+    """
+    table = dynamodb.Table(ACTIVITIES_TABLE)
+    response = None
+    for attempt in range(CLOSE_ATTEMPTS):
+        try:
+            response = table.update_item(
+                Key={'activity_id': activity_id},
+                UpdateExpression='SET athlete_input_state = :closed REMOVE input_task_token',
+                ConditionExpression='athlete_input_state IN (:awaiting, :submitted)',
+                ExpressionAttributeValues={
+                    ':closed': INPUT_STATE_CLOSED,
+                    ':awaiting': INPUT_STATE_AWAITING,
+                    ':submitted': INPUT_STATE_SUBMITTED,
+                },
+                ReturnValues='ALL_NEW',
+                ReturnValuesOnConditionCheckFailure='ALL_OLD',
+            )
+            break
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code')
+            if code == 'ConditionalCheckFailedException':
+                raw = exc.response.get('Item') or {}
+                try:
+                    old = {k: _deserializer.deserialize(v) for k, v in raw.items()}
+                except Exception as des_exc:  # noqa: BLE001 - unreadable old item: no input
+                    logger.warning(f"Unreadable old item for {activity_id}: {type(des_exc).__name__}")
+                    return None, None, None
+                if 'athlete_input_state' not in old:
+                    return None, None, None
+                athlete_input = old.get('athlete_input')
+                return (athlete_input if isinstance(athlete_input, dict) else None), INPUT_STATE_CLOSED, None
+            logger.warning(
+                f"Could not close athlete-input window for {activity_id} "
+                f"(attempt {attempt + 1}/{CLOSE_ATTEMPTS}): {code}"
+            )
+        except Exception as exc:  # noqa: BLE001 - fail open (D8) after the retries
+            logger.warning(
+                f"Could not close athlete-input window for {activity_id} "
+                f"(attempt {attempt + 1}/{CLOSE_ATTEMPTS}): {type(exc).__name__}"
+            )
+        if attempt < CLOSE_ATTEMPTS - 1:
+            time.sleep(CLOSE_BACKOFF_SECONDS[min(attempt, len(CLOSE_BACKOFF_SECONDS) - 1)])
+    else:
+        athlete_input, state, observed = _read_input_after_failed_close(table, activity_id)
+        return athlete_input, state, {'observed_state': observed}
+
+    attributes = response.get('Attributes') or {}
+    athlete_input = attributes.get('athlete_input')
+    previous = INPUT_STATE_SUBMITTED if isinstance(athlete_input, dict) else INPUT_STATE_AWAITING
+    _record_input_wait('submitted' if previous == INPUT_STATE_SUBMITTED else 'expired')
+    logger.info(f"Closed athlete-input window for {activity_id} (was {previous})")
+    return (athlete_input if isinstance(athlete_input, dict) else None), INPUT_STATE_CLOSED, None
 
 
 def close_athlete_input_window(activity_id: str) -> tuple:
@@ -908,55 +1006,18 @@ def close_athlete_input_window(activity_id: str) -> tuple:
     - condition failed (flag off, reprocess, window already closed): not an error.
       The old item (raw DynamoDB format) is deserialised to keep an RPE already
       entered across a reprocess.
-    - any other error (throttling, 5xx): the input is not dropped. A consistent
-      read fetches ``athlete_input``/``athlete_input_state``; if a window existed
-      the state returned is ``closed`` (the complete put_item that follows is
-      then the close). If that read fails too: fail open (D8), no input.
+    - any other error (throttling, 5xx): retried ``CLOSE_ATTEMPTS`` times with a
+      short backoff. If all fail, the input is not dropped: a consistent read
+      fetches ``athlete_input``/``athlete_input_state``; if a window existed the
+      state returned is ``closed`` and the complete put_item that follows is the
+      close, conditional on the state observed (see ``_close_window``, used by the
+      handler). If that read fails too: fail open (D8), no input.
 
     Returns ``(None, None)`` when the activity never had a window (flag off): the
     item then carries no ``athlete_input_state`` and behaves exactly as today.
     """
-    table = dynamodb.Table(ACTIVITIES_TABLE)
-    try:
-        response = table.update_item(
-            Key={'activity_id': activity_id},
-            UpdateExpression='SET athlete_input_state = :closed REMOVE input_task_token',
-            ConditionExpression='athlete_input_state IN (:awaiting, :submitted)',
-            ExpressionAttributeValues={
-                ':closed': INPUT_STATE_CLOSED,
-                ':awaiting': INPUT_STATE_AWAITING,
-                ':submitted': INPUT_STATE_SUBMITTED,
-            },
-            ReturnValues='ALL_NEW',
-            ReturnValuesOnConditionCheckFailure='ALL_OLD',
-        )
-    except ClientError as exc:
-        if exc.response.get('Error', {}).get('Code') != 'ConditionalCheckFailedException':
-            logger.warning(
-                f"Could not close athlete-input window for {activity_id}: "
-                f"{exc.response.get('Error', {}).get('Code')}"
-            )
-            return _read_input_after_failed_close(table, activity_id)
-        raw = exc.response.get('Item') or {}
-        try:
-            old = {k: _deserializer.deserialize(v) for k, v in raw.items()}
-        except Exception as des_exc:  # noqa: BLE001 - unreadable old item: no input
-            logger.warning(f"Unreadable old item for {activity_id}: {type(des_exc).__name__}")
-            return None, None
-        if 'athlete_input_state' not in old:
-            return None, None
-        athlete_input = old.get('athlete_input')
-        return (athlete_input if isinstance(athlete_input, dict) else None), INPUT_STATE_CLOSED
-    except Exception as exc:  # noqa: BLE001 - fail open (D8)
-        logger.warning(f"Could not close athlete-input window for {activity_id}: {type(exc).__name__}")
-        return _read_input_after_failed_close(table, activity_id)
-
-    attributes = response.get('Attributes') or {}
-    athlete_input = attributes.get('athlete_input')
-    previous = INPUT_STATE_SUBMITTED if isinstance(athlete_input, dict) else INPUT_STATE_AWAITING
-    _record_input_wait('submitted' if previous == INPUT_STATE_SUBMITTED else 'expired')
-    logger.info(f"Closed athlete-input window for {activity_id} (was {previous})")
-    return (athlete_input if isinstance(athlete_input, dict) else None), INPUT_STATE_CLOSED
+    athlete_input, state, _guard = _close_window(activity_id)
+    return athlete_input, state
 
 
 def apply_athlete_input(activity_data: Dict[str, Any], athlete_input: Optional[Dict[str, Any]]) -> None:
@@ -983,12 +1044,18 @@ def store_activity_data(
     laps_data: Optional[list] = None,
     athlete_input: Optional[Dict[str, Any]] = None,
     athlete_input_state: Optional[str] = None,
+    input_guard: Optional[Dict[str, Any]] = None,
 ) -> None:
     """
     Store ALL activity data in DynamoDB to avoid Step Functions 256KB payload limit
 
     This stores the complete fetched data so downstream Lambdas can retrieve it
-    without passing large payloads through Step Functions
+    without passing large payloads through Step Functions.
+
+    ``input_guard`` (set only when the window close fell back to a read, see
+    ``_close_window``) makes the put_item conditional on the athlete-input state
+    observed then; a mismatch raises ``InputStateChanged`` instead of overwriting
+    a submit that landed in between.
     """
     try:
         from decimal import Decimal
@@ -1116,10 +1183,27 @@ def store_activity_data(
             if athlete_input:
                 item['athlete_input'] = athlete_input
 
-        table.put_item(Item=item)
-        
+        put_kwargs: Dict[str, Any] = {'Item': item}
+        if input_guard is not None:
+            observed = input_guard.get('observed_state')
+            if observed:
+                put_kwargs['ConditionExpression'] = 'athlete_input_state = :observed'
+                put_kwargs['ExpressionAttributeValues'] = {':observed': observed}
+            else:
+                put_kwargs['ConditionExpression'] = 'attribute_not_exists(athlete_input_state)'
+        try:
+            table.put_item(**put_kwargs)
+        except ClientError as exc:
+            if (input_guard is not None
+                    and exc.response.get('Error', {}).get('Code') == 'ConditionalCheckFailedException'):
+                raise InputStateChanged(activity_id) from exc
+            raise
+
         logger.info(f"Stored complete activity data for {activity_id} in DynamoDB")
-        
+
+    except InputStateChanged:
+        logger.info(f"Athlete-input state of {activity_id} changed since it was read; not stored")
+        raise
     except Exception as e:
         logger.error(f"Failed to store activity data: {str(e)}")
         # Raise because this is critical - downstream Lambdas need this data
