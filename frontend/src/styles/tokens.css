@@ -37,14 +37,22 @@
 
   --primary: #fc4c02;
   --primary-foreground: #ffffff;
+  /* Filled-button background. White on brand #fc4c02 is only 3.40:1; #d23c00 gives 4.79:1
+     (WCAG AA for 14 px text). Keep --primary for icons, borders and large text.
+     Ratios pinned by ui/__tests__/contrast.test.ts. */
+  --primary-strong: #d23c00;
+  --primary-strong-hover: #b83400;
 
   --accent: #0f172a;
   --accent-foreground: #ffffff;
 
   --success: #00a87d;
   --success-foreground: #ffffff;
+  /* Status TEXT colours: --success / --warning are fills and fail AA as text on white. */
+  --success-text: #047857;
   --warning: #d97706;
   --warning-foreground: #ffffff;
+  --warning-text: #b45309;
   --danger: #dc2626;
   --danger-foreground: #ffffff;
   --info: #2563eb;
@@ -70,14 +78,21 @@
 
   --primary: #fc4c02;
   --primary-foreground: #ffffff;
+  /* Filled-button background. White on brand #fc4c02 is only 3.40:1; #d23c00 gives 4.79:1
+     (WCAG AA for 14 px text). Keep --primary for icons, borders and large text.
+     Ratios pinned by ui/__tests__/contrast.test.ts. */
+  --primary-strong: #d23c00;
+  --primary-strong-hover: #b83400;
 
   --accent: #f5f7fa;
   --accent-foreground: #0a0e1a;
 
   --success: #00c896;
   --success-foreground: #0a0e1a;
+  --success-text: #00c896;
   --warning: #f59e0b;
   --warning-foreground: #0a0e1a;
+  --warning-text: #f59e0b;
   --danger: #ef4444;
   --danger-foreground: #ffffff;
   --info: #3b82f6;
@@ -100,12 +115,16 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-strong: var(--primary-strong);
+  --color-primary-strong-hover: var(--primary-strong-hover);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
+  --color-success-text: var(--success-text);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
+  --color-warning-text: var(--warning-text);
   --color-danger: var(--danger);
   --color-danger-foreground: var(--danger-foreground);
   --color-info: var(--info);
@@ -161,6 +180,20 @@ body {
 :focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
+}
+
+/* Activity map (Leaflet, pages/Activity/ActivityMap.tsx).
+   OSM tiles in both themes; dark mode inverts the tile pane only, so the route keeps its colour.
+   hue-rotate(180deg) brings water back to blue and parks green, brightness/contrast soften the
+   inverted white roads so the orange route stays the most salient line. */
+.activity-map .leaflet-container {
+  background: var(--surface-muted);
+}
+.dark .activity-map .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.85) saturate(0.6);
+}
+.activity-map .activity-route {
+  stroke: var(--primary);
 }
 
 /* Animations */
