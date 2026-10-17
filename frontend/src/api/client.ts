@@ -1,6 +1,7 @@
 import { getConfig } from '../config.ts';
 import { CognitoUserPool } from 'amazon-cognito-identity-js';
 import type { PlanWorkoutsResponse } from '../types/index.ts';
+import type { HomeSummary } from '../types/home.ts';
 
 export class ApiError extends Error {
   status: number;
@@ -63,4 +64,13 @@ export const api = {
 /** Upcoming Campus plan sessions with their Apple Watch `.workout` payloads. */
 export function getPlanWorkouts(): Promise<PlanWorkoutsResponse> {
   return api.get<PlanWorkoutsResponse>('/plan/workouts');
+}
+
+/**
+ * Athlete home dashboard: morning brief, race, Campus plan, this week, health,
+ * predictions and Enduraw trend. Owner-only (403 otherwise), `Cache-Control:
+ * no-store`. Shape documented in CONTRACT.md; every field can be null.
+ */
+export function getHomeSummary(): Promise<HomeSummary> {
+  return api.get<HomeSummary>('/home/summary');
 }

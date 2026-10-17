@@ -76,7 +76,7 @@ export AWS_REGION=eu-west-1
 ./scripts/configure_strava_webhook.sh dev --auto-configure
 ```
 
-**What this deploys**: 8 CDK stacks, DynamoDB tables, 18 Lambda functions (grouped in role-based packages), Step Functions (parallel execution), Secrets Manager, Bedrock fallback mode (Claude Sonnet 5.5), structured logging with AWS Lambda Powertools, CloudFront-hosted frontend with Cognito authentication (User Pool). System is immediately functional. The conversational coach chat runs on a dedicated AgentCore Runtime (deployed separately in Phase 2).
+**What this deploys**: 8 CDK stacks, DynamoDB tables, 19 Lambda functions (grouped in role-based packages), Step Functions (parallel execution), Secrets Manager, Bedrock fallback mode (Claude Sonnet 5.5), structured logging with AWS Lambda Powertools, CloudFront-hosted frontend with Cognito authentication (User Pool). System is immediately functional. The conversational coach chat runs on a dedicated AgentCore Runtime (deployed separately in Phase 2).
 
 ### Phase 2: AgentCore Enhancement (Optional)
 
@@ -310,7 +310,7 @@ graph TB
             FB[Feedback Analyzer<br/>Nightly Learning Loop]
         end
 
-        Lambdas[18 Lambda Functions<br/>Role-Based Packages]
+        Lambdas[19 Lambda Functions<br/>Role-Based Packages]
     end
 
     subgraph "Amazon Bedrock AgentCore ⭐"
@@ -362,7 +362,7 @@ graph TB
 | Component | Details |
 |-----------|---------|
 | **8 CDK Stacks** | Core, Security, Webhook, Content, VoiceDebrief, API, Feedback, Frontend |
-| **18 Lambda Functions** | API, processing, webhooks, support, voice (in role-based packages) |
+| **19 Lambda Functions** | API, processing, webhooks, support, voice (in role-based packages) |
 | **Coach chat runtime** | dedicated **AgentCore Runtime** `coach_chat` (FastAPI + Strands, AGUI protocol, 5 tools). Browser POSTs the AG-UI SSE straight to the data plane; **customJWT** auth (Cognito ID token), no SigV4, no proxy |
 | **4 DynamoDB Tables** | `activities` (2 GSIs, TTL), `user_config`, `coaching_sessions`, `weekly_recaps` |
 | **3 AgentCore Runtimes** | `content_gen`, `strava_ai_boost_coach` (coach), `coach_chat` — sharing a single AgentCore Memory (`content_gen_mem`, 3 strategies). Campus Coach uses the direct REST sync Lambda (no agent) |
@@ -521,7 +521,7 @@ The Lambda Layer cannot be replaced via CDK due to CloudFormation cross-stack ex
 ## Testing
 
 ```bash
-# Lambda unit tests (1265 tests, ~2s — no AWS credentials needed)
+# Lambda unit tests (1369 tests, ~2s — no AWS credentials needed)
 pytest tests/unit/ -v
 
 # Prompt regression evaluators + LLM registry sync (106 tests, free)
@@ -531,14 +531,14 @@ pytest tests/regression/ -v
 export AWS_PROFILE=<your-aws-profile>
 pytest tests/ -v --ignore=tests/unit/
 
-# Frontend unit tests (95 tests, ~4s)
+# Frontend unit tests (111 tests, ~4s)
 cd frontend && npm test
 
 # All backend tests
 pytest tests/ -v
 ```
 
-**Test coverage:** 1466 total tests (1265 backend unit + 106 regression + 95 frontend), plus integration tests.
+**Test coverage:** 1586 total tests (1369 backend unit + 106 regression + 111 frontend), plus integration tests.
 
 **Prompt regression (on-demand, live):** after changing prompts and redeploying the agents, replay 10 synthetic reference activities against the deployed runtime:
 

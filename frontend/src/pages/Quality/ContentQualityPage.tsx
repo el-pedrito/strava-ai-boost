@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router';
 import {
   RefreshCw,
   ArrowUp,
@@ -14,6 +15,7 @@ import {
   Brain,
   CheckCircle2,
   Clock,
+  Cpu,
   type LucideIcon,
 } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
@@ -431,15 +433,19 @@ export function ContentQualityPage() {
             {t('quality.description')}
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="md"
-          onClick={fetchAll}
-          className="self-start sm:self-auto"
-        >
-          <RefreshCw className="h-4 w-4" aria-hidden="true" />
-          {t('quality.refresh')}
-        </Button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <Link
+            to="/system"
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-sm font-medium text-foreground transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Cpu className="h-4 w-4" aria-hidden="true" />
+            {t('nav.system')}
+          </Link>
+          <Button variant="outline" size="md" onClick={fetchAll}>
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
+            {t('quality.refresh')}
+          </Button>
+        </div>
       </div>
 
       {/* Error */}

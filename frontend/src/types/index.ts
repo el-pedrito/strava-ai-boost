@@ -199,3 +199,6 @@ export interface PlanWorkoutsResponse {
   truncated: boolean;
   timestamp?: string;
 }
+
+/** Home dashboard (`GET /home/summary`) types. */
+export * from './home.ts';

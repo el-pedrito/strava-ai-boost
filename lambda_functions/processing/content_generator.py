@@ -27,6 +27,7 @@ from botocore.exceptions import (
 from processing.workout_analysis import (
     classify_workout_from_laps,
     extract_enduraw_report,
+    enduraw_numeric_metrics,
 )
 from processing.content_guard import apply_content_guard
 from processing.formatting import format_paragraphs
@@ -215,8 +216,21 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         active_modules = get_active_modules(user_config)
         user_profile = build_user_profile_from_config(user_config)
 
-        # Extract Enduraw Report if available
+        # Extract Enduraw Report if available (from the preserved original text,
+        # applied by _apply_preserved_original in retrieve_activity_data_from_dynamodb).
         enduraw_data = extract_enduraw_report(activity_data)
+
+        # Lot B: numeric enduraw metrics to persist for the home trend. raw_pace_s
+        # is the activity's actual pace (s/km); None metrics -> REMOVE on store.
+        _raw_pace_s = None
+        try:
+            _dist_m = float(activity_data.get('distance', 0) or 0)
+            _moving_s = float(activity_data.get('moving_time', 0) or 0)
+            if _dist_m > 0 and _moving_s > 0:
+                _raw_pace_s = round(_moving_s / (_dist_m / 1000))
+        except (TypeError, ValueError):
+            _raw_pace_s = None
+        enduraw_metrics = enduraw_numeric_metrics(enduraw_data, raw_pace_s=_raw_pace_s)
 
         # Inject laps into activity_data for module access (Campus Coach matching)
         if laps_data:
@@ -289,8 +303,8 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 'modules_applied': [m['name'] for m in enhanced_modules],
             }
 
-        # Store generated content
-        store_generated_content(activity_id, enhanced_content)
+        # Store generated content (+ enduraw_metrics SET/REMOVE)
+        store_generated_content(activity_id, enhanced_content, enduraw_metrics)
 
         # P0.2: Mark Campus Coach session as done using pre-matched session from modules_processing
         matched_session = None
@@ -1369,8 +1383,18 @@ def _convert_floats_to_decimal(obj: Any) -> Any:
     return obj
 
 
-def store_generated_content(activity_id: str, content: Dict[str, Any]) -> None:
-    """Store generated content in DynamoDB"""
+def store_generated_content(
+    activity_id: str,
+    content: Dict[str, Any],
+    enduraw_metrics: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Store generated content in DynamoDB.
+
+    Lot B: enduraw_metrics is SET when a report was parsed this run, or REMOVEd
+    when none was (so a reprocess of an activity whose report is gone does not
+    keep a stale metric). It is part of this existing update, not a second write
+    (a MODIFY touching only enduraw_metrics still fires the table stream; keeping
+    it in the one post-generation update avoids an extra stream event)."""
     try:
         table = dynamodb.Table(ACTIVITIES_TABLE)
 
@@ -1385,14 +1409,23 @@ def store_generated_content(activity_id: str, content: Dict[str, Any]) -> None:
             'generated_at': datetime.now(timezone.utc).isoformat()
         }
 
+        set_expr = "SET enhanced_title = :title, enhanced_description = :desc, generation_metadata = :meta"
+        values = {
+            ':title': content['title'],
+            ':desc': content['description'],
+            ':meta': metadata,
+        }
+        remove_expr = ""
+        if enduraw_metrics:
+            set_expr += ", enduraw_metrics = :enduraw"
+            values[':enduraw'] = convert_floats_to_decimal(enduraw_metrics)
+        else:
+            remove_expr = " REMOVE enduraw_metrics"
+
         table.update_item(
             Key={'activity_id': activity_id},
-            UpdateExpression="SET enhanced_title = :title, enhanced_description = :desc, generation_metadata = :meta",
-            ExpressionAttributeValues={
-                ':title': content['title'],
-                ':desc': content['description'],
-                ':meta': metadata
-            }
+            UpdateExpression=set_expr + remove_expr,
+            ExpressionAttributeValues=values,
         )
 
         logger.info(f"Stored generated content for activity {activity_id}")

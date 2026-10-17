@@ -221,9 +221,67 @@ def extract_enduraw_report(activity_data: Dict[str, Any]) -> Optional[Dict[str, 
             enduraw_data['metrics']['elevation_avg'] = f"{elev_pct}%"
             enduraw_data['metrics']['elevation_cost'] = f"{min_bold}'{sec_bold}\"/km"
 
+        # Extract heat impact (Lot B). The report line mirrors the wind/elevation
+        # shape: "Heat (25C) cost you 0'09"/km". Degrees may carry a unit glyph.
+        heat_match = re.search(r'Heat \(([0-9.]+)\s*°?C?\) cost you ([𝟬-𝟵]+)\'([𝟬-𝟵]+)"/km', report_text)
+        if heat_match:
+            heat_temp = heat_match.group(1)
+            min_bold = heat_match.group(2).translate(str.maketrans('𝟬𝟭𝟮𝟯𝟰𝟱𝟲𝟳𝟴𝟵', '0123456789'))
+            sec_bold = heat_match.group(3).translate(str.maketrans('𝟬𝟭𝟮𝟯𝟰𝟱𝟲𝟳𝟴𝟵', '0123456789'))
+            enduraw_data['metrics']['heat_temp'] = f"{heat_temp}°C"
+            enduraw_data['metrics']['heat_cost'] = f"{min_bold}'{sec_bold}\"/km"
+
         logger.info(f"Extracted Enduraw Report: {enduraw_data['metrics']}")
         return enduraw_data
 
     except Exception as e:
         logger.error(f"Failed to extract Enduraw Report: {str(e)}")
         return None
+
+
+def _cost_str_to_seconds(cost: Optional[str]) -> Optional[int]:
+    """Parse a cost string like "0'09\"/km" (minutes'seconds"/km) into seconds/km."""
+    if not cost:
+        return None
+    m = re.match(r"(\d+)'(\d+)", str(cost))
+    if not m:
+        return None
+    return int(m.group(1)) * 60 + int(m.group(2))
+
+
+def _adjusted_pace_to_seconds(pace: Optional[str]) -> Optional[int]:
+    """Parse an "m:ss/km" adjusted pace into seconds/km."""
+    if not pace:
+        return None
+    m = re.match(r"(\d+):(\d+)", str(pace))
+    if not m:
+        return None
+    return int(m.group(1)) * 60 + int(m.group(2))
+
+
+def enduraw_numeric_metrics(
+    enduraw_data: Optional[Dict[str, Any]],
+    raw_pace_s: Optional[int] = None,
+) -> Optional[Dict[str, int]]:
+    """Numeric enduraw metrics for storage/trend, or None when no report.
+
+    {raw_pace_s, adjusted_pace_s, heat_cost_s, wind_cost_s, elevation_cost_s}.
+    Only keys with a parsed value are included. A missing cost LINE leaves the key
+    absent (CONTRACT: null, not 0) — "no line" does not mean "zero cost". A line
+    that is present and reads 0 is kept as 0."""
+    if not enduraw_data or not enduraw_data.get('report_available'):
+        return None
+    m = enduraw_data.get('metrics', {}) or {}
+    out: Dict[str, int] = {}
+    adj = _adjusted_pace_to_seconds(m.get('adjusted_pace'))
+    if adj is not None:
+        out['adjusted_pace_s'] = adj
+    if raw_pace_s is not None:
+        out['raw_pace_s'] = int(raw_pace_s)
+    for out_key, src_key in (('heat_cost_s', 'heat_cost'),
+                             ('wind_cost_s', 'wind_cost'),
+                             ('elevation_cost_s', 'elevation_cost')):
+        cost = _cost_str_to_seconds(m.get(src_key))
+        if cost is not None:
+            out[out_key] = cost
+    return out

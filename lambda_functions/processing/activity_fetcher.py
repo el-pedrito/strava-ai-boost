@@ -15,8 +15,9 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from datetime import datetime, timedelta
-from shared.logger import get_logger
+from shared.logger import get_logger, metrics, MetricUnit
 from shared.strava_oauth import refresh_access_token as shared_refresh_access_token
+from shared.wellness import wellness_hrv, wellness_hrv_kind
 
 logger = get_logger("activity-fetcher")
 
@@ -84,6 +85,7 @@ def _resolve_original_text(
     return fetched_description, fetched_name
 
 
+@metrics.log_metrics
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Lambda handler for fetching activity data from Strava API
@@ -623,23 +625,11 @@ def persist_body_weight_from_strava(
             logger.warning(f"Failed to seed body_weight_kg from Strava: {str(e)}")
 
 
-def _wellness_hrv(w: Dict[str, Any]) -> Optional[float]:
-    """HRV from an Intervals.icu wellness row: rMSSD (`hrv`) first, else SDNN.
-
-    Apple Watch only measures SDNN, and HealthFit sends it to the separate
-    `hrvSDNN` field, so reading `hrv` alone always gave None for this athlete.
-    """
-    if w.get('hrv') is not None:
-        return w.get('hrv')
-    return w.get('hrvSDNN')
-
-
-def _wellness_hrv_kind(w: Dict[str, Any]) -> Optional[str]:
-    if w.get('hrv') is not None:
-        return 'rmssd'
-    if w.get('hrvSDNN') is not None:
-        return 'sdnn'
-    return None
+# HRV helpers moved to shared.wellness so WellnessSync and the home readers can
+# reuse the exact same rMSSD-first-else-SDNN logic. Re-exported under the old
+# private names so the rest of this module (and its tests) keep working.
+_wellness_hrv = wellness_hrv
+_wellness_hrv_kind = wellness_hrv_kind
 
 
 def _compute_wellness_trends(wellness_history: list, activity_date: str) -> Dict[str, Any]:
@@ -881,13 +871,22 @@ def store_activity_data(
         # our own generated output; feeding it back as 'original_description' is a
         # self-reinforcing loop. A manual edit by the athlete (no signature) is
         # still honored.
+        # Always read the prior item (A0): the complete put_item below is the
+        # correct reprocess semantics (it clears all per-run fields), but three
+        # late-dictation attributes must survive a reprocess or the athlete's
+        # dictated addendum and its merge counter would be lost. The read also
+        # feeds original-text preservation below. A failed read is non-fatal: we
+        # fall back to the current behaviour (no carry) with a warning + metric.
         existing_item: Dict[str, Any] = {}
-        if _looks_generated(original_description):
-            try:
-                existing_item = table.get_item(Key={'activity_id': activity_id}).get('Item') or {}
-            except Exception as exc:
-                logger.warning(f"Could not read existing item to preserve original text for {activity_id}: {exc}")
-                existing_item = {}
+        try:
+            existing_item = table.get_item(Key={'activity_id': activity_id}).get('Item') or {}
+        except Exception as exc:
+            logger.warning(
+                f"Could not read existing item for {activity_id}; "
+                f"late-dictation carry and original-text preservation skipped: {exc}"
+            )
+            metrics.add_metric(name="LateDictationCarryFailed", unit=MetricUnit.Count, value=1)
+            existing_item = {}
         resolved_description, resolved_name = _resolve_original_text(
             original_description, original_name, existing_item
         )
@@ -964,7 +963,17 @@ def store_activity_data(
         if start_latlng and len(start_latlng) >= 2:
             item['start_latitude'] = Decimal(str(start_latlng[0]))
             item['start_longitude'] = Decimal(str(start_latlng[1]))
-        
+
+        # Carry the ONLY attributes that must survive a reprocess (A0): the
+        # late-dictation addendum, its timestamp, and the merge counter. The
+        # complete put_item otherwise clears every per-run field on purpose
+        # (output, coach, audio, feedback, push_sent_at), which is the correct
+        # retreatment semantics. created_at stays reset (PLAN-v4): downstream
+        # trend readers filter on start_date_local, not the created_at window.
+        for _carry in ('late_dictation_text', 'late_dictation_at', 'late_merge_count'):
+            if _carry in existing_item:
+                item[_carry] = existing_item[_carry]
+
         table.put_item(Item=item)
         
         logger.info(f"Stored complete activity data for {activity_id} in DynamoDB")

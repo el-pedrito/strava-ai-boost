@@ -26,10 +26,10 @@ Strava AI Boost is a **serverless AWS application** that automatically enhances 
 
 ### Key Statistics
 - **~18,000 LOC** in core components
-- **18 Lambda functions** (API, processing, webhooks, support, voice — role-based packages)
+- **19 Lambda functions** (API, processing, webhooks, support, voice — role-based packages)
 - **3 AgentCore Runtimes** — `content_gen`, `strava_ai_boost_coach` (coach), `coach_chat` (agentic conversational coach): 2 agent definitions in `src/agents/` + 1 chat runtime in `src/coach_chat/`, sharing a single AgentCore Memory (`content_gen_mem`, 3 strategies)
 - **8 CDK stacks**
-- **1466 tests** (1265 backend unit + 106 regression + 95 frontend) + on-demand prompt regression harness (deterministic V1 + managed AgentCore Evaluations V2)
+- **1586 tests** (1369 backend unit + 106 regression + 111 frontend) + on-demand prompt regression harness (deterministic V1 + managed AgentCore Evaluations V2)
 - **Centralized LLM registry** — all Bedrock model IDs come from `src/config/llm_config.py` (mirrored in `lambda_functions/shared/llm_models.py` for Lambda bundling); anti-drift sync test
 - **Python 3.12** runtime, **React 19 + TypeScript + Vite** frontend
 - **Cognito authentication** (JWT, custom:strava_id attribute, no self-registration)
@@ -191,7 +191,7 @@ strava-ai-boost/
 │   └── vite.config.ts                  # Vite + Vitest configuration
 │
 ├── tests/                      # Test suite
-│   ├── unit/                           # Lambda unit tests (1265 tests)
+│   ├── unit/                           # Lambda unit tests (1369 tests)
 │   │   ├── conftest.py                 # Env vars for Lambda imports
 │   │   ├── test_webhook_handler.py     # Validation, routing, signature
 │   │   ├── test_content_generator.py   # DynamoDB, parsing, storage, strength extraction
@@ -408,7 +408,7 @@ class MyModule(BaseModule):
 
 ### Running Tests
 
-**Lambda Unit Tests (1265 tests, ~2s):**
+**Lambda Unit Tests (1369 tests, ~2s):**
 ```bash
 pytest tests/unit/ -v
 ```
@@ -433,7 +433,7 @@ export AWS_PROFILE=your-aws-profile
 pytest tests/ -v --ignore=tests/unit/
 ```
 
-**Frontend Tests (95 tests, ~4s):**
+**Frontend Tests (111 tests, ~4s):**
 ```bash
 cd frontend && npm test
 ```

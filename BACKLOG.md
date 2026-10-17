@@ -11,7 +11,7 @@ Le projet est fonctionnel et en production (dev). Toute la chaine fonctionne end
 - Webhook Strava → Step Functions → AI content generation → update Strava activity
 - Campus Coach sync REST direct (daily 05:00 UTC via EventBridge, session status sync on match)
 - Frontend React (CloudFront + Cognito) avec configuration modules, profil utilisateur, feedback loop
-- 1466 tests (1265 backend unit + 106 régression + 95 frontend) + 70 tests d'intégration
+- 1586 tests (1369 backend unit + 106 régression + 111 frontend) + 70 tests d'intégration
 - Observability (X-Ray + CloudWatch), cost allocation tags, DLQ error handling
 - Security : Secrets Manager, filtrage d'origine du webhook (subscription_id + owner_id ; Strava **ne signe pas** ses events), Cognito auth (API Gateway + coach chat customJWT), DynamoDB encryption, no public endpoints
 
@@ -71,6 +71,23 @@ ou éditer après coup (la boucle nocturne le lit comme feedback mais le texte p
 - `webhook_handler.py:234,357,413`
 
 ## P2 — Medium
+
+### Lecteurs à fenêtre `created_at` — migrer vers `in_activity_window` (dette A0)
+`created_at` est remis à zéro à chaque retraitement d'activité (décision PLAN-v4 : le
+délai de grâce du feedback analyzer repose sur la clé de tri du GSI `ProcessingStatusIndex`,
+`feedback_analyzer.py:208` `created_at < :cutoff`, donc on ne touche pas `created_at` dans ce lot).
+Conséquence : une vieille activité retraitée se présente comme récente pour tout lecteur qui
+filtre sur la fenêtre `created_at`. Les lecteurs de ce lot (accueil, santé, tendances corrigées en A6)
+filtrent désormais sur la date locale de l'activité via le helper partagé
+`shared.wellness.in_activity_window`. Les lecteurs restants à migrer vers ce helper
+(avec un attribut `processing_run_started_at` dédié, dans un lot séparé) :
+- `lambda_functions/support/weekly_synthesis.py:96`
+- `lambda_functions/support/weekly_audio_recap.py:198`
+- `lambda_functions/shared/coach_context.py:136`
+- `lambda_functions/processing/coach_generator.py:1096,1242`
+- `lambda_functions/api/dashboard_api.py:140` (fenêtre `created_at` du GSI UserActivitiesIndex)
+- `src/coach_chat/coach_chat_agent.py:366-390` (`query_activities` sur `created_at`)
+- **Fix :** introduire `processing_run_started_at`, migrer ces lecteurs sur `in_activity_window`.
 
 ### RemovalPolicy.DESTROY sur DynamoDB
 `core_infrastructure_stack.py:71,115,135` — 3 tables + 4 secrets en DESTROY.

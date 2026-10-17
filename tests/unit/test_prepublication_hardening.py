@@ -114,7 +114,9 @@ def test_core_lambda_roles_use_registry_only(templates):
 def test_core_tables_retained_with_pitr(templates):
     tables = {k: r for k, r in templates["core"]["Resources"].items()
               if r["Type"] == "AWS::DynamoDB::Table"}
-    assert len(tables) == 3
+    # 4 tables since A1 added the wellness table (activities, user-config,
+    # coaching-sessions, wellness) — all RETAIN + PITR.
+    assert len(tables) == 4
     for logical_id, res in tables.items():
         assert res["DeletionPolicy"] == "Retain", logical_id
         assert res["UpdateReplacePolicy"] == "Retain", logical_id

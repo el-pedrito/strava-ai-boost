@@ -42,15 +42,48 @@ class TestCoreInfrastructureStack:
     def test_dynamodb_tables_created(self, core_stack):
         """Test that all required DynamoDB tables are created"""
         template = assertions.Template.from_stack(core_stack)
-        
-        # Should have 3 tables (activities, user-config, coaching-sessions)
-        template.resource_count_is("AWS::DynamoDB::Table", 3)
-        
+
+        # 4 tables (activities, user-config, coaching-sessions, wellness)
+        template.resource_count_is("AWS::DynamoDB::Table", 4)
+
         # Verify encryption is enabled
         template.has_resource_properties("AWS::DynamoDB::Table", {
             "SSESpecification": {
                 "SSEEnabled": True
             }
+        })
+
+    def test_wellness_table_retained_pitr_no_ttl_no_stream(self, core_stack):
+        """A1: wellness table is RETAIN + PITR, PK user_id/SK sk, no TTL, no stream."""
+        template = assertions.Template.from_stack(core_stack)
+
+        # RETAIN removal policy -> DeletionPolicy/UpdateReplacePolicy = Retain.
+        template.has_resource("AWS::DynamoDB::Table", {
+            "DeletionPolicy": "Retain",
+            "UpdateReplacePolicy": "Retain",
+            "Properties": assertions.Match.object_like({
+                "TableName": "strava-ai-boost-wellness",
+                "KeySchema": [
+                    {"AttributeName": "user_id", "KeyType": "HASH"},
+                    {"AttributeName": "sk", "KeyType": "RANGE"},
+                ],
+                "PointInTimeRecoverySpecification": {
+                    "PointInTimeRecoveryEnabled": True
+                },
+                # No stream and no TTL on this table.
+                "StreamSpecification": assertions.Match.absent(),
+                "TimeToLiveSpecification": assertions.Match.absent(),
+            }),
+        })
+
+    def test_wellness_table_name_exported(self, core_stack):
+        # table_name is a CDK token until synth; assert the key is wired through
+        # both maps and that the physical name lands in the synthesized template.
+        assert "wellness" in core_stack.table_names
+        assert "wellness" in core_stack.table_arns
+        template = assertions.Template.from_stack(core_stack)
+        template.has_resource_properties("AWS::DynamoDB::Table", {
+            "TableName": "strava-ai-boost-wellness",
         })
     
     def test_dynamodb_table_names(self, core_stack):
@@ -227,6 +260,129 @@ class TestWebhookProcessingStack:
             ]),
         })
 
+    def test_wellness_sync_scheduler_paris_timezone(self, webhook_stack):
+        """A2: EventBridge Scheduler schedules for WellnessSync run in Europe/Paris
+        with retry 2 / max age 1h, flexible window OFF."""
+        template = assertions.Template.from_stack(webhook_stack)
+        template.resource_count_is("AWS::Scheduler::Schedule", 2)
+        schedules = template.find_resources("AWS::Scheduler::Schedule")
+        for props in (r["Properties"] for r in schedules.values()):
+            assert props["ScheduleExpressionTimezone"] == "Europe/Paris"
+            assert props["FlexibleTimeWindow"]["Mode"] == "OFF"
+            retry = props["Target"]["RetryPolicy"]
+            assert retry["MaximumRetryAttempts"] == 2
+            assert retry["MaximumEventAgeInSeconds"] == 3600
+        exprs = {props["ScheduleExpression"] for props in
+                 (r["Properties"] for r in schedules.values())}
+        # 06:30 + 09:30 and 11:00 + 15:00 Paris.
+        assert "cron(30 6,9 ? * * *)" in exprs
+        assert "cron(0 11,15 ? * * *)" in exprs
+
+    def test_wellness_sync_scheduler_role_invoke_only(self, webhook_stack):
+        """The scheduler role is assumable only by scheduler.amazonaws.com and may
+        only lambda:InvokeFunction (no wildcards)."""
+        template = assertions.Template.from_stack(webhook_stack)
+        roles = template.find_resources("AWS::IAM::Role")
+        sched_roles = [
+            props for props in (r["Properties"] for r in roles.values())
+            if any(
+                st["Principal"].get("Service") == "scheduler.amazonaws.com"
+                for st in props["AssumeRolePolicyDocument"]["Statement"]
+            )
+        ]
+        assert len(sched_roles) == 1
+        policies = template.find_resources("AWS::IAM::Policy")
+        invoke_only = []
+        for props in (r["Properties"] for r in policies.values()):
+            actions = []
+            for st in props["PolicyDocument"]["Statement"]:
+                a = st["Action"]
+                actions += a if isinstance(a, list) else [a]
+            if actions == ["lambda:InvokeFunction"]:
+                invoke_only.append(props)
+        assert invoke_only, "expected an invoke-only policy for the scheduler role"
+
+    def test_campus_sync_wellness_grant_is_narrow(self, webhook_stack):
+        """A3: CampusCoachSync may only UpdateItem the owner's partition in
+        the wellness table (LeadingKeys), nothing broader. No PutItem."""
+        import json as _json
+        template = assertions.Template.from_stack(webhook_stack)
+        template.has_resource_properties("AWS::Lambda::Function", {
+            "FunctionName": "StravaAIBoost-CampusCoachSync",
+            "Environment": {"Variables": assertions.Match.object_like({
+                "WELLNESS_TABLE": "strava-ai-boost-wellness",
+            })},
+        })
+        policies = template.find_resources("AWS::IAM::Policy")
+        statements = []
+        for props in (r["Properties"] for r in policies.values()):
+            statements += props["PolicyDocument"]["Statement"]
+        # The wellness write is the LeadingKeys-scoped UpdateItem-only statement
+        # (the Resource is a cross-stack Fn::ImportValue of the wellness table ARN,
+        # so it is matched by its condition + narrow action, not a literal name).
+        wellness_writes = [
+            st for st in statements
+            if "dynamodb:LeadingKeys" in _json.dumps(st.get("Condition", {}))
+            and set(st["Action"] if isinstance(st["Action"], list) else [st["Action"]])
+                <= {"dynamodb:UpdateItem", "dynamodb:Query"}
+            and "WellnessTable" in _json.dumps(st.get("Resource", ""))
+        ]
+        assert wellness_writes, "expected a LeadingKeys-scoped wellness write for CampusCoachSync"
+        campus_writes = [
+            st for st in wellness_writes
+            if set(st["Action"] if isinstance(st["Action"], list) else [st["Action"]])
+                == {"dynamodb:UpdateItem"}
+        ]
+        assert campus_writes, "CampusCoachSync wellness write must be UpdateItem only"
+        for st in campus_writes:
+            actions = st["Action"] if isinstance(st["Action"], list) else [st["Action"]]
+            assert "dynamodb:PutItem" not in actions
+
+    def test_wellness_sync_lambda_role_least_privilege(self, webhook_stack):
+        """The WellnessSync Lambda role: no '*' resource/action, reads the
+        intervals secret, writes/queries only the wellness table, GetItem on
+        user-config scoped by LeadingKeys, Query on the coaching table."""
+        template = assertions.Template.from_stack(webhook_stack)
+        template.has_resource_properties("AWS::Lambda::Function", {
+            "FunctionName": "StravaAIBoost-WellnessSync",
+            "Handler": "webhooks.wellness_sync.handler",
+        })
+        policies = template.find_resources("AWS::IAM::Policy")
+        all_statements = []
+        for props in (r["Properties"] for r in policies.values()):
+            all_statements += props["PolicyDocument"]["Statement"]
+
+        import json as _json
+        blob = _json.dumps(all_statements)
+        # LeadingKeys condition present for the user-config GetItem.
+        assert "dynamodb:LeadingKeys" in blob
+        # The owner-scoped GetItem statement carries the LeadingKeys condition.
+        getitem_scoped = [
+            st for st in all_statements
+            if "dynamodb:GetItem" in (st["Action"] if isinstance(st["Action"], list) else [st["Action"]])
+            and "Condition" in st
+            and "dynamodb:LeadingKeys" in _json.dumps(st["Condition"])
+        ]
+        assert getitem_scoped, "user-config GetItem must be scoped by LeadingKeys"
+        # No wildcard dynamodb or secretsmanager action anywhere in these policies.
+        assert "dynamodb:*" not in blob
+        assert "secretsmanager:*" not in blob
+        # The wellness write statement is UpdateItem/Query only (no PutItem/GetItem)
+        # and scoped to the owner's partition by LeadingKeys.
+        wellness_writes = [
+            st for st in all_statements
+            if "WellnessTable" in _json.dumps(st.get("Resource", ""))
+            and set(st["Action"] if isinstance(st["Action"], list) else [st["Action"]])
+                <= {"dynamodb:UpdateItem", "dynamodb:Query"}
+            and "dynamodb:LeadingKeys" in _json.dumps(st.get("Condition", {}))
+        ]
+        assert wellness_writes, "expected a LeadingKeys-scoped UpdateItem/Query wellness statement"
+        for st in wellness_writes:
+            actions = set(st["Action"] if isinstance(st["Action"], list) else [st["Action"]])
+            assert "dynamodb:PutItem" not in actions
+            assert "dynamodb:GetItem" not in actions
+
+
 
 class TestApiGatewayStack:
     """Test API Gateway stack"""
@@ -332,6 +488,7 @@ class TestPlanWorkoutsRoute:
         return {
             "api": assertions.Template.from_stack(api),
             "frontend": assertions.Template.from_stack(frontend),
+            "core": assertions.Template.from_stack(core),
         }
 
     def test_route_uses_cognito_authorizer(self, stacks):
@@ -353,6 +510,47 @@ class TestPlanWorkoutsRoute:
         assert get[0]["AuthorizationType"] == "COGNITO_USER_POOLS"
         assert get[0]["AuthorizerId"] == {"Ref": next(iter(template.find_resources("AWS::ApiGateway::Authorizer")))}
         assert "DashboardAPI" in json.dumps(get[0]["Integration"]["Uri"])
+
+    def test_home_summary_route_uses_cognito_authorizer(self, stacks):
+        """A4: GET /home/summary is COGNITO_USER_POOLS, integrated with DashboardAPI."""
+        template = stacks["api"]
+        resources = template.find_resources("AWS::ApiGateway::Resource")
+        by_id = {lid: r["Properties"] for lid, r in resources.items()}
+        summary_ids = [
+            lid for lid, props in by_id.items()
+            if props["PathPart"] == "summary"
+            and by_id.get(props["ParentId"].get("Ref"), {}).get("PathPart") == "home"
+        ]
+        assert len(summary_ids) == 1
+        methods = [
+            m["Properties"] for m in template.find_resources("AWS::ApiGateway::Method").values()
+            if m["Properties"].get("ResourceId", {}).get("Ref") == summary_ids[0]
+        ]
+        get = [m for m in methods if m["HttpMethod"] == "GET"]
+        assert len(get) == 1
+        assert get[0]["AuthorizationType"] == "COGNITO_USER_POOLS"
+        assert "DashboardAPI" in json.dumps(get[0]["Integration"]["Uri"])
+
+    def test_dashboard_can_read_wellness_table(self, stacks):
+        """A4: the DashboardAPI role has a read-only (GetItem/Query) grant on the
+        wellness table. DashboardAPI uses the SHARED webhook_lambda_role defined
+        in the Core stack, so the inline grant lands in the Core template."""
+        import json as _json
+        template = stacks["core"]
+        policies = template.find_resources("AWS::IAM::Policy")
+        statements = []
+        for props in (r["Properties"] for r in policies.values()):
+            statements += props["PolicyDocument"]["Statement"]
+        wellness_reads = [
+            st for st in statements
+            if "WellnessTable" in _json.dumps(st.get("Resource", ""))
+            and set(st["Action"] if isinstance(st["Action"], list) else [st["Action"]])
+                <= {"dynamodb:GetItem", "dynamodb:Query"}
+        ]
+        assert wellness_reads, "expected a read-only wellness grant on the shared dashboard role"
+        for st in wellness_reads:
+            assert "dynamodb:LeadingKeys" in _json.dumps(st.get("Condition", {})), \
+                "dashboard wellness read must be scoped by LeadingKeys"
 
     def test_owner_env_var_on_dashboard_lambda(self, stacks):
         stacks["api"].has_resource_properties("AWS::Lambda::Function", {
@@ -464,12 +662,12 @@ class TestInfrastructureIntegration:
         )
         
         # Check that table_names dictionary has the expected keys
-        expected_keys = ["activities", "user_config", "coaching_sessions"]
+        expected_keys = ["activities", "user_config", "coaching_sessions", "wellness"]
         for key in expected_keys:
             assert key in core_stack.table_names, f"Expected table key '{key}' in table_names"
 
-        # Verify we have 3 tables
-        assert len(core_stack.table_names) == 3, f"Expected 3 tables, found {len(core_stack.table_names)}"
+        # Verify we have 4 tables
+        assert len(core_stack.table_names) == 4, f"Expected 4 tables, found {len(core_stack.table_names)}"
 
 
 def _campus_paces_templates(context):
