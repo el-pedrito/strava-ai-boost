@@ -580,8 +580,13 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # same pollution class as reliability lot 4). Dated continuity comes
         # from prev_coach_note in DynamoDB instead.
 
-        # Store feedback in DynamoDB
-        store_coach_feedback(activity_id, feedback)
+        # Store feedback in DynamoDB. A failed write still publishes the block
+        # (the post is worth more than the stored copy) but is no longer silent:
+        # it marks this run degraded, which the CoachProduced metric reports.
+        try:
+            store_coach_feedback(activity_id, feedback)
+        except Exception:  # noqa: BLE001 - logged in store_coach_feedback
+            _mark_degraded("store_coach_feedback")
 
         # Strip em/en dashes (anti-AI writing rule)
         for key in ("strava_block", "detailed_analysis", "recommendation_next"):
@@ -1490,3 +1495,4 @@ def store_coach_feedback(activity_id: str, feedback: Dict[str, Any]) -> None:
         logger.info(f"Stored coach feedback for activity {activity_id}")
     except Exception as e:
         logger.error(f"Failed to store coach feedback: {e}")
+        raise

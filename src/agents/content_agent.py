@@ -854,7 +854,7 @@ def invoke(payload, context=None):
         if activity_data.get('calories'):
             logger.info(f"Calories: {activity_data.get('calories'):.0f} kcal")
         if activity_data.get('suffer_score'):
-            logger.info(f"Suffer Score: {activity_data.get('suffer_score'):.0f}/100")
+            logger.info(f"Strava Relative Effort (suffer_score): {activity_data.get('suffer_score'):.0f}")
         logger.info(f"Active Modules: {[m.get('name') for m in active_modules]}")
         logger.info(f"Campus Coach Session: {'Yes' if campus_coach_session else 'No'}")
         logger.info(f"Enduraw Data: {'Yes' if enduraw_data else 'No'}")
@@ -1124,7 +1124,7 @@ Description: "{validated_description}"
 {f"- Average Cadence: {avg_cadence:.0f} spm{f' (Max: {max_cadence:.0f} spm)' if max_cadence else ''}" if avg_cadence else ""}
 {f"- Power: Avg {avg_watts:.0f}W{f', Max {max_watts:.0f}W' if max_watts else ''}{f', Weighted {weighted_avg_watts:.0f}W' if weighted_avg_watts else ''} {'(Device)' if device_watts else '(Estimated)'}" if avg_watts else ""}
 {f"- Calories: {calories:.0f} kcal" if calories else ""}
-{f"- Suffer Score: {suffer_score:.0f}/100" if suffer_score else ""}
+{f"- Strava Relative Effort (suffer_score, heart-rate based, open-ended scale, NOT out of 100, NOT the athlete's RPE): {suffer_score:.0f}" if suffer_score else ""}
 {f"- Workout Type: {workout_type_str}" if workout_type_str else ""}
 - Date: {activity_data.get('start_date', 'Unknown')}
 
