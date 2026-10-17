@@ -373,6 +373,38 @@ class TestInputSubmit:
         metric.assert_called_once_with("callback_error")
         assert TASK_TOKEN not in repr(error_log.call_args)
 
+    def test_callback_client_is_bounded_below_the_lambda_timeout(self):
+        config = input_submit.stepfunctions.meta.config
+        assert config.connect_timeout == 2
+        assert config.read_timeout == 4
+        assert config.retries["total_max_attempts"] == 1
+        budget = config.connect_timeout + config.read_timeout
+        stack = open(os.path.join(os.path.dirname(__file__), "..", "..", "stacks", "api_gateway_stack.py")).read()
+        block = stack[stack.index('handler="athlete_input.input_submit.handler"'):]
+        timeout = int(block[block.index("Duration.seconds(") + len("Duration.seconds("):].split(")")[0])
+        assert timeout >= 2 * budget
+
+    def test_stalled_callback_read_timeout_returns_202_and_records_callback_error(self):
+        from botocore.exceptions import ReadTimeoutError
+
+        table = self._owned_table()
+        with (
+            patch.object(input_submit.dynamodb, "Table", return_value=table),
+            patch.object(
+                input_submit.stepfunctions,
+                "send_task_success",
+                side_effect=ReadTimeoutError(endpoint_url="https://states.eu-west-1.amazonaws.com"),
+            ),
+            patch.object(input_submit, "_record_outcome") as metric,
+            patch.object(input_submit.logger, "error") as error_log,
+        ):
+            result = input_submit.handler(_event("POST", {"rpe": 6}), None)
+
+        assert result["statusCode"] == 202
+        metric.assert_called_once_with("callback_error")
+        table.update_item.assert_called_once()
+        assert TASK_TOKEN not in repr(error_log.call_args)
+
     def test_missing_old_token_returns_202_and_records_callback_error(self):
         table = self._owned_table()
         table.update_item.return_value = {"Attributes": {}}

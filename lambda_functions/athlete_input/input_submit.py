@@ -11,6 +11,7 @@ from typing import Any
 
 import boto3
 from aws_lambda_powertools.metrics import MetricUnit, single_metric
+from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from shared.logger import METRICS_NAMESPACE, get_logger, inject_correlation_id
@@ -23,7 +24,16 @@ from shared.responses import (
 logger = get_logger("input_submit")
 
 dynamodb = boto3.resource("dynamodb")
-stepfunctions = boto3.client("stepfunctions")
+# Bounded callback (one 2 s connect + 4 s read attempt, no retry): the input is
+# already durable when SendTaskSuccess runs, so a stalled call must fall into the
+# 202 path well inside the Lambda timeout (15 s, at least twice this budget)
+# instead of being killed with an integration error. The fetcher stays the backstop.
+STEPFUNCTIONS_CLIENT_CONFIG = Config(
+    connect_timeout=2,
+    read_timeout=4,
+    retries={"total_max_attempts": 1},
+)
+stepfunctions = boto3.client("stepfunctions", config=STEPFUNCTIONS_CLIENT_CONFIG)
 
 _RESPONSE_HEADERS = {**CORS_HEADERS_WRITE, "Cache-Control": "no-store"}
 _ACTIVITY_ID = re.compile(r"^[0-9]+$")

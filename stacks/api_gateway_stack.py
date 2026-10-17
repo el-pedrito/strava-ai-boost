@@ -254,7 +254,9 @@ class ApiGatewayStack(Stack):
             handler="athlete_input.input_submit.handler",
             code=feedback_code,
             layers=[self.core_stack.dependencies_layer],
-            timeout=Duration.seconds(10),
+            # At least twice the bounded SendTaskSuccess budget (2 s connect +
+            # 4 s read, one attempt) in input_submit.py, under API Gateway's 29 s.
+            timeout=Duration.seconds(15),
             memory_size=128,
             environment=feedback_environment,
         )
