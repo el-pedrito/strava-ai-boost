@@ -20,7 +20,7 @@ export function BottomNav() {
             end={item.to === '/'}
             className={({ isActive }) =>
               cn(
-                // min-w-0 lets the 6 slots share 375 px evenly (about 62 px each).
+                // min-w-0 lets the 7 slots share 375 px evenly (about 53 px each).
                 // Long labels use their short form; truncate is the last guard.
                 'flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-0.5 text-[10px] font-medium transition-colors',
                 isActive

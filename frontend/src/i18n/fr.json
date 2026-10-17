@@ -79,6 +79,7 @@
   "nav.signOut": "Se déconnecter",
   "nav.plan": "Plan",
   "nav.monitoring": "Monitoring",
+  "nav.monitoringShort": "Monit.",
   "plan.title": "Plan vers la Watch",
   "plan.description": "Tes prochaines séances Campus, prêtes à ajouter dans l'app Exercice de l'Apple Watch.",
   "plan.refresh": "Actualiser",
