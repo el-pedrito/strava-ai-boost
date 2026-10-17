@@ -30,7 +30,7 @@ def wellness_hrv_kind(w: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _activity_local_date(item: Dict[str, Any]) -> str:
+def activity_local_date(item: Dict[str, Any]) -> str:
     """Return the activity's own local calendar date (YYYY-MM-DD).
 
     Source of truth is ``start_date_local`` (inside ``activity_data_json`` when
@@ -56,6 +56,10 @@ def _activity_local_date(item: Dict[str, Any]) -> str:
     return str(local)[:10]
 
 
+# Backward-compatible private alias (older imports/tests).
+_activity_local_date = activity_local_date
+
+
 def in_activity_window(item: Dict[str, Any], since: str, until: str) -> bool:
     """True when the activity's local date falls in [since, until] (inclusive).
 
@@ -63,7 +67,7 @@ def in_activity_window(item: Dict[str, Any], since: str, until: str) -> bool:
     dates). An empty ``since``/``until`` leaves that side unbounded. An item with
     no resolvable local date is excluded.
     """
-    d = _activity_local_date(item)
+    d = activity_local_date(item)
     if not d:
         return False
     if since and d < since[:10]:

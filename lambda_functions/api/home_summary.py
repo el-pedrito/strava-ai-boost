@@ -20,7 +20,7 @@ from boto3.dynamodb.conditions import Key
 
 from shared.campus_status import STATUS_DONE, effective_status
 from shared.iso_week import iso_week_label
-from shared.wellness import in_activity_window, paris_date
+from shared.wellness import activity_local_date, in_activity_window, paris_date
 
 HEALTH_SERIES_DAYS = 90
 HRV_BASELINE_DAYS = 60
@@ -133,7 +133,12 @@ def _simple_signal(series: List[Tuple[str, float]], today) -> Optional[Dict[str,
 
 
 def _build_health(days: List[Dict[str, Any]], today) -> Dict[str, Any]:
-    health: Dict[str, Any] = {}
+    """Every contracted health signal is present as a key; a signal with no data
+    is explicit ``null`` (never omitted, never a stale value without a date)."""
+    health: Dict[str, Any] = {
+        'resting_hr': None, 'hrv': None, 'sleep_s': None, 'sleep_score': None,
+        'ctl': None, 'atl': None, 'form': None, 'vo2max': None, 'weight': None,
+    }
 
     rhr = _health_signal(_series(days, 'restingHR'), today, RHR_BASELINE_DAYS, 'baseline_60d')
     if rhr:
@@ -190,7 +195,14 @@ def _build_health_series(days: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 # ----------------------------------------------------------------- campus/race/plan
 def _week_label(now: datetime) -> str:
-    return iso_week_label(now.isoformat())
+    """ISO week of the Europe/Paris calendar date.
+
+    Campus stores a week under its Monday 00:00 UTC ``weekDate``; the Paris
+    Monday maps to that same stored week, so deriving the week from the Paris
+    date (not the raw UTC instant) is what keeps the reader on the right week
+    around local Monday midnight.
+    """
+    return iso_week_label(datetime.combine(paris_date(now), datetime.min.time()).isoformat())
 
 
 def _build_modules(user_config: Dict[str, Any]) -> Dict[str, bool]:
@@ -203,31 +215,40 @@ def _build_modules(user_config: Dict[str, Any]) -> Dict[str, bool]:
 
 def _build_race(goal: Optional[Dict[str, Any]], current_pred: Optional[Dict[str, Any]],
                 today) -> Optional[Dict[str, Any]]:
-    if not goal or not goal.get('active'):
-        return {'active': False} if goal is not None else None
+    """Full race object with explicit nulls (CONTRACT). None goal -> null;
+    inactive goal -> {active: false, ...nulls}. ``target_pace_s`` is the TARGET
+    pace (target_duration_s / target_distance_km), not the predicted pace."""
+    if goal is None:
+        return None
+    race = {
+        'active': bool(goal.get('active')),
+        'name': None, 'type': None, 'date': None, 'days_left': None,
+        'target_time_s': None, 'target_pace_s': None,
+        'predicted_time_s': None, 'predicted_range_s': None, 'prediction_week': None,
+    }
+    if not goal.get('active'):
+        return race
+
     comp_date_ms = goal.get('competition_date')
-    date_str, days_left = None, None
     if comp_date_ms:
         try:
             d = datetime.fromtimestamp(int(comp_date_ms) / 1000, tz=timezone.utc)
             race_day = paris_date(d)
-            date_str = race_day.isoformat()
-            days_left = (race_day - today).days
+            race['date'] = race_day.isoformat()
+            race['days_left'] = (race_day - today).days
         except (ValueError, TypeError, OverflowError, OSError):
             pass
-    race = {
-        'active': True,
-        'name': goal.get('name', ''),
-        'type': goal.get('type', ''),
-        'date': date_str,
-        'days_left': days_left,
-        'target_time_s': _num(goal.get('target_duration_s')),
-    }
-    # predicted_* from the matching distance in the current week's prediction.
+    race['name'] = goal.get('name') or None
+    race['type'] = goal.get('type') or None
+    target_time = _num(goal.get('target_duration_s'))
+    race['target_time_s'] = target_time
+    dist = _f(goal.get('target_distance_km'))
+    if target_time is not None and dist and dist > 0:
+        race['target_pace_s'] = round(float(target_time) / dist)
+
     if current_pred:
         pred = current_pred.get(goal.get('type', ''))
         if isinstance(pred, dict):
-            race['target_pace_s'] = _num(pred.get('pace_s'))
             race['predicted_time_s'] = _num(pred.get('time_s'))
             rng = pred.get('range_s')
             if isinstance(rng, list) and len(rng) == 2:
@@ -237,21 +258,29 @@ def _build_race(goal: Optional[Dict[str, Any]], current_pred: Optional[Dict[str,
 
 
 def _build_plan(goal: Optional[Dict[str, Any]], week_stat: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Full plan object with explicit nulls. ``week_index``/``weeks_total``/
+    ``cycle_theme`` come from the current week's stored item (the single source);
+    totals and volume come from the goal."""
     if not goal or not goal.get('active'):
         return None
+    ws = week_stat or {}
+    week_index = ws.get('week_index')
+    weeks_total = ws.get('weeks_total')
+    if weeks_total is None:
+        weeks_total = goal.get('weeks_total')
+    cycle_theme = ws.get('cycle_theme') or goal.get('cycle_theme')
     plan = {
-        'week_index': _num(goal.get('week_index')),
-        'weeks_total': _num(goal.get('weeks_total')),
-        'cycle_theme': goal.get('cycle_theme', ''),
+        'week_index': _num(week_index),
+        'weeks_total': _num(weeks_total),
+        'cycle_theme': cycle_theme or None,
         'trainings_done': _num(goal.get('trainings_done')),
         'trainings_total': _num(goal.get('trainings_total')),
+        'week_km_expected': _num(ws.get('expected_distance_km')),
+        'week_km_real': _num(ws.get('real_distance_km')),
         'weekly_volume_low': _num(goal.get('weekly_volume_low')),
         'weekly_volume_high': _num(goal.get('weekly_volume_high')),
         'sessions_per_week': _num(goal.get('sessions_per_week')),
     }
-    if week_stat:
-        plan['week_km_expected'] = _num(week_stat.get('expected_distance_km'))
-        plan['week_km_real'] = _num(week_stat.get('real_distance_km'))
     return plan
 
 
@@ -362,9 +391,8 @@ def _build_enduraw_trend(activities_reader, since_date: str) -> List[Dict[str, A
                 metrics_blob = json.loads(metrics_blob)
             except (json.JSONDecodeError, TypeError):
                 continue
-        from shared.wellness import _activity_local_date
         out.append({
-            'date': _activity_local_date(item),
+            'date': activity_local_date(item),
             'activity_id': item.get('activity_id'),
             'raw_pace_s': _num(metrics_blob.get('raw_pace_s')),
             'adjusted_pace_s': _num(metrics_blob.get('adjusted_pace_s')),

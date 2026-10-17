@@ -164,7 +164,8 @@ class TestBuildBrief:
             brief = mb.build_brief(table, "42", today, now)
         assert brief["sk"] == "brief#2026-10-17"
         assert brief["date"] == "2026-10-17"
-        assert brief["light"] in ("green", "orange", "red", "unknown")
+        # ctl 10 - atl 28 = form -18 (warn), nothing bad -> orange
+        assert brief["light"] == "orange"
         keys = {s["key"] for s in brief["signals"]}
         assert {"hrv", "resting_hr", "sleep", "form"} <= keys
         # hrv signal carries its kind

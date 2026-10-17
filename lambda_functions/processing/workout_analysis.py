@@ -266,8 +266,9 @@ def enduraw_numeric_metrics(
     """Numeric enduraw metrics for storage/trend, or None when no report.
 
     {raw_pace_s, adjusted_pace_s, heat_cost_s, wind_cost_s, elevation_cost_s}.
-    Only keys with a parsed value are included; the three cost keys default to 0
-    when the report has no such line (a 0-cost condition is a real datum)."""
+    Only keys with a parsed value are included. A missing cost LINE leaves the key
+    absent (CONTRACT: null, not 0) — "no line" does not mean "zero cost". A line
+    that is present and reads 0 is kept as 0."""
     if not enduraw_data or not enduraw_data.get('report_available'):
         return None
     m = enduraw_data.get('metrics', {}) or {}
@@ -277,7 +278,10 @@ def enduraw_numeric_metrics(
         out['adjusted_pace_s'] = adj
     if raw_pace_s is not None:
         out['raw_pace_s'] = int(raw_pace_s)
-    out['heat_cost_s'] = _cost_str_to_seconds(m.get('heat_cost')) or 0
-    out['wind_cost_s'] = _cost_str_to_seconds(m.get('wind_cost')) or 0
-    out['elevation_cost_s'] = _cost_str_to_seconds(m.get('elevation_cost')) or 0
+    for out_key, src_key in (('heat_cost_s', 'heat_cost'),
+                             ('wind_cost_s', 'wind_cost'),
+                             ('elevation_cost_s', 'elevation_cost')):
+        cost = _cost_str_to_seconds(m.get(src_key))
+        if cost is not None:
+            out[out_key] = cost
     return out

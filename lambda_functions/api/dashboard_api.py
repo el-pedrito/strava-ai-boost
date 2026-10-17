@@ -154,9 +154,17 @@ def get_home_summary_response(event: Dict[str, Any]) -> Dict[str, Any]:
             user_config = {}
 
         def activities_reader():
-            # Enduraw trend reader: activity local date is used downstream, so a
-            # wide query is fine; the window filter is applied in the builder.
-            return _query_user_activities(owner)
+            # Enduraw trend reader (12 weeks). ``created_at`` is the processing
+            # timestamp (reset on reprocess) and is never earlier than the
+            # activity date, so ``since = today - 12 weeks`` on ``created_at`` is a
+            # safe SUPERSET at the DB level; the builder re-filters on the activity
+            # local date. ProjectionExpression limits the read to the attributes the
+            # trend needs (no full activity_data_json/laps_json unless dating needs it).
+            from datetime import timedelta as _td
+            from shared.wellness import paris_date as _paris_date
+            since = datetime.now(timezone.utc) - _td(weeks=12)
+            projection = "activity_id, enduraw_metrics, start_date, start_date_local, activity_data_json"
+            return _query_user_activities(owner, since=since, projection=projection)
 
         payload = home_summary.build_home_summary(
             wellness_table, sessions_table, user_config,

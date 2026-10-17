@@ -112,10 +112,13 @@ class TestBuildRaceAndPlan:
     def _goal(self):
         return {
             'sk': 'campus#goal', 'active': True, 'name': 'SEMI', 'type': 'half-marathon',
-            'competition_date': '1763164800000', 'target_duration_s': Decimal('5759'),
-            'week_index': Decimal('11'), 'weeks_total': Decimal('15'),
+            'competition_date': '1794700800000',  # 2026-11-15 00:00 UTC
+            'target_duration_s': Decimal('5759'),
+            'target_distance_km': Decimal('21.095'),
+            'weeks_total': Decimal('15'),
             'cycle_theme': 'Force_A21', 'trainings_done': Decimal('48'),
             'trainings_total': Decimal('81'), 'sessions_per_week': Decimal('4'),
+            'weekly_volume_low': Decimal('26'), 'weekly_volume_high': Decimal('38'),
         }
 
     def test_race_days_left_and_prediction(self):
@@ -126,22 +129,44 @@ class TestBuildRaceAndPlan:
         race = hs._build_race(self._goal(), pred, today)
         assert race['active'] is True
         assert race['type'] == 'half-marathon'
+        assert race['days_left'] == 29  # 2026-11-15 minus 2026-10-17
+        assert race['target_pace_s'] == round(5759 / 21.095)
         assert race['predicted_time_s'] == 5857
         assert race['predicted_range_s'] == [5714, 6001]
         assert race['prediction_week'] == '2026-W42'
-        assert race['days_left'] is not None
 
-    def test_inactive_goal_is_active_false(self):
+    def test_inactive_goal_is_active_false_with_nulls(self):
         race = hs._build_race({'sk': 'campus#goal', 'active': False}, None,
                               datetime(2026, 10, 17, tzinfo=timezone.utc).date())
-        assert race == {'active': False}
+        assert race['active'] is False
+        for k in ('name', 'type', 'date', 'days_left', 'target_time_s',
+                  'target_pace_s', 'predicted_time_s', 'predicted_range_s',
+                  'prediction_week'):
+            assert race[k] is None, k
 
-    def test_plan_merges_week_stat(self):
-        plan = hs._build_plan(self._goal(), {'expected_distance_km': Decimal('39.2'),
-                                             'real_distance_km': Decimal('13.2')})
+    def test_none_goal_is_none(self):
+        assert hs._build_race(None, None,
+                              datetime(2026, 10, 17, tzinfo=timezone.utc).date()) is None
+
+    def test_plan_reads_week_index_from_week_stat(self):
+        week_stat = {'expected_distance_km': Decimal('39.2'),
+                     'real_distance_km': Decimal('13.2'),
+                     'week_index': Decimal('11'), 'weeks_total': Decimal('15'),
+                     'cycle_theme': 'Force_A21'}
+        plan = hs._build_plan(self._goal(), week_stat)
         assert plan['week_index'] == 11
+        assert plan['weeks_total'] == 15
+        assert plan['cycle_theme'] == 'Force_A21'
         assert plan['week_km_expected'] == 39.2
         assert plan['week_km_real'] == 13.2
+        assert plan['sessions_per_week'] == 4
+
+    def test_plan_nulls_when_no_week_stat(self):
+        plan = hs._build_plan(self._goal(), None)
+        assert plan['week_index'] is None
+        assert plan['weeks_total'] == 15
+        assert plan['week_km_expected'] is None
+        assert plan['week_km_real'] is None
 
 
 class TestWeekSessions:
@@ -203,6 +228,7 @@ class TestEnduraw:
         assert ids == ['1']  # old is before window, none has no metrics
         assert trend[0]['adjusted_pace_s'] == 271
         assert trend[0]['wind_cost_s'] == 4
+        assert trend[0]['heat_cost_s'] == 0  # a present 0 line is kept
 
 
 class TestModules:
@@ -210,3 +236,115 @@ class TestModules:
         cfg = {'modules_config': {'intervals_icu': {'enabled': True},
                                   'campus_coach': {'enabled': False}}}
         assert hs._build_modules(cfg) == {'intervals_icu': True, 'campus_coach': False}
+
+
+class TestContractShape:
+    """The /home/summary body carries the full CONTRACT shape with explicit nulls."""
+
+    def _empty_build(self):
+        wellness = _wellness_table_with(days=[], items={})
+        sessions = MagicMock()
+        sessions.query.return_value = {'Items': []}
+        sessions.scan.return_value = {'Items': []}
+        return hs.build_home_summary(wellness, sessions, {}, lambda: [], NOW, OWNER)
+
+    def test_top_level_keys_present(self):
+        body = self._empty_build()
+        for key in ('generated_at', 'modules', 'brief', 'race', 'plan',
+                    'week_sessions', 'next_session', 'health', 'health_series',
+                    'predictions', 'predictions_history', 'enduraw_trend'):
+            assert key in body, key
+        assert body['brief'] is None
+        assert body['race'] is None
+        assert body['plan'] is None
+        assert body['predictions'] is None
+        assert body['next_session'] is None
+        assert body['week_sessions'] == []
+        for sig in ('resting_hr', 'hrv', 'sleep_s', 'sleep_score', 'ctl',
+                    'atl', 'form', 'vo2max', 'weight'):
+            assert sig in body['health'] and body['health'][sig] is None, sig
+
+
+class TestEndToEndOnMoto:
+    """build_home_summary against a real (moto) DynamoDB wellness table, including
+    JSON serialisation of the Decimal values it reads back."""
+
+    def test_build_and_serialise_decimals(self):
+        from moto import mock_aws
+        import boto3
+
+        with mock_aws():
+            ddb = boto3.resource('dynamodb', region_name='eu-west-1')
+            table = ddb.create_table(
+                TableName='strava-ai-boost-wellness', BillingMode='PAY_PER_REQUEST',
+                KeySchema=[{'AttributeName': 'user_id', 'KeyType': 'HASH'},
+                           {'AttributeName': 'sk', 'KeyType': 'RANGE'}],
+                AttributeDefinitions=[{'AttributeName': 'user_id', 'AttributeType': 'S'},
+                                      {'AttributeName': 'sk', 'AttributeType': 'S'}])
+            table.put_item(Item={'user_id': OWNER, 'sk': 'day#2026-10-16',
+                                 'restingHR': Decimal('45'), 'hrv': Decimal('48.0'),
+                                 'hrv_kind': 'sdnn', 'ctl': Decimal('10.5'),
+                                 'atl': Decimal('28.3')})
+            table.put_item(Item={'user_id': OWNER, 'sk': 'campus#goal', 'active': True,
+                                 'name': 'SEMI', 'type': 'half-marathon',
+                                 'competition_date': '1794700800000',
+                                 'target_duration_s': Decimal('5759'),
+                                 'target_distance_km': Decimal('21.095'),
+                                 'weeks_total': Decimal('15'),
+                                 'trainings_done': Decimal('48'),
+                                 'trainings_total': Decimal('81')})
+            week_iso = hs._week_label(NOW)
+            table.put_item(Item={'user_id': OWNER, 'sk': 'campus#week#' + week_iso,
+                                 'week': week_iso, 'week_index': Decimal('11'),
+                                 'weeks_total': Decimal('15'), 'cycle_theme': 'Force_A21',
+                                 'expected_distance_km': Decimal('39.2'),
+                                 'real_distance_km': Decimal('13.2')})
+            table.put_item(Item={'user_id': OWNER, 'sk': 'campus#pred#' + week_iso,
+                                 'source_week': week_iso,
+                                 'half-marathon': {'time_s': Decimal('5857'),
+                                                   'pace_s': Decimal('273'),
+                                                   'range_s': [Decimal('5714'), Decimal('6001')]}})
+
+            sessions = MagicMock()
+            sessions.query.return_value = {'Items': []}
+            sessions.scan.return_value = {'Items': []}
+
+            body = hs.build_home_summary(table, sessions, {}, lambda: [], NOW, OWNER)
+
+            dumped = json.dumps(body)
+            assert isinstance(dumped, str)
+            assert body['race']['active'] is True
+            assert body['race']['target_pace_s'] == round(5759 / 21.095)
+            assert body['race']['days_left'] == 29
+            assert body['plan']['week_index'] == 11
+            assert body['plan']['week_km_expected'] == 39.2
+            assert body['health']['hrv']['value'] == 48.0
+            assert body['health']['hrv']['kind'] == 'sdnn'
+            assert body['predictions']['week'] == week_iso
+
+
+class TestWeekLabelParisBoundary:
+    """_week_label derives the ISO week from the Europe/Paris date, so a Sunday
+    UTC late-night instant that is already Monday in Paris reads the new week."""
+
+    def test_winter_sunday_night_utc_is_monday_paris(self):
+        # 2026-01-18 is a Sunday. 23:30 UTC in winter (UTC+1) -> Mon 00:30 Paris.
+        sun = datetime(2026, 1, 18, 23, 30, tzinfo=timezone.utc)
+        mon = datetime(2026, 1, 19, 23, 30, tzinfo=timezone.utc)  # already Monday UTC
+        assert hs._week_label(sun) == hs._week_label(mon)   # both the Monday week
+        assert hs._week_label(sun) == '2026-W04'
+
+    def test_winter_sunday_evening_still_sunday_paris(self):
+        # 22:30 UTC winter -> 23:30 Paris Sunday, still the Sunday's week.
+        sun_eve = datetime(2026, 1, 18, 22, 30, tzinfo=timezone.utc)
+        assert hs._week_label(sun_eve) == '2026-W03'
+
+    def test_summer_sunday_night_utc_is_monday_paris(self):
+        # 2026-07-19 is a Sunday. 22:30 UTC in summer (UTC+2) -> Mon 00:30 Paris.
+        sun = datetime(2026, 7, 19, 22, 30, tzinfo=timezone.utc)
+        assert hs._week_label(sun) == '2026-W30'   # Monday 2026-07-20's week
+
+    def test_summer_sunday_evening_still_sunday_paris(self):
+        # 21:30 UTC summer -> 23:30 Paris Sunday, still the Sunday's week.
+        sun_eve = datetime(2026, 7, 19, 21, 30, tzinfo=timezone.utc)
+        assert hs._week_label(sun_eve) == '2026-W29'

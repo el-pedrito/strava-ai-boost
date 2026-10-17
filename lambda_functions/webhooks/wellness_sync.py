@@ -38,6 +38,11 @@ USER_CONFIG_TABLE = os.environ['USER_CONFIG_TABLE']
 COACHING_SESSIONS_TABLE = os.environ.get('COACHING_SESSIONS_TABLE', 'strava-ai-boost-campus-coaching-sessions')
 INTERVALS_ICU_SECRET = os.environ.get('INTERVALS_ICU_SECRET', 'strava-ai-boost-intervals-icu-credentials')
 CAMPUS_OWNER_STRAVA_ID = os.environ.get('CAMPUS_OWNER_STRAVA_ID', '')
+
+
+class WellnessSyncError(Exception):
+    """intervals.icu returned a non-200: the sync failed, do not rebuild the
+    brief from empty data."""
 BRIEF_LOCATION = os.environ.get('BRIEF_LOCATION', '')  # "lat,lon" from CDK context
 
 INTERVALS_BASE_URL = "https://intervals.icu/api/v1/athlete/0"
@@ -107,7 +112,8 @@ def _fetch_wellness_range(api_key: str, oldest: str, newest: str) -> List[Dict[s
     )
     if resp.status_code != 200:
         logger.warning(f"intervals.icu wellness range returned {resp.status_code}")
-        return []
+        metrics.add_metric(name="WellnessSyncFailed", unit=MetricUnit.Count, value=1)
+        raise WellnessSyncError(f"intervals.icu returned {resp.status_code}")
     data = resp.json()
     return data if isinstance(data, list) else []
 
@@ -206,7 +212,9 @@ def _backfill(table: Any, user_id: str, api_key: str, today, days: int) -> int:
 @metrics.log_metrics
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     event = event or {}
-    user_id = CAMPUS_OWNER_STRAVA_ID or os.environ.get('DEFAULT_USER_ID', '')
+    # Owner only: no DEFAULT_USER_ID fallback (the IAM LeadingKeys condition is
+    # the owner, and an empty owner must do nothing rather than touch another row).
+    user_id = CAMPUS_OWNER_STRAVA_ID
 
     # Fail closed: no owner, or config unreadable, or module disabled -> no writes.
     if not user_id:
@@ -238,6 +246,11 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         else:
             oldest = (today - timedelta(days=DEFAULT_LOOKBACK_DAYS)).isoformat()
             written = _sync_window(table, user_id, api_key, oldest, today.isoformat())
+    except WellnessSyncError as exc:
+        # Non-200 from intervals.icu: metric already emitted in the fetch. Do NOT
+        # rebuild the brief from empty data (a revoked key would silently zero it).
+        logger.warning(f"WellnessSync upstream error: {exc}")
+        return {'statusCode': 200, 'message': 'intervals.icu error', 'days_written': 0}
     except requests.exceptions.RequestException as exc:
         logger.warning(f"WellnessSync network error: {exc}")
         metrics.add_metric(name="WellnessSyncFailed", unit=MetricUnit.Count, value=1)

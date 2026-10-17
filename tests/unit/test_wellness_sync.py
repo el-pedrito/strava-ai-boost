@@ -150,6 +150,9 @@ class TestFailClosed:
             mock_ddb.Table.return_value = cfg_table
             result = ws.handler({}, None)
         assert "disabled" in result["message"]
+        # No write of any kind when the module is off (only the config GetItem).
+        assert cfg_table.update_item.call_count == 0
+        assert cfg_table.put_item.call_count == 0
 
     def test_config_unreadable_fails_closed(self):
         with patch.object(ws, "dynamodb") as mock_ddb:
@@ -166,3 +169,26 @@ class TestFailClosed:
              patch.dict(os.environ, {"DEFAULT_USER_ID": ""}, clear=False):
             result = ws.handler({}, None)
         assert result["message"] == "no owner configured"
+
+    def test_default_user_id_is_not_a_fallback(self):
+        """Owner only: a set DEFAULT_USER_ID must NOT be used when the owner is empty."""
+        with patch.object(ws, "CAMPUS_OWNER_STRAVA_ID", ""), \
+             patch.dict(os.environ, {"DEFAULT_USER_ID": "999"}, clear=False):
+            result = ws.handler({}, None)
+        assert result["message"] == "no owner configured"
+
+    def test_intervals_non_200_fails_and_no_brief_rebuild(self):
+        """A non-200 from intervals.icu -> WellnessSyncFailed metric, no brief
+        rebuild from empty data."""
+        with patch.object(ws, "dynamodb") as mock_ddb, \
+             patch.object(ws, "_module_config", return_value={"enabled": True}), \
+             patch.object(ws, "_get_api_key", return_value="key"), \
+             patch.object(ws.metrics, "add_metric") as add_metric, \
+             patch("webhooks.morning_brief.build_and_store_brief") as build_brief:
+            mock_ddb.Table.return_value = MagicMock()
+            resp = MagicMock(status_code=503)
+            with patch.object(ws.requests, "get", return_value=resp):
+                result = ws.handler({}, None)
+        assert result["days_written"] == 0
+        assert any(c.kwargs.get("name") == "WellnessSyncFailed" for c in add_metric.call_args_list)
+        assert not build_brief.called  # no rebuild from empty data

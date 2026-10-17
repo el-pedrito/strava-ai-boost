@@ -188,9 +188,12 @@ def _next_campus_session(now: datetime) -> Optional[Dict[str, Any]]:
     try:
         import boto3
         from shared.iso_week import iso_week_label
+        from shared.wellness import paris_date
         ddb = boto3.resource('dynamodb', region_name=os.environ.get('AWS_REGION', 'eu-west-1'))
         table = ddb.Table(COACHING_SESSIONS_TABLE)
-        week_iso = iso_week_label(now.isoformat())
+        # ISO week of the Europe/Paris date (same clock as the sync's weekDate),
+        # so the brief does not read last week's plan around Paris Monday midnight.
+        week_iso = iso_week_label(datetime.combine(paris_date(now), datetime.min.time()).isoformat())
         resp = table.query(
             KeyConditionExpression=Key('session_date').eq(f"week-{week_iso}"),
         )
@@ -331,5 +334,6 @@ def build_and_store_brief(table: Any, user_id: str, today, now: datetime) -> Dic
     brief = build_brief(table, user_id, today, now)
     item = {'user_id': user_id, **_to_dynamo(brief)}
     table.put_item(Item=item)
-    logger.info("Morning brief stored", extra={'date': brief['date'], 'light': brief['light']})
+    # Do not log the light (it is derived from health values); log only the date.
+    logger.info("Morning brief stored", extra={'date': brief['date']})
     return brief

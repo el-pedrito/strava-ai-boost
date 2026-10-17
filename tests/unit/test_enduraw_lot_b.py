@@ -36,6 +36,26 @@ class TestHeatParsing:
         d = extract_enduraw_report(_report(["Adjusted Pace: 𝟰:𝟭𝟱/km"]))
         assert 'heat_cost' not in d['metrics']
 
+    def test_real_report_heat_line_with_emoji_prefix(self):
+        """Real report line: an emoji prefix and a float temperature."""
+        d = extract_enduraw_report(_report([
+            "Adjusted Pace: 𝟰:𝟬𝟱/km",
+            '😀 Heat (18.8°C) cost you 𝟬\'𝟬𝟯"/km.',
+        ]))
+        assert d['metrics']['heat_temp'] == "18.8°C"
+        assert d['metrics']['heat_cost'] == "0'03\"/km"
+        m = enduraw_numeric_metrics(d, raw_pace_s=300)
+        assert m['heat_cost_s'] == 3
+
+    def test_real_report_heat_line_integer_temp(self):
+        """Real report line: integer temperature, no emoji."""
+        d = extract_enduraw_report(_report([
+            "Adjusted Pace: 𝟰:𝟬𝟱/km",
+            'Heat (20°C) cost you 𝟬\'𝟬𝟯"/km',
+        ]))
+        assert d['metrics']['heat_temp'] == "20°C"
+        assert d['metrics']['heat_cost'] == "0'03\"/km"
+
     def test_all_three_costs_together(self):
         d = extract_enduraw_report(_report([
             "Adjusted Pace: 𝟰:𝟭𝟱/km",
@@ -60,7 +80,17 @@ class TestNumericMetrics:
         assert m['raw_pace_s'] == 280
         assert m['wind_cost_s'] == 6
         assert m['heat_cost_s'] == 9
-        assert m['elevation_cost_s'] == 0    # absent -> 0, a real datum
+        # No elevation LINE -> key absent (CONTRACT: null, not 0).
+        assert 'elevation_cost_s' not in m
+
+    def test_present_zero_cost_line_is_kept(self):
+        d = extract_enduraw_report(_report([
+            "Adjusted Pace: 𝟬:𝟭𝟵/km",
+            'Heat (20°C) cost you 𝟬\'𝟬𝟬"/km',
+        ]))
+        m = enduraw_numeric_metrics(d, raw_pace_s=280)
+        # a present line reading 0 is a real datum, kept as 0
+        assert m['heat_cost_s'] == 0
 
     def test_none_when_no_report(self):
         assert enduraw_numeric_metrics(None) is None
