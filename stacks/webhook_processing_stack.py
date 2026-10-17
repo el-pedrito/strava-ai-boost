@@ -898,7 +898,7 @@ class WebhookProcessingStack(Stack):
                 "WELLNESS_TABLE": "strava-ai-boost-wellness",
                 "USER_CONFIG_TABLE": "strava-ai-boost-user-configuration",
                 "COACHING_SESSIONS_TABLE": "strava-ai-boost-campus-coaching-sessions",
-                "INTERVALS_ICU_SECRET": "strava-ai-boost-intervals-icu-credentials",
+                "INTERVALS_ICU_SECRET": "strava-ai-boost-intervals-icu-credentials",  # pragma: allowlist secret (secret name, not a value)
                 "CAMPUS_OWNER_STRAVA_ID": owner,
                 # "lat,lon" rounded to 0.1 deg for the brief weather; local
                 # context only (cdk.context.json, not versioned). Absent -> no weather.

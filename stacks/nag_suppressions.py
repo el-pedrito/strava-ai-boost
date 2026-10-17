@@ -82,6 +82,14 @@ _GLOBAL: List[NagPackSuppression] = [
     ),
     NagPackSuppression(
         id="AwsSolutions-IAM5",
+        reason="Secrets Manager appends a random 6-char suffix to every secret ARN; scoped to the one named project secret.",
+        applies_to=[_rx(
+            r"^Resource::arn:aws:secretsmanager:<AWS::Region>:<AWS::AccountId>:"
+            r"secret:strava-ai-boost-[a-z-]+-credentials-\*$"
+        )],
+    ),
+    NagPackSuppression(
+        id="AwsSolutions-IAM5",
         reason="Cross-region inference profiles route a pinned model to any region, so the model ARN needs region '*'.",
         applies_to=[_rx(r"^Resource::arn:aws:bedrock:\*::foundation-model/[A-Za-z0-9.:-]+$")],
     ),
@@ -109,6 +117,10 @@ _STAR_ONLY: Dict[str, List[str]] = {
     "StravaAIBoost-Feedback": [
         # CDK singleton LogRetention provider id (a fixed hash, not a secret)
         "/StravaAIBoost-Feedback/LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8a/ServiceRole/DefaultPolicy/Resource",  # pragma: allowlist secret
+    ],
+    "StravaAIBoost-Webhook": [
+        # CDK singleton LogRetention provider (WellnessSync log retention)
+        "/StravaAIBoost-Webhook/LogRetentionaae0aa3c5b4d4f87b02d85b201efdd8a/ServiceRole/DefaultPolicy/Resource",  # pragma: allowlist secret
     ],
     "StravaAIBoost-Security": [
         "/StravaAIBoost-Security/LogsPolicyHandler/ServiceRole/DefaultPolicy/Resource",
