@@ -59,7 +59,7 @@ Three planes:
 
 ![Detailed architecture](architecture/detailed.drawio.svg)
 
-9 CDK stacks, 21 Lambdas by role (api / processing / webhooks / support /
+9 CDK stacks, 24 Lambdas by role (api / processing / webhooks / support /
 voice / push), the 3 runtimes, memory strategies and namespaces, evals loop, model
 registry.
 
