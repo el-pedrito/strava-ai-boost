@@ -195,6 +195,25 @@ def _fetch_plan(token: str, from_ms: int, to_ms: int) -> List[Dict]:
     return resp.json()
 
 
+def _sample(value: Any, depth: int = 0) -> Any:
+    """A bounded copy of a provider payload: strings cut to 80 chars, lists to 3 items.
+
+    Keeps every key (so unused fields are visible) without returning whole texts.
+    """
+    if depth > 8:
+        return '...'
+    if isinstance(value, dict):
+        return {k: _sample(v, depth + 1) for k, v in value.items()}
+    if isinstance(value, list):
+        out = [_sample(v, depth + 1) for v in value[:3]]
+        if len(value) > 3:
+            out.append(f'... +{len(value) - 3} more')
+        return out
+    if isinstance(value, str) and len(value) > 80:
+        return value[:80] + '...'
+    return value
+
+
 def _probe_schema(token: str) -> Dict[str, Any]:
     """Describe the provider payload: key sets and every distinct pace object shape.
 
@@ -234,8 +253,17 @@ def _probe_schema(token: str) -> Dict[str, Any]:
             extra[name] = sorted(body.keys()) if isinstance(body, dict) else type(body).__name__
         except Exception as exc:  # diagnostic only
             extra[name] = f"error {type(exc).__name__}"
+    sample_week = next((w for w in weeks if w.get('access') == 'allowed'), weeks[0] if weeks else {})
+    goal_sample: Any = None
+    try:
+        resp = requests.get(f"{API_BASE}/smart-training/goal/active", headers=headers, timeout=10)
+        goal_sample = _sample(resp.json()) if resp.status_code == 200 else None
+    except Exception as exc:  # diagnostic only
+        goal_sample = f"error {type(exc).__name__}"
     return {
         'weeks': len(weeks),
+        'sample_week': _sample(sample_week),
+        'goal_active_sample': goal_sample,
         'week_keys': sorted(week_keys),
         'session_keys': sorted(session_keys),
         'block_keys': sorted(block_keys),
