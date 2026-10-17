@@ -70,13 +70,21 @@ def _record(outcome: str) -> None:
         logger.warning(f"Could not emit InputWait{{outcome={outcome}}}: {exc}")
 
 
-def _release(task_token: str, activity_id: str) -> None:
-    """Resume the execution now. A failure leaves the 1 h task timeout as the backstop."""
+def _release(task_token: str, activity_id: str) -> bool:
+    """Resume the execution now; True on success.
+
+    A failure leaves the 1 h task timeout as the backstop, but the run then stalls
+    for an hour: it is reported as ``InputWait{outcome=callback_error}`` (alarmed),
+    on top of the outcome of the step that led to the release.
+    """
     try:
         _stepfunctions.send_task_success(taskToken=task_token, output="{}")
     except Exception as exc:  # noqa: BLE001 - the task timeout still releases the run
         # The exception text never carries the token (it is a request parameter).
-        logger.warning(f"input_wait could not release activity={activity_id}: {type(exc).__name__}")
+        logger.error(f"input_wait could not release activity={activity_id}: {type(exc).__name__}")
+        _record("callback_error")
+        return False
+    return True
 
 
 def _open_window(activity_id: str, user_id: str, task_token: str, now: datetime) -> bool:

@@ -187,6 +187,50 @@ def test_release_failure_never_raises(env):
     assert input_wait.handler(_event(), None) == {"outcome": "no_push"}
 
 
+def test_release_returns_true_on_success(env):
+    assert input_wait._release(TOKEN, "777") is True
+    assert env["outcomes"] == []
+
+
+def test_release_returns_false_and_records_callback_error(env):
+    env["sfn"].send_task_success.side_effect = RuntimeError("throttled")
+    assert input_wait._release(TOKEN, "777") is False
+    assert env["outcomes"] == ["callback_error"]
+
+
+def test_failed_release_after_no_push_adds_callback_error(env):
+    """sent == 0 and a broken callback: no_push alone would never alarm."""
+    env["notify"].return_value = 0
+    env["sfn"].send_task_success.side_effect = RuntimeError("throttled")
+
+    assert input_wait.handler(_event(), None) == {"outcome": "no_push"}
+    assert env["outcomes"] == ["callback_error", "no_push"]
+    assert _row(env)["athlete_input_state"] == "closed"
+
+
+def test_failed_release_on_replay_adds_callback_error(env):
+    env["table"].put_item(Item={"activity_id": "777", "athlete_input_state": "closed"})
+    env["sfn"].send_task_success.side_effect = RuntimeError("throttled")
+
+    assert input_wait.handler(_event(), None) == {"outcome": "replay"}
+    assert env["outcomes"] == ["callback_error", "replay"]
+
+
+def test_failed_release_after_push_error_adds_callback_error(env):
+    env["notify"].side_effect = input_wait.PushRequestError("invoke failed")
+    env["sfn"].send_task_success.side_effect = RuntimeError("throttled")
+
+    assert input_wait.handler(_event(), None) == {"outcome": "push_error"}
+    assert env["outcomes"] == ["callback_error", "push_error"]
+
+
+def test_failed_release_on_invalid_input_adds_callback_error(env):
+    env["sfn"].send_task_success.side_effect = RuntimeError("throttled")
+
+    assert input_wait.handler(_event(activity_id="x"), None) == {"outcome": "error"}
+    assert env["outcomes"] == ["callback_error", "error"]
+
+
 def test_token_never_logged(env, caplog):
     env["notify"].return_value = 0
     env["sfn"].send_task_success.side_effect = RuntimeError(f"bad token {TOKEN}")

@@ -604,14 +604,15 @@ class WebhookProcessingStack(Stack):
 
         # 4b. The athlete-input wait failed: InputWait{outcome=error} (bad event,
         #     DynamoDB failure) or {outcome=push_error} (PushSend unreachable,
-        #     crashed or answered garbage, as opposed to a genuine sent == 0).
-        #     The run is released anyway (fail open, D8), so nothing else would
-        #     ever surface it.
-        input_wait_outcomes = ("error", "push_error")
+        #     crashed or answered garbage, as opposed to a genuine sent == 0) or
+        #     {outcome=callback_error} (the release SendTaskSuccess failed: the
+        #     run stalls until the 1 h task timeout). The run is released anyway
+        #     (fail open, D8), so nothing else would ever surface it.
+        input_wait_outcomes = ("error", "push_error", "callback_error")
         input_wait_error = cloudwatch.Alarm(
             self, "InputWaitErrorAlarm",
             alarm_name="strava-ai-boost-input-wait-error",
-            alarm_description="InputWait reported outcome=error|push_error in the last hour",
+            alarm_description="InputWait reported outcome=error|push_error|callback_error in the last hour",
             metric=cloudwatch.MathExpression(
                 expression=" + ".join(f"FILL({o}, 0)" for o in input_wait_outcomes),
                 using_metrics={o: produced("InputWait", o, period_1h) for o in input_wait_outcomes},
