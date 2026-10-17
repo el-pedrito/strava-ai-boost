@@ -165,16 +165,16 @@ class TestParseEstimatedPaces:
         names = [c.kwargs["name"] for c in m.add_metric.call_args_list]
         assert names == ["CampusEstimatedPaceDuplicate"]
 
-    def test_dvalue_zero_parses_but_zone_write_skips(self):
-        """dvalue 0 is a stored provider value; the zone map refuses it (spec A)."""
+    def test_dvalue_zero_parses_and_zones_are_written(self):
+        """dvalue 0 is a stored provider value; zones no longer use it."""
         assert sync._parse_estimated_paces([{"slug": "ef", "value": 300, "dvalue": 0}]) == {
             "ef": {"value": Decimal("300"), "dvalue": Decimal("0")}}
         paces = [dict(p, dvalue=0.0) if p["slug"] == "ef" else p for p in _estimated_list()]
         with _Env() as env:
             out = env.run([_week(_current_monday_ms(), paces)], ON)
-            assert out["zones_written"] is False
-            assert "campus_pace_zones" not in env.owner()
-            assert "CampusZonesSkipped" in env.metric_names()
+            assert out["zones_written"] is True
+            ef = env.owner()["campus_pace_zones"]["ef"]
+            assert ef["min"] != ef["max"]
 
     def test_invalid_entries_are_ignored(self):
         bad = [{"slug": "a", "value": 0, "dvalue": 1}, {"slug": "b", "value": -3, "dvalue": 1},

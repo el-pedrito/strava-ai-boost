@@ -102,7 +102,11 @@ export function PaceZonesCard({ source, zones, week, syncedAt }: PaceZonesCardPr
                 </div>
                 <p className="text-xs text-muted-foreground">{meta.description}</p>
                 <p className="font-numeric tabular-nums text-sm text-foreground">
-                  {zone?.min && zone?.max ? `${zone.min} - ${zone.max} /km` : '-'}
+                  {zone?.min && zone?.max
+                    ? zone.min === zone.max
+                      ? `${zone.min} /km`
+                      : `${zone.min} - ${zone.max} /km`
+                    : '-'}
                 </p>
               </li>
             );

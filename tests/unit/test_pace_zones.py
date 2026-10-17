@@ -158,13 +158,28 @@ class TestBuildCampusZones:
             ef = pz.build_campus_zones(estimated)["ef"]
             assert (ef["min"], ef["max"]) == expected, value
 
-    def test_single_value_slug_zone_stays_value_plus_minus_dvalue(self):
-        """Campus shows tempo as one pace: its zone keeps the provider spread."""
+    def test_single_value_slug_zone_is_one_pace(self):
+        """Campus shows tempo as one pace ("5:15"): min == max, no invented width."""
         estimated = _estimated()
         estimated["tempo"] = {"value": Decimal("315"), "dvalue": Decimal("8.0")}
         tempo = pz.build_campus_zones(estimated)["tempo"]
-        assert (tempo["min"], tempo["max"]) == ("5:07", "5:23")
+        assert (tempo["min"], tempo["max"]) == ("5:15", "5:15")
         assert "tempo" not in pz.CAMPUS_RANGE_SLUGS
+
+    def test_ef_zone_is_value_plus_30s(self):
+        """Campus shows EF as "5:46 - 6:16": value, then +30 s."""
+        estimated = _estimated()
+        estimated["ef"] = {"value": Decimal("346"), "dvalue": Decimal("12.0")}
+        ef = pz.build_campus_zones(estimated)["ef"]
+        assert (ef["min"], ef["max"]) == ("5:46", "6:16")
+
+    def test_zero_or_missing_dvalue_still_builds(self):
+        """The spread is not used any more, so 0 or absent is fine."""
+        for entry in ({"value": 346, "dvalue": 0}, {"value": 346, "dvalue": Decimal("0.0")},
+                      {"value": 346}):
+            estimated = _estimated()
+            estimated["ef"] = entry
+            assert pz.build_campus_zones(estimated)["ef"]["min"] == "5:46", entry
 
     def test_missing_slug_builds_nothing(self):
         estimated = _estimated()
@@ -174,7 +189,7 @@ class TestBuildCampusZones:
     def test_invalid_numbers_build_nothing(self):
         for bad in ({"value": "x", "dvalue": 1}, {"value": 10, "dvalue": 20},
                     {"value": float("nan"), "dvalue": 1}, {"value": 300, "dvalue": -1},
-                    {"value": 300, "dvalue": 0}, {"value": 300, "dvalue": Decimal("0.0")}, "bad"):
+                    {"value": 119, "dvalue": 1}, {"value": 901, "dvalue": 1}, "bad"):
             estimated = _estimated()
             estimated["ef"] = bad
             assert pz.build_campus_zones(estimated) is None, bad

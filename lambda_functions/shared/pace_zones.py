@@ -121,15 +121,15 @@ def build_campus_zones(estimated: Any) -> Optional[Dict[str, Dict[str, Any]]]:
 
     ``min`` is the FAST bound, ``max`` the SLOW one, as ``m:ss`` text, which is the
     format of the legacy manual zones. Every mapped slug must be present and valid
-    (finite value, ``dvalue > 0``), otherwise None (the caller writes nothing): a
-    partial map would silently mix Campus zones with missing ones.
+    (finite value in 120..900 s/km, dvalue absent or ``>= 0``), otherwise None (the
+    caller writes nothing): a partial map would silently mix Campus zones with
+    missing ones.
 
     For a slug Campus shows as a range (:data:`CAMPUS_RANGE_SLUGS`, EF) the zone is
     exactly what the app displays: the whole-second value, then
-    :data:`CAMPUS_RANGE_WIDTH_SEC` slower (348.8 -> 5:49-6:19). For the slugs whose
-    steps are ``single-value`` (tempo, seuil, semi...) Campus shows no range, so the
-    width is deduced here as value +/- dvalue: the provider's own spread around that
-    pace, which is what a classifier zone needs.
+    :data:`CAMPUS_RANGE_WIDTH_SEC` slower (348.8 -> 5:49-6:19). Every other slug
+    (tempo, seuil, semi...) is a single value, ``min == max``, as the app shows it:
+    no width is invented and dvalue is kept only as ``dvalue_s``.
     """
     if not isinstance(estimated, dict):
         return None
@@ -140,16 +140,20 @@ def build_campus_zones(estimated: Any) -> Optional[Dict[str, Dict[str, Any]]]:
             return None
         value = _finite(entry.get("value"))
         dvalue = _finite(entry.get("dvalue"))
-        # dvalue <= 0 is rejected (spec A): a zero-width zone (min == max) is one the
-        # classifier can never match, and the Watch rejects it too (0 < dvalue).
-        if value is None or dvalue is None or dvalue <= 0 or value - dvalue <= 0:
+        # 2:00..15:00 /km, the same plausibility guard as the Watch mapper.
+        if value is None or not 120 <= value <= 900:
             return None
-        if slug in CAMPUS_RANGE_SLUGS:
-            # Exactly what the Campus app displays: the whole-second value, then +30 s.
-            fast = float(math.floor(value + 0.5))
-            slow = fast + CAMPUS_RANGE_WIDTH_SEC
-        else:
-            fast, slow = value - dvalue, value + dvalue
+        # Exactly what the Campus app displays: the whole-second value. A range slug
+        # (EF) runs to +30 s; every other slug is a single value (min == max), as the
+        # app shows it ("Allure Tempo 5:15"). No width is invented (athlete's rule,
+        # 2026-10-17); the lap classifier matches single values by nearest pace.
+        fast = float(math.floor(value + 0.5))
+        slow = fast + CAMPUS_RANGE_WIDTH_SEC if slug in CAMPUS_RANGE_SLUGS else fast
+        if dvalue is None:
+            dvalue = 0.0
+        if dvalue < 0:
+            # A negative spread is corrupt provider data: write no zone at all.
+            return None
         zones[zone] = {
             "min": fmt_pace(fast),
             "max": fmt_pace(slow),

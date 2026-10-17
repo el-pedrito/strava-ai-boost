@@ -73,6 +73,20 @@ describe('PreferencesPage pace zones', () => {
     expect(screen.queryByText('Out of date')).not.toBeInTheDocument();
   });
 
+  it('shows a single-value Campus zone as one pace', async () => {
+    respond({
+      campus_pace_zones: { ...CAMPUS_ZONES, tempo: { min: '5:15', max: '5:15' } },
+      campus_pace_zones_week: '2026-W43',
+      campus_pace_zones_synced_at: SYNCED_AT,
+      pace_zones_source: 'campus',
+    });
+    render(<PreferencesPage />);
+
+    const tempo = await screen.findByTestId('pace-zone-tempo');
+    expect(within(tempo).getByText('5:15 /km')).toBeInTheDocument();
+    expect(within(tempo).queryByText('5:15 - 5:15 /km')).not.toBeInTheDocument();
+  });
+
   it('shows a stale badge when the Campus week is out of date', async () => {
     respond({
       campus_pace_zones: CAMPUS_ZONES,

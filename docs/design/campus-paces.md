@@ -39,8 +39,12 @@ livrés éteints.
   arrondi au plus proche (une seule fonction `shared/pace_zones.fmt_pace`). Slugs affichés en
   plage par Campus (`CAMPUS_RANGE_SLUGS` = {ef}) : exactement l'écran de l'app, value arrondie à
   la seconde puis + 30 s (`CAMPUS_RANGE_WIDTH_SEC`) : 348.8 -> 5:49..6:19. Slugs `single-value`
-  (Campus n'affiche pas de plage) : largeur déduite value ± dvalue, l'écart du fournisseur
-  autour de cette allure : commentaire dans le code.
+  (Campus n'affiche pas de plage) : valeur unique, min == max (Tempo 315 -> 5:15..5:15),
+  aucune largeur inventée (règle de l'athlète, 2026-10-17). dvalue n'entre plus dans les zones :
+  absent ou 0 accepté, négatif = donnée corrompue, aucune zone écrite. Garde 120..900 s/km.
+  Classifieur (`workout_analysis._classify_by_pace_zones`) : une plage gagne si l'allure est
+  dedans ; sinon la valeur unique la plus proche à 10 s/km max (`POINT_ZONE_MATCH_MIN`).
+  Page Préférences : min == max s'affiche « 5:15 /km ».
 - CDK : `dynamodb:UpdateItem` sur la table user-config pour CampusCoachSync seulement ; test CDK.
 - Module coupé ou abonnement fini : les zones restent figées à la dernière semaine (`campus_stale`).
 - Retour arrière : interrupteur éteint puis `REMOVE` des 3 attributs (commande documentée).
