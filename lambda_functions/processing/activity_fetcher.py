@@ -623,8 +623,32 @@ def persist_body_weight_from_strava(
             logger.warning(f"Failed to seed body_weight_kg from Strava: {str(e)}")
 
 
+def _wellness_hrv(w: Dict[str, Any]) -> Optional[float]:
+    """HRV from an Intervals.icu wellness row: rMSSD (`hrv`) first, else SDNN.
+
+    Apple Watch only measures SDNN, and HealthFit sends it to the separate
+    `hrvSDNN` field, so reading `hrv` alone always gave None for this athlete.
+    """
+    if w.get('hrv') is not None:
+        return w.get('hrv')
+    return w.get('hrvSDNN')
+
+
+def _wellness_hrv_kind(w: Dict[str, Any]) -> Optional[str]:
+    if w.get('hrv') is not None:
+        return 'rmssd'
+    if w.get('hrvSDNN') is not None:
+        return 'sdnn'
+    return None
+
+
 def _compute_wellness_trends(wellness_history: list, activity_date: str) -> Dict[str, Any]:
     """Compute 30-day trends from wellness history for key metrics."""
+    # One HRV series: rMSSD when present, else SDNN (never mixed on one day).
+    wellness_history = [
+        {**e, 'hrv': _wellness_hrv(e)} if isinstance(e, dict) else e
+        for e in wellness_history
+    ]
     trends = {}
     metric_keys = {
         'vo2max': 'vo2max',
@@ -738,7 +762,8 @@ def fetch_intervals_icu_data(activity_data: Dict[str, Any], user_config: Dict[st
                 'atl': atl,
                 'form': round(ctl - atl, 1) if ctl is not None and atl is not None else None,
                 'ramp_rate': w.get('rampRate'),
-                'hrv': w.get('hrv'),
+                'hrv': _wellness_hrv(w),
+                'hrv_kind': _wellness_hrv_kind(w),
                 'resting_hr': w.get('restingHR'),
                 'vo2max': w.get('vo2max'),
             }
@@ -767,7 +792,11 @@ def fetch_intervals_icu_data(activity_data: Dict[str, Any], user_config: Dict[st
             # Sleep data for day J = night before J. If not synced yet, skip rather than show stale data.
             # Fallback HRV/restingHR/VO2max if day-of is null
             if result.get('fitness'):
-                for key, api_key in [('hrv', 'hrv'), ('resting_hr', 'restingHR'), ('vo2max', 'vo2max')]:
+                if result['fitness'].get('hrv') is None and _wellness_hrv(w_prev) is not None:
+                    result['fitness']['hrv'] = _wellness_hrv(w_prev)
+                    result['fitness']['hrv_kind'] = _wellness_hrv_kind(w_prev)
+                    logger.info(f"Intervals.icu hrv fallback from {prev_date}: {result['fitness']['hrv']}")
+                for key, api_key in [('resting_hr', 'restingHR'), ('vo2max', 'vo2max')]:
                     if result['fitness'].get(key) is None and w_prev.get(api_key) is not None:
                         result['fitness'][key] = w_prev.get(api_key)
                         logger.info(f"Intervals.icu {key} fallback from {prev_date}: {w_prev.get(api_key)}")
