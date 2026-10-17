@@ -237,7 +237,11 @@ class TestBuildStrengthProgression:
         # DC has 2 sessions, Tractions 1 → DC first
         assert result[0]['exercise'] == 'Développé couché'
         assert result[0]['sessions'] == 2
-        assert result[0]['points'][0] == {'date': '2026-07-01', 'top_weight_kg': 80.0, 'volume_kg': 2560.0}
+        # top_weight_kg is now the max load over sets_detail (flat fallback for
+        # legacy rows), and each point carries e1rm_kg (None when not eligible/present).
+        assert result[0]['points'][0] == {
+            'date': '2026-07-01', 'top_weight_kg': 80.0, 'volume_kg': 2560.0, 'e1rm_kg': None,
+        }
         assert result[0]['points'][1]['top_weight_kg'] == 82.5
         # Bodyweight exercise → weight/volume None
         tractions = next(e for e in result if e['exercise'] == 'Tractions')
@@ -305,6 +309,8 @@ class TestBuildStrengthProgression:
         assert len(pts) == 1  # merged into one day
         assert pts[0]['top_weight_kg'] == 110.0
         assert pts[0]['volume_kg'] == 3 * 5 * 100 + 2 * 3 * 110
+        # New: each merged point carries an e1rm_kg key (None here: no sets_detail).
+        assert pts[0]['e1rm_kg'] is None
 
 
 class TestDetectHealthAnomalies:
