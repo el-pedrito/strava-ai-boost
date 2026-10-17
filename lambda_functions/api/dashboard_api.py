@@ -15,6 +15,7 @@ import boto3
 from botocore.exceptions import ClientError
 from datetime import datetime, timedelta, timezone, date
 from shared.campus_status import STATUS_DONE, effective_status
+from shared.wellness import in_activity_window, wellness_hrv, wellness_hrv_kind
 from shared.strength_exercises import canonicalize_exercise_name
 from shared.responses import (
     CORS_HEADERS_READ as CORS_HEADERS,
@@ -1114,7 +1115,17 @@ def get_activity_history(query_params: Dict[str, str], user_id: str) -> Dict[str
                 'generated_at': gen_metadata.get('generated_at', ''),
             }
 
-            # Extract map polyline from activity_data_json if available
+            # total_elevation_gain is a top-level item attribute.
+            elev = activity.get('total_elevation_gain')
+            if elev is not None:
+                try:
+                    formatted_activity['total_elevation_gain'] = float(elev)
+                except (TypeError, ValueError):
+                    pass
+
+            # Extract map polyline + heart rate from activity_data_json if available.
+            # average_heartrate / max_heartrate are not promoted to item attributes,
+            # so the activity detail must read them from the stored Strava payload.
             activity_data_raw = activity.get('activity_data_json')
             if activity_data_raw:
                 try:
@@ -1125,6 +1136,13 @@ def get_activity_history(query_params: Dict[str, str], user_id: str) -> Dict[str
                     calories = ad.get('calories')
                     if calories:
                         formatted_activity['calories'] = float(calories)
+                    for _hr_key in ('average_heartrate', 'max_heartrate'):
+                        _hr = ad.get(_hr_key)
+                        if _hr is not None:
+                            try:
+                                formatted_activity[_hr_key] = float(_hr)
+                            except (TypeError, ValueError):
+                                pass
                 except (json.JSONDecodeError, TypeError, AttributeError):
                     pass
             formatted_activities.append(formatted_activity)
@@ -1313,6 +1331,28 @@ def _bucket_weekly_trends(
     return trends
 
 
+def _activity_json(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Parse the item's stored Strava payload (activity_data_json). Fields like
+    start_date_local, average_heartrate and max_heartrate live there, not at the
+    item top level. Returns {} on any parse failure."""
+    raw = item.get('activity_data_json')
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else raw
+        return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def _activity_local_day(item: Dict[str, Any]) -> str:
+    """Activity's own local date (YYYY-MM-DD): start_date_local then start_date,
+    from the stored payload; never created_at (reset on reprocess)."""
+    ad = _activity_json(item)
+    raw = ad.get('start_date_local') or ad.get('start_date') or item.get('start_date') or ''
+    return str(raw)[:10]
+
+
 def _completed_week_volume_change(weekly_trends: List[Dict[str, Any]]) -> Optional[float]:
     """Percent run-volume change between the two most recent completed weeks.
 
@@ -1442,20 +1482,18 @@ def get_coach_summary(user_id: str) -> Dict[str, Any]:
         other_sessions_per_week.reverse()
         avg_pace_per_week.reverse()
 
-        # Compute ramp rate (week-over-week volume change percentage)
+        # Ramp rate (A6): week-over-week volume change over COMPLETED weeks only.
+        # The naive weekly_volume[-1] vs [-2] compared the in-progress week (which
+        # under-counts until the week ends) and jumped every Monday. Computed below
+        # from weekly_trends via _completed_week_volume_change.
         ramp_rate = None
-        if len(weekly_volume) >= 2:
-            prev_week = weekly_volume[-2]  # second to last (previous week)
-            curr_week = weekly_volume[-1]  # last (current week)
-            if prev_week > 0:
-                ramp_rate = round((curr_week - prev_week) / prev_week * 100, 1)
 
         # Compute detailed pace metrics from laps
         interval_paces = []  # [{date, pace_sec, hr}] - work intervals only
         ef_paces = []  # [{date, pace_sec, hr}] - easy runs only
 
         for a in recent:
-            created = a.get('created_at', '')[:10]
+            created = _activity_local_day(a)
             laps_raw = a.get('laps_json')
             if not laps_raw:
                 continue
@@ -1508,7 +1546,7 @@ def get_coach_summary(user_id: str) -> Dict[str, Any]:
             elif len(slow_laps) >= len(laps) * 0.7:
                 total_dist = sum(float(l.get('distance', 0)) for l in laps)
                 total_time = sum(float(l.get('moving_time', 0)) for l in laps)
-                avg_hr = float(a.get('average_heartrate', 0) or 0)
+                avg_hr = float(_activity_json(a).get('average_heartrate', 0) or 0)
                 if total_dist > 0 and total_time > 0:
                     ef_paces.append({
                         'date': created,
@@ -1588,6 +1626,7 @@ def get_coach_summary(user_id: str) -> Dict[str, Any]:
         # delta. Recovery is extracted once and reused (R3.4).
         weekly_trends = _bucket_weekly_trends(recent, now, num_weeks=12)
         volume_change_completed_weeks_pct = _completed_week_volume_change(weekly_trends)
+        ramp_rate = volume_change_completed_weeks_pct
         recovery = _extract_recovery(recent, now)
 
         return {

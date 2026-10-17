@@ -413,6 +413,27 @@ def test_get_intervals_metrics_skips_activities_without_icu(patch_dynamo):
     assert result["series"][0]["ctl"] == 55
 
 
+def test_get_intervals_metrics_reads_hrv_from_fitness_with_kind(patch_dynamo):
+    """A6: HRV (and its kind) live under `fitness`, not top-level `icu`. The old
+    `icu.get("hrv")` read always returned None for an Apple-Watch SDNN athlete."""
+    import json
+
+    item = {
+        "activity_id": "hrv-1",
+        "created_at": "2026-07-12T07:00:00",
+        "activity_data_json": json.dumps({"start_date_local": "2026-07-12T08:00:00"}),
+        "intervals_icu_json": json.dumps(
+            {"fitness": {"ctl": 55, "atl": 60, "form": -5, "hrv": 48.0, "hrv_kind": "sdnn"}}
+        ),
+    }
+    patch_dynamo(**{cca.ACTIVITIES_TABLE: _FakeTable(query_resp={"Items": [item]})})
+
+    result = cca._get_intervals_metrics_impl("42", "", "")
+
+    assert result["latest"]["hrv"] == 48.0
+    assert result["latest"]["hrv_kind"] == "sdnn"
+
+
 def test_get_intervals_metrics_empty_user_returns_empty_shape(patch_dynamo):
     patch_dynamo()
     assert cca._get_intervals_metrics_impl("", "", "") == {"series": [], "latest": {}}

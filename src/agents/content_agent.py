@@ -998,16 +998,13 @@ def invoke(payload, context=None):
         location_city = activity_data.get('location_city', '')
         location_country = activity_data.get('location_country', '')
         avg_temp = activity_data.get('average_temp')
-        fetched_weather = activity_data.get('fetched_weather', {})  # From Open-Meteo via activity_fetcher
-        
+
         location_context = ""
         if location_city or location_country:
             location_parts = [p for p in [location_city, location_country] if p]
             location_context = f"Location: {', '.join(location_parts)}"
         if avg_temp is not None:
             location_context += f"\nTemperature (Strava): {avg_temp}°C"
-        if fetched_weather:
-            location_context += f"\nWeather (Open-Meteo): Temp {fetched_weather.get('temperature')}°C, Wind {fetched_weather.get('wind_speed')}km/h, Humidity {fetched_weather.get('humidity')}%"
         if not location_context:
             location_context = "No location data available"
         

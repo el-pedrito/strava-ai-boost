@@ -553,7 +553,11 @@ def _get_intervals_metrics_impl(user_id: str, date_from: str, date_to: str) -> d
             "ctl": fitness.get("ctl"),
             "atl": fitness.get("atl"),
             "form": fitness.get("form"),
-            "hrv": icu.get("hrv"),
+            # HRV lives under fitness (rMSSD-first-else-SDNN), with its kind, as
+            # written by activity_fetcher. The old icu.get("hrv") read the wrong
+            # path and always returned None for this athlete (Apple Watch SDNN).
+            "hrv": fitness.get("hrv"),
+            "hrv_kind": fitness.get("hrv_kind"),
             "decoupling": decoupling if decoupling is not None else icu.get("decoupling"),
             "training_load": icu.get("training_load"),
         }
