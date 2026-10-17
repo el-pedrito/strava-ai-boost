@@ -58,8 +58,8 @@ VAPID_APP_SERVER_KEY_PARAM = os.environ.get(
 # notification: Apple tries once and stores nothing.
 PUSH_TTL_SECONDS = 24 * 3600
 # Network timeout for one push service call: (connect, read) seconds. Sends run
-# one after the other, up to MAX_SUBSCRIPTIONS_PER_USER (10), so even ten slow
-# endpoints (10 x 8 s) stay inside the PushSend timeout.
+# one after the other, up to 10 devices (push_api.MAX_SUBSCRIPTIONS_PER_USER):
+# ten slow endpoints (10 x 8 s) stay inside the 90 s PushSend timeout.
 PUSH_HTTP_TIMEOUT_SECONDS = (3, 5)
 # Longest url / tag we put in a payload (ours are short internal paths).
 MAX_URL_LENGTH = 512
@@ -125,9 +125,14 @@ def fit_payload(payload: dict[str, Any]) -> str:
     shortened. The result can never exceed the limit.
     """
     data = {k: v for k, v in payload.items() if k in ("title", "body", "url", "tag")}
-    if len(str(data.get("url") or "")) > MAX_URL_LENGTH:
+
+    def too_big(value: Any, cap: int) -> bool:
+        # Measured as encoded JSON bytes: escapes (\u00XX) count in full.
+        return len(json.dumps(str(value or ""), ensure_ascii=False).encode("utf-8")) > cap
+
+    if too_big(data.get("url"), MAX_URL_LENGTH):
         data["url"] = "/"
-    if len(str(data.get("tag") or "")) > MAX_TAG_LENGTH:
+    if too_big(data.get("tag"), MAX_TAG_LENGTH):
         data["tag"] = "strava-ai-boost"
     for field in ("body", "title"):
         text = str(data.get(field) or "")
@@ -216,6 +221,7 @@ def send_push(subscription: dict[str, Any], payload: dict[str, Any]) -> None:
 
     vapid = _load_vapid()
     subject = vapid_subject()
+    session = _no_redirect_session()
     try:
         webpush(
             subscription_info=subscription,
@@ -225,10 +231,12 @@ def send_push(subscription: dict[str, Any], payload: dict[str, Any]) -> None:
             ttl=PUSH_TTL_SECONDS,
             timeout=PUSH_HTTP_TIMEOUT_SECONDS,
             headers={"Urgency": "normal"},
-            requests_session=_no_redirect_session(),
+            requests_session=session,
         )
     except WebPushException as exc:
         status = getattr(getattr(exc, "response", None), "status_code", None)
         if status in (404, 410):
             raise PushExpired(str(exc)) from exc
         raise
+    finally:
+        session.close()

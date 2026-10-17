@@ -142,6 +142,10 @@ def main() -> int:
     publish_application_server_key(ssm, pair[_APP_SERVER_FIELD])
     print(f"pair written; application server key stored in {APP_SERVER_KEY_PARAM} "
           "(SecureString). The signing key is not shown.")
+    if state == "valid":
+        print("Key rotated: open the app on each device to turn notifications on again. "
+              "A device that never reopens the app keeps an orphan row in "
+              "strava-ai-boost-push-subscriptions; delete it by hand.")
     return 0
 
 

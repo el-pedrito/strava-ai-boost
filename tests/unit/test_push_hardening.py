@@ -29,6 +29,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 TABLE = "test-push-subscriptions-hardening"
 USER = "athlete-42"
 APPLE = "https://web.push.apple.com/QGx-abc"
+P256DH = "BAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0-P0A"  # fake RFC 8291 sizes (65 B)  # pragma: allowlist secret
+AUTH = "AAECAwQFBgcICQoLDA0ODw"  # 16 B  # pragma: allowlist secret
 
 
 @pytest.fixture(autouse=True)
@@ -65,7 +67,7 @@ def _post(api, endpoint: str) -> dict[str, Any]:
     event = {
         "httpMethod": "POST",
         "path": "/push/subscribe",
-        "body": json.dumps({"endpoint": endpoint, "keys": {"p256dh": "p", "auth": "a"}}),
+        "body": json.dumps({"endpoint": endpoint, "keys": {"p256dh": P256DH, "auth": AUTH}}),
         "requestContext": {"authorizer": {"claims": {"custom:strava_id": USER}}},
     }
     return api.handler(event, None)
@@ -332,14 +334,85 @@ def test_send_reports_failed_deliveries(monkeypatch, caplog):
     def boom(sub, payload):
         raise ValueError("VAPID secret is incomplete")
 
-    recorded: list[tuple[int, int]] = []
+    recorded: list[tuple[int, int, int]] = []
     monkeypatch.setattr(send, "send_push", boom)
-    monkeypatch.setattr(send, "_record_delivery", lambda sent, failed: recorded.append((sent, failed)))
+    monkeypatch.setattr(
+        send, "_record_delivery",
+        lambda sent, failed, undelivered: recorded.append((sent, failed, undelivered)),
+    )
 
     result = send.handler({"user_id": USER, "activity_id": "a1"}, None)
 
     assert result["sent"] == 0 and result["failed"] == 1
-    assert recorded == [(0, 1)]
+    assert recorded == [(0, 1, 1)]
+
+
+@mock_aws
+def test_a_leftover_row_is_failed_but_not_undelivered(monkeypatch):
+    import boto3
+    import push.push_send as send_mod
+
+    _core()
+    send = importlib.reload(send_mod)
+    table = _create_table(boto3)
+    for h, ep in (("h1", APPLE), ("h2", APPLE + "-old")):
+        table.put_item(Item={"user_id": USER, "endpoint_hash": h, "endpoint": ep, "p256dh": "p", "auth": "a"})
+
+    def old_fails(sub, payload):
+        if sub["endpoint"].endswith("-old"):
+            raise RuntimeError("403 VAPID key mismatch")
+
+    recorded: list[tuple[int, int, int]] = []
+    monkeypatch.setattr(send, "send_push", old_fails)
+    monkeypatch.setattr(
+        send, "_record_delivery",
+        lambda sent, failed, undelivered: recorded.append((sent, failed, undelivered)),
+    )
+
+    send.handler({"user_id": USER, "activity_id": "a1"}, None)
+
+    assert recorded == [(1, 1, 0)]  # the phone got it: no alarm
+
+
+def test_delivery_metric_shape(capsys, monkeypatch):
+    import push.push_send as send_mod
+
+    monkeypatch.delenv("POWERTOOLS_METRICS_DISABLED", raising=False)
+    _core()
+    send = importlib.reload(send_mod)
+    send._record_delivery(sent=1, failed=0, undelivered=0)
+    blobs = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.startswith("{")]
+    by_outcome = {b["outcome"]: b for b in blobs if "PushDelivery" in b}
+    assert set(by_outcome) == {"sent", "failed", "undelivered"}
+    for blob in by_outcome.values():
+        directive = blob["_aws"]["CloudWatchMetrics"][0]
+        assert directive["Namespace"] == "StravaAIBoost"
+        assert directive["Dimensions"] == [["outcome"]]
+
+
+@mock_aws
+def test_subscribe_refuses_keys_of_the_wrong_decoded_size():
+    import boto3
+    import push.push_api as api_mod
+
+    _core()
+    api = importlib.reload(api_mod)
+    table = _create_table(boto3)
+
+    def post(p256dh, auth):
+        event = {
+            "httpMethod": "POST",
+            "path": "/push/subscribe",
+            "body": json.dumps({"endpoint": APPLE, "keys": {"p256dh": p256dh, "auth": auth}}),
+            "requestContext": {"authorizer": {"claims": {"custom:strava_id": USER}}},
+        }
+        return api.handler(event, None)["statusCode"]
+
+    assert post("A", AUTH) == 400          # 0 bytes
+    assert post(P256DH, "AAAA") == 400     # 3 bytes, not 16
+    assert post(AUTH, AUTH) == 400         # 16 bytes, not 65
+    assert post(P256DH, AUTH) == 200
+    assert len(table.scan()["Items"]) == 1
 
 
 def test_push_stack_alarms_on_failed_deliveries():
@@ -351,7 +424,7 @@ def test_push_stack_alarms_on_failed_deliveries():
         {
             "MetricName": "PushDelivery",
             "Namespace": "StravaAIBoost",
-            "Dimensions": [{"Name": "outcome", "Value": "failed"}],
+            "Dimensions": [{"Name": "outcome", "Value": "undelivered"}],
             "TreatMissingData": "notBreaching",
         },
     )

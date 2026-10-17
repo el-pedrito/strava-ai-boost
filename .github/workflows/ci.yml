@@ -113,7 +113,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: cdk-nag-reports
-          path: cdk.out/AwsSolutions-*-NagReport.csv
+          path: |
+            cdk.out/AwsSolutions-*-NagReport.csv
+            cdk.out.push/AwsSolutions-*-NagReport.csv
           if-no-files-found: ignore
 
   security:

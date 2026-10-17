@@ -10,7 +10,8 @@ Expected event (direct, asynchronous invocation):
 
 For each of the user's subscriptions the encrypted notification is sent; an expired
 endpoint (404/410) is deleted from the table (410 cleanup). One failing subscription
-never blocks the others. No health data or metric is placed in the payload.
+never blocks the others. The payload carries a title, a short body and an internal
+route; the activity description (heart rate, pace) is never sent.
 """
 
 from __future__ import annotations
@@ -114,7 +115,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             logger.warning(f"push_send error user={user_id}: {exc}")
 
     failed = len(subs) - sent - cleaned - skipped
-    _record_delivery(sent=sent, failed=failed)
+    _record_delivery(sent=sent, failed=failed, undelivered=int(sent == 0 and failed > 0))
     if sent == 0 and failed > 0:
         # Every device failed (e.g. VAPID secret never bootstrapped). Not retried
         # by design, so make it visible.
@@ -123,9 +124,14 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     return {"statusCode": 200, "sent": sent, "cleaned": cleaned, "failed": failed}
 
 
-def _record_delivery(sent: int, failed: int) -> None:
-    """Emit PushDelivery{outcome=sent|failed} counts (EMF), never raising."""
-    for outcome, value in (("sent", sent), ("failed", failed)):
+def _record_delivery(sent: int, failed: int, undelivered: int) -> None:
+    """Emit PushDelivery{outcome=sent|failed|undelivered} counts (EMF), never raising.
+
+    ``failed`` counts devices; a leftover row for an old device fails while the
+    real phone still gets the message. ``undelivered`` = 1 when NO device got
+    it: that is what the alarm watches.
+    """
+    for outcome, value in (("sent", sent), ("failed", failed), ("undelivered", undelivered)):
         try:
             with single_metric(
                 name="PushDelivery", unit=MetricUnit.Count, value=value,

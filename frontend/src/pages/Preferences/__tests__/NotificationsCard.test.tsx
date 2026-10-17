@@ -212,8 +212,31 @@ describe('NotificationsCard', () => {
       expect(screen.getByText(/reset on the server/i)).toBeInTheDocument()
     );
     expect(stale.unsubscribe).toHaveBeenCalledTimes(1);
+    // The old row is removed on the server too: no orphan left behind.
+    expect(unsubscribeMock).toHaveBeenCalledWith('https://push/old');
     expect(subscribeMock).not.toHaveBeenCalled();
     expect(screen.getByRole('switch').getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('turning off waits for the mount re-POST, so DELETE always lands last', async () => {
+    installPushEnv({ existingSubscription: true });
+    let releasePost: () => void = () => undefined;
+    subscribeMock.mockImplementationOnce(
+      () => new Promise((resolve) => (releasePost = () => resolve({ subscribed: true })))
+    );
+    render(<NotificationsCard />);
+    await waitFor(() =>
+      expect(screen.getByRole('switch').getAttribute('aria-checked')).toBe('true')
+    );
+
+    await userEvent.click(screen.getByRole('switch'));
+    expect(unsubscribeMock).not.toHaveBeenCalled(); // still waiting for the POST
+    releasePost();
+
+    await waitFor(() => expect(unsubscribeMock).toHaveBeenCalledTimes(1));
+    expect(subscribeMock.mock.invocationCallOrder[0]).toBeLessThan(
+      unsubscribeMock.mock.invocationCallOrder[0]
+    );
   });
 
   it('keeps a subscription made with the current server key', async () => {

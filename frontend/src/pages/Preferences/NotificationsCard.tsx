@@ -43,6 +43,25 @@ function toSubscriptionBody(sub: PushSubscription) {
   };
 }
 
+/** Remove a subscription locally AND on the server (best-effort for both), so
+ * no orphan row is left that would fail on every send and count toward the
+ * device cap. */
+async function dropSubscription(sub: PushSubscription): Promise<void> {
+  const endpoint = sub.endpoint;
+  try {
+    await sub.unsubscribe();
+  } catch {
+    // The next getSubscription() check will tell.
+  }
+  if (endpoint) {
+    try {
+      await unsubscribePush(endpoint);
+    } catch {
+      // Server cleanup is best-effort.
+    }
+  }
+}
+
 /** True when `sub` was created with this application server key (or we cannot tell). */
 function sameKey(sub: PushSubscription, key: string): boolean {
   const current = sub.options?.applicationServerKey;
@@ -90,6 +109,10 @@ function NotificationsCardInner() {
   // Fetched ahead of the click: iOS only shows the permission prompt while the
   // tap is still "fresh", so the click handler must not wait on the network.
   const serverKey = useRef<string | null>(null);
+  // The mount reconciliation (re-POST or drop of an existing subscription).
+  // Toggle actions wait for it, so a quick "off" can never DELETE before an
+  // in-flight re-POST lands and recreates the row.
+  const reconciling = useRef<Promise<void>>(Promise.resolve());
 
   // Reflect the current subscription on mount — no prompting, just reading.
   // An existing subscription is sent to the server again (idempotent): after a
@@ -107,7 +130,7 @@ function NotificationsCardInner() {
         return res.application_server_key;
       })
       .catch(() => null); // Fetched again on click; a failure there shows "not deployed".
-    (async () => {
+    reconciling.current = (async () => {
       try {
         const reg = await navigator.serviceWorker.getRegistration();
         const sub = reg ? await reg.pushManager.getSubscription() : null;
@@ -119,11 +142,7 @@ function NotificationsCardInner() {
         if (key && !sameKey(sub, key)) {
           // Bound to an older server key (VAPID rotation): it can never be
           // delivered again. Drop it and ask for a new opt-in.
-          try {
-            await sub.unsubscribe();
-          } catch {
-            // The next getSubscription() check will tell.
-          }
+          await dropSubscription(sub);
           if (!cancelled) {
             setState('idle');
             setMessage({ variant: 'warning', text: t('preferences.notifications.keyChanged') });
@@ -152,6 +171,8 @@ function NotificationsCardInner() {
     const permissionRequest = Notification.requestPermission();
     setState('busy');
     setMessage(null);
+
+    await reconciling.current;
 
     let permission: NotificationPermission;
     try {
@@ -186,7 +207,7 @@ function NotificationsCardInner() {
       // A subscription bound to an older key (VAPID rotation) makes subscribe()
       // throw: drop it first.
       const previous = await reg.pushManager.getSubscription();
-      if (previous) await previous.unsubscribe();
+      if (previous) await dropSubscription(previous);
 
       sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
@@ -221,6 +242,7 @@ function NotificationsCardInner() {
   const disable = useCallback(async () => {
     setState('busy');
     setMessage(null);
+    await reconciling.current;
     try {
       const reg = await navigator.serviceWorker.getRegistration();
       const sub = reg ? await reg.pushManager.getSubscription() : null;

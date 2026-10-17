@@ -36,6 +36,8 @@ pytest.importorskip("moto")
 from boto3.dynamodb.conditions import Key  # noqa: E402
 from moto import mock_aws  # noqa: E402
 
+P256DH = "BAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0-P0A"  # fake RFC 8291 sizes (65 B)  # pragma: allowlist secret
+AUTH = "AAECAwQFBgcICQoLDA0ODw"  # 16 B  # pragma: allowlist secret
 USER = "12345678"
 TABLE = "test-push-subscriptions"
 REGION = "us-east-1"
@@ -93,7 +95,7 @@ def _sub_event(method: str, body: dict[str, Any] | None, with_identity: bool = T
 
 
 def _subscription(endpoint: str) -> dict[str, Any]:
-    return {"endpoint": endpoint, "keys": {"p256dh": "BPkPub_Key-01", "auth": "aUtH=="}}
+    return {"endpoint": endpoint, "keys": {"p256dh": P256DH, "auth": AUTH}}
 
 
 @mock_aws

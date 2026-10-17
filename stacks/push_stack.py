@@ -220,7 +220,7 @@ class PushStack(Stack):
             handler="push.push_send.handler",
             code=common_code,
             layers=[core_stack.dependencies_layer, self.push_layer],
-            timeout=Duration.seconds(30),
+            timeout=Duration.seconds(90),
             memory_size=256,
             environment=send_env,
             # Async invokes are retried twice by default. A retry would resend to
@@ -247,13 +247,13 @@ class PushStack(Stack):
             "PushDeliveryFailedAlarm",
             alarm_name="strava-ai-boost-push-delivery-failed",
             alarm_description=(
-                "A Web Push notification failed on at least one device in the last "
-                "hour (PushDelivery{outcome=failed} > 0)"
+                "A Web Push notification reached no device in the last hour "
+                "(PushDelivery{outcome=undelivered} > 0)"
             ),
             metric=cloudwatch.Metric(
                 namespace="StravaAIBoost",
                 metric_name="PushDelivery",
-                dimensions_map={"outcome": "failed"},
+                dimensions_map={"outcome": "undelivered"},
                 statistic="Sum",
                 period=Duration.hours(1),
             ),

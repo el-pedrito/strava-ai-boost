@@ -19,6 +19,8 @@ row instead of duplicating it.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import json
 import os
@@ -58,9 +60,19 @@ def _table() -> Any:
 _B64URL = re.compile(r"^[A-Za-z0-9_-]+={0,2}$")
 
 
-def _is_b64url_key(value: str) -> bool:
-    """Browser subscription keys are base64url strings (p256dh ~87, auth ~22)."""
-    return 0 < len(value) <= MAX_KEY_LENGTH and bool(_B64URL.match(value))
+def _b64url_len(value: str) -> int:
+    """Decoded length of a base64url string, or -1 when it is not base64url."""
+    if not (0 < len(value) <= MAX_KEY_LENGTH) or not _B64URL.match(value):
+        return -1
+    try:
+        return len(base64.urlsafe_b64decode(value.rstrip("=") + "=" * (-len(value.rstrip("=")) % 4)))
+    except (ValueError, binascii.Error):
+        return -1
+
+
+# RFC 8291: p256dh is an uncompressed P-256 point (65 bytes), auth a 16-byte secret.
+P256DH_BYTES = 65
+AUTH_BYTES = 16
 
 
 def _endpoint_hash(endpoint: str) -> str:
@@ -116,7 +128,7 @@ def subscribe(event: dict[str, Any], user_id: str) -> dict[str, Any]:
             "endpoint must be an https URL on a browser push service",
             cors_headers=CORS_HEADERS_WRITE,
         )
-    if not (_is_b64url_key(p256dh) and _is_b64url_key(auth)):
+    if _b64url_len(p256dh) != P256DH_BYTES or _b64url_len(auth) != AUTH_BYTES:
         return create_error_response(400, "invalid subscription keys", cors_headers=CORS_HEADERS_WRITE)
 
     endpoint_hash = _endpoint_hash(endpoint)
