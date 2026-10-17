@@ -81,7 +81,15 @@ class CoreInfrastructureStack(Stack):
             ),
             removal_policy=RemovalPolicy.RETAIN,  # user data: survives a stack deletion
             stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
-            time_to_live_attribute="expires_at"
+        )
+        # Keep the whole history: TTL used to delete activities ~1 year after
+        # processing. Disabled explicitly (not just omitted) so CloudFormation
+        # turns it off on the live table. Old items still carry an `expires_at`
+        # attribute; with TTL off it is inert, and it is not stripped item by
+        # item because each write would fire the table stream (voice debrief).
+        self.activities_table.node.default_child.add_property_override(
+            "TimeToLiveSpecification",
+            {"AttributeName": "expires_at", "Enabled": False},
         )
 
         # Add GSI for querying by processing status

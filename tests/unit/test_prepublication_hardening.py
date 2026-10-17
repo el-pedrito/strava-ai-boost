@@ -122,6 +122,22 @@ def test_core_tables_retained_with_pitr(templates):
         assert pitr["PointInTimeRecoveryEnabled"] is True, logical_id
 
 
+def test_activities_ttl_disabled_history_kept(templates):
+    """The activity history is never deleted by TTL (it used to expire after 1 year)."""
+    tables = [r for r in templates["core"]["Resources"].values()
+              if r["Type"] == "AWS::DynamoDB::Table"
+              and r["Properties"].get("TableName") == "strava-ai-boost-activities"]
+    assert len(tables) == 1
+    ttl = tables[0]["Properties"]["TimeToLiveSpecification"]
+    assert ttl["Enabled"] is False
+
+
+def test_activity_fetcher_writes_no_ttl():
+    from pathlib import Path
+    src = Path(__file__).resolve().parents[2] / "lambda_functions/processing/activity_fetcher.py"
+    assert "item['expires_at']" not in src.read_text()
+
+
 def test_core_secrets_retained(templates):
     secrets = {k: r for k, r in templates["core"]["Resources"].items()
                if r["Type"] == "AWS::SecretsManager::Secret"}
