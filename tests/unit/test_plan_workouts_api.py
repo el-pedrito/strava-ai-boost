@@ -475,7 +475,7 @@ class TestTruncation:
 
 
 class TestNoCampusTextInLogs:
-    SECRET_TITLE = "Titre-prive-zq81"
+    SECRET_TITLE = "Titre-prive-zq81"  # pragma: allowlist secret
 
     def test_mapper_error_quoting_the_title_is_not_logged(self, owner_env, table, plan_logs):
         def leaky(row, *args, **kwargs):
