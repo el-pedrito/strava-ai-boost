@@ -145,7 +145,7 @@ export function Shell() {
 
         <div className="flex min-w-0 flex-1 flex-col">
           <Topbar onMenuClick={() => setDrawerOpen(true)} />
-          <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 pb-24 md:px-8 md:py-10 md:pb-10">
+          <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 pb-[calc(6rem+env(safe-area-inset-bottom))] md:px-8 md:py-10 md:pb-[calc(2.5rem+env(safe-area-inset-bottom))]">
             <PageTransition>
               <Outlet />
             </PageTransition>
