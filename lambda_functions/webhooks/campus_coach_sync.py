@@ -544,26 +544,54 @@ def _store_home_campus(goals, allowed_weeks, now, monday_current) -> None:
 def _put_campus_item(table: Any, user_id: str, item: Dict[str, Any]) -> None:
     """UpdateItem(SET) one campus#* home-aggregate row, keyed by (user_id, sk).
 
-    SET of each attribute (no PutItem): writes only the keys we computed and never
-    requires replacing the whole row.
+    SET of each computed attribute and REMOVE of every owned attribute that is now
+    absent, so a value that disappears from Campus is never shown as current.
+    The sort key is never in the expression (DynamoDB rejects updating a key).
     """
     attrs = _decimalize({k: v for k, v in item.items() if k != 'sk'})
-    names = {'#sk_attr': 'sk'}
-    values = {':sk_val': item['sk']}
+    names: Dict[str, str] = {}
+    values: Dict[str, Any] = {}
     set_parts = []
     for idx, (key, value) in enumerate(attrs.items()):
         names[f'#a{idx}'] = key
         values[f':a{idx}'] = value
         set_parts.append(f'#a{idx} = :a{idx}')
-    # Mirror the sort key into an attribute too, harmless and keeps the item
-    # self-describing even if read without the key projection.
-    set_parts.append('#sk_attr = :sk_val')
+    remove_parts = []
+    for idx, key in enumerate(sorted(_owned_campus_keys(item['sk']) - set(attrs))):
+        names[f'#r{idx}'] = key
+        remove_parts.append(f'#r{idx}')
+    expr = 'SET ' + ', '.join(set_parts)
+    if remove_parts:
+        expr += ' REMOVE ' + ', '.join(remove_parts)
     table.update_item(
         Key={'user_id': user_id, 'sk': item['sk']},
-        UpdateExpression='SET ' + ', '.join(set_parts),
+        UpdateExpression=expr,
         ExpressionAttributeNames=names,
         ExpressionAttributeValues=values,
     )
+
+
+_GOAL_KEYS = {
+    'active', 'synced_at', 'name', 'type', 'competition_date', 'sessions_per_week',
+    'weeks_total', 'trainings_done', 'trainings_total', 'target_duration_s',
+    'target_distance_km', 'weekly_volume_low', 'weekly_volume_high',
+}
+_WEEK_KEYS = {
+    'week', 'synced_at', 'week_index', 'weeks_total', 'cycle_theme', 'coach_name',
+    'expected_distance_km', 'real_distance_km', 'expected_duration_s', 'real_duration_s',
+}
+_PRED_KEYS = {'source_week', 'synced_at', '5km', '10km', 'half-marathon', 'marathon'}
+
+
+def _owned_campus_keys(sk: str) -> set:
+    """Attributes this sync owns on a campus#* row (REMOVEd when absent)."""
+    if sk == 'campus#goal':
+        return _GOAL_KEYS
+    if sk.startswith('campus#week#'):
+        return _WEEK_KEYS
+    if sk.startswith('campus#pred#'):
+        return _PRED_KEYS
+    return set()
 
 
 def _decimalize(obj: Any) -> Any:
@@ -910,10 +938,11 @@ def _sync_athlete_context(token: str, table: Any, user_id: str) -> Optional[List
                 goals = parsed
                 goals_result = goals
             else:
-                # A 200 whose body is not a list (nor the expected dict shape) is
-                # an unexpected provider response: keep the previous home item.
-                goals = []
-                goals_result = None
+                # A 200 whose body is not a list is an unexpected provider
+                # response. Same outcome as before this change (it used to raise
+                # on goals[0]): write nothing, keep both previous items.
+                logger.warning("Campus goal/active returned a non-list body; skipping athlete context")
+                return None
         else:
             goals = []
 

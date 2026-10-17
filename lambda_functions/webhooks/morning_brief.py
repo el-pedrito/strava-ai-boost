@@ -332,8 +332,17 @@ def _to_dynamo(obj: Any) -> Any:
 
 def build_and_store_brief(table: Any, user_id: str, today, now: datetime) -> Dict[str, Any]:
     brief = build_brief(table, user_id, today, now)
-    item = {'user_id': user_id, **_to_dynamo(brief)}
-    table.put_item(Item=item)
+    # UpdateItem (the role grants no PutItem). Every brief field is SET each pass,
+    # and all names go through placeholders (`date` is a DynamoDB reserved word).
+    attrs = {k: v for k, v in _to_dynamo(brief).items() if k not in ('user_id', 'sk')}
+    names = {f'#b{i}': k for i, k in enumerate(attrs)}
+    values = {f':b{i}': v for i, v in enumerate(attrs.values())}
+    table.update_item(
+        Key={'user_id': user_id, 'sk': brief['sk']},
+        UpdateExpression='SET ' + ', '.join(f'#b{i} = :b{i}' for i in range(len(attrs))),
+        ExpressionAttributeNames=names,
+        ExpressionAttributeValues=values,
+    )
     # Do not log the light (it is derived from health values); log only the date.
     logger.info("Morning brief stored", extra={'date': brief['date']})
     return brief

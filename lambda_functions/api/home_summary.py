@@ -295,9 +295,11 @@ def _build_week_sessions(sessions_table: Any, now: datetime) -> Tuple[List[Dict[
         KeyConditionExpression=Key('session_date').eq(f"week-{week_iso}"),
     )
     items = resp.get('Items', [])
-    if not any(s.get('is_current_week') for s in items):
-        # Fallback: scan for the flagged current week when today's partition is
-        # not synced yet (e.g. early Monday).
+    if not items:
+        # Fallback only when the Paris-week partition is empty. Early Monday the
+        # partition exists but still carries is_current_week=False until the
+        # 05:00 UTC sync: it is still this week, so it is kept (the plan, the
+        # predictions and the brief use the same Paris week).
         scanned = sessions_table.scan(
             FilterExpression="is_current_week = :cw",
             ExpressionAttributeValues={":cw": True},
