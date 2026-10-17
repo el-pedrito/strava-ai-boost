@@ -335,6 +335,14 @@ def _maybe_push_completed(activity_id: str, user_id: str) -> None:
         table = dynamodb.Table(ACTIVITIES_TABLE)
         item = table.get_item(Key={'activity_id': activity_id}).get('Item', {}) or {}
 
+        # Athlete input (docs/design/rpe-athlete-input.md §10): an activity that
+        # went through the input window already got the "how did it feel?" push.
+        # One notification per activity, so no "enriched" push on top, including on
+        # a later republication (the fetcher keeps athlete_input_state). Flag off ->
+        # no athlete_input_state -> today's behaviour.
+        if 'athlete_input_state' in item:
+            return
+
         # Dedup: only the first completion for this activity sets push_sent_at.
         sent_at = datetime.now(timezone.utc).isoformat()
         try:
