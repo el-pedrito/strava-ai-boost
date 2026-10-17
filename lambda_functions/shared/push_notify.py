@@ -109,8 +109,8 @@ def notify_input_request(
 
     RequestResponse invocation of PushSend with ``url``, ``tag="input-<id>"`` and
     ``ttl=3600``. Returns PushSend's ``sent`` (0 when nobody was reached). Raises
-    ``PushRequestError`` on an invocation error, a function error or a malformed
-    answer, so the caller can tell a broken push path from an empty one. Raises
+    ``PushRequestError`` on an invocation error, a function error, a
+    ``statusCode`` other than 200 or a malformed answer, so the caller can tell a broken push path from an empty one. Raises
     nothing else.
     """
     function_name = os.environ.get("PUSH_SEND_FUNCTION", "StravaAIBoost-PushSend")
@@ -139,7 +139,12 @@ def notify_input_request(
         result = json.loads(response["Payload"].read() or b"{}")
     except Exception as exc:  # noqa: BLE001 - surfaced as a typed failure
         raise PushRequestError(f"unreadable PushSend answer: {type(exc).__name__}") from None
-    sent = result.get("sent") if isinstance(result, dict) else None
+    if not isinstance(result, dict) or result.get("statusCode") != 200:
+        # PushSend rejected the request (400: malformed payload, a programming
+        # bug): its "sent": 0 is not a genuine "nobody subscribed".
+        logger.warning(f"notify_input_request: PushSend rejected the request activity={activity_id}")
+        raise PushRequestError("PushSend rejected the request")
+    sent = result.get("sent")
     if isinstance(sent, bool) or not isinstance(sent, int) or sent < 0:
         logger.warning(f"notify_input_request: malformed PushSend answer activity={activity_id}")
         raise PushRequestError("malformed PushSend answer")

@@ -70,7 +70,7 @@ def test_request_response_with_url_tag_ttl(mock_boto3, monkeypatch):
 @patch("shared.push_notify.boto3")
 def test_dedicated_client_never_retries(mock_boto3):
     client = MagicMock()
-    client.invoke.return_value = _response({"sent": 1})
+    client.invoke.return_value = _response({"statusCode": 200, "sent": 1})
     mock_boto3.client.return_value = client
     _call()
     config = mock_boto3.client.call_args.kwargs["config"]
@@ -111,7 +111,26 @@ def test_zero_sent_returns_zero(mock_boto3):
 @patch("shared.push_notify.boto3")
 def test_malformed_sent_raises_push_request_error(mock_boto3):
     client = MagicMock()
-    client.invoke.return_value = _response({"sent": True})
+    client.invoke.return_value = _response({"statusCode": 200, "sent": True})
+    mock_boto3.client.return_value = client
+    with pytest.raises(push_notify.PushRequestError):
+        _call()
+
+
+@patch("shared.push_notify.boto3")
+def test_rejected_request_raises_push_request_error(mock_boto3):
+    """PushSend's 400 also says sent=0: it must not read as a genuine no_push."""
+    client = MagicMock()
+    client.invoke.return_value = _response({"statusCode": 400, "sent": 0})
+    mock_boto3.client.return_value = client
+    with pytest.raises(push_notify.PushRequestError):
+        _call()
+
+
+@patch("shared.push_notify.boto3")
+def test_missing_status_code_raises_push_request_error(mock_boto3):
+    client = MagicMock()
+    client.invoke.return_value = _response({"sent": 1})
     mock_boto3.client.return_value = client
     with pytest.raises(push_notify.PushRequestError):
         _call()
