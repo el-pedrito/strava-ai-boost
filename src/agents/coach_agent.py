@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 
 import boto3
 
+from athlete_input_prompt import coach_input_block, without_input_keys
 from embedded_prompts import COACH_AGENT_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -112,7 +113,11 @@ def _build_prompt_parts(
         profile_parts.append(f"\nRecords personnels: {records_str}")
     athlete_profile = "\n".join(profile_parts)
     historical_context = json.dumps(historical_summary or {}, ensure_ascii=False, default=str)
-    activity_json = json.dumps(activity_data, ensure_ascii=False, default=str)
+    # The athlete's RPE and summary are stated once, in their own block (summary
+    # tagged and neutralised), never inside the raw activity JSON. Without them
+    # the JSON and the message are exactly those of before the feature.
+    activity_json = json.dumps(without_input_keys(activity_data), ensure_ascii=False, default=str)
+    input_block = coach_input_block(activity_data)
 
     past_observations = ""
     if memory_id:
@@ -132,6 +137,8 @@ def _build_prompt_parts(
         system_prompt += past_observations
 
     user_message = f"Analyse cette activité et donne ton feedback coach :\n\n{activity_json}"
+    if input_block:
+        user_message += f"\n\n{input_block}"
     return system_prompt, user_message
 
 

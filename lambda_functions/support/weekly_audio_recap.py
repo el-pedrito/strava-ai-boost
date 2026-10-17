@@ -289,6 +289,25 @@ def _retrieve_memory_observations(user_id: str) -> str:
     return ""
 
 
+def _athlete_rpe_of(activity: Dict[str, Any]) -> Optional[int]:
+    """The athlete's RPE for a session (int 1-10, from activity_data_json), or None.
+
+    A bool, an out-of-range or a non-integral value counts as absent, so a session
+    without input renders exactly as before.
+    """
+    value = activity.get("athlete_rpe")
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+        if number != int(number):  # non-integral
+            return None
+    except (TypeError, ValueError, OverflowError):  # not a number, nan, inf
+        return None
+    rpe = int(number)
+    return rpe if 1 <= rpe <= 10 else None
+
+
 def _generate_script(activities: list, athlete_profile: str, language: str, week: str, user_config: Dict = None, user_id: str = "") -> Optional[str]:
     """Generate podcast-style script via Bedrock."""
     # Build activity summaries
@@ -314,8 +333,10 @@ def _generate_script(activities: list, athlete_profile: str, language: str, week
         else:
             other_count += 1
 
+        rpe = _athlete_rpe_of(a)
         summaries.append(f"- {title} ({sport}, {dist_km}km, {time_min}min" +
-                        (f", FC moy {hr}bpm" if hr else "") + ")" +
+                        (f", FC moy {hr}bpm" if hr else "") +
+                        (f", RPE de l'athlète {rpe}/10" if rpe is not None else "") + ")" +
                         (f" Coach: {strava_block[:100]}" if strava_block else ""))
 
     activities_text = "\n".join(summaries)
