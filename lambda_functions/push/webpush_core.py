@@ -2,8 +2,9 @@
 
 Opt-in, event-driven notifications: a single neutral message is sent only after an
 activity the user triggered has been enriched (see BACKLOG.md "Pas de notifications
-proactives"). No health data, metric or figure is ever placed in a notification --
-only a title, a short body and the target activity route.
+proactives"). A notification carries only a title, a short body and an internal
+route. The body is the enriched activity title, already public on Strava; the
+description, which can quote heart rate or pace, is never sent.
 
 VAPID keys
 ----------
@@ -52,8 +53,71 @@ VAPID_APP_SERVER_KEY_PARAM = os.environ.get(
 )
 
 
+# How long the push service keeps an undelivered message (seconds). pywebpush
+# defaults to 0, which makes a phone that is asleep or offline lose the
+# notification: Apple tries once and stores nothing.
+PUSH_TTL_SECONDS = 24 * 3600
+# Network timeout for one push service call, well under the Lambda timeout.
+PUSH_HTTP_TIMEOUT_SECONDS = 10
+# Push services reject encrypted payloads above 4096 bytes; keep the clear text
+# well under that once aes128gcm padding and headers are added.
+MAX_PAYLOAD_BYTES = 3000
+
+# Hosts of the browser push services this app can receive from. A subscription
+# endpoint is a URL the Lambda will POST to, so anything else is refused
+# (otherwise an authenticated caller could make PushSend call any URL).
+ALLOWED_PUSH_HOSTS = frozenset({"fcm.googleapis.com"})  # Chrome, Edge (Chromium)
+ALLOWED_PUSH_DOMAIN_SUFFIXES = (
+    ".push.apple.com",             # Safari / iOS Home Screen web apps (web.push.apple.com)
+    ".push.services.mozilla.com",  # Firefox
+    ".notify.windows.com",         # Edge legacy / Windows
+)
+MAX_ENDPOINT_LENGTH = 1024
+MAX_KEY_LENGTH = 256
+
+
 class PushExpired(Exception):
     """The push endpoint no longer exists (404/410): delete the subscription."""
+
+
+def is_allowed_endpoint(endpoint: str) -> bool:
+    """True when ``endpoint`` is an https URL on a known browser push service.
+
+    No credentials, no explicit port other than 443, no IP literal: only the
+    push service hosts in :data:`ALLOWED_PUSH_HOST_SUFFIXES`.
+    """
+    from urllib.parse import urlsplit
+
+    if not isinstance(endpoint, str) or not endpoint or len(endpoint) > MAX_ENDPOINT_LENGTH:
+        return False
+    try:
+        parts = urlsplit(endpoint)
+        port = parts.port
+    except ValueError:
+        return False
+    if parts.scheme != "https" or parts.username or parts.password:
+        return False
+    if port not in (None, 443):
+        return False
+    host = (parts.hostname or "").lower()
+    if not host:
+        return False
+    return host in ALLOWED_PUSH_HOSTS or host.endswith(ALLOWED_PUSH_DOMAIN_SUFFIXES)
+
+
+def _encoded_size(data: dict[str, Any]) -> int:
+    return len(json.dumps(data, ensure_ascii=False).encode("utf-8"))
+
+
+def fit_payload(payload: dict[str, Any]) -> str:
+    """JSON-encode ``payload``, shortening ``body`` then ``title`` to fit the limit."""
+    data = dict(payload)
+    for field in ("body", "title"):
+        text = str(data.get(field) or "")
+        while _encoded_size(data) > MAX_PAYLOAD_BYTES and text:
+            text = text[: max(0, len(text) - 40)].rstrip()
+            data[field] = (text + "…") if text else ""
+    return json.dumps(data, ensure_ascii=False)
 
 
 @lru_cache(maxsize=1)
@@ -115,14 +179,22 @@ def send_push(subscription: dict[str, Any], payload: dict[str, Any]) -> None:
     # modules that import this one indirectly from requiring pywebpush at load time.
     from pywebpush import WebPushException, webpush
 
+    if not is_allowed_endpoint(subscription.get("endpoint", "")):
+        # Checked again here, not only at subscribe time: a row written before the
+        # allowlist existed, or by hand, must never turn into an outbound request.
+        raise ValueError("push endpoint is not on an allowed push service")
+
     vapid = _load_vapid()
     subject = vapid_subject()
     try:
         webpush(
             subscription_info=subscription,
-            data=json.dumps(payload, ensure_ascii=False),
+            data=fit_payload(payload),
             vapid_private_key=vapid["private_key"],
             vapid_claims={"sub": subject},
+            ttl=PUSH_TTL_SECONDS,
+            timeout=PUSH_HTTP_TIMEOUT_SECONDS,
+            headers={"Urgency": "normal"},
         )
     except WebPushException as exc:
         status = getattr(getattr(exc, "response", None), "status_code", None)

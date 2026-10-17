@@ -103,14 +103,14 @@ def test_subscribe_then_resubscribe_is_single_row():
     api = _reload_api()
     table = _create_table(boto3)
 
-    r1 = api.handler(_sub_event("POST", _subscription("https://push.example/ep-A")), None)
+    r1 = api.handler(_sub_event("POST", _subscription("https://web.push.apple.com/ep-A")), None)
     assert r1["statusCode"] == 200
-    r2 = api.handler(_sub_event("POST", _subscription("https://push.example/ep-A")), None)
+    r2 = api.handler(_sub_event("POST", _subscription("https://web.push.apple.com/ep-A")), None)
     assert r2["statusCode"] == 200
 
     items = table.query(KeyConditionExpression=Key("user_id").eq(USER))["Items"]
     assert len(items) == 1
-    assert items[0]["endpoint"] == "https://push.example/ep-A"
+    assert items[0]["endpoint"] == "https://web.push.apple.com/ep-A"
 
 
 @mock_aws
@@ -130,7 +130,7 @@ def test_subscribe_without_identity_is_401():
     api = _reload_api()
     _create_table(boto3)
     resp = api.handler(
-        _sub_event("POST", _subscription("https://push.example/ep-A"), with_identity=False),
+        _sub_event("POST", _subscription("https://web.push.apple.com/ep-A"), with_identity=False),
         None,
     )
     assert resp["statusCode"] == 401
@@ -143,8 +143,8 @@ def test_unsubscribe_without_endpoint_is_400_and_keeps_every_device():
 
     api = _reload_api()
     table = _create_table(boto3)
-    api.handler(_sub_event("POST", _subscription("https://push.example/ep-A")), None)
-    api.handler(_sub_event("POST", _subscription("https://push.example/ep-B")), None)
+    api.handler(_sub_event("POST", _subscription("https://web.push.apple.com/ep-A")), None)
+    api.handler(_sub_event("POST", _subscription("https://web.push.apple.com/ep-B")), None)
 
     resp = api.handler(_sub_event("DELETE", None), None)
     assert resp["statusCode"] == 400
@@ -158,13 +158,13 @@ def test_unsubscribe_removes_only_this_device():
 
     api = _reload_api()
     table = _create_table(boto3)
-    api.handler(_sub_event("POST", _subscription("https://push.example/ep-A")), None)
-    api.handler(_sub_event("POST", _subscription("https://push.example/ep-B")), None)
+    api.handler(_sub_event("POST", _subscription("https://web.push.apple.com/ep-A")), None)
+    api.handler(_sub_event("POST", _subscription("https://web.push.apple.com/ep-B")), None)
 
-    resp = api.handler(_sub_event("DELETE", {"endpoint": "https://push.example/ep-A"}), None)
+    resp = api.handler(_sub_event("DELETE", {"endpoint": "https://web.push.apple.com/ep-A"}), None)
     assert resp["statusCode"] == 200
     items = table.query(KeyConditionExpression=Key("user_id").eq(USER))["Items"]
-    assert [i["endpoint"] for i in items] == ["https://push.example/ep-B"]
+    assert [i["endpoint"] for i in items] == ["https://web.push.apple.com/ep-B"]
 
 
 @mock_aws
@@ -176,8 +176,8 @@ def test_send_delivers_and_cleans_expired_endpoint(monkeypatch):
     send = _reload_send()
     table = _create_table(boto3)
 
-    api.handler(_sub_event("POST", _subscription("https://push.example/ep-A")), None)
-    api.handler(_sub_event("POST", _subscription("https://push.example/ep-B")), None)
+    api.handler(_sub_event("POST", _subscription("https://web.push.apple.com/ep-A")), None)
+    api.handler(_sub_event("POST", _subscription("https://web.push.apple.com/ep-B")), None)
 
     def fake_send_push(subscription, payload):
         assert payload["url"].startswith("/")  # SW URL contract
@@ -196,7 +196,7 @@ def test_send_delivers_and_cleans_expired_endpoint(monkeypatch):
 
     items = table.query(KeyConditionExpression=Key("user_id").eq(USER))["Items"]
     endpoints = {i["endpoint"] for i in items}
-    assert endpoints == {"https://push.example/ep-A"}  # ep-B cleaned
+    assert endpoints == {"https://web.push.apple.com/ep-A"}  # ep-B cleaned
 
 
 @mock_aws
@@ -207,8 +207,8 @@ def test_send_one_failing_sub_does_not_block_others(monkeypatch):
     send = _reload_send()
     _create_table(boto3)
 
-    api.handler(_sub_event("POST", _subscription("https://push.example/ep-A")), None)
-    api.handler(_sub_event("POST", _subscription("https://push.example/ep-B")), None)
+    api.handler(_sub_event("POST", _subscription("https://web.push.apple.com/ep-A")), None)
+    api.handler(_sub_event("POST", _subscription("https://web.push.apple.com/ep-B")), None)
 
     def flaky(subscription, payload):
         if subscription["endpoint"].endswith("ep-A"):
@@ -227,7 +227,7 @@ def test_send_default_url_is_activity_route(monkeypatch):
     api = _reload_api()
     send = _reload_send()
     _create_table(boto3)
-    api.handler(_sub_event("POST", _subscription("https://push.example/ep-A")), None)
+    api.handler(_sub_event("POST", _subscription("https://web.push.apple.com/ep-A")), None)
 
     captured = {}
 

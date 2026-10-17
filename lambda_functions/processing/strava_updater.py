@@ -13,7 +13,7 @@ import boto3
 from aws_lambda_powertools.metrics import single_metric
 from botocore.exceptions import ClientError
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
 from shared.logger import get_logger, MetricUnit, METRICS_NAMESPACE
 
 logger = get_logger("strava-updater")
@@ -315,10 +315,13 @@ def _maybe_push_completed(activity_id: str, user_id: str) -> None:
     """Trigger one opt-in "activity enriched" push, best-effort.
 
     Gated by the ``PUSH_ENABLED`` environment flag (set only when the Push stack is
-    deployed). Deduplicated by a conditional ``UpdateItem`` on ``push_sent_at`` so a
-    reprocess of the same activity does not re-notify; if the dispatch to PushSend
-    fails, the marker is removed again so a later run can retry. Never raises: a
-    failed notification must never fail the Strava update.
+    deployed). A conditional ``UpdateItem`` on ``push_sent_at`` sends at most one
+    notification per pipeline run: a second StravaUpdater call in the same run does
+    not re-notify. A new run (late voice dictation, manual reprocess) starts with a
+    fresh activity row, because ActivityFetcher rewrites the row with ``put_item``,
+    so it notifies again: that is one notification per publication. If the dispatch
+    to PushSend fails, the marker is removed again so a later call can retry. Never
+    raises: a failed notification must never fail the Strava update.
     """
     if os.environ.get("PUSH_ENABLED", "").lower() not in ("1", "true", "yes"):
         return
@@ -333,7 +336,7 @@ def _maybe_push_completed(activity_id: str, user_id: str) -> None:
         item = table.get_item(Key={'activity_id': activity_id}).get('Item', {}) or {}
 
         # Dedup: only the first completion for this activity sets push_sent_at.
-        sent_at = datetime.utcnow().isoformat()
+        sent_at = datetime.now(timezone.utc).isoformat()
         try:
             table.update_item(
                 Key={'activity_id': activity_id},

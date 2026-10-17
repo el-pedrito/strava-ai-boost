@@ -26,9 +26,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 import boto3
+from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
-from push.webpush_core import get_application_server_key
+from push.webpush_core import MAX_KEY_LENGTH, get_application_server_key, is_allowed_endpoint
 from shared.logger import get_logger, inject_correlation_id
 from shared.responses import (
     CORS_HEADERS_WRITE,
@@ -41,6 +42,10 @@ logger = get_logger("push_api")
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 
 _dynamodb: Any = boto3.resource("dynamodb", region_name=REGION)
+
+# One row per browser install. A few is plenty for one athlete; the cap bounds
+# the fan-out of every PushSend call.
+MAX_SUBSCRIPTIONS_PER_USER = 10
 
 
 def _table() -> Any:
@@ -92,10 +97,35 @@ def subscribe(event: dict[str, Any], user_id: str) -> dict[str, Any]:
             "endpoint and keys.p256dh/auth are required",
             cors_headers=CORS_HEADERS_WRITE,
         )
+    if not is_allowed_endpoint(endpoint):
+        return create_error_response(
+            400,
+            "endpoint must be an https URL on a browser push service",
+            cors_headers=CORS_HEADERS_WRITE,
+        )
+    if len(p256dh) > MAX_KEY_LENGTH or len(auth) > MAX_KEY_LENGTH:
+        return create_error_response(400, "subscription keys are too long", cors_headers=CORS_HEADERS_WRITE)
+
+    endpoint_hash = _endpoint_hash(endpoint)
+    try:
+        existing = _table().query(
+            KeyConditionExpression=Key("user_id").eq(user_id),
+            ProjectionExpression="endpoint_hash",
+        ).get("Items", [])
+    except ClientError as exc:
+        logger.error(f"Failed to read subscriptions for {user_id}: {exc}")
+        return create_error_response(500, "Failed to store subscription", cors_headers=CORS_HEADERS_WRITE)
+    known = {item.get("endpoint_hash") for item in existing}
+    if endpoint_hash not in known and len(known) >= MAX_SUBSCRIPTIONS_PER_USER:
+        return create_error_response(
+            409,
+            "too many devices subscribed: turn notifications off on an old device first",
+            cors_headers=CORS_HEADERS_WRITE,
+        )
 
     record = {
         "user_id": user_id,
-        "endpoint_hash": _endpoint_hash(endpoint),
+        "endpoint_hash": endpoint_hash,
         "endpoint": endpoint,
         "p256dh": p256dh,
         "auth": auth,

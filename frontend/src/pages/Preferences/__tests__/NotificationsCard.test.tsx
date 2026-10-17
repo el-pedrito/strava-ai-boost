@@ -155,7 +155,7 @@ describe('NotificationsCard', () => {
 
   it('shows the not-enabled message when the push API errors', async () => {
     const env = installPushEnv();
-    getVapidMock.mockRejectedValueOnce(new ApiError('Not Found', 404));
+    getVapidMock.mockRejectedValue(new ApiError('Not Found', 404));
     render(<NotificationsCard />);
 
     const toggle = await screen.findByRole('switch');
@@ -165,9 +165,65 @@ describe('NotificationsCard', () => {
       expect(screen.getByText(/not enabled on this deployment/i)).toBeInTheDocument()
     );
     expect(subscribeMock).not.toHaveBeenCalled();
-    // The key is fetched first: no service worker, no permission prompt.
+    // No key: the service worker is never registered.
     expect(env.serviceWorker.register).not.toHaveBeenCalled();
-    expect(env.requestPermission).not.toHaveBeenCalled();
+  });
+
+  it('asks for permission inside the tap, before any network call', async () => {
+    const env = installPushEnv();
+    render(<NotificationsCard />);
+    const toggle = await screen.findByRole('switch');
+    await waitFor(() => expect(getVapidMock).toHaveBeenCalledTimes(1)); // mount prefetch
+    getVapidMock.mockClear();
+
+    await userEvent.click(toggle);
+
+    await waitFor(() => expect(subscribeMock).toHaveBeenCalledTimes(1));
+    // The prefetched key is reused: the click itself makes no key request.
+    expect(getVapidMock).not.toHaveBeenCalled();
+    const permissionOrder = env.requestPermission.mock.invocationCallOrder[0];
+    const registerOrder = env.serviceWorker.register!.mock.invocationCallOrder[0];
+    expect(permissionOrder).toBeLessThan(registerOrder);
+  });
+
+  it('re-sends an existing subscription to the server on mount', async () => {
+    installPushEnv({ existingSubscription: true });
+    render(<NotificationsCard />);
+    await waitFor(() =>
+      expect(subscribeMock).toHaveBeenCalledWith({
+        endpoint: 'https://push/ep',
+        keys: { p256dh: 'p', auth: 'a' },
+      })
+    );
+  });
+
+  it('drops an older subscription before subscribing again', async () => {
+    const env = installPushEnv();
+    const stale = { unsubscribe: vi.fn().mockResolvedValue(true) };
+    // Mount sees nothing (toggle off); the click then finds a stale one.
+    env.pushManager.getSubscription.mockResolvedValueOnce(null).mockResolvedValueOnce(stale);
+    render(<NotificationsCard />);
+
+    await userEvent.click(await screen.findByRole('switch'));
+
+    await waitFor(() => expect(subscribeMock).toHaveBeenCalledTimes(1));
+    expect(stale.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(stale.unsubscribe.mock.invocationCallOrder[0]).toBeLessThan(
+      env.pushManager.subscribe.mock.invocationCallOrder[0]
+    );
+  });
+
+  it('shows the home-screen note in Safari, where Push is unavailable', async () => {
+    Object.defineProperty(navigator, 'serviceWorker', { value: undefined, configurable: true });
+    delete (window as unknown as { PushManager?: unknown }).PushManager;
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)',
+      configurable: true,
+    });
+    render(<NotificationsCard />);
+    await waitFor(() =>
+      expect(screen.getByText(/add this app to your home screen/i)).toBeInTheDocument()
+    );
   });
 
   it('renders nothing when the deployment has push disabled', () => {

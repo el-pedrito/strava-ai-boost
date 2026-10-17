@@ -220,6 +220,11 @@ class PushStack(Stack):
             timeout=Duration.seconds(30),
             memory_size=256,
             environment=send_env,
+            # Async invokes are retried twice by default. A retry would resend to
+            # the subscriptions already served, so a failed run is not retried:
+            # a notification is best-effort, a duplicate is worse than a miss.
+            retry_attempts=0,
+            max_event_age=Duration.hours(6),
         )
         # Least privilege: RW its table (410 cleanup) + READ the VAPID secret
         # (private key, to sign). Nothing else.
@@ -231,6 +236,9 @@ class PushStack(Stack):
 
         Explicit ``lambda:InvokeFunction`` on the exact function ARN -- not
         ``grant_invoke`` which also grants the ``<arn>:*`` alias/version ARN.
+        The policy lands on the grantee's role: StravaUpdater shares
+        ``StravaLambdaRole`` with ActivityFetcher, so ActivityFetcher can invoke
+        PushSend too (known, accepted: PushSend only notifies the stored devices).
         """
         grantee.grant_principal.add_to_principal_policy(
             iam.PolicyStatement(

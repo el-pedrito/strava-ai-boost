@@ -126,6 +126,9 @@ jobs:
       - name: pip-audit (Lambda layer)
         if: success() || failure()
         run: pip-audit --progress-spinner off -r lambda_layer/requirements.txt
+      - name: pip-audit (Web Push layer)
+        if: success() || failure()
+        run: pip-audit --progress-spinner off -r lambda_layer_push/requirements.txt
       - name: pip-audit (coach_chat runtime)
         if: success() || failure()
         run: pip-audit --progress-spinner off -r src/coach_chat/requirements.txt

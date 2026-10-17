@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Bell } from 'lucide-react';
 import { Alert, Card, CardDescription, CardHeader, CardTitle, Label, Toggle } from '@/ui';
@@ -22,6 +22,25 @@ function isIos(): boolean {
   const iPadOS =
     ua.includes('Macintosh') && typeof document !== 'undefined' && 'ontouchend' in document;
   return iOSDevice || iPadOS;
+}
+
+/** True when the app runs from the Home Screen (iOS needs it for Web Push). */
+function isStandalone(): boolean {
+  if (typeof window === 'undefined') return false;
+  const nav = navigator as Navigator & { standalone?: boolean };
+  return (
+    nav.standalone === true ||
+    (typeof window.matchMedia === 'function' &&
+      window.matchMedia('(display-mode: standalone)').matches)
+  );
+}
+
+function toSubscriptionBody(sub: PushSubscription) {
+  const json = sub.toJSON();
+  return {
+    endpoint: json.endpoint ?? '',
+    keys: { p256dh: json.keys?.p256dh ?? '', auth: json.keys?.auth ?? '' },
+  };
 }
 
 /** Web Push is only usable when all three browser APIs are present. */
@@ -57,7 +76,14 @@ function NotificationsCardInner() {
     null
   );
 
+  // Fetched ahead of the click: iOS only shows the permission prompt while the
+  // tap is still "fresh", so the click handler must not wait on the network.
+  const serverKey = useRef<string | null>(null);
+
   // Reflect the current subscription on mount — no prompting, just reading.
+  // An existing subscription is sent to the server again (idempotent): after a
+  // table reset or an endpoint cleanup the toggle would otherwise read "on"
+  // while nothing is delivered.
   useEffect(() => {
     if (!pushSupported()) {
       setState('unsupported');
@@ -69,28 +95,60 @@ function NotificationsCardInner() {
         const reg = await navigator.serviceWorker.getRegistration();
         const sub = reg ? await reg.pushManager.getSubscription() : null;
         if (!cancelled) setState(sub ? 'enabled' : 'idle');
+        if (sub) {
+          try {
+            await subscribePush(toSubscriptionBody(sub));
+          } catch {
+            // Best-effort refresh; the toggle still lets the user re-subscribe.
+          }
+        }
       } catch {
         if (!cancelled) setState('idle');
       }
     })();
+    getApplicationServerKey()
+      .then((res) => {
+        serverKey.current = res.application_server_key;
+      })
+      .catch(() => {
+        // Fetched again on click; a failure there shows "not deployed".
+      });
     return () => {
       cancelled = true;
     };
   }, []);
 
   const enable = useCallback(async () => {
+    // 1. Ask for permission FIRST, before any await: iOS only shows the prompt
+    //    inside the user's tap. The card is only rendered when config.json sets
+    //    pushEnabled, so a deployment without push never reaches this prompt.
+    const permissionRequest = Notification.requestPermission();
     setState('busy');
     setMessage(null);
 
-    // 1. The application server key first: if the server has no push, stop
-    //    before touching the browser (no service worker, no permission prompt).
-    let applicationServerKey: string;
+    let permission: NotificationPermission;
     try {
-      applicationServerKey = (await getApplicationServerKey()).application_server_key;
+      permission = await permissionRequest;
     } catch {
+      permission = 'denied';
+    }
+    if (permission !== 'granted') {
       setState('idle');
-      setMessage({ variant: 'warning', text: t('preferences.notifications.notDeployed') });
+      setMessage({ variant: 'warning', text: t('preferences.notifications.denied') });
       return;
+    }
+
+    // 2. The application server key (prefetched on mount when possible).
+    let applicationServerKey = serverKey.current;
+    if (!applicationServerKey) {
+      try {
+        applicationServerKey = (await getApplicationServerKey()).application_server_key;
+        serverKey.current = applicationServerKey;
+      } catch {
+        setState('idle');
+        setMessage({ variant: 'warning', text: t('preferences.notifications.notDeployed') });
+        return;
+      }
     }
 
     let sub: PushSubscription | null = null;
@@ -98,26 +156,17 @@ function NotificationsCardInner() {
       const reg = await navigator.serviceWorker.register('/sw.js');
       await navigator.serviceWorker.ready;
 
-      const permission = await Notification.requestPermission();
-      if (permission !== 'granted') {
-        setState('idle');
-        setMessage({ variant: 'warning', text: t('preferences.notifications.denied') });
-        return;
-      }
+      // A subscription bound to an older key (VAPID rotation) makes subscribe()
+      // throw: drop it first.
+      const previous = await reg.pushManager.getSubscription();
+      if (previous) await previous.unsubscribe();
 
       sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(applicationServerKey),
       });
 
-      const json = sub.toJSON();
-      await subscribePush({
-        endpoint: json.endpoint ?? '',
-        keys: {
-          p256dh: json.keys?.p256dh ?? '',
-          auth: json.keys?.auth ?? '',
-        },
-      });
+      await subscribePush(toSubscriptionBody(sub));
       setState('enabled');
     } catch (err) {
       // The server does not know this device: drop the local subscription too,
@@ -181,7 +230,12 @@ function NotificationsCardInner() {
       </CardHeader>
 
       {state === 'unsupported' ? (
-        <Alert variant="info">{t('preferences.notifications.unsupported')}</Alert>
+        <div className="flex flex-col gap-2">
+          <Alert variant="info">{t('preferences.notifications.unsupported')}</Alert>
+          {isIos() && !isStandalone() && (
+            <p className="text-xs text-muted-foreground">{t('preferences.notifications.iosNote')}</p>
+          )}
+        </div>
       ) : (
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -199,7 +253,7 @@ function NotificationsCardInner() {
 
           {message && <Alert variant={message.variant}>{message.text}</Alert>}
 
-          {isIos() && (
+          {isIos() && !isStandalone() && (
             <p className="text-xs text-muted-foreground">{t('preferences.notifications.iosNote')}</p>
           )}
         </div>

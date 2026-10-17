@@ -93,6 +93,9 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     sent = 0
     cleaned = 0
     for sub in subs:
+        if not (sub.get("endpoint") and sub.get("p256dh") and sub.get("auth")):
+            # Not a subscription row: never let one bad item stop the others.
+            continue
         subscription_info = {
             "endpoint": sub["endpoint"],
             "keys": {"p256dh": sub["p256dh"], "auth": sub["auth"]},

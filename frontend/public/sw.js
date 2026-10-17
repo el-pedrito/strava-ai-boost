@@ -38,17 +38,21 @@ function safeInternalPath(raw) {
 }
 
 self.addEventListener('push', (event) => {
+  // Every push MUST end in a visible notification: iOS revokes the subscription
+  // of a web app that receives pushes without showing anything. So any payload
+  // that is not a JSON object (bad JSON, null, an array, a string) falls back
+  // to a neutral notification instead of throwing.
   let data = {};
   try {
-    data = event.data ? event.data.json() : {};
+    const parsed = event.data ? event.data.json() : null;
+    data = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
   } catch {
-    // Non-JSON payload: fall back to a neutral notification.
     data = {};
   }
 
   const title = typeof data.title === 'string' && data.title ? data.title : 'Strava AI Boost';
   const body =
-    typeof data.body === 'string' && data.body ? data.body : 'A new activity description has been published.';
+    typeof data.body === 'string' && data.body ? data.body : 'Ta description enrichie est en ligne.';
   // Only ever navigate to internal, same-origin paths.
   const url = safeInternalPath(data.url);
 
@@ -72,20 +76,20 @@ self.addEventListener('notificationclick', (event) => {
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       // Reuse an open app window if there is one.
+      const open = () => (self.clients.openWindow ? self.clients.openWindow(url) : undefined);
       for (const client of clientList) {
         if ('focus' in client) {
-          client.focus();
+          // navigate() rejects on a window this worker does not control yet:
+          // open the page instead of leaving the user on the wrong screen.
+          const focused = Promise.resolve(client.focus()).catch(() => undefined);
           if ('navigate' in client) {
-            return client.navigate(url);
+            return focused.then(() => client.navigate(url)).catch(open);
           }
-          return undefined;
+          return focused;
         }
       }
       // Otherwise open a fresh window.
-      if (self.clients.openWindow) {
-        return self.clients.openWindow(url);
-      }
-      return undefined;
+      return open();
     })
   );
 });
