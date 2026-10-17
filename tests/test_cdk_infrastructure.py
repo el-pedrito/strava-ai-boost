@@ -42,15 +42,48 @@ class TestCoreInfrastructureStack:
     def test_dynamodb_tables_created(self, core_stack):
         """Test that all required DynamoDB tables are created"""
         template = assertions.Template.from_stack(core_stack)
-        
-        # Should have 3 tables (activities, user-config, coaching-sessions)
-        template.resource_count_is("AWS::DynamoDB::Table", 3)
-        
+
+        # 4 tables (activities, user-config, coaching-sessions, wellness)
+        template.resource_count_is("AWS::DynamoDB::Table", 4)
+
         # Verify encryption is enabled
         template.has_resource_properties("AWS::DynamoDB::Table", {
             "SSESpecification": {
                 "SSEEnabled": True
             }
+        })
+
+    def test_wellness_table_retained_pitr_no_ttl_no_stream(self, core_stack):
+        """A1: wellness table is RETAIN + PITR, PK user_id/SK sk, no TTL, no stream."""
+        template = assertions.Template.from_stack(core_stack)
+
+        # RETAIN removal policy -> DeletionPolicy/UpdateReplacePolicy = Retain.
+        template.has_resource("AWS::DynamoDB::Table", {
+            "DeletionPolicy": "Retain",
+            "UpdateReplacePolicy": "Retain",
+            "Properties": assertions.Match.object_like({
+                "TableName": "strava-ai-boost-wellness",
+                "KeySchema": [
+                    {"AttributeName": "user_id", "KeyType": "HASH"},
+                    {"AttributeName": "sk", "KeyType": "RANGE"},
+                ],
+                "PointInTimeRecoverySpecification": {
+                    "PointInTimeRecoveryEnabled": True
+                },
+                # No stream and no TTL on this table.
+                "StreamSpecification": assertions.Match.absent(),
+                "TimeToLiveSpecification": assertions.Match.absent(),
+            }),
+        })
+
+    def test_wellness_table_name_exported(self, core_stack):
+        # table_name is a CDK token until synth; assert the key is wired through
+        # both maps and that the physical name lands in the synthesized template.
+        assert "wellness" in core_stack.table_names
+        assert "wellness" in core_stack.table_arns
+        template = assertions.Template.from_stack(core_stack)
+        template.has_resource_properties("AWS::DynamoDB::Table", {
+            "TableName": "strava-ai-boost-wellness",
         })
     
     def test_dynamodb_table_names(self, core_stack):
@@ -464,12 +497,12 @@ class TestInfrastructureIntegration:
         )
         
         # Check that table_names dictionary has the expected keys
-        expected_keys = ["activities", "user_config", "coaching_sessions"]
+        expected_keys = ["activities", "user_config", "coaching_sessions", "wellness"]
         for key in expected_keys:
             assert key in core_stack.table_names, f"Expected table key '{key}' in table_names"
 
-        # Verify we have 3 tables
-        assert len(core_stack.table_names) == 3, f"Expected 3 tables, found {len(core_stack.table_names)}"
+        # Verify we have 4 tables
+        assert len(core_stack.table_names) == 4, f"Expected 4 tables, found {len(core_stack.table_names)}"
 
 
 def _campus_paces_templates(context):

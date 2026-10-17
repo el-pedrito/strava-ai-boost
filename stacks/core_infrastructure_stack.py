@@ -179,6 +179,30 @@ class CoreInfrastructureStack(Stack):
             )
         )
 
+        # Wellness table - daily health signals, Campus home aggregates, and the
+        # morning brief. PK=user_id (CAMPUS_OWNER_STRAVA_ID), SK=sk with prefixes
+        # day#/brief#/campus#. RETAIN + PITR like the other user-data tables; no
+        # TTL (health history is kept forever) and no stream (nothing reacts to a
+        # wellness write — unlike the activities table which drives voice debrief).
+        self.wellness_table = dynamodb.Table(
+            self, "WellnessTable",
+            table_name="strava-ai-boost-wellness",
+            partition_key=dynamodb.Attribute(
+                name="user_id",
+                type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(
+                name="sk",
+                type=dynamodb.AttributeType.STRING
+            ),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            encryption=dynamodb.TableEncryption.AWS_MANAGED,
+            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
+                point_in_time_recovery_enabled=True
+            ),
+            removal_policy=RemovalPolicy.RETAIN,
+        )
+
     def _create_lambda_layer(self) -> None:
         """Create Lambda Layer for shared dependencies"""
 
@@ -369,7 +393,8 @@ class CoreInfrastructureStack(Stack):
         return {
             "activities": self.activities_table.table_name,
             "user_config": self.user_config_table.table_name,
-            "coaching_sessions": self.coaching_sessions_table.table_name
+            "coaching_sessions": self.coaching_sessions_table.table_name,
+            "wellness": self.wellness_table.table_name
         }
 
     @property
@@ -378,7 +403,8 @@ class CoreInfrastructureStack(Stack):
         return {
             "activities": self.activities_table.table_arn,
             "user_config": self.user_config_table.table_arn,
-            "coaching_sessions": self.coaching_sessions_table.table_arn
+            "coaching_sessions": self.coaching_sessions_table.table_arn,
+            "wellness": self.wellness_table.table_arn
         }
 
     
