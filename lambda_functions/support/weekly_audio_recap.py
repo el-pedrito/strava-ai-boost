@@ -346,7 +346,11 @@ Règles :
     if max_hr:
         context_parts.append(f"FC max : {max_hr} bpm")
     if pace_zones:
-        zones_str = ", ".join(f"{k}: {v.get('min','')}-{v.get('max','')}/km" for k, v in pace_zones.items() if isinstance(v, dict))
+        # A single-value zone (min == max, Campus "Tempo 5:15") reads as one pace.
+        zones_str = ", ".join(
+            f"{k}: {v.get('min','')}/km" if v.get('min') == v.get('max')
+            else f"{k}: {v.get('min','')}-{v.get('max','')}/km"
+            for k, v in pace_zones.items() if isinstance(v, dict))
         if zones_str:
             context_parts.append(f"Zones d'allure : {zones_str}")
     if personal_records:

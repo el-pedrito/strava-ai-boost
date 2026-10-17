@@ -102,7 +102,10 @@ def _build_prompt_parts(
     personal_records = user_prefs.get("personal_records")
     profile_parts = [athlete_profile]
     if pace_zones:
-        zones_str = ", ".join(f"{k}: {v['min']}-{v['max']}" for k, v in pace_zones.items())
+        # A single-value zone (min == max, Campus "Tempo 5:15") reads as one pace.
+        zones_str = ", ".join(
+            f"{k}: {v['min']}" if v['min'] == v['max'] else f"{k}: {v['min']}-{v['max']}"
+            for k, v in pace_zones.items())
         profile_parts.append(f"\nZones d'allure: {zones_str}")
     if personal_records:
         records_str = ", ".join(f"{r['distance']} en {r['time']}" + (f" ({r['date']})" if r.get('date') else "") for r in personal_records)
