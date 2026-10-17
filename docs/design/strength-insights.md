@@ -65,19 +65,20 @@ accent and alias variants resolve to one entry. Each exercise carries
   read-only scope). It is split pectoraux/epaules/triceps 0.5 each, flagged
   `mixed`, kept out of e1RM, and kept off the records board entirely (no row,
   since even a volume PR would conflate two movements); the chart shows a
-  non-comparable note. A follow-up (separate change) can split the two movements
-  in the parser and re-extract history.
-- **Ambiguous / conditioning**: a knee-flexion move whose target muscle is
-  ambiguous lands in `autre` with reason `to_confirm`; kettlebell swings show on
-  the explosiveness bar and credit glutes/hamstrings 0.5; jumps are explosiveness
-  only.
+  non-comparable note. The parser now splits the two: the athlete's shorthand is
+  `dc` = développé couché, `dm` = développé militaire, `di` = développé incliné, so
+  `dc machine` becomes `Développé couché machine` and `dm machine` becomes
+  `Presse épaules`. Legacy rows keep the mixed name until history is re-extracted.
+- **Campus and conditioning**: `Flexion de genou` credits ischios 1, fessiers and
+  dos 0.5 (hamstrings plus a posterior-chain hold, confirmed by the athlete);
+  kettlebell swings show on the explosiveness bar and credit glutes/hamstrings
+  0.5; jumps are explosiveness only.
 - **Resolution order**: exact normalised key, then the longest matching stem
   (`pont fessier`, `gainage`, `fente`, `mollet`), then `autre`. Rep-based Campus
   calf and lunge moves are already renamed to `Mollets` / `Fentes` upstream, so
   the stems mainly catch future hold names.
 
-A test asserts every canonical name resolves to a real entry (except the one
-`to_confirm` case), every group used is one of the ten (plus the two buckets), and
+A test asserts every canonical name resolves to a real entry, every group used is one of the ten (plus the two buckets), and
 every name the Campus plan produces resolves.
 
 ## Weekly muscle sets

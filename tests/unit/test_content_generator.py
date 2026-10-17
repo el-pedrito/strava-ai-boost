@@ -620,6 +620,10 @@ class TestExtractStrengthSets:
         the model on the exact regressions that motivated the schema change: the
         per-side markers (all variants), variable series, and paired supersets."""
         p = _STRENGTH_EXTRACTION_SYSTEM_PROMPT
+        # The athlete's shorthand, and the split of the old mixed machine name.
+        assert "'dm machine' -> 'Presse épaules'" in p
+        assert "'dc machine' -> 'Développé couché machine'" in p
+        assert "'di' = Développé incliné" in p
         # Per-side markers — every variant the athlete actually writes.
         for marker in ("'/c'", "'/cote'", "'par cote'", "'/side'"):
             assert marker in p, f"missing per-side marker {marker}"

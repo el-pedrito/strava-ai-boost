@@ -94,6 +94,7 @@ _E1RM_NAMES = frozenset({
     'Développé décliné',
     'Développé militaire',
     'Presse épaules',
+    'Développé couché machine',
     'Tirage vertical machine',
     'Tirage vertical prise neutre',
     'Tirage vertical neutre serré',
@@ -154,6 +155,7 @@ _RAW_MAP: Dict[str, MuscleMapping] = {
         group_weights={'pectoraux': 0.5, 'epaules': 0.5, 'triceps': 0.5},
         pattern=PUSH, e1rm=False, mixed=True,
     ),
+    'Développé couché machine': _m(['pectoraux'], ['triceps', 'epaules'], pattern=PUSH, e1rm=True),
     'Presse épaules': _m(['epaules'], ['triceps'], pattern=PUSH, e1rm=True),
     'Dips': _m(['pectoraux', 'triceps'], ['epaules'], pattern=PUSH, e1rm=False),
     'Pompes': _m(['pectoraux'], ['triceps', 'epaules'], pattern=PUSH, e1rm=False),
@@ -196,11 +198,9 @@ _RAW_MAP: Dict[str, MuscleMapping] = {
     'Flexion tibiale': MuscleMapping(
         group_weights={}, pattern=LEGS, e1rm=False, autre=True, autre_reason='unknown',
     ),
-    # Flexion de genou: ambiguous (knee flexion could be hamstrings) -> listed as
-    # to_confirm until the athlete confirms.
-    'Flexion de genou': MuscleMapping(
-        group_weights={}, pattern=LEGS, e1rm=False, autre=True, autre_reason='to_confirm',
-    ),
+    # Flexion de genou (Campus): hamstrings, plus a posterior-chain hold (confirmed
+    # by the athlete 2026-10-17).
+    'Flexion de genou': _m(['ischios'], ['fessiers', 'dos'], pattern=LEGS, e1rm=False),
 }
 
 

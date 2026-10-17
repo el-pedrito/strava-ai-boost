@@ -136,10 +136,19 @@ class TestWeeklyGroups:
         assert ins['weeks'][-1]['explosivite']['logged'] == 2.0
 
     def test_unmapped_listed_with_reason(self):
+        entry = _session('2026-10-13', 'Flexion tibiale', [{'reps': 10}] * 3)
+        ins = build_strength_insights([entry], today=TODAY)
+        assert {'exercise': 'Flexion tibiale', 'reason': 'unknown'} in ins['unmapped_exercises']
+        assert ins['weeks'][-1]['autre']['logged'] == 3.0
+
+    def test_flexion_de_genou_credits_hamstrings(self):
         entry = _session('2026-10-13', 'Flexion de genou', [{'reps': 10}] * 3)
         ins = build_strength_insights([entry], today=TODAY)
-        assert {'exercise': 'Flexion de genou', 'reason': 'to_confirm'} in ins['unmapped_exercises']
-        assert ins['weeks'][-1]['autre']['logged'] == 3.0
+        groups = ins['weeks'][-1]['groups']
+        assert groups['ischios']['logged'] == 3.0
+        assert groups['fessiers']['logged'] == 1.5
+        assert groups['dos']['logged'] == 1.5
+        assert ins['unmapped_exercises'] == []
 
     def test_decimal_and_string_inputs(self):
         entry = _session('2026-10-13', 'Développé couché',

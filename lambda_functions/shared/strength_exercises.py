@@ -16,6 +16,7 @@ CANONICAL_STRENGTH_EXERCISES: Tuple[str, ...] = (
     'Développé militaire haltères',
     'Développé militaire assis',
     'Développé machine',
+    'Développé couché machine',
     'Presse épaules',
     'Dips',
     'Pompes',
@@ -71,9 +72,23 @@ _ALIAS_GROUPS = (
         'Élévation latérale haltères assis', 'Elevations laterales halteres assis',
     )),
     _aliases('Pull-over', ('Pullover', 'Pull over')),
+    # The athlete's shorthand (confirmed 2026-10-17): dc = développé couché,
+    # dm = développé militaire (on a machine: presse épaules), di = développé incliné.
+    # "Développé machine" stays canonical only for legacy rows that mixed a chest
+    # press machine and a shoulder press machine.
     _aliases('Développé couché', (
         'DC', 'DC barre', 'Développé couché barre',
     )),
+    _aliases('Développé couché machine', (
+        'DC machine', 'DC mach', 'DC machine convergente', 'DC mach convergente',
+        'Développé couché machine convergente', 'Chest press', 'Chest press machine',
+    )),
+    _aliases('Développé militaire', ('DM', 'DM barre', 'Développé militaire barre')),
+    _aliases('Presse épaules', (
+        'DM machine', 'DM mach', 'Développé militaire machine', 'Press ep mach',
+        'Press ep machine', 'Presse épaules machine', 'Shoulder press machine',
+    )),
+    _aliases('Développé incliné', ('DI', 'DI barre', 'DI smith', 'Développé incliné smith')),
     _aliases('Développé couché haltères', (
         'DC halt', 'DC haltere', 'DC halteres', 'Développé couché halt',
         'Développé couché haltère',

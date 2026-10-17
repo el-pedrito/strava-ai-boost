@@ -29,7 +29,7 @@ class TestCanonicalCoverage:
         unexpected = []
         for name in all_canonical_names():
             mapping = lookup_exercise(name)
-            if mapping.autre and name != 'Flexion de genou':
+            if mapping.autre:
                 unexpected.append(name)
         assert unexpected == [], f"canonical names falling to autre: {unexpected}"
 
@@ -105,10 +105,26 @@ class TestResolution:
         assert lookup_exercise('Facepull').pattern == 'pull'
         assert lookup_exercise('Facepull').group_weights == {'epaules': 1.0, 'dos': 0.5}
 
-    def test_flexion_de_genou_to_confirm(self):
+    def test_flexion_de_genou_hamstrings_and_posterior_chain(self):
+        """Confirmed by the athlete: hamstrings, plus a posterior-chain hold."""
         m = lookup_exercise('Flexion de genou')
-        assert m.autre is True
-        assert m.autre_reason == 'to_confirm'
+        assert m.autre is False
+        assert m.group_weights == {'ischios': 1.0, 'fessiers': 0.5, 'dos': 0.5}
+        assert m.pattern == 'legs'
+        assert m.e1rm is False
+
+    def test_athlete_shorthand_dc_dm_di(self):
+        """dc = couché, dm = militaire (machine = presse épaules), di = incliné."""
+        from shared.strength_exercises import canonicalize_exercise_name as c
+        assert c('DC') == 'Développé couché'
+        assert c('DM') == 'Développé militaire'
+        assert c('DI') == 'Développé incliné'
+        assert c('DM mach') == 'Presse épaules'
+        assert c('dc machine convergente') == 'Développé couché machine'
+        assert lookup_exercise('Développé couché machine').group_weights == {
+            'pectoraux': 1.0, 'triceps': 0.5, 'epaules': 0.5,
+        }
+        assert lookup_exercise('Développé couché machine').mixed is False
 
     def test_flexion_tibiale_unknown(self):
         m = lookup_exercise('Flexion tibiale')
@@ -146,8 +162,8 @@ class TestGate0Fixture:
         sets = ppg_history_sets(data['session'])
         resolved = {s['exercise']: lookup_exercise(s['exercise']) for s in sets}
 
-        # Flexion de genou -> autre/to_confirm.
-        assert resolved['Flexion de genou'].autre_reason == 'to_confirm'
+        # Flexion de genou -> hamstrings (confirmed).
+        assert resolved['Flexion de genou'].group_weights['ischios'] == 1.0
         # Mollets / Fentes already renamed by ppg_history_sets.
         assert resolved['Mollets'].group_weights == {'mollets': 1.0}
         assert resolved['Fentes'].group_weights == {
