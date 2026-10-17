@@ -24,6 +24,7 @@ from shared.responses import (
 )
 from shared.logger import get_logger, inject_correlation_id, metrics, MetricUnit
 from api import plan_workouts
+from api import home_summary
 import time
 
 logger = get_logger("dashboard_api")
@@ -44,6 +45,7 @@ def _get_cloudwatch():
 ACTIVITIES_TABLE = os.environ['ACTIVITIES_TABLE']
 USER_CONFIG_TABLE = os.environ['USER_CONFIG_TABLE']
 COACHING_SESSIONS_TABLE = os.environ['COACHING_SESSIONS_TABLE']
+WELLNESS_TABLE = os.environ.get('WELLNESS_TABLE', 'strava-ai-boost-wellness')
 DEFAULT_USER_ID = os.environ.get('DEFAULT_USER_ID', '')
 # Coach endpoints fail closed without an authenticated Strava identity. A
 # DEFAULT_USER_ID fallback is honored only when this flag is explicitly enabled
@@ -127,6 +129,49 @@ def get_plan_workouts_response(event: Dict[str, Any]) -> Dict[str, Any]:
         # Type only: a message or traceback could quote a Campus row.
         logger.error("Plan workouts failed", extra={"error_type": type(exc).__name__})
         return create_error_response(500, 'Internal server error', cors_headers=PLAN_WORKOUTS_HEADERS)
+
+
+# Home summary carries personal health data: never cached by a browser/proxy.
+HOME_SUMMARY_HEADERS = {**CORS_HEADERS, 'Cache-Control': 'no-store'}
+
+
+def get_home_summary_response(event: Dict[str, Any]) -> Dict[str, Any]:
+    """GET /home/summary: owner-only (same model as /plan/workouts), every
+    response is no-store, never reads the module ``_cache``, and no health VALUE
+    ever reaches the logs (only counts/types)."""
+    try:
+        owner = os.environ.get('CAMPUS_OWNER_STRAVA_ID', '')
+        if not plan_workouts.is_owner(_get_strava_claim(event), owner):
+            logger.warning("Home summary denied: claim missing or not the owner")
+            return create_error_response(403, 'Forbidden', cors_headers=HOME_SUMMARY_HEADERS)
+
+        wellness_table = dynamodb.Table(WELLNESS_TABLE)
+        sessions_table = dynamodb.Table(COACHING_SESSIONS_TABLE)
+        config_table = dynamodb.Table(USER_CONFIG_TABLE)
+        try:
+            user_config = config_table.get_item(Key={'user_id': owner}).get('Item', {}) or {}
+        except ClientError:
+            user_config = {}
+
+        def activities_reader():
+            # Enduraw trend reader: activity local date is used downstream, so a
+            # wide query is fine; the window filter is applied in the builder.
+            return _query_user_activities(owner)
+
+        payload = home_summary.build_home_summary(
+            wellness_table, sessions_table, user_config,
+            activities_reader, datetime.now(timezone.utc), owner,
+        )
+        # Log only non-sensitive shape counts, never health values.
+        logger.info("Home summary built", extra={
+            "health_signals": len(payload.get('health', {})),
+            "week_sessions": len(payload.get('week_sessions', [])),
+            "has_brief": payload.get('brief') is not None,
+        })
+        return create_success_response(payload, cors_headers=HOME_SUMMARY_HEADERS)
+    except Exception as exc:  # noqa: BLE001 - own the errors to keep no-store + no leak
+        logger.error("Home summary failed", extra={"error_type": type(exc).__name__})
+        return create_error_response(500, 'Internal server error', cors_headers=HOME_SUMMARY_HEADERS)
 
 
 def _query_user_activities(user_id: str, since: datetime = None, projection: str = None) -> List[Dict[str, Any]]:
@@ -294,6 +339,11 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # response it returns (a 400 included) must carry no-store.
         if path == '/plan/workouts' and http_method == 'GET':
             return get_plan_workouts_response(event)
+
+        # Owner-only home dashboard; no-store on every response, routed before the
+        # shared validator (it takes no query parameter).
+        if path == '/home/summary' and http_method == 'GET':
+            return get_home_summary_response(event)
 
         # Validate request
         validation_error = validate_request(event)

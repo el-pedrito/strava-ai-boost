@@ -129,6 +129,7 @@ class ApiGatewayStack(Stack):
                 "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
                 "USER_CONFIG_TABLE": self.core_stack.table_names["user_config"],
                 "COACHING_SESSIONS_TABLE": self.core_stack.table_names["coaching_sessions"],
+                "WELLNESS_TABLE": self.core_stack.table_names["wellness"],
                 "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
                 "DEFAULT_USER_ID": self.node.try_get_context("default_user_id") or "",
                 # Sole owner of the Campus plan (the table has no user key): GET
@@ -168,6 +169,19 @@ class ApiGatewayStack(Stack):
             iam.PolicyStatement(
                 actions=["s3:GetObject"],
                 resources=[f"arn:aws:s3:::strava-ai-boost-audio-debriefs-{Aws.ACCOUNT_ID}/recaps/*"],
+            )
+        )
+
+        # A4: DashboardAPI reads the wellness table for GET /home/summary. The
+        # dashboard uses the SHARED webhook_lambda_role (single-user project);
+        # this is accepted and intentional. Read-only here: GetItem + Query, no
+        # writes (WellnessSync/CampusCoachSync own the writes).
+        self.dashboard_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["dynamodb:GetItem", "dynamodb:Query"],
+                resources=[
+                    f"arn:aws:dynamodb:{Aws.REGION}:{Aws.ACCOUNT_ID}:table/strava-ai-boost-wellness"
+                ],
             )
         )
 
@@ -433,6 +447,17 @@ class ApiGatewayStack(Stack):
         plan_resource = self.api.root.add_resource("plan")
         plan_workouts_resource = plan_resource.add_resource("workouts")
         plan_workouts_resource.add_method(
+            "GET",
+            apigateway.LambdaIntegration(self.dashboard_lambda),
+            authorizer=self.cognito_authorizer,
+            authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
+        )
+
+        # /home/summary: owner-only home dashboard (Cognito here; the handler then
+        # requires custom:strava_id == CAMPUS_OWNER_STRAVA_ID, same as /plan/workouts).
+        home_resource = self.api.root.add_resource("home")
+        home_summary_resource = home_resource.add_resource("summary")
+        home_summary_resource.add_method(
             "GET",
             apigateway.LambdaIntegration(self.dashboard_lambda),
             authorizer=self.cognito_authorizer,

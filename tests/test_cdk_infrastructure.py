@@ -463,6 +463,7 @@ class TestPlanWorkoutsRoute:
         return {
             "api": assertions.Template.from_stack(api),
             "frontend": assertions.Template.from_stack(frontend),
+            "core": assertions.Template.from_stack(core),
         }
 
     def test_route_uses_cognito_authorizer(self, stacks):
@@ -484,6 +485,44 @@ class TestPlanWorkoutsRoute:
         assert get[0]["AuthorizationType"] == "COGNITO_USER_POOLS"
         assert get[0]["AuthorizerId"] == {"Ref": next(iter(template.find_resources("AWS::ApiGateway::Authorizer")))}
         assert "DashboardAPI" in json.dumps(get[0]["Integration"]["Uri"])
+
+    def test_home_summary_route_uses_cognito_authorizer(self, stacks):
+        """A4: GET /home/summary is COGNITO_USER_POOLS, integrated with DashboardAPI."""
+        template = stacks["api"]
+        resources = template.find_resources("AWS::ApiGateway::Resource")
+        by_id = {lid: r["Properties"] for lid, r in resources.items()}
+        summary_ids = [
+            lid for lid, props in by_id.items()
+            if props["PathPart"] == "summary"
+            and by_id.get(props["ParentId"].get("Ref"), {}).get("PathPart") == "home"
+        ]
+        assert len(summary_ids) == 1
+        methods = [
+            m["Properties"] for m in template.find_resources("AWS::ApiGateway::Method").values()
+            if m["Properties"].get("ResourceId", {}).get("Ref") == summary_ids[0]
+        ]
+        get = [m for m in methods if m["HttpMethod"] == "GET"]
+        assert len(get) == 1
+        assert get[0]["AuthorizationType"] == "COGNITO_USER_POOLS"
+        assert "DashboardAPI" in json.dumps(get[0]["Integration"]["Uri"])
+
+    def test_dashboard_can_read_wellness_table(self, stacks):
+        """A4: the DashboardAPI role has a read-only (GetItem/Query) grant on the
+        wellness table. DashboardAPI uses the SHARED webhook_lambda_role defined
+        in the Core stack, so the inline grant lands in the Core template."""
+        import json as _json
+        template = stacks["core"]
+        policies = template.find_resources("AWS::IAM::Policy")
+        statements = []
+        for props in (r["Properties"] for r in policies.values()):
+            statements += props["PolicyDocument"]["Statement"]
+        wellness_reads = [
+            st for st in statements
+            if "strava-ai-boost-wellness" in _json.dumps(st.get("Resource", ""))
+            and set(st["Action"] if isinstance(st["Action"], list) else [st["Action"]])
+                <= {"dynamodb:GetItem", "dynamodb:Query"}
+        ]
+        assert wellness_reads, "expected a read-only wellness grant on the shared dashboard role"
 
     def test_owner_env_var_on_dashboard_lambda(self, stacks):
         stacks["api"].has_resource_properties("AWS::Lambda::Function", {
