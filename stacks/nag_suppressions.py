@@ -181,6 +181,14 @@ _BY_PATH: Dict[str, Dict[str, List[NagPackSuppression]]] = {
             "/StravaAIBoost-Core/IntervalsICUSecret/Resource",
         )
     },
+    "StravaAIBoost-Push": {
+        "/StravaAIBoost-Push/VapidKeys/Resource": [
+            NagPackSuppression(
+                id="AwsSolutions-SMG4",
+                reason="VAPID keys are rotated by hand: a new pair invalidates every browser subscription, so there is no rotation Lambda.",
+            ),
+        ],
+    },
 }
 
 
