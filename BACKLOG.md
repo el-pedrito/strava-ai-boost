@@ -72,6 +72,23 @@ ou éditer après coup (la boucle nocturne le lit comme feedback mais le texte p
 
 ## P2 — Medium
 
+### Lecteurs à fenêtre `created_at` — migrer vers `in_activity_window` (dette A0)
+`created_at` est remis à zéro à chaque retraitement d'activité (décision PLAN-v4 : le
+délai de grâce du feedback analyzer repose sur la clé de tri du GSI `ProcessingStatusIndex`,
+`feedback_analyzer.py:208` `created_at < :cutoff`, donc on ne touche pas `created_at` dans ce lot).
+Conséquence : une vieille activité retraitée se présente comme récente pour tout lecteur qui
+filtre sur la fenêtre `created_at`. Les lecteurs de ce lot (accueil, santé, tendances corrigées en A6)
+filtrent désormais sur la date locale de l'activité via le helper partagé
+`shared.wellness.in_activity_window`. Les lecteurs restants à migrer vers ce helper
+(avec un attribut `processing_run_started_at` dédié, dans un lot séparé) :
+- `lambda_functions/support/weekly_synthesis.py:96`
+- `lambda_functions/support/weekly_audio_recap.py:198`
+- `lambda_functions/shared/coach_context.py:136`
+- `lambda_functions/processing/coach_generator.py:1096,1242`
+- `lambda_functions/api/dashboard_api.py:140` (fenêtre `created_at` du GSI UserActivitiesIndex)
+- `src/coach_chat/coach_chat_agent.py:366-390` (`query_activities` sur `created_at`)
+- **Fix :** introduire `processing_run_started_at`, migrer ces lecteurs sur `in_activity_window`.
+
 ### RemovalPolicy.DESTROY sur DynamoDB
 `core_infrastructure_stack.py:71,115,135` — 3 tables + 4 secrets en DESTROY.
 `voice_debrief_stack.py:327` — la 4e table (`weekly-recaps`) l'est aussi, plus les buckets
