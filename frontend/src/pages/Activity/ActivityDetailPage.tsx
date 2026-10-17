@@ -312,9 +312,9 @@ export function ActivityDetailPage() {
 
   const Icon = activityIcon(activity.activity_type);
   const title = activity.enhanced_title || activity.name || activity.original_name || t('activity.untitled');
-  const subtitle = activity.created_at_raw
-    ? formatDateTime(activity.created_at_raw)
-    : activity.date || '';
+  // The activity's own start time (API field), never the AI processing time (created_at).
+  const startIso = activity.start_date ?? activity.start_date_raw;
+  const subtitle = startIso ? formatDateTime(startIso) : '';
 
   const description = activity.enhanced_description?.trim() ?? '';
   const descriptionLines = description.split(/\n+/).filter((l) => l.trim().length > 0);

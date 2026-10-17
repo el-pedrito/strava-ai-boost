@@ -19,6 +19,8 @@ export interface Activity {
   generated_at?: string;
   created_at_raw?: string;
   start_date_raw?: string;
+  /** Raw Strava start time, as returned by GET /dashboard/activities. */
+  start_date?: string;
   processing_time_seconds?: number;
   activity_id?: string;
   enhanced_title?: string;

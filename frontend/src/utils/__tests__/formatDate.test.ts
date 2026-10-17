@@ -2,12 +2,26 @@ import { describe, it, expect } from 'vitest';
 import { formatDateTime, computeProcessingTime } from '../formatDate';
 
 describe('formatDateTime', () => {
-  it('formats ISO string to readable date', () => {
-    expect(formatDateTime('2026-03-06T14:30:00Z')).toBe('2026-03-06 14:30');
+  it('formats in Europe/Paris local time, French short form', () => {
+    // 15:50 UTC is 17:50 in Paris (CEST, UTC+2).
+    expect(formatDateTime('2026-10-16T15:50:00Z', 'fr')).toBe('ven. 16 oct., 17:50');
   });
 
-  it('handles date with milliseconds', () => {
-    expect(formatDateTime('2026-01-15T09:05:30.123Z')).toBe('2026-01-15 09:05');
+  it('applies winter time (UTC+1) after the DST change', () => {
+    expect(formatDateTime('2026-12-04T07:05:30.123Z', 'fr')).toBe('ven. 4 déc., 08:05');
+  });
+
+  it('uses an English short form when the language is en', () => {
+    expect(formatDateTime('2026-10-16T15:50:00Z', 'en')).toBe('Fri 16 Oct, 17:50');
+  });
+
+  it('follows the current i18n language by default', () => {
+    // The test setup switches i18n to English.
+    expect(formatDateTime('2026-10-16T15:50:00Z')).toBe('Fri 16 Oct, 17:50');
+  });
+
+  it('parses microsecond ISO strings with an offset', () => {
+    expect(formatDateTime('2026-10-16T16:46:19.860518+00:00', 'fr')).toBe('ven. 16 oct., 18:46');
   });
 
   it('returns N/A for invalid date', () => {
