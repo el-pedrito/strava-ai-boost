@@ -360,30 +360,6 @@ def _positive_loads(detail: List[Dict[str, Any]]) -> List[float]:
     return loads
 
 
-def _exercise_per_side(
-    detail: List[Dict[str, Any]], doubled: frozenset, plain: frozenset = frozenset()
-) -> bool:
-    """True when this exercise's loads all come from a per-side notation.
-
-    Every stored load must be a doubled per-side value, and must not also be
-    written as a plain number in the session text. The second rule stops a
-    coincidence: "dc 80x10" next to "Press inc 40/c" (stored 80) would otherwise
-    mark the bench press as per-side.
-    """
-    if not doubled:
-        return False
-    loads = []
-    for row in detail:
-        if not isinstance(row, dict):
-            continue
-        load = to_finite_float(row.get('weight_kg'))
-        if load is not None and load > 0:
-            loads.append(round(load, 2))
-    if not loads:
-        return False
-    return all(load in doubled and load not in plain for load in loads)
-
-
 def _notation_state(
     detail: List[Dict[str, Any]], doubled: frozenset, plain: frozenset
 ) -> str:
@@ -404,17 +380,39 @@ def _notation_state(
     if all(load in doubled for load in loads):
         # Every load matches a per-side figure. If one is also written plain on
         # another line ("dc 80x10" next to "Press inc 40/c"), the text cannot say
-        # which lift it belongs to: ambiguous, so neither per-side nor plain.
+        # which lift it belongs to: ambiguous. Its load may be doubled or not, so
+        # it is kept out of every load record (see _session_state).
         if any(load in plain for load in loads):
-            return 'unknown'
+            return 'ambiguous'
         return 'per_side'
     return 'plain'
+
+
+def _session_state(
+    parsed_set: Dict[str, Any],
+    detail: List[Dict[str, Any]],
+    doubled: frozenset,
+    plain: frozenset,
+) -> str:
+    """Notation of one exercise in one session.
+
+    The extractor's own ``per_side`` flag wins when present: it is the only place
+    that saw the notation. Rows without it (written before the flag, or by a path
+    that does not set it) fall back to reading the text, where a doubtful load is
+    ``ambiguous`` and never feeds a record.
+    """
+    flag = parsed_set.get('per_side')
+    if isinstance(flag, bool):
+        if not _positive_loads(detail) and _legacy_flat_load(parsed_set) is None:
+            return 'unknown'
+        return 'per_side' if flag else 'plain'
+    return _notation_state(detail, doubled, plain)
 
 
 def _per_exercise_incomplete(entry: Dict[str, Any]) -> Dict[str, bool]:
     """Map canonical exercise name -> volume_incomplete from the entry's per_exercise."""
     out: Dict[str, bool] = {}
-    for row in entry.get('per_exercise') or []:
+    for row in (entry.get('per_exercise') if isinstance(entry.get('per_exercise'), list) else []):
         if not isinstance(row, dict):
             continue
         name = canonicalize_exercise_name(str(row.get('exercise') or ''))
@@ -425,7 +423,7 @@ def _per_exercise_incomplete(entry: Dict[str, Any]) -> Dict[str, bool]:
 
 def _per_exercise_volume(entry: Dict[str, Any]) -> Dict[str, Optional[float]]:
     out: Dict[str, Optional[float]] = {}
-    for row in entry.get('per_exercise') or []:
+    for row in (entry.get('per_exercise') if isinstance(entry.get('per_exercise'), list) else []):
         if not isinstance(row, dict):
             continue
         name = canonicalize_exercise_name(str(row.get('exercise') or ''))
@@ -568,12 +566,12 @@ def _build_records(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             detail = parsed_set.get('sets_detail')
             detail = detail if isinstance(detail, list) else []
 
-            state = _notation_state(detail, doubled, plain)
+            state = _session_state(parsed_set, detail, doubled, plain)
             if state == 'per_side':
                 per_side_seen[name] = True
             elif state == 'plain':
                 plain_seen[name] = True
-            # 'unknown' -> neither.
+            # 'unknown' / 'ambiguous' -> neither.
 
             rec = by_exercise.setdefault(name, {
                 'name': name,
@@ -596,6 +594,9 @@ def _build_records(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 weighted = _best_weighted_bw(detail)
                 if weighted is not None:
                     rec['weighted_bw'].append((weighted[0], weighted[1], date_str))
+            elif state == 'ambiguous':
+                # The load may be doubled or not: it feeds no load record.
+                pass
             else:
                 top = _max_load(detail) if detail else _legacy_flat_load(parsed_set)
                 if top is not None:
@@ -712,6 +713,7 @@ def exercise_flags(entries: List[Dict[str, Any]]) -> Dict[str, Dict[str, bool]]:
     seen: Dict[str, bool] = {}
     map_e1rm: Dict[str, bool] = {}
     is_mixed: Dict[str, bool] = {}
+    ambiguous_dates: Dict[str, set] = {}
 
     for entry in entries:
         parsed = entry.get('parsed_sets')
@@ -734,14 +736,18 @@ def exercise_flags(entries: List[Dict[str, Any]]) -> Dict[str, Dict[str, bool]]:
             is_mixed[name] = name in MIXED_EXERCISES
             detail = parsed_set.get('sets_detail')
             detail = detail if isinstance(detail, list) else []
-            state = _notation_state(detail, doubled, plain)
+            state = _session_state(parsed_set, detail, doubled, plain)
             if state == 'per_side':
                 per_side_seen[name] = True
             elif state == 'plain':
                 plain_seen[name] = True
+            elif state == 'ambiguous':
+                d = _entry_date(entry)
+                if d is not None:
+                    ambiguous_dates.setdefault(name, set()).add(d.isoformat())
             # 'unknown' -> neither.
 
-    flags: Dict[str, Dict[str, bool]] = {}
+    flags: Dict[str, Dict[str, Any]] = {}
     for name in seen:
         notation_mixed = bool(per_side_seen.get(name) and plain_seen.get(name))
         mixed = is_mixed.get(name, False)
@@ -751,6 +757,8 @@ def exercise_flags(entries: List[Dict[str, Any]]) -> Dict[str, Dict[str, bool]]:
             'mixed': mixed,
             'notation_mixed': notation_mixed,
             'per_side_seen': bool(per_side_seen.get(name)),
+            # Days whose load may or may not be doubled: no load point, no e1RM.
+            'ambiguous_dates': sorted(ambiguous_dates.get(name, ())),
         }
     return flags
 
@@ -780,6 +788,8 @@ def per_day_e1rm(entries: List[Dict[str, Any]]) -> Dict[str, Dict[str, Optional[
                 continue
             name = canonicalize_exercise_name(str(raw_name))
             if not name or not flags.get(name, {}).get('e1rm_eligible'):
+                continue
+            if date_str in flags[name].get('ambiguous_dates', ()):
                 continue
             detail = parsed_set.get('sets_detail')
             detail = detail if isinstance(detail, list) else []

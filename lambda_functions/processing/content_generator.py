@@ -1046,7 +1046,11 @@ _STRENGTH_EXTRACTION_SYSTEM_PROMPT = (
     "You extract structured strength-training sets from a free-text workout description "
     "written by an athlete (French or English). Return ONLY a JSON array, no prose, no code fences.\n"
     "Each element is an object: {\"exercise\": string, \"sets\": integer, \"reps\": integer|null, "
-    "\"weight_kg\": number|null, \"sets_detail\": [{\"reps\": integer|null, \"weight_kg\": number|null}]}.\n"
+    "\"weight_kg\": number|null, \"per_side\": boolean, "
+    "\"sets_detail\": [{\"reps\": integer|null, \"weight_kg\": number|null}]}.\n"
+    "- per_side: true ONLY when THIS exercise's load was written per side ('/c', '/cote', "
+    "'/côté', 'par cote', 'each side', '/side') and you doubled it; false otherwise. Decide it "
+    "for each exercise from its own words, never from another exercise on the same line.\n"
     "Rules:\n"
     "- sets_detail is REQUIRED and is the authoritative field: one entry per set actually "
     "performed, in the order written, each with its OWN reps and its OWN load. Never collapse "
@@ -1101,17 +1105,17 @@ _STRENGTH_EXTRACTION_SYSTEM_PROMPT = (
     "- If nothing parseable, return [].\n"
     "Examples:\n"
     "'low row mach 10x80 8x90 8x90' -> "
-    "[{\"exercise\":\"Tirage horizontal machine\",\"sets\":3,\"reps\":8,\"weight_kg\":90,"
+    "[{\"exercise\":\"Tirage horizontal machine\",\"sets\":3,\"reps\":8,\"weight_kg\":90,\"per_side\":false,"
     "\"sets_detail\":[{\"reps\":10,\"weight_kg\":80},{\"reps\":8,\"weight_kg\":90},"
     "{\"reps\":8,\"weight_kg\":90}]}]\n"
     "'dc machine convergente 4x8 55/c' -> "
-    "[{\"exercise\":\"Développé couché machine\",\"sets\":4,\"reps\":8,\"weight_kg\":110,"
+    "[{\"exercise\":\"Développé couché machine\",\"sets\":4,\"reps\":8,\"weight_kg\":110,\"per_side\":true,"
     "\"sets_detail\":[{\"reps\":8,\"weight_kg\":110},{\"reps\":8,\"weight_kg\":110},"
     "{\"reps\":8,\"weight_kg\":110},{\"reps\":8,\"weight_kg\":110}]}]\n"
     # Verbatim from his log: "dm mach" is the shoulder press machine, never the chest
     # press. Both used to land on one "Développé machine" name and one mixed series.
     "'Dm mach 40/c 3x10' -> "
-    "[{\"exercise\":\"Presse épaules\",\"sets\":3,\"reps\":10,\"weight_kg\":80,"
+    "[{\"exercise\":\"Presse épaules\",\"sets\":3,\"reps\":10,\"weight_kg\":80,\"per_side\":true,"
     "\"sets_detail\":[{\"reps\":10,\"weight_kg\":80},{\"reps\":10,\"weight_kg\":80},"
     "{\"reps\":10,\"weight_kg\":80}]}]\n"
     "'elev lat - face pull 3x10-10 15-35' -> "
@@ -1224,13 +1228,20 @@ def _extract_strength_sets(description: str) -> List[Dict[str, Any]]:
             # per-set view so consumers only ever handle one shape.
             detail = [{"reps": reps, "weight_kg": weight} for _ in range(min(sets, 20))]
 
-        clean.append({
+        row = {
             "exercise": canonicalize_exercise_name(exercise)[:60],
             "sets": len(detail) if detail else sets,
             "reps": reps,
             "weight_kg": weight,
             "sets_detail": detail,
-        })
+        }
+        # The extractor is the only place that SEES the per-side notation (it
+        # doubles the load). Recording it here replaces guessing it later from
+        # the text, which three review rounds showed cannot be done reliably.
+        # Only a real boolean is kept: a missing flag stays missing (unknown).
+        if isinstance(raw.get("per_side"), bool):
+            row["per_side"] = raw["per_side"]
+        clean.append(row)
 
     logger.info(f"Extracted {len(clean)} structured strength sets from description")
     return clean

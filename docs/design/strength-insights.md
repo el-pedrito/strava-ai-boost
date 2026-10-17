@@ -120,12 +120,22 @@ equipment.
 If an exercise's history mixes a per-side-noted session and a plain one, switching
 notation would fake a record.
 
-Notation is three-valued per (session, exercise): **per_side** when every stored
+**Source of truth: the extractor's `per_side` flag.** The extractor is the only
+step that sees the notation (it doubles the load), so it now writes
+`per_side: true|false` on each parsed exercise. When the flag is present it wins.
+History was backfilled once by re-running the extractor on each session text and
+copying its flag onto the stored row with the same exercise and loads; a text with
+no per-side token at all marks every row plain. Rows with no flag (a few legacy
+rows) fall back to reading the text, below, and a doubtful one feeds no load
+record.
+
+Text fallback, per (session, exercise): **per_side** when every stored
 positive load equals 2 x a number written just before a per-side token and none is
 written as a plain number on another clause; **plain** when at least one positive
 load on a valid set is not a doubled per-side value; **unknown** when there is no
-positive load on a valid set, or when every load matches a per-side value but one is
-also written plain elsewhere (ambiguous). A clause is a line, or a ", " / ". " in
+positive load on a valid set; **ambiguous** when every load matches a per-side value
+but one is also written plain elsewhere. An ambiguous session counts as neither for
+`notation_mixed` and feeds no top weight, e1RM, volume record or chart load point. A clause is a line, or a ", " / ". " in
 prose. Numbers on the per-side clause itself never count as plain, so a rep count
 equal to the doubled load ("Curl 3x12 6/c" stores 12) stays per-side. The load link ties the notation to the
 lift it belongs to: a first version tainted every exercise of a session as soon as

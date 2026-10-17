@@ -635,7 +635,7 @@ def _build_strength_progression(
             continue
         per_exercise_volume = {
             canonicalize_exercise_name(str(e.get('exercise') or '')): to_finite_float(e.get('volume_kg'))
-            for e in (entry.get('per_exercise') or []) if isinstance(e, dict)
+            for e in (entry.get('per_exercise') if isinstance(entry.get('per_exercise'), list) else []) if isinstance(e, dict)
         }
         for s in parsed:
             if not isinstance(s, dict):
@@ -686,6 +686,11 @@ def _build_strength_progression(
                 flat_weight = to_finite_float(s.get('weight_kg'))
                 if flat_weight is not None and sets and reps:
                     volume = round(flat_weight * sets * reps, 1)
+            # A day whose notation is doubtful (load maybe doubled, maybe not)
+            # draws no load point: a false jump is worse than a gap.
+            if day in (flags.get(name, {}).get('ambiguous_dates') or ()):
+                top_weight = None
+                volume = None
             point = {
                 'date': day,
                 'top_weight_kg': top_weight,

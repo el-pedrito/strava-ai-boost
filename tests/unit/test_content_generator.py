@@ -597,6 +597,23 @@ class TestExtractStrengthSets:
         ]
 
     @patch('processing.content_generator._get_bedrock_runtime')
+    def test_per_side_flag_is_kept_only_as_a_boolean(self, mock_runtime):
+        """The extractor records per-side notation per exercise; a non-boolean
+        value is dropped so the row stays 'unknown' instead of a wrong guess."""
+        mock_runtime.return_value.converse.return_value = _converse_response(
+            '[{"exercise":"Presse épaules","sets":3,"reps":10,"weight_kg":80,"per_side":true,'
+            '"sets_detail":[{"reps":10,"weight_kg":80}]},'
+            '{"exercise":"Développé couché","sets":1,"reps":10,"weight_kg":80,"per_side":false,'
+            '"sets_detail":[{"reps":10,"weight_kg":80}]},'
+            '{"exercise":"Squat","sets":1,"reps":5,"weight_kg":100,"per_side":"yes",'
+            '"sets_detail":[{"reps":5,"weight_kg":100}]}]'
+        )
+        result = _extract_strength_sets("dm mach 40/c 3x10 + dc 80x10 + squat 100x5")
+        assert result[0]["per_side"] is True
+        assert result[1]["per_side"] is False
+        assert "per_side" not in result[2]
+
+    @patch('processing.content_generator._get_bedrock_runtime')
     def test_per_side_load_is_doubled_in_every_entry(self, mock_runtime):
         """Regression: '4x8 55/c' is 55kg PER SIDE, so 110kg is actually moved.
         Storing 55 halved the tonnage. The doubled load must appear in every
