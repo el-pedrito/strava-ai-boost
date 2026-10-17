@@ -63,7 +63,8 @@ accent and alias variants resolve to one entry. Each exercise carries
 - **Mixed machine**: a single stored `Développé machine` name conflates a chest
   press and a shoulder press (a pre-existing parser limitation, out of this
   read-only scope). It is split pectoraux/epaules/triceps 0.5 each, flagged
-  `mixed`, kept out of e1RM and the records board, and the chart shows a
+  `mixed`, kept out of e1RM, and kept off the records board entirely (no row,
+  since even a volume PR would conflate two movements); the chart shows a
   non-comparable note. A follow-up (separate change) can split the two movements
   in the parser and re-extract history.
 - **Ambiguous / conditioning**: a knee-flexion move whose target muscle is
@@ -98,7 +99,8 @@ work sets, so the UI says "logged sets", never "working sets".
 ## Estimated 1RM
 
 Epley `load × (1 + reps / 30)`, with `reps == 1 → load`, computed per set and
-rounded to 0.5 kg. Eligible only when:
+rounded to 0.5 kg (Decimal ROUND_HALF_UP, so exact quarters round deterministically).
+Eligible only when:
 
 - the exercise's map flag `e1rm` is true (compound plate/barbell lifts: the main
   presses on a bar, machine/bar rows, squat, leg press, hip thrust, deadlift);
@@ -117,32 +119,45 @@ equipment.
 If an exercise's history mixes a per-side-noted session and a plain one, switching
 notation would fake a record.
 
-An exercise is per-side in a session when every one of its stored loads equals
-2 x a number written just before a per-side token in the session text, and that
-load is not also written as a plain number. The load link ties the notation to
-the lift it belongs to: a first version tainted every exercise of a session as soon
-as one line said "/c", which on live data marked 19 of 22 lifts (bench press
-included) and emptied the records board. The "not written plain" rule stops a
-coincidence such as "dc 80x10" next to "Press inc 40/c" (stored 80).
+Notation is three-valued per (session, exercise): **per_side** when every stored
+positive load equals 2 x a number written just before a per-side token and is not
+also written as a plain number; **plain** when there is at least one positive load
+on a valid set and it is not per_side; **unknown** when there is no positive load
+on a valid set (no detail, or holds only). The load link ties the notation to the
+lift it belongs to: a first version tainted every exercise of a session as soon as
+one line said "/c", which on live data marked 19 of 22 lifts (bench press included)
+and emptied the records board. The "not written plain" rule stops a coincidence
+such as "dc 80x10" next to "Press inc 40/c" (stored 80).
 
-An exercise with both kinds of session is marked `notation_mixed`, made
-e1RM-ineligible, and excluded from the e1RM, top-weight and volume records. The
-chart shows a "total load noted, mixed notation" note. Rows with no record at all
-(holds, jumps) are left off the board.
+`notation_mixed` is set only when BOTH a per_side and a plain session were seen; an
+unknown (no-load) session counts as neither, so an always-per-side lift plus a
+no-load session is not mixed (a no-load session cannot fake a record). A
+notation-mixed exercise is made e1RM-ineligible and excluded from the e1RM,
+top-weight and volume records. The chart shows a "total load noted, mixed notation"
+note. Rows with no record at all (holds, jumps) are left off the board.
 
 ## Records board
 
-One row per canonical exercise with at least two sessions, sorted by last session
-date, capped at 15.
+One row per canonical exercise with at least two **distinct sessions**, sorted by
+last session date, capped at 15. "Distinct sessions" counts entries by
+`activity_id` (falling back to the entry index), not by date, so two activities on
+the same day count as two. Mixed-machine exercises are kept off the board entirely
+(no row, not even a volume record: a chest/shoulder-press volume PR is not
+comparable).
 
-- **Loaded lifts**: best top weight (max load over valid sets), best e1RM
-  (eligible, non-Campus, non-mixed, non-notation-mixed only), best session volume
-  (read from `per_exercise.volume_kg`, skipping rows flagged
-  `volume_incomplete`). Each with its date; ties keep the earliest date.
-  Campus-plan loads are kept for top weight (the loads are the athlete's) but
-  excluded from e1RM. `load_label` is `total_noted`.
-- **Bodyweight lifts** (pull-ups, dips, push-ups): no top weight; best reps at no
-  added load, and the best weighted set as `{reps, added_weight_kg}`.
+- **Loaded lifts**: best top weight (max load over VALID sets only, i.e. a set
+  with reps > 0 or a duration AND a positive load, so a `{reps: 0, weight_kg: 999}`
+  row is never a record), best e1RM (eligible, non-Campus, non-notation-mixed
+  only; e1RM is rounded to 0.5 kg with Decimal ROUND_HALF_UP), best session volume
+  (read from `per_exercise.volume_kg`, skipping rows flagged `volume_incomplete`).
+  Each with its date; ties keep the earliest date. Campus-plan loads are kept for
+  top weight (the loads are the athlete's) but excluded from e1RM. `load_label` is
+  `total_noted` only when the lift had at least one per-side session, otherwise
+  `null`.
+- **Bodyweight lifts** (pull-ups, dips, push-ups): no top weight; best reps **at
+  no added load** (rows whose stored load is `None` or `<= 0`; a weighted set with
+  more reps than the unloaded set does not win here), and the best weighted set as
+  `{reps, added_weight_kg}`. `load_label` is always `null`.
 
 Record fields are typed and nullable; bodyweight rows null their loaded fields and
 loaded rows null the bodyweight fields.
@@ -178,8 +193,13 @@ text.
 }
 ```
 
-Each progression entry gains `e1rm_eligible`, `mixed`, `notation_mixed` and
-`load_label`; each point gains `e1rm_kg` (the per-day maximum, or `null`).
+Each progression entry gains `e1rm_eligible`, `mixed`, `notation_mixed`,
+`per_side_seen` and `load_label` (`total_noted` only when the lift had a per-side
+session, otherwise `null`); each point gains `e1rm_kg` (the per-day maximum, or
+`null`). The progression top weight uses the same valid-set rule as the records
+(positive load on a set with reps > 0 or a duration); the legacy flat `weight_kg`
+is used only when the flat row is itself a valid set, and the legacy volume
+fallback is a plain float product.
 
 `trends.strength_history` is projected to the four fields the UI uses (`date`,
 `activity_id`, `duration_min`, `description`) after normalisation, then capped at
@@ -187,16 +207,22 @@ the last 20.
 
 ## Isolation and JSON safety
 
-- `strength_history` is normalised once: only dict entries with a valid
-  `YYYY-MM-DD` date survive; the rest are dropped and counted in a log warning.
+- `strength_history` is normalised once: only dict entries whose date head
+  matches `\d{4}-\d{2}-\d{2}` (a plain `YYYY-MM-DD`, so `20261013` and
+  `2026-W42-1` are rejected) survive; the rest are dropped and counted in a log
+  warning.
 - `_build_strength_progression` and `_build_strength_sessions` are hardened
   (`isinstance` checks, numbers via `to_finite_float`) and each wrapped in its own
   `try/except Exception → []` with a warning, the same pattern as the compliance
   block.
 - `strength_insights` is built inside its own `try/except Exception → None`.
-- The existing error fallback for the whole summary is unchanged. A test asserts
-  that garbage history yields HTTP 200, the running trends identical to a clean
-  baseline, and a body that parses with a strict JSON parser.
+- The existing error fallback for the whole summary is unchanged. Tests assert
+  that garbage history yields HTTP 200, the running trends (seeded with real runs)
+  identical to a clean baseline, a body that parses with a strict JSON parser
+  (`parse_constant` raises on NaN/Infinity), that a NaN emitted by a builder is
+  sanitised to `null`, that the valid Squat row in the garbage fixture still
+  yields a Squat progression point with no "Failed to build" warning, and that a
+  `json.dumps` ValueError makes the handler return a 500 with CORS headers.
 - `shared/responses.py` sanitizes non-finite `float` and `Decimal` to `null`
   recursively over dict/list/tuple, then serialises with `allow_nan=False`, so a
   missed value fails closed (500) rather than producing a body the browser rejects.
@@ -209,16 +235,18 @@ the last 20.
   (resets when it changes). The app-level usage is unchanged.
 - The progression chart's weight/volume toggle becomes a `weight | volume | e1rm`
   metric map. The e1RM button appears only when the selected exercise is
-  `e1rm_eligible`; selecting a non-eligible exercise while on e1RM falls back to
-  weight. A metric with fewer than three points shows a metric-level empty state
-  instead of hiding the chart. Mixed / notation-mixed / "total load noted" notes
-  render under the chart.
+  `e1rm_eligible`; selecting a non-eligible exercise while on e1RM sets the stored
+  metric to weight in the click handler (no setState-in-effect), so reselecting an
+  eligible exercise keeps weight. A metric with fewer than three points shows a
+  metric-level empty state instead of hiding the chart. Mixed / notation-mixed /
+  "total load noted" notes render under the chart.
 - Three new blocks: weekly stacked bars per muscle group (logged vs Campus-plan
-  segments, an explosiveness bar, and an "other" bar listing unmapped exercises),
-  a records table (horizontal scroll on narrow screens), and a push/pull line.
-  Each block, and the existing strength blocks, are wrapped in a local
-  `ErrorBoundary` with a "block unavailable" fallback, so one failing block never
-  blanks the page.
+  segments in a distinct, readable colour; the current partial week is suffixed
+  "(in progress)" on its tick and the counting rule is shown under the chart), a
+  records table (horizontal scroll on narrow screens; each loaded and weighted
+  record shows its own date), and a push/pull line. Each block, and the existing
+  strength blocks, are wrapped in a local `ErrorBoundary` with a "block
+  unavailable" fallback, so one failing block never blanks the page.
 - All new TypeScript fields are optional and arrays default to `[]`. FR and EN
   i18n keys are added.
 
@@ -227,8 +255,11 @@ the last 20.
 - Backend: finite coercion; full map coverage (canonical, Campus and plan-fixture
   names); set counting (holds, zero/negative/non-integer/non-finite, flat
   fallback); Epley values and the reps/eligibility rules; records including
-  bodyweight typing, earliest-date ties, volume-incomplete exclusion, the mixed
-  machine and the per-side notation fixture; weeks zero-fill and the current Paris
+  bodyweight typing (best reps at no added load vs a higher-rep weighted set),
+  earliest-date ties, volume-incomplete exclusion, the mixed machine absent from
+  the board, an invalid `{reps:0}` set never a top weight, two same-day activities
+  counting as two sessions, an always-per-side lift plus a no-load session not
+  notation-mixed, and the per-side notation fixture; weeks zero-fill and the current Paris
   week; push/pull null ratio; the serializer (byte-identical finite output,
   NaN/inf/Decimal sanitised); and garbage history isolation (HTTP 200, running
   trends identical, strict JSON).

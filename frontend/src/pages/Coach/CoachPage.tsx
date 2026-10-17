@@ -449,7 +449,14 @@ function StrengthProgression({
           <button
             key={e.exercise}
             type="button"
-            onClick={() => setSelected(e.exercise)}
+            onClick={() => {
+              setSelected(e.exercise);
+              // If this exercise is not e1RM-eligible and e1RM is the chosen
+              // metric, store weight so the choice persists across reselection.
+              if (chosenMetric === 'e1rm' && !e.e1rm_eligible) {
+                setMetric('weight');
+              }
+            }}
             aria-pressed={active.exercise === e.exercise}
             className={cn(
               'cursor-pointer rounded-full border px-2.5 py-1 text-xs transition-colors',
@@ -712,10 +719,8 @@ function segTotal(seg?: { logged?: number; campus_plan?: number }): number {
  */
 function StrengthWeeklyGroups({
   insights,
-  locale,
 }: {
   insights: StrengthInsights;
-  locale: string;
 }) {
   const { t } = useTranslation();
   const chartTheme = useChartTheme();
@@ -760,6 +765,17 @@ function StrengthWeeklyGroups({
     };
   });
 
+  // Weeks flagged partial (the current, in-progress week) get a suffix on the
+  // axis tick so a lower bar reads as "not finished", not "a drop".
+  const partialWeeks = useMemo(
+    () => new Set(weeks.filter((wk) => wk.partial).map((wk) => wk.week)),
+    [weeks],
+  );
+  const formatWeekTick = (w: string): string => {
+    const short = w.replace(/^\d{4}-/, '');
+    return partialWeeks.has(w) ? `${short} ${t('coach.strength.insights.inProgress')}` : short;
+  };
+
   const unmapped = insights.unmapped_exercises ?? [];
 
   return (
@@ -801,7 +817,7 @@ function StrengthWeeklyGroups({
               tick={{ fill: chartTheme.axisColor, fontSize: 10, fontFamily: 'var(--font-mono)' }}
               tickLine={false}
               axisLine={false}
-              tickFormatter={(v: string) => v.replace(/^\d{4}-/, '')}
+              tickFormatter={formatWeekTick}
               minTickGap={8}
             />
             <YAxis
@@ -823,7 +839,7 @@ function StrengthWeeklyGroups({
               dataKey="campus_plan"
               name={t('coach.strength.insights.segment.campusPlan')}
               stackId="s"
-              fill={chartTheme.gridColor}
+              fill={chartTheme.successColor}
             />
           </BarChart>
         </ResponsiveContainer>
@@ -831,6 +847,7 @@ function StrengthWeeklyGroups({
 
       <p className="mt-2 text-xs text-muted-foreground">{t('coach.strength.insights.weeklyHint')}</p>
       <p className="mt-1 text-xs text-muted-foreground">{t('coach.strength.insights.swingHint')}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{t('coach.strength.insights.countingRule')}</p>
       {unmapped.length > 0 ? (
         <div className="mt-2 text-xs text-muted-foreground">
           <span className="font-medium">{t('coach.strength.insights.unmappedTitle')}: </span>
@@ -842,8 +859,6 @@ function StrengthWeeklyGroups({
             .join(', ')}
         </div>
       ) : null}
-      {/* locale is accepted for parity with sibling blocks; week labels are locale-agnostic */}
-      <span className="sr-only">{locale}</span>
     </Card>
   );
 }
@@ -906,21 +921,34 @@ function StrengthRecordsTable({
                       ? ` · ${t('coach.strength.records.bestWeighted')}: ${t(
                           'coach.strength.records.weighted',
                           { reps: r.best_weighted_bw.reps, weight: r.best_weighted_bw.added_weight_kg },
-                        )}`
+                        )} (${fmtDate(r.best_weighted_bw.date)})`
                       : ''}
                   </td>
                 ) : (
                   <>
                     <td className="py-1.5 pr-2 text-foreground">
                       {fmtKg(r.top_weight_kg)}
+                      {r.top_weight_kg != null ? (
+                        <span className="ml-1 text-muted-foreground">({fmtDate(r.top_weight_date)})</span>
+                      ) : null}
                       {r.load_label === 'total_noted' && r.top_weight_kg != null ? (
                         <span className="ml-1 text-muted-foreground">
                           ({t('coach.strength.records.totalNoted')})
                         </span>
                       ) : null}
                     </td>
-                    <td className="py-1.5 pr-2 text-foreground">{fmtKg(r.e1rm_kg)}</td>
-                    <td className="py-1.5 pr-2 text-foreground">{fmtKg(r.best_volume_kg)}</td>
+                    <td className="py-1.5 pr-2 text-foreground">
+                      {fmtKg(r.e1rm_kg)}
+                      {r.e1rm_kg != null ? (
+                        <span className="ml-1 text-muted-foreground">({fmtDate(r.e1rm_date)})</span>
+                      ) : null}
+                    </td>
+                    <td className="py-1.5 pr-2 text-foreground">
+                      {fmtKg(r.best_volume_kg)}
+                      {r.best_volume_kg != null ? (
+                        <span className="ml-1 text-muted-foreground">({fmtDate(r.best_volume_date)})</span>
+                      ) : null}
+                    </td>
                   </>
                 )}
                 <td className="py-1.5 pr-2 text-muted-foreground">{fmtDate(r.last_date)}</td>
@@ -939,10 +967,8 @@ function StrengthRecordsTable({
  */
 function StrengthPushPull({
   insights,
-  locale,
 }: {
   insights: StrengthInsights;
-  locale: string;
 }) {
   const { t } = useTranslation();
   const chartTheme = useChartTheme();
@@ -1009,7 +1035,6 @@ function StrengthPushPull({
         ))}
       </div>
       <p className="mt-2 text-xs text-muted-foreground">{t('coach.strength.pushPull.hint')}</p>
-      <span className="sr-only">{locale}</span>
     </Card>
   );
 }
@@ -2302,7 +2327,6 @@ export function CoachPage() {
                   >
                     <StrengthWeeklyGroups
                       insights={trends!.strength_insights!}
-                      locale={locale}
                     />
                   </ErrorBoundary>
                 )}
@@ -2340,7 +2364,6 @@ export function CoachPage() {
                   >
                     <StrengthPushPull
                       insights={trends!.strength_insights!}
-                      locale={locale}
                     />
                   </ErrorBoundary>
                 )}

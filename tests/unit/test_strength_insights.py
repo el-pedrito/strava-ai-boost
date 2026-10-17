@@ -206,7 +206,8 @@ class TestRecords:
         ins = build_strength_insights(entries, today=TODAY)
         rec = next(r for r in ins['records'] if r['exercise'] == 'Squat')
         assert rec['kind'] == 'loaded'
-        assert rec['load_label'] == 'total_noted'
+        # No per-side session on this lift -> no "total load noted" label.
+        assert rec['load_label'] is None
         assert rec['top_weight_kg'] == 110.0
         assert rec['top_weight_date'] == '2026-10-13'
         assert rec['e1rm_kg'] == max(_epley_1rm(100, 5), _epley_1rm(110, 3))
@@ -265,16 +266,17 @@ class TestRecords:
         assert rec['best_reps_bw'] == {'reps': 10, 'date': '2026-10-13'}
         assert rec['best_weighted_bw'] == {'reps': 6, 'added_weight_kg': 20.0, 'date': '2026-10-13'}
 
-    def test_mixed_exercise_excluded_from_e1rm_and_top(self):
+    def test_mixed_exercise_absent_from_records(self):
+        """The mixed machine is kept off the records board entirely: no row,
+        not even a volume record (a chest/shoulder-press volume PR is not
+        comparable)."""
         entries = self._two_sessions(
             'Développé machine', '2026-10-06', [{'reps': 8, 'weight_kg': 55}],
             '2026-10-13', [{'reps': 8, 'weight_kg': 60}],
             vol1=1320, vol2=1440,
         )
         ins = build_strength_insights(entries, today=TODAY)
-        rec = next(r for r in ins['records'] if r['exercise'] == 'Développé machine')
-        assert rec['top_weight_kg'] is None
-        assert rec['e1rm_kg'] is None
+        assert all(r['exercise'] != 'Développé machine' for r in ins['records'])
 
     def test_notation_mixed_fixture(self):
         """Presse à cuisses "4x10 40/c" then "4x10 @100" -> notation mixed,
@@ -352,6 +354,84 @@ class TestRecords:
         )
         ins = build_strength_insights(entries, today=TODAY)
         assert all(r['exercise'] != 'Gainage frontal' for r in ins['records'])
+
+    def test_bodyweight_best_reps_ignores_weighted_sets(self):
+        """Item 2: the unloaded set has FEWER reps than the weighted one; the
+        bodyweight reps record still takes the unloaded set, and the weighted
+        record takes the loaded one."""
+        entries = self._two_sessions(
+            'Tractions',
+            '2026-10-06', [{'reps': 6, 'weight_kg': None}],
+            '2026-10-13', [{'reps': 8, 'weight_kg': None}, {'reps': 12, 'weight_kg': 15}],
+        )
+        ins = build_strength_insights(entries, today=TODAY)
+        rec = next(r for r in ins['records'] if r['exercise'] == 'Tractions')
+        # 12 reps are at +15 kg -> they belong to the weighted record, not reps_bw.
+        assert rec['best_reps_bw'] == {'reps': 8, 'date': '2026-10-13'}
+        assert rec['best_weighted_bw'] == {'reps': 12, 'added_weight_kg': 15.0, 'date': '2026-10-13'}
+
+    def test_invalid_set_never_a_top_weight(self):
+        """Item 3: a {reps: 0, weight_kg: 999} row is not a lift and must not
+        become a top weight. A real set in the other session is the record."""
+        entries = self._two_sessions(
+            'Squat',
+            '2026-10-06', [{'reps': 0, 'weight_kg': 999}, {'reps': 5, 'weight_kg': 100}],
+            '2026-10-13', [{'reps': 5, 'weight_kg': 105}],
+            vol1=1500, vol2=1575,
+        )
+        ins = build_strength_insights(entries, today=TODAY)
+        rec = next(r for r in ins['records'] if r['exercise'] == 'Squat')
+        assert rec['top_weight_kg'] == 105.0  # 999 is rejected, 105 wins
+
+    def test_always_per_side_plus_no_load_session_is_not_notation_mixed(self):
+        """Item 4: a lift always written per-side, plus one session with no load,
+        is NOT notation_mixed (the no-load session is 'unknown', not 'plain')."""
+        s1 = _session('2026-10-06', 'Presse à cuisses',
+                      [{'reps': 10, 'weight_kg': 80}] * 4,
+                      description='Presse à cuisses 4x10 40/c')
+        s2 = _session('2026-10-13', 'Presse à cuisses',
+                      [{'reps': 10, 'weight_kg': 100}] * 4,
+                      description='Presse à cuisses 4x10 50/c')
+        s3 = _session('2026-10-15', 'Presse à cuisses',
+                      [{'reps': 12, 'weight_kg': None}] * 3,
+                      description='Presse à cuisses 3x12 bodyweight test')
+        flags = exercise_flags([s1, s2, s3])
+        assert flags['Presse à cuisses']['notation_mixed'] is False
+        assert flags['Presse à cuisses']['per_side_seen'] is True
+        ins = build_strength_insights([s1, s2, s3], today=TODAY)
+        rec = next(r for r in ins['records'] if r['exercise'] == 'Presse à cuisses')
+        assert rec['notation_mixed'] is False
+        assert rec['top_weight_kg'] == 100.0
+        assert rec['load_label'] == 'total_noted'
+
+    def test_two_activities_same_day_count_as_two_sessions(self):
+        """Item 5: eligibility counts distinct entries (activity_id), not distinct
+        dates. Two activities on the same day are two sessions."""
+        s1 = {'date': '2026-10-13', 'activity_id': 'a1', 'sets_source': 'athlete_text',
+              'description': '', 'parsed_sets': [
+                  {'exercise': 'Squat', 'sets_detail': [{'reps': 5, 'weight_kg': 100}]}],
+              'per_exercise': [{'exercise': 'Squat', 'volume_kg': 500, 'volume_incomplete': False}]}
+        s2 = {'date': '2026-10-13', 'activity_id': 'a2', 'sets_source': 'athlete_text',
+              'description': '', 'parsed_sets': [
+                  {'exercise': 'Squat', 'sets_detail': [{'reps': 5, 'weight_kg': 110}]}],
+              'per_exercise': [{'exercise': 'Squat', 'volume_kg': 550, 'volume_incomplete': False}]}
+        ins = build_strength_insights([s1, s2], today=TODAY)
+        rec = next(r for r in ins['records'] if r['exercise'] == 'Squat')
+        assert rec['top_weight_kg'] == 110.0
+
+    def test_load_label_none_without_per_side_session(self):
+        """Item 7: a plain-only loaded lift gets load_label None, and
+        exercise_flags reports per_side_seen False."""
+        entries = self._two_sessions(
+            'Squat', '2026-10-06', [{'reps': 5, 'weight_kg': 100}],
+            '2026-10-13', [{'reps': 5, 'weight_kg': 105}],
+            vol1=1500, vol2=1575,
+        )
+        ins = build_strength_insights(entries, today=TODAY)
+        rec = next(r for r in ins['records'] if r['exercise'] == 'Squat')
+        assert rec['load_label'] is None
+        flags = exercise_flags(entries)
+        assert flags['Squat']['per_side_seen'] is False
 
     def test_cap_at_fifteen_rows(self):
         exercises = [

@@ -12,6 +12,15 @@ from shared import responses  # noqa: E402
 from shared.responses import create_success_response, _sanitize_non_finite  # noqa: E402
 
 
+def _raise_constant(value):
+    raise AssertionError(f"non-strict JSON constant in body: {value!r}")
+
+
+def _strict_loads(body):
+    """json.loads that rejects NaN/Infinity (parse_constant raises)."""
+    return json.loads(body, parse_constant=_raise_constant)
+
+
 class _FixedDatetime:
     @classmethod
     def now(cls, tz=None):
@@ -80,8 +89,8 @@ class TestCreateSuccessResponse:
             ensure_ascii=False,
         )
         assert resp['body'] == expected
-        # And it round-trips with a strict parser.
-        parsed = json.loads(resp['body'])
+        # And it round-trips with a STRICT parser (parse_constant raises).
+        parsed = _strict_loads(resp['body'])
         assert parsed['dec'] == 82.5
         assert parsed['name'] == 'Développé couché'
 
@@ -89,7 +98,7 @@ class TestCreateSuccessResponse:
         payload = {'value': float('nan'), 'ok': 1.0}
         with patch.object(responses, 'datetime', _FixedDatetime):
             resp = create_success_response(payload)
-        parsed = json.loads(resp['body'])
+        parsed = _strict_loads(resp['body'])
         assert parsed['value'] is None
         assert parsed['ok'] == 1.0
 
@@ -97,7 +106,7 @@ class TestCreateSuccessResponse:
         payload = {'trends': {'a': [float('inf'), Decimal('NaN'), Decimal('5')]}}
         with patch.object(responses, 'datetime', _FixedDatetime):
             resp = create_success_response(payload)
-        parsed = json.loads(resp['body'])
+        parsed = _strict_loads(resp['body'])
         assert parsed['trends']['a'] == [None, None, 5.0]
 
     def test_strict_parse_rejects_no_nan_tokens(self):

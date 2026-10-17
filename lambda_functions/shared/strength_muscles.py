@@ -250,11 +250,6 @@ def lookup_exercise(name: str) -> MuscleMapping:
     return _UNKNOWN
 
 
-def canonical_display_name(name: str) -> str:
-    """Canonical display name for a raw exercise name (for records/notes)."""
-    return canonicalize_exercise_name(name)
-
-
 # ---------------------------------------------------------------------------
 # Coverage guard data (consumed by the unit tests).
 # ---------------------------------------------------------------------------

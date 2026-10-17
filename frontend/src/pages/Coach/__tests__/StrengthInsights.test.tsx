@@ -242,12 +242,20 @@ describe('Strength insights blocks', () => {
     expect(await screen.findByText('Strength progression')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'e1RM' }).length).toBeGreaterThan(0);
 
-    // Select e1RM, then switch to the non-eligible exercise: the toggle disappears.
+    // Select e1RM, then switch to the non-eligible exercise: the toggle
+    // disappears AND the stored metric becomes weight (Weight is aria-pressed).
     await user.click(screen.getAllByRole('button', { name: 'e1RM' })[0]);
     await user.click(screen.getByRole('button', { name: 'Curl barre' }));
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: 'e1RM' })).not.toBeInTheDocument(),
     );
+    expect(screen.getByRole('button', { name: 'Max load' })).toHaveAttribute('aria-pressed', 'true');
+
+    // Reselect the eligible exercise: the metric stays weight (not silently e1RM).
+    await user.click(screen.getByRole('button', { name: 'Squat' }));
+    expect(await screen.findByRole('button', { name: 'e1RM' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Max load' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'e1RM' })).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('shows a metric empty state instead of hiding when a metric has <3 points', async () => {
@@ -307,7 +315,8 @@ describe('Strength insights blocks', () => {
     const header = await screen.findByText('Push / pull balance');
     const card = header.closest('div');
     expect(card).toBeTruthy();
-    // W41 has pull=0 -> listed in the per-week ratio summary.
-    expect(within(card as HTMLElement).getByText(/W41/)).toBeInTheDocument();
+    // W41 has pull=0 -> ratio is null -> rendered as an em dash in its span.
+    const w41 = within(card as HTMLElement).getByText(/W41/);
+    expect(w41.textContent).toMatch(/—/);
   });
 });

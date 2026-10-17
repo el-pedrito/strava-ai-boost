@@ -10,6 +10,7 @@ Provides dashboard data for the local web interface including:
 
 import json
 import os
+import re
 from typing import Dict, Any, List, Optional
 import boto3
 from botocore.exceptions import ClientError
@@ -645,7 +646,8 @@ def _build_strength_progression(
             name = canonicalize_exercise_name(str(raw_name))
             if not name:
                 continue
-            # Top weight: max load over valid sets_detail; flat fallback for legacy rows.
+            # Top weight: max load over VALID sets (reps>0 or duration>0, load>0).
+            # Legacy flat fallback only when the flat row itself is a valid set.
             detail = s.get('sets_detail')
             top_weight: Optional[float] = None
             if isinstance(detail, list) and detail:
@@ -653,11 +655,28 @@ def _build_strength_progression(
                     if not isinstance(row, dict):
                         continue
                     load = to_finite_float(row.get('weight_kg'))
-                    if load is not None and (top_weight is None or load > top_weight):
+                    if load is None or load <= 0:
+                        continue
+                    row_reps = to_finite_float(row.get('reps'))
+                    row_dur = to_finite_float(row.get('duration_s'))
+                    valid = (row_reps is not None and row_reps > 0) or (
+                        row_dur is not None and row_dur > 0
+                    )
+                    if not valid:
+                        continue
+                    if top_weight is None or load > top_weight:
                         top_weight = load
             if top_weight is None:
-                # Legacy row with only a flat weight_kg.
-                top_weight = to_finite_float(s.get('weight_kg'))
+                # Legacy row with only a flat weight_kg: keep only when the flat
+                # row is itself a valid set with a positive load.
+                flat_weight = to_finite_float(s.get('weight_kg'))
+                flat_reps = to_finite_float(s.get('reps'))
+                flat_dur = to_finite_float(s.get('duration_s'))
+                flat_valid = (flat_reps is not None and flat_reps > 0) or (
+                    flat_dur is not None and flat_dur > 0
+                )
+                if flat_weight is not None and flat_weight > 0 and flat_valid:
+                    top_weight = flat_weight
             # Volume from the pipeline figures (never recomputed here).
             volume = per_exercise_volume.get(name)
             if volume is None:
@@ -665,7 +684,7 @@ def _build_strength_progression(
                 reps = to_finite_float(s.get('reps'))
                 flat_weight = to_finite_float(s.get('weight_kg'))
                 if flat_weight is not None and sets and reps:
-                    volume = round(flat_weight * int(sets) * int(reps), 1)
+                    volume = round(flat_weight * sets * reps, 1)
             point = {
                 'date': day,
                 'top_weight_kg': top_weight,
@@ -701,7 +720,7 @@ def _build_strength_progression(
             'e1rm_eligible': bool(exercise_flags.get('e1rm_eligible', False)),
             'mixed': bool(exercise_flags.get('mixed', False)),
             'notation_mixed': bool(exercise_flags.get('notation_mixed', False)),
-            'load_label': 'total_noted',
+            'load_label': 'total_noted' if exercise_flags.get('per_side_seen') else None,
         })
 
     progression.sort(key=lambda e: e['sessions'], reverse=True)
@@ -1722,6 +1741,12 @@ def get_coach_summary(user_id: str) -> Dict[str, Any]:
                     continue
                 raw_date = raw.get('date')
                 if not isinstance(raw_date, str):
+                    dropped += 1
+                    continue
+                # Require a plain YYYY-MM-DD head: date.fromisoformat on 3.11+
+                # also accepts "20261013" and "2026-W42-1", which the UI cannot
+                # render and which break string date sorting.
+                if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', raw_date[:10]):
                     dropped += 1
                     continue
                 try:
