@@ -115,11 +115,20 @@ equipment.
 **Per-side notation hazard.** The extractor doubles a per-side load (`/c`,
 `/côté`, `each side`, …), so "40/c" is stored as 80 while "@100" is stored as 100.
 If an exercise's history mixes a per-side-noted session and a plain one, switching
-notation would fake a record. `PER_SIDE_RE` is matched on each entry's stored
-`description`; a match taints every exercise in that session. An exercise with both
-kinds of session is marked `notation_mixed`, made e1RM-ineligible, and excluded
-from the e1RM, top-weight and volume records. The chart shows a "total load noted,
-mixed notation" note.
+notation would fake a record.
+
+An exercise is per-side in a session when every one of its stored loads equals
+2 x a number written just before a per-side token in the session text, and that
+load is not also written as a plain number. The load link ties the notation to
+the lift it belongs to: a first version tainted every exercise of a session as soon
+as one line said "/c", which on live data marked 19 of 22 lifts (bench press
+included) and emptied the records board. The "not written plain" rule stops a
+coincidence such as "dc 80x10" next to "Press inc 40/c" (stored 80).
+
+An exercise with both kinds of session is marked `notation_mixed`, made
+e1RM-ineligible, and excluded from the e1RM, top-weight and volume records. The
+chart shows a "total load noted, mixed notation" note. Rows with no record at all
+(holds, jumps) are left off the board.
 
 ## Records board
 

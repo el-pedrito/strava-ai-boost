@@ -86,7 +86,7 @@ def _m(primary, secondary=(), *, pattern, e1rm, explosivite=False):
     )
 
 
-# Final e1RM set (PLAN-v4 §2): compound plate/barbell lifts only. Dumbbell presses
+# Final e1RM set: compound plate/barbell lifts only. Dumbbell presses
 # are excluded because "/c"/per-side notation and dumbbell loads are not comparable.
 _E1RM_NAMES = frozenset({
     'Développé couché',
@@ -197,7 +197,7 @@ _RAW_MAP: Dict[str, MuscleMapping] = {
         group_weights={}, pattern=LEGS, e1rm=False, autre=True, autre_reason='unknown',
     ),
     # Flexion de genou: ambiguous (knee flexion could be hamstrings) -> listed as
-    # to_confirm until the athlete confirms (PLAN-v3 §4).
+    # to_confirm until the athlete confirms.
     'Flexion de genou': MuscleMapping(
         group_weights={}, pattern=LEGS, e1rm=False, autre=True, autre_reason='to_confirm',
     ),
@@ -213,7 +213,7 @@ for _name in _RAW_MAP:
     _NAME_BY_KEY[_key] = _name
 
 
-# Stem fallback for future Campus names (PLAN-v3 §4, PLAN-v4 §6). Matched by
+# Stem fallback for future Campus names. Matched by
 # containment on the normalised key, longest stem first; exact key wins first.
 # "mollet" is kept for hold names such as "Mollet statique" (rep-based calf moves
 # are already renamed to "Mollets" by ppg_history_sets, so this is for holds).

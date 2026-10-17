@@ -297,6 +297,62 @@ class TestRecords:
         assert flags['Presse à cuisses']['notation_mixed'] is True
         assert per_day_e1rm(entries) == {}
 
+    def test_per_side_load_does_not_taint_other_lifts_of_the_session(self):
+        """Live case: 'dc 80x10' next to 'Press inc 3x10 40/c' (stored 80).
+
+        A session-level "/c anywhere" rule marked the bench press as per-side
+        and, with its plain sessions, as notation-mixed: no record, no e1RM.
+        The bench must stay clean; the incline press is the per-side lift."""
+        desc = 'dc 80x10 90x8\nPress inc 3x10 40/c'
+        session = {
+            'date': '2026-10-06', 'activity_id': 'a1', 'sets_source': 'athlete_text',
+            'description': desc,
+            'parsed_sets': [
+                {'exercise': 'Développé couché',
+                 'sets_detail': [{'reps': 10, 'weight_kg': 80}, {'reps': 8, 'weight_kg': 90}]},
+                {'exercise': 'Développé incliné haltères',
+                 'sets_detail': [{'reps': 10, 'weight_kg': 80}] * 3},
+            ],
+        }
+        plain_bench = _session(
+            '2026-10-13', 'Développé couché',
+            [{'reps': 8, 'weight_kg': 90}] * 3, description='dc 3x8 90',
+        )
+        flags = exercise_flags([session, plain_bench])
+        assert flags['Développé couché']['notation_mixed'] is False
+        assert flags['Développé couché']['e1rm_eligible'] is True
+
+    def test_load_written_plain_and_per_side_is_not_per_side(self):
+        """'dc 4x8 80' plus 'Press inc 40/c': 80 is written plain, so a lift
+        stored at 80 is not proven per-side."""
+        from shared.strength_insights import (
+            _exercise_per_side, _per_side_doubled_loads, _plain_numbers,
+        )
+        entry = {'description': 'dc 4x8 80\nPress inc 3x10 40/c'}
+        doubled = _per_side_doubled_loads(entry)
+        plain = _plain_numbers(entry)
+        assert 80.0 in doubled and 80.0 in plain
+        assert _exercise_per_side([{'reps': 8, 'weight_kg': 80}], doubled, plain) is False
+
+    def test_per_side_with_decimal_comma_and_kg_cote(self):
+        from shared.strength_insights import (
+            _exercise_per_side, _per_side_doubled_loads, _plain_numbers,
+        )
+        entry = {'description': 'Press inc 3x10 37,5/c\nlow row 8x50kg par côté'}
+        doubled = _per_side_doubled_loads(entry)
+        plain = _plain_numbers(entry)
+        assert _exercise_per_side([{'reps': 10, 'weight_kg': 75}], doubled, plain) is True
+        assert _exercise_per_side([{'reps': 8, 'weight_kg': 100}], doubled, plain) is True
+
+    def test_rows_without_any_record_are_dropped(self):
+        entries = self._two_sessions(
+            'Gainage frontal',
+            '2026-10-06', [{'duration_s': 40}] * 3,
+            '2026-10-13', [{'duration_s': 45}] * 3,
+        )
+        ins = build_strength_insights(entries, today=TODAY)
+        assert all(r['exercise'] != 'Gainage frontal' for r in ins['records'])
+
     def test_cap_at_fifteen_rows(self):
         exercises = [
             'Développé couché', 'Développé incliné', 'Squat', 'Soulevé de terre',

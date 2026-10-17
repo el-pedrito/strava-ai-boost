@@ -4,7 +4,7 @@ Builds ``trends.strength_insights`` from the normalised ``strength_history``
 entries. No I/O, no DynamoDB, no clock except an injectable "today" so tests are
 deterministic. ``dashboard_api`` only wires this in, inside its own guard.
 
-Payload contract (PLAN-v4 §3 + PLAN-v5):
+Payload contract (docs/design/strength-insights.md):
 
     {
       counting_rule: str,
@@ -18,7 +18,7 @@ Payload contract (PLAN-v4 §3 + PLAN-v5):
       mixed_exercises: [{exercise, note_key}],
     }
 
-Set counting (PLAN-v2 F1 / PLAN-v4 §6):
+Set counting:
 - a set counts when it has ``reps > 0`` or ``duration_s > 0``;
 - the count is the number of valid ``sets_detail`` rows;
 - a flat ``sets`` fallback is used ONLY when there is no usable detail AND the
@@ -284,7 +284,78 @@ def _best_set_e1rm(sets_detail: List[Dict[str, Any]]) -> Optional[float]:
 # Records
 # ---------------------------------------------------------------------------
 
+# A load written just before a per-side token, e.g. "35/c", "37,5 /côté".
+_PER_SIDE_LOAD_RE = re.compile(
+    r'(\d+(?:[.,]\d+)?)\s*(?:kg\s*)?(?:/c\b|/cote|/côté|par\s+cote|par\s+côté|each\s+side|/side)',
+    re.IGNORECASE,
+)
+
+
+def _per_side_doubled_loads(entry: Dict[str, Any]) -> frozenset:
+    """Stored (doubled) loads that come from a per-side notation in this session.
+
+    The extractor stores "35/c" as 70. Matching an exercise's stored loads against
+    2 x every number written just before a per-side token ties the notation to
+    the exercise it belongs to. A session-level "any /c in the text" test tainted
+    every exercise of the session: on live data it marked 19 of 22 lifts (bench
+    press included) as notation-mixed and emptied the records board.
+    """
+    description = entry.get('description')
+    if not isinstance(description, str):
+        return frozenset()
+    doubled = set()
+    for match in _PER_SIDE_LOAD_RE.finditer(description):
+        value = to_finite_float(match.group(1))
+        if value is not None and value > 0:
+            doubled.add(round(value * 2.0, 2))
+    return frozenset(doubled)
+
+
+_NUMBER_RE = re.compile(r'\d+(?:[.,]\d+)?')
+
+
+def _plain_numbers(entry: Dict[str, Any]) -> frozenset:
+    """Numbers written in the text WITHOUT a per-side token right after them."""
+    description = entry.get('description')
+    if not isinstance(description, str):
+        return frozenset()
+    per_side_spans = {m.span(1) for m in _PER_SIDE_LOAD_RE.finditer(description)}
+    plain = set()
+    for match in _NUMBER_RE.finditer(description):
+        if match.span() in per_side_spans:
+            continue
+        value = to_finite_float(match.group(0))
+        if value is not None:
+            plain.add(round(value, 2))
+    return frozenset(plain)
+
+
+def _exercise_per_side(
+    detail: List[Dict[str, Any]], doubled: frozenset, plain: frozenset = frozenset()
+) -> bool:
+    """True when this exercise's loads all come from a per-side notation.
+
+    Every stored load must be a doubled per-side value, and must not also be
+    written as a plain number in the session text. The second rule stops a
+    coincidence: "dc 80x10" next to "Press inc 40/c" (stored 80) would otherwise
+    mark the bench press as per-side.
+    """
+    if not doubled:
+        return False
+    loads = []
+    for row in detail:
+        if not isinstance(row, dict):
+            continue
+        load = to_finite_float(row.get('weight_kg'))
+        if load is not None and load > 0:
+            loads.append(round(load, 2))
+    if not loads:
+        return False
+    return all(load in doubled and load not in plain for load in loads)
+
+
 def _per_side_noted(entry: Dict[str, Any]) -> bool:
+    """Session mentions a per-side notation anywhere (kept for callers/tests)."""
     description = entry.get('description')
     if not isinstance(description, str):
         return False
@@ -386,7 +457,8 @@ def _build_records(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         parsed = entry.get('parsed_sets')
         if not isinstance(parsed, list):
             continue
-        session_per_side = _per_side_noted(entry)
+        doubled = _per_side_doubled_loads(entry)
+        plain = _plain_numbers(entry)
         is_campus = entry.get('sets_source') == CAMPUS_PLAN
         incomplete_map = _per_exercise_incomplete(entry)
         volume_map = _per_exercise_volume(entry)
@@ -405,13 +477,13 @@ def _build_records(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             if mapping.autre:
                 # Unmapped: no record row (surfaced in unmapped_exercises instead).
                 continue
-            if session_per_side:
+            detail = parsed_set.get('sets_detail')
+            detail = detail if isinstance(detail, list) else []
+
+            if _exercise_per_side(detail, doubled, plain):
                 per_side_seen[name] = True
             else:
                 plain_seen[name] = True
-
-            detail = parsed_set.get('sets_detail')
-            detail = detail if isinstance(detail, list) else []
 
             rec = by_exercise.setdefault(name, {
                 'name': name,
@@ -517,6 +589,11 @@ def _build_records(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 row['best_volume_kg'] = None
                 row['best_volume_date'] = None
 
+        # A row with no record at all (holds, jumps) only takes a slot in the cap.
+        if not any(row.get(key) is not None for key in (
+            'top_weight_kg', 'e1rm_kg', 'best_volume_kg', 'best_reps_bw', 'best_weighted_bw',
+        )) and not row['notation_mixed']:
+            continue
         records.append(row)
 
     # Sort by last session date, descending; cap at 15.
@@ -544,7 +621,8 @@ def exercise_flags(entries: List[Dict[str, Any]]) -> Dict[str, Dict[str, bool]]:
         parsed = entry.get('parsed_sets')
         if not isinstance(parsed, list):
             continue
-        session_per_side = _per_side_noted(entry)
+        doubled = _per_side_doubled_loads(entry)
+        plain = _plain_numbers(entry)
         for parsed_set in parsed:
             if not isinstance(parsed_set, dict):
                 continue
@@ -558,7 +636,9 @@ def exercise_flags(entries: List[Dict[str, Any]]) -> Dict[str, Dict[str, bool]]:
             seen[name] = True
             map_e1rm[name] = mapping.e1rm
             is_mixed[name] = name in MIXED_EXERCISES
-            if session_per_side:
+            detail = parsed_set.get('sets_detail')
+            detail = detail if isinstance(detail, list) else []
+            if _exercise_per_side(detail, doubled, plain):
                 per_side_seen[name] = True
             else:
                 plain_seen[name] = True
