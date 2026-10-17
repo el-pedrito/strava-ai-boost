@@ -11,7 +11,7 @@ export function BottomNav() {
       aria-label="Primary mobile navigation"
       className="fixed bottom-0 left-0 right-0 z-40 flex h-16 items-stretch justify-around border-t border-border bg-surface-elevated/95 backdrop-blur md:hidden"
     >
-      {getNavItems().map((item) => {
+      {getNavItems().filter((item) => item.mobile !== false).map((item) => {
         const Icon = item.Icon;
         return (
           <NavLink

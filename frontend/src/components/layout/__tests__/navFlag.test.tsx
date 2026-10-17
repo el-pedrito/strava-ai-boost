@@ -51,7 +51,7 @@ describe('workoutExportEnabled flag', () => {
 
   it('flag on: getNavItems inserts /plan right after /coach', () => {
     const routes = getNavItems(true).map((item) => item.to);
-    expect(routes).toEqual(['/', '/coach', '/plan', '/quality', '/config', '/preferences']);
+    expect(routes).toEqual(['/', '/coach', '/plan', '/quality', '/monitoring', '/config', '/preferences']);
     // The shared base list is never mutated.
     expect(NAV_ITEMS.some((item) => item.to === '/plan')).toBe(false);
   });
@@ -78,6 +78,19 @@ describe('workoutExportEnabled flag', () => {
     expect(within(bottom).getAllByRole('link')).toHaveLength(6);
     expect(within(bottom).getByRole('link', { name: 'Plan' })).toHaveAttribute('href', '/plan');
     expect(screen.getAllByRole('link', { name: 'Plan' })).toHaveLength(2);
+  });
+
+  it('Monitoring tab: in the sidebar, not in the 6-slot mobile bar', () => {
+    flag.enabled = true;
+    render(
+      <MemoryRouter>
+        <BottomNav />
+        <Sidebar />
+      </MemoryRouter>
+    );
+    const bottom = screen.getByRole('navigation', { name: 'Primary mobile navigation' });
+    expect(within(bottom).queryByRole('link', { name: 'Monitoring' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Monitoring' })).toHaveAttribute('href', '/monitoring');
   });
 
   // jsdom does no layout, so 375 px cannot be measured here. These tests pin what
