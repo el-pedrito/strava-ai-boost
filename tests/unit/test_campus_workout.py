@@ -121,11 +121,18 @@ def _range(raw):
 def _alert(raw):
     msg = _message(raw, {
         1: ("metric", 0, _enum({1: "AVERAGE", 2: "CURRENT"})),
-        2: ("style", 0, _enum({2: "RANGE"})),
-        4: ("speed", 2, lambda r: _message(r, {2: ("range", 2, _range)})),
+        2: ("style", 0, _enum({1: "VALUE", 2: "RANGE"})),
+        4: ("speed", 2, lambda r: _message(r, {1: ("target", 2, _bound), 2: ("range", 2, _range)})),
     })
-    bounds = msg.pop("speed")["range"]
-    msg.update(bounds)
+    speed = msg.pop("speed")
+    # Exactly one shape, and it must match the declared style.
+    assert len(speed) == 1, speed
+    if msg["style"] == "VALUE":
+        assert "target" in speed, msg
+        msg["target"] = speed["target"]
+    else:
+        assert "range" in speed, msg
+        msg.update(speed["range"])
     return msg
 
 
@@ -258,8 +265,8 @@ class TestGate0Goldens:
         work, rec = block["steps"]
         assert (work["purpose"], rec["purpose"]) == ("WORK", "RECOVERY")
         assert work["name"] == "Semi Marathon 4:28"
-        assert work["alert"]["metric"] == "CURRENT" and work["alert"]["style"] == "RANGE"
-        assert work["alert"]["lower"] < 1000 / 268 < work["alert"]["upper"]
+        assert work["alert"]["metric"] == "CURRENT" and work["alert"]["style"] == "VALUE"
+        assert work["alert"]["target"] == pytest.approx(1000 / 268)
         assert "alert" not in rec and rec["name"] == "Lent 11:14"
         assert result.summary == "WU 15' · 4x(9' Semi 4:28 + 2') · CD 5'"
 
@@ -546,16 +553,31 @@ class TestPaceAlerts:
         result, workout = _map(_session([_work(duration, pace, **extra)], **session_extra))
         return _only_step(workout), result.metrics
 
-    def test_quality_work_step_gets_current_range(self):
+    def test_default_mode_is_the_exact_target_value(self):
+        assert cw.PACE_ALERT_MODE == "value"
+        step, _ = self._step("10 min", "Seuil (4:20/km)")
+        assert step["alert"]["metric"] == "CURRENT"
+        assert step["alert"]["style"] == "VALUE"
+        assert step["alert"]["target"] == pytest.approx(1000 / 260)
+        assert "lower" not in step["alert"] and "upper" not in step["alert"]
+
+    def test_range_mode_still_available(self, monkeypatch):
+        monkeypatch.setattr(cw, "PACE_ALERT_MODE", "range")
         step, _ = self._step("10 min", "Seuil (4:20/km)")
         target = 1000 / 260
-        assert step["alert"]["metric"] == "CURRENT"
+        assert step["alert"]["style"] == "RANGE"
         assert step["alert"]["lower"] == pytest.approx(target * (1 - cw.PACE_TOLERANCE))
         assert step["alert"]["upper"] == pytest.approx(target * (1 + cw.PACE_TOLERANCE))
 
-    def test_lower_bound_is_slower_than_upper(self):
+    def test_lower_bound_is_slower_than_upper(self, monkeypatch):
+        monkeypatch.setattr(cw, "PACE_ALERT_MODE", "range")
         step, _ = self._step("10 min", "Tempo (5:00/km)")
         assert step["alert"]["lower"] < step["alert"]["upper"]
+
+    def test_race_target_value_uses_average(self):
+        step, _ = self._step("40 min", "course (4:28/km)", session={"training_type": "Competition"})
+        assert (step["alert"]["style"], step["alert"]["metric"]) == ("VALUE", "AVERAGE")
+        assert step["alert"]["target"] == pytest.approx(1000 / 268)
 
     def test_threshold_is_180_seconds(self):
         assert cw.MIN_PACE_ALERT_SECONDS == 180

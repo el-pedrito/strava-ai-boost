@@ -37,8 +37,10 @@ from shared import workout_file as wf
 
 # ------------------------------------------------------------------- tunables
 
-# Pace alert window around the target speed (+/- 2.5 %). Tuned on the field: one
-# constant, one test.
+# Pace alert shape. "value" = the exact Campus target pace (athlete's choice,
+# 2026-10-17: the Watch shows "4:33" instead of a computed window). "range" = a
+# window of +/- PACE_TOLERANCE around it. One switch, one test.
+PACE_ALERT_MODE = "value"
 PACE_TOLERANCE = 0.025
 # Shorter WORK steps get no pace alert: GPS pace needs time to settle, and an alert on
 # a 30 s rep only produces noise.
@@ -302,7 +304,12 @@ class _Mapper:
         ):
             mps = 1000.0 / target
             metric = wf.ALERT_METRIC_AVERAGE if self.race else wf.ALERT_METRIC_CURRENT
-            alert = wf.pace_range_alert(mps * (1 - PACE_TOLERANCE), mps * (1 + PACE_TOLERANCE), metric)
+            if PACE_ALERT_MODE == "value":
+                alert = wf.pace_value_alert(mps, metric)
+            else:
+                alert = wf.pace_range_alert(
+                    mps * (1 - PACE_TOLERANCE), mps * (1 + PACE_TOLERANCE), metric
+                )
 
         display = strip_banned_words(family_text)
         name = None

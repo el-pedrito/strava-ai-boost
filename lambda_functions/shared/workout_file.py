@@ -82,6 +82,7 @@ TIME_UNIT_HOURS = 3
 ALERT_METRIC_AVERAGE = 1
 ALERT_METRIC_CURRENT = 2
 
+ALERT_STYLE_VALUE = 1
 ALERT_STYLE_RANGE = 2
 
 # Speed bounds carry a unit (1 = metres) and a time denominator (SECONDS, 1.0):
@@ -190,6 +191,21 @@ def pace_range_alert(lower_mps: float, upper_mps: float, metric: int) -> bytes:
         field_varint(1, metric)
         + field_varint(2, ALERT_STYLE_RANGE)
         + field_bytes(4, field_bytes(2, bounds))
+    )
+
+
+def pace_value_alert(target_mps: float, metric: int) -> bytes:
+    """A VALUE pace alert: one target pace, the Watch applies its own margin.
+
+    Same shape as Apple's real export ``Probe_Alerts_Zones.workout`` (rebuilt byte for
+    byte in the tests): style VALUE, payload in ``SpeedAlert.speed_target`` (field 1).
+    """
+    if metric not in _PACE_METRICS:
+        raise ValueError(f"pace alert metric must be CURRENT or AVERAGE, got {metric!r}")
+    return (
+        field_varint(1, metric)
+        + field_varint(2, ALERT_STYLE_VALUE)
+        + field_bytes(4, field_bytes(1, speed_bound(target_mps)))
     )
 
 

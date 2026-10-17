@@ -23,7 +23,6 @@ APPLE_DIR = os.path.join(os.path.dirname(__file__), "..", "fixtures", "workout",
 GOAL_DISTANCE = 3
 DISTANCE_UNIT_METERS = 1
 ALERT_METRIC_HEART_RATE = 5
-ALERT_STYLE_VALUE = 1
 
 
 def _apple(name):
@@ -47,11 +46,9 @@ def _hr_range_alert(low, high):
 
 
 def _speed_value_alert(mps):
-    return (
-        wf.field_varint(1, wf.ALERT_METRIC_CURRENT)
-        + wf.field_varint(2, ALERT_STYLE_VALUE)
-        + wf.field_bytes(4, wf.field_bytes(1, wf.speed_bound(mps)))
-    )
+    # The production builder: Probe_Alerts_Zones.workout (a real Watch export) is
+    # rebuilt with it byte for byte, which pins pace_value_alert to Apple's format.
+    return wf.pace_value_alert(mps, wf.ALERT_METRIC_CURRENT)
 
 
 def _recovery_60s():
@@ -143,7 +140,8 @@ class TestConstantsNoSilentChange:
         assert (wf.PURPOSE_WORK, wf.PURPOSE_RECOVERY) == (1, 2)
         assert (wf.GOAL_TIME, wf.GOAL_OPEN) == (1, 4)
         assert (wf.TIME_UNIT_SECONDS, wf.TIME_UNIT_MINUTES, wf.TIME_UNIT_HOURS) == (1, 2, 3)
-        assert (wf.ALERT_METRIC_AVERAGE, wf.ALERT_METRIC_CURRENT, wf.ALERT_STYLE_RANGE) == (1, 2, 2)
+        assert (wf.ALERT_METRIC_AVERAGE, wf.ALERT_METRIC_CURRENT) == (1, 2)
+        assert (wf.ALERT_STYLE_VALUE, wf.ALERT_STYLE_RANGE) == (1, 2)
         assert wf.SPEED_UNIT_METERS == 1
 
     def test_container_trailer_bytes(self):
