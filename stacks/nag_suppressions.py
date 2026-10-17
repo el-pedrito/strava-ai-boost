@@ -181,6 +181,15 @@ _BY_PATH: Dict[str, Dict[str, List[NagPackSuppression]]] = {
             "/StravaAIBoost-Core/IntervalsICUSecret/Resource",
         )
     },
+    "StravaAIBoost-Content": {
+        "/StravaAIBoost-Content/InputWaitRole/DefaultPolicy/Resource": [
+            NagPackSuppression(
+                id="AwsSolutions-IAM5",
+                reason="states:SendTaskSuccess has no resource type, so '*' is the only accepted value; the statement grants that one action only.",
+                applies_to=["Resource::*"],
+            ),
+        ],
+    },
     "StravaAIBoost-Push": {
         "/StravaAIBoost-Push/VapidKeys/Resource": [
             NagPackSuppression(

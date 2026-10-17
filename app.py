@@ -132,6 +132,13 @@ if push_stack is not None:
         "PUSH_SEND_FUNCTION", push_stack.push_send_lambda.function_name
     )
     push_stack.grant_notify(content_stack.strava_updater)
+    # InputWait asks for the athlete's feeling (RPE) through the same PushSend,
+    # synchronously. Without push it closes the window and releases the run at once.
+    content_stack.input_wait.add_environment("PUSH_ENABLED", "true")
+    content_stack.input_wait.add_environment(
+        "PUSH_SEND_FUNCTION", push_stack.push_send_lambda.function_name
+    )
+    push_stack.grant_notify(content_stack.input_wait)
     content_stack.add_dependency(push_stack)
     # PushSend swallows per-device errors (best-effort, no retry): alarm on its
     # PushDelivery{outcome=failed} metric, on the existing ops-alerts topic. The
