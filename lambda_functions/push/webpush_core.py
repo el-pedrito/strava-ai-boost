@@ -230,12 +230,17 @@ def _fetch_application_server_key() -> str:
     return value
 
 
-def send_push(subscription: dict[str, Any], payload: dict[str, Any]) -> None:
+def send_push(
+    subscription: dict[str, Any],
+    payload: dict[str, Any],
+    ttl: int = PUSH_TTL_SECONDS,
+) -> None:
     """Send an encrypted notification to one Web Push subscription.
 
     ``subscription`` is the browser PushSubscription object
     (``{"endpoint", "keys": {"p256dh", "auth"}}``). ``payload`` is the JSON read by
-    the service worker. Raises :class:`PushExpired` on 404/410 (dead endpoint).
+    the service worker. ``ttl`` is how long the push service keeps an undelivered
+    message. Raises :class:`PushExpired` on 404/410 (dead endpoint).
     """
     # Lazy import: the dependency lives in the Lambda layer. Importing it lazily keeps
     # modules that import this one indirectly from requiring pywebpush at load time.
@@ -255,7 +260,7 @@ def send_push(subscription: dict[str, Any], payload: dict[str, Any]) -> None:
             data=fit_payload(payload),
             vapid_private_key=vapid["private_key"],
             vapid_claims={"sub": subject},
-            ttl=PUSH_TTL_SECONDS,
+            ttl=ttl,
             timeout=PUSH_HTTP_TIMEOUT_SECONDS,
             headers={"Urgency": "normal"},
             requests_session=session,

@@ -6,7 +6,11 @@ opens the activity route that exists in the frontend (``/activities/:id``).
 
 Expected event (direct, asynchronous invocation):
     { "user_id": "...", "activity_id": "...",
-      "title": "...", "body": "...", "url"?: "/...", "tag"?: "..." }
+      "title": "...", "body": "...", "url"?: "/...", "tag"?: "...", "ttl"?: 3600 }
+
+``ttl`` (seconds, 1 to 24 h) is how long the push service keeps an undelivered
+message; absent or invalid -> the 24 h default. The athlete-input request passes
+3600: past its 1 h window the notification is useless.
 
 For each of the user's subscriptions the encrypted notification is sent; an expired
 endpoint (404/410) is deleted from the table (410 cleanup). One failing subscription
@@ -25,7 +29,7 @@ from botocore.exceptions import ClientError
 
 from aws_lambda_powertools.metrics import single_metric
 
-from push.webpush_core import PushExpired, send_push
+from push.webpush_core import PUSH_TTL_SECONDS, PushExpired, send_push
 from shared.logger import METRICS_NAMESPACE, MetricUnit, get_logger, inject_correlation_id
 
 logger = get_logger("push_send")
@@ -39,6 +43,15 @@ DEFAULT_TITLE = "Activité enrichie"
 DEFAULT_BODY = "Ta description enrichie est en ligne."
 # Mirrors push_api.MAX_SUBSCRIPTIONS_PER_USER.
 MAX_DEVICES = 10
+
+
+def _resolve_ttl(value: Any) -> int | None:
+    """Event ``ttl`` when it is an int in [1, PUSH_TTL_SECONDS], else None (default)."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    if value < 1 or value > PUSH_TTL_SECONDS:
+        return None
+    return value
 
 
 def _table() -> Any:
@@ -89,6 +102,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         "url": _resolve_url(activity_id, url or None),
         "tag": tag,
     }
+    ttl = _resolve_ttl(event.get("ttl"))
 
     # Same bound as the subscribe API: keeps the fan-out inside the timeout even
     # if two subscribes raced past the cap.
@@ -110,7 +124,10 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             "keys": {"p256dh": sub["p256dh"], "auth": sub["auth"]},
         }
         try:
-            send_push(subscription_info, payload)
+            if ttl is None:
+                send_push(subscription_info, payload)
+            else:
+                send_push(subscription_info, payload, ttl=ttl)
             sent += 1
         except PushExpired:
             _delete(user_id, sub["endpoint_hash"])
