@@ -323,20 +323,41 @@ def _per_side_doubled_loads(entry: Dict[str, Any]) -> frozenset:
 _NUMBER_RE = re.compile(r'\d+(?:[.,]\d+)?')
 
 
+# Clause = one exercise in practice: a line, or a ", " / ". " in prose ("tirages
+# verts 40kg/côté sur 3x10, puis développé couché à 80kg"). A decimal comma
+# ("37,5/c") has no space after it, so it never splits.
+_CLAUSE_SPLIT_RE = re.compile(r'\n|;|//| / |,\s|\.\s')
+
+
 def _plain_numbers(entry: Dict[str, Any]) -> frozenset:
-    """Numbers written in the text WITHOUT a per-side token right after them."""
+    """Numbers written on clauses (lines) that carry NO per-side token.
+
+    Only other lines count: on a per-side line, the rep count can equal the
+    doubled load ("Curl 3x12 6/c" stores 12), which must not read as plain.
+    """
     description = entry.get('description')
     if not isinstance(description, str):
         return frozenset()
-    per_side_spans = {m.span(1) for m in _PER_SIDE_LOAD_RE.finditer(description)}
     plain = set()
-    for match in _NUMBER_RE.finditer(description):
-        if match.span() in per_side_spans:
+    for clause in _CLAUSE_SPLIT_RE.split(description):
+        if _PER_SIDE_LOAD_RE.search(clause):
             continue
-        value = to_finite_float(match.group(0))
-        if value is not None:
-            plain.add(round(value, 2))
+        for match in _NUMBER_RE.finditer(clause):
+            value = to_finite_float(match.group(0))
+            if value is not None:
+                plain.add(round(value, 2))
     return frozenset(plain)
+
+
+def _positive_loads(detail: List[Dict[str, Any]]) -> List[float]:
+    loads = []
+    for row in detail:
+        if not isinstance(row, dict):
+            continue
+        load = to_finite_float(row.get('weight_kg'))
+        if load is not None and load > 0 and _row_counts(row):
+            loads.append(round(load, 2))
+    return loads
 
 
 def _exercise_per_side(
@@ -377,15 +398,17 @@ def _notation_state(
     with no load cannot fake a record, so it must not pair with a per-side
     session to empty the board.
     """
-    if _exercise_per_side(detail, doubled, plain):
+    loads = _positive_loads(detail)
+    if not loads:
+        return 'unknown'
+    if all(load in doubled for load in loads):
+        # Every load matches a per-side figure. If one is also written plain on
+        # another line ("dc 80x10" next to "Press inc 40/c"), the text cannot say
+        # which lift it belongs to: ambiguous, so neither per-side nor plain.
+        if any(load in plain for load in loads):
+            return 'unknown'
         return 'per_side'
-    for row in detail:
-        if not isinstance(row, dict):
-            continue
-        load = to_finite_float(row.get('weight_kg'))
-        if load is not None and load > 0 and _row_counts(row):
-            return 'plain'
-    return 'unknown'
+    return 'plain'
 
 
 def _per_exercise_incomplete(entry: Dict[str, Any]) -> Dict[str, bool]:
@@ -425,6 +448,18 @@ def _max_load(sets_detail: List[Dict[str, Any]]) -> Optional[float]:
         if best is None or load > best:
             best = load
     return best
+
+
+def _legacy_flat_load(parsed_set: Dict[str, Any]) -> Optional[float]:
+    """Flat ``weight_kg`` for a legacy row with NO ``sets_detail``, when valid.
+
+    Same rule as the progression chart, so a legacy session shows the same top
+    weight in both places.
+    """
+    load = to_finite_float(parsed_set.get('weight_kg'))
+    if load is None or load <= 0 or not _row_counts(parsed_set):
+        return None
+    return load
 
 
 def _max_reps(sets_detail: List[Dict[str, Any]]) -> Optional[int]:
@@ -508,7 +543,11 @@ def _build_records(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         date_str = d.isoformat()
         # Distinct-session key: the activity id, or the entry index when absent.
         activity_id = entry.get('activity_id')
-        session_key = activity_id if activity_id not in (None, '') else f'#{idx}'
+        if isinstance(activity_id, (str, int, Decimal)) and not isinstance(activity_id, bool) \
+                and str(activity_id).strip():
+            session_key = str(activity_id).strip()
+        else:
+            session_key = f'#{idx}'
 
         for parsed_set in parsed:
             if not isinstance(parsed_set, dict):
@@ -558,7 +597,7 @@ def _build_records(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 if weighted is not None:
                     rec['weighted_bw'].append((weighted[0], weighted[1], date_str))
             else:
-                top = _max_load(detail)
+                top = _max_load(detail) if detail else _legacy_flat_load(parsed_set)
                 if top is not None:
                     rec['top_weight'].append((top, date_str))
                 # Best volume from the authoritative per_exercise figure.
@@ -643,7 +682,9 @@ def _build_records(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         # A row with no record at all (holds, jumps) only takes a slot in the cap.
         if not any(row.get(key) is not None for key in (
             'top_weight_kg', 'e1rm_kg', 'best_volume_kg', 'best_reps_bw', 'best_weighted_bw',
-        )) and not row['notation_mixed']:
+        )):
+            # Notation-mixed lifts with nothing comparable stay off the board too;
+            # the progression chart carries their note.
             continue
         records.append(row)
 

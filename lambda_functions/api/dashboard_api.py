@@ -666,9 +666,10 @@ def _build_strength_progression(
                         continue
                     if top_weight is None or load > top_weight:
                         top_weight = load
-            if top_weight is None:
-                # Legacy row with only a flat weight_kg: keep only when the flat
-                # row is itself a valid set with a positive load.
+            if top_weight is None and not (isinstance(detail, list) and detail):
+                # Legacy row with only a flat weight_kg (no sets_detail at all):
+                # keep only when the flat row is itself a valid set. When detail
+                # exists it is authoritative, so an invalid detail never falls back.
                 flat_weight = to_finite_float(s.get('weight_kg'))
                 flat_reps = to_finite_float(s.get('reps'))
                 flat_dur = to_finite_float(s.get('duration_s'))

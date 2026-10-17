@@ -298,11 +298,9 @@ class TestRecords:
             vol1=3200, vol2=4000,
         )
         ins = build_strength_insights(entries, today=TODAY)
-        rec = next(r for r in ins['records'] if r['exercise'] == 'Presse à cuisses')
-        assert rec['notation_mixed'] is True
-        assert rec['e1rm_kg'] is None
-        assert rec['top_weight_kg'] is None
-        assert rec['best_volume_kg'] is None
+        # Nothing comparable is left, so the lift is off the board (the chart
+        # carries the note).
+        assert all(r['exercise'] != 'Presse à cuisses' for r in ins['records'])
         flags = exercise_flags(entries)
         assert flags['Presse à cuisses']['e1rm_eligible'] is False
         assert flags['Presse à cuisses']['notation_mixed'] is True
@@ -332,6 +330,75 @@ class TestRecords:
         flags = exercise_flags([session, plain_bench])
         assert flags['Développé couché']['notation_mixed'] is False
         assert flags['Développé couché']['e1rm_eligible'] is True
+
+    def test_reps_equal_to_doubled_load_on_same_line_stay_per_side(self):
+        """'Curl 3x12 6/c' stores 12: the rep count 12 sits on the per-side line
+        and must not read as a plain 12. Both sessions are per-side."""
+        s1 = _session('2026-10-06', 'Curl biceps', [{'reps': 12, 'weight_kg': 12}] * 3,
+                      description='Curl haltères 3x12 6/c')
+        s2 = _session('2026-10-13', 'Curl biceps', [{'reps': 10, 'weight_kg': 16}] * 3,
+                      description='Curl haltères 3x10 8/c')
+        flags = exercise_flags([s1, s2])
+        assert flags['Curl biceps']['notation_mixed'] is False
+        assert flags['Curl biceps']['per_side_seen'] is True
+        from shared.strength_insights import (
+            _notation_state, _per_side_doubled_loads, _plain_numbers,
+        )
+        assert _notation_state(
+            s1['parsed_sets'][0]['sets_detail'],
+            _per_side_doubled_loads(s1), _plain_numbers(s1),
+        ) == 'per_side'
+
+    def test_load_written_plain_elsewhere_is_ambiguous_not_plain(self):
+        """'dc 80x10' next to 'Press inc 40/c': the incline press stored at 80
+        cannot be told apart. It must count as neither, so a later plain
+        incline session does not hide that it was noted per side."""
+        from shared.strength_insights import (
+            _notation_state, _per_side_doubled_loads, _plain_numbers,
+        )
+        entry = {'description': 'dc 80x10 90x8\nPress inc 3x10 40/c'}
+        doubled = _per_side_doubled_loads(entry)
+        plain = _plain_numbers(entry)
+        assert _notation_state([{'reps': 10, 'weight_kg': 80}] * 3, doubled, plain) == 'unknown'
+        assert _notation_state(
+            [{'reps': 10, 'weight_kg': 80}, {'reps': 8, 'weight_kg': 90}], doubled, plain,
+        ) == 'plain'
+
+    def test_prose_clauses_split_on_comma(self):
+        """Live 2026-06-01 prose: the bench at 80 kg sits in the same sentence as
+        a 40kg/côté pull-down. Split on ', ' so the bench reads as plain."""
+        from shared.strength_insights import (
+            _notation_state, _per_side_doubled_loads, _plain_numbers,
+        )
+        entry = {'description': (
+            'tirages verts machine convergente 40kg/côté sur 3x10, puis le morceau '
+            'de choix, développé couché barre à 80kg pour 4 séries de 8.'
+        )}
+        assert _notation_state(
+            [{'reps': 8, 'weight_kg': 80}] * 4,
+            _per_side_doubled_loads(entry), _plain_numbers(entry),
+        ) == 'unknown'
+
+    def test_unhashable_activity_id_keeps_insights(self):
+        entries = [
+            {**_session('2026-10-06', 'Squat', [{'reps': 5, 'weight_kg': 100}]),
+             'activity_id': ['bad']},
+            {**_session('2026-10-13', 'Squat', [{'reps': 5, 'weight_kg': 105}]),
+             'activity_id': {'x': 1}},
+        ]
+        ins = build_strength_insights(entries, today=TODAY)
+        rec = next(r for r in ins['records'] if r['exercise'] == 'Squat')
+        assert rec['top_weight_kg'] == 105.0
+
+    def test_legacy_flat_row_gives_a_top_weight_record(self):
+        legacy = [
+            {'date': d, 'activity_id': d, 'description': '',
+             'parsed_sets': [{'exercise': 'Squat', 'sets': 3, 'reps': 5, 'weight_kg': w}]}
+            for d, w in (('2026-10-06', 100), ('2026-10-13', 110))
+        ]
+        ins = build_strength_insights(legacy, today=TODAY)
+        rec = next(r for r in ins['records'] if r['exercise'] == 'Squat')
+        assert rec['top_weight_kg'] == 110.0
 
     def test_load_written_plain_and_per_side_is_not_per_side(self):
         """'dc 4x8 80' plus 'Press inc 40/c': 80 is written plain, so a lift

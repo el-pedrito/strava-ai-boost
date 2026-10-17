@@ -712,6 +712,34 @@ function segTotal(seg?: { logged?: number; campus_plan?: number }): number {
   return (seg.logged ?? 0) + (seg.campus_plan ?? 0);
 }
 
+/** The API zero-fills 8 weeks; a block with only zeros is hidden. */
+/** The API zero-fills 8 weeks; a block with only zeros is hidden. A malformed
+ * entry keeps the block shown, so its local ErrorBoundary reports it. */
+function hasWeeklySets(insights?: StrengthInsights | null): boolean {
+  const weeks: unknown = insights?.weeks;
+  if (!Array.isArray(weeks)) return false;
+  return weeks.some((wk) => {
+    if (!wk || typeof wk !== 'object') return true;
+    const w = wk as StrengthWeek;
+    const groups = w.groups && typeof w.groups === 'object' ? Object.values(w.groups) : [];
+    return (
+      groups.some((seg) => segTotal(seg) > 0) ||
+      segTotal(w.explosivite) > 0 ||
+      segTotal(w.autre) > 0
+    );
+  });
+}
+
+function hasPushPull(insights?: StrengthInsights | null): boolean {
+  const rows: unknown = insights?.push_pull;
+  if (!Array.isArray(rows)) return false;
+  return rows.some((p) => {
+    if (!p || typeof p !== 'object') return true;
+    const r = p as PushPullPoint;
+    return (r.push ?? 0) > 0 || (r.pull ?? 0) > 0;
+  });
+}
+
 /**
  * Weekly stacked bars: logged vs Campus-plan sets per muscle group, with an
  * explosiveness bar and an "other" bar carrying the unmapped list. One stacked
@@ -2314,7 +2342,7 @@ export function CoachPage() {
                 )}
 
                 {/* Weekly sets per muscle group (stacked logged vs Campus plan) */}
-                {(trends?.strength_insights?.weeks?.length ?? 0) > 0 && (
+                {hasWeeklySets(trends?.strength_insights) && (
                   <ErrorBoundary
                     resetKey={data}
                     fallback={
@@ -2351,7 +2379,7 @@ export function CoachPage() {
                 )}
 
                 {/* Push / pull balance */}
-                {(trends?.strength_insights?.push_pull?.length ?? 0) > 0 && (
+                {hasPushPull(trends?.strength_insights) && (
                   <ErrorBoundary
                     resetKey={data}
                     fallback={

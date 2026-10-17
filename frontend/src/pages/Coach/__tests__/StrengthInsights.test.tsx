@@ -189,6 +189,25 @@ describe('Strength insights blocks', () => {
     expect(screen.queryByText('Push / pull balance')).not.toBeInTheDocument();
   });
 
+  it('hides the weekly and push/pull blocks when every value is zero', async () => {
+    const user = userEvent.setup();
+    const insights = fullInsights();
+    const zero = { logged: 0, campus_plan: 0 };
+    insights.weeks = insights.weeks.map((wk) => ({
+      ...wk,
+      groups: Object.fromEntries(Object.keys(wk.groups).map((g) => [g, zero])) as typeof wk.groups,
+      explosivite: zero,
+      autre: zero,
+    }));
+    insights.push_pull = insights.push_pull.map((p) => ({ ...p, push: 0, pull: 0, ratio: null }));
+    mockSummary({ strength_insights: insights, strength_progression: [], strength_sessions: [], strength_history: [] });
+    renderCoach();
+    await openTrends(user);
+    expect(await screen.findByText('Records')).toBeInTheDocument();
+    expect(screen.queryByText('Logged sets per muscle group (8 weeks)')).not.toBeInTheDocument();
+    expect(screen.queryByText('Push / pull balance')).not.toBeInTheDocument();
+  });
+
   it('shows a local fallback for a malformed block while siblings still render', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const user = userEvent.setup();
