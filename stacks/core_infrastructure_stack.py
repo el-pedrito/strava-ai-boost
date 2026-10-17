@@ -27,6 +27,9 @@ import sys
 # Fixed name of the activity state machine created in content_generation_stack.py
 # (kept here because Core is deployed first and cannot import Content's ARN).
 ACTIVITY_STATE_MACHINE_NAME = "StravaAIBoost-ActivityProcessing"
+# Fixed name of the InputWait Lambda (content_generation_stack.py): the Webhook
+# stack alarms on its Errors metric by name, without a cross-stack reference.
+INPUT_WAIT_FUNCTION_NAME = "StravaAIBoost-InputWait"
 
 # Add src directory to path for config imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))

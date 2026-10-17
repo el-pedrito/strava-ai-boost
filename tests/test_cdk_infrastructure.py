@@ -152,14 +152,16 @@ class TestContentGenerationStack:
         """Test that all Lambda functions are created"""
         template = assertions.Template.from_stack(content_stack)
         
-        # 5 Lambda functions: fetcher, content, coach, assembly, Strava updater
-        template.resource_count_is("AWS::Lambda::Function", 5)
+        # 6 Lambda functions: fetcher, content, coach, assembly, Strava updater,
+        # and the athlete-input wait (InputWait)
+        template.resource_count_is("AWS::Lambda::Function", 6)
         for name in (
             "StravaAIBoost-ActivityFetcher",
             "StravaAIBoost-ContentGenerator",
             "StravaAIBoost-CoachGenerator",
             "StravaAIBoost-Assembly",
             "StravaAIBoost-StravaUpdater",
+            "StravaAIBoost-InputWait",
         ):
             template.has_resource_properties(
                 "AWS::Lambda::Function", {"FunctionName": name}
@@ -271,8 +273,17 @@ class TestWebhookProcessingStack:
         """Test CloudWatch alarms are created"""
         template = assertions.Template.from_stack(webhook_stack)
         
-        # Should have alarms for DLQ, old messages, Lambda errors
-        template.resource_count_is("AWS::CloudWatch::Alarm", 14)
+        # Should have alarms for DLQ, old messages, Lambda errors, business
+        # outcomes, Step Functions failures/timeouts and the athlete-input wait
+        template.resource_count_is("AWS::CloudWatch::Alarm", 17)
+        for name in (
+            "strava-ai-boost-input-wait-error",
+            "strava-ai-boost-input-wait-errors",
+            "strava-ai-boost-sfn-executions-timed-out",
+        ):
+            template.has_resource_properties(
+                "AWS::CloudWatch::Alarm", {"AlarmName": name}
+            )
     
     def test_api_gateway_created(self, webhook_stack):
         """Test API Gateway is created for webhooks"""

@@ -18,7 +18,11 @@ from aws_cdk import (
     Aws
 )
 from constructs import Construct
-from .core_infrastructure_stack import ACTIVITY_STATE_MACHINE_NAME, CoreInfrastructureStack
+from .core_infrastructure_stack import (
+    ACTIVITY_STATE_MACHINE_NAME,
+    INPUT_WAIT_FUNCTION_NAME,
+    CoreInfrastructureStack,
+)
 from typing import Dict
 import os
 import sys
@@ -399,7 +403,7 @@ class ContentGenerationStack(Stack):
         )
         self.input_wait = lambda_.Function(
             self, "InputWait",
-            function_name="StravaAIBoost-InputWait",
+            function_name=INPUT_WAIT_FUNCTION_NAME,
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="athlete_input.input_wait.handler",
             code=lambda_.Code.from_asset(
