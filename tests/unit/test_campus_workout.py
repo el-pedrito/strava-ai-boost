@@ -1018,6 +1018,22 @@ class TestRangeAlerts:
         assert result.summary == "WU 15' · 30' EF 5:55-6:25 · CD 10'"
         assert result.metrics == {}
 
+    def test_abstract_paces_show_no_pace_when_switch_on(self):
+        # Campus app: "Allure Rapide 30 sec", "Allure Lent 2:30 min de récup." (no pace).
+        rapide = {"type": "work", "duration": "30 sec", "pace": "Rapide (3:12/km)",
+                  "pace_kind": "abstract", "pace_slug": "fast", "pace_value_s": 192}
+        lent = {"type": "recovery", "duration": "2:30 min", "pace": "Lent (10:44/km)",
+                "pace_kind": "abstract", "pace_slug": "slow", "pace_value_s": 644}
+        block = {"type": "block", "repeat": "3", "exercises": [rapide, lent]}
+        result, workout = self._map_on([block])
+        work, rec = workout["blocks"][0]["steps"]
+        assert (work["name"], rec["name"]) == ("Rapide", "Lent")
+        assert "alert" not in work and "alert" not in rec
+        assert result.summary == "3x(30\" Rapide + 2'30\")"
+        # Switch off: today's names, with the pace.
+        off = _decode(cw.map_session(_session([block]), guid=GUID).bytes)["workout"]
+        assert [s["name"] for s in off["blocks"][0]["steps"]] == ["Rapide 3:12", "Lent 10:44"]
+
     def test_switch_off_range_step_follows_todays_rules(self):
         session = _session([self._range()], estimated_paces=self.EST)
         step = _only_step(_decode(cw.map_session(session, guid=GUID).bytes)["workout"])

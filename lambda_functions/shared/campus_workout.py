@@ -339,6 +339,13 @@ class _Mapper:
         elif kind != KIND_ABSTRACT:
             self._count(METRIC_UNKNOWN_PACE_KIND)
             return self._value_step(entry, purpose, seconds, is_edge, _target_sec_per_km(_text(entry, "pace")))
+        if kind == KIND_ABSTRACT and self.range_alerts:
+            # Campus display mode: an abstract pace (Rapide, Lent) shows no pace in the
+            # app ("Allure Rapide 30 sec", "Allure Lent 2:30 min de récup."), so the Watch
+            # step is named by the family alone. Switch off: today's name, byte parity.
+            _alert, _name, label = self._value_step(entry, purpose, seconds, is_edge, None)
+            family = strip_banned_words(_family_text(_text(entry, "pace")))
+            return None, (_cap_name(family, "", MAX_STEP_NAME_CHARS) or None) if family else None, label
         _alert, name, label = self._value_step(
             entry, purpose, seconds, is_edge, _target_sec_per_km(_text(entry, "pace")))
         return None, name, label
