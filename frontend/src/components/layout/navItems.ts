@@ -1,4 +1,4 @@
-import { LayoutDashboard, Sparkles, Gauge, Settings2, User, Watch } from 'lucide-react';
+import { LayoutDashboard, Sparkles, Gauge, Activity, Settings2, User, Watch } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { isWorkoutExportEnabled } from '@/config';
 
@@ -8,12 +8,15 @@ export interface NavItem {
   /** Shorter label for the 6-slot mobile bottom bar, when the full one is too long. */
   shortLabelKey?: string;
   Icon: ComponentType<{ className?: string; size?: number; strokeWidth?: number }>;
+  /** false = sidebar only, hidden from the mobile bottom bar. */
+  mobile?: boolean;
 }
 
 export const NAV_ITEMS: NavItem[] = [
   { to: '/', labelKey: 'nav.dashboard', Icon: LayoutDashboard },
   { to: '/coach', labelKey: 'nav.coach', Icon: Sparkles },
   { to: '/quality', labelKey: 'nav.quality', Icon: Gauge },
+  { to: '/monitoring', labelKey: 'nav.monitoring', shortLabelKey: 'nav.monitoringShort', Icon: Activity },
   { to: '/config', labelKey: 'nav.configuration', shortLabelKey: 'nav.configurationShort', Icon: Settings2 },
   { to: '/preferences', labelKey: 'nav.preferences', shortLabelKey: 'nav.preferencesShort', Icon: User },
 ];

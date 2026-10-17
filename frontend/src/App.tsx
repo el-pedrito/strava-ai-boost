@@ -8,7 +8,7 @@ import { ProtectedRoute } from './auth/ProtectedRoute.tsx';
 import { PlanGate } from './pages/Plan/PlanGate.tsx';
 
 const HomePage = lazy(() => import('./pages/Home/HomePage.tsx').then(m => ({ default: m.HomePage })));
-// Kept intact: the old technical dashboard, now reachable from Quality as "Système" (/system).
+// The old technical dashboard, now the "Monitoring" tab (/monitoring; /system kept as an alias).
 const DashboardPage = lazy(() => import('./pages/Dashboard/DashboardPage.tsx').then(m => ({ default: m.DashboardPage })));
 const ConfigurationPage = lazy(() => import('./pages/Configuration/ConfigurationPage.tsx').then(m => ({ default: m.ConfigurationPage })));
 const PreferencesPage = lazy(() => import('./pages/Preferences/PreferencesPage.tsx').then(m => ({ default: m.PreferencesPage })));
@@ -37,6 +37,7 @@ export default function App() {
             <Routes>
               <Route element={<ProtectedRoute><Shell /></ProtectedRoute>}>
                 <Route index element={<HomePage />} />
+                <Route path="/monitoring" element={<DashboardPage />} />
                 <Route path="/system" element={<DashboardPage />} />
                 <Route path="/config" element={<ConfigurationPage />} />
                 <Route path="/oauth/callback" element={<OAuthCallback />} />

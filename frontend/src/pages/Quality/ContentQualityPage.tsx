@@ -435,11 +435,11 @@ export function ContentQualityPage() {
         </div>
         <div className="flex items-center gap-2 self-start sm:self-auto">
           <Link
-            to="/system"
+            to="/monitoring"
             className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-sm font-medium text-foreground transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Cpu className="h-4 w-4" aria-hidden="true" />
-            {t('nav.system')}
+            {t('nav.monitoring')}
           </Link>
           <Button variant="outline" size="md" onClick={fetchAll}>
             <RefreshCw className="h-4 w-4" aria-hidden="true" />

@@ -11,7 +11,7 @@ export function BottomNav() {
       aria-label="Primary mobile navigation"
       className="fixed bottom-0 left-0 right-0 z-40 flex h-16 items-stretch justify-around border-t border-border bg-surface-elevated/95 backdrop-blur md:hidden"
     >
-      {getNavItems().map((item) => {
+      {getNavItems().filter((item) => item.mobile !== false).map((item) => {
         const Icon = item.Icon;
         return (
           <NavLink
@@ -20,7 +20,7 @@ export function BottomNav() {
             end={item.to === '/'}
             className={({ isActive }) =>
               cn(
-                // min-w-0 lets the 6 slots share 375 px evenly (about 62 px each).
+                // min-w-0 lets the 7 slots share 375 px evenly (about 53 px each).
                 // Long labels use their short form; truncate is the last guard.
                 'flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-0.5 text-[10px] font-medium transition-colors',
                 isActive
