@@ -30,9 +30,16 @@ from shared import campus_workout
 from shared.campus_status import STATUS_DONE, STATUS_SKIP, effective_status
 
 MAX_ITEMS = 120
-# Aggregate size of the serialized items. Far below the 6 MB Lambda response limit;
-# 9 synced weeks are a few tens of KB today, so this only bites on corrupt data.
+# Aggregate size of the serialized items. Far below the 6 MB Lambda response limit.
+# Worst case per item with both Campus texts at their cap: 2 x 2000 chars x 4 UTF-8
+# bytes (16 KB) + an 8 KB file in base64 (~11 KB) + small fields, about 28 KB. Nine
+# synced weeks of ~5 sessions therefore stay near 1.3 MB even in that worst case, and
+# real rows (a few hundred chars of text) are tens of KB. Kept at 2 MB: it still only
+# bites on corrupt data, and leaves 3x headroom for the Lambda envelope's escaping.
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+# Cap, in characters, of each Campus text copied to an item (``description``,
+# ``coach_advice``). Real texts are a few hundred characters.
+MAX_TEXT_CHARS = 2000
 
 METRIC_MAP_FAILED = "WorkoutMapFailed"
 
@@ -126,6 +133,20 @@ def _str_or_none(value: Any) -> Optional[str]:
     return value.encode("utf-8", "replace").decode("utf-8")
 
 
+def text_or_none(value: Any) -> Optional[str]:
+    """A Campus free text (instructions, coach word) for display, or None.
+
+    Sanitized like every copied string, trimmed, and capped at ``MAX_TEXT_CHARS``
+    characters. Non-string, empty or blank values are None. The text is passed
+    through as written (markdown bold, URLs): rendering is the client's job.
+    """
+    text = _str_or_none(value)
+    if text is None:
+        return None
+    text = text.strip()[:MAX_TEXT_CHARS].rstrip()
+    return text or None
+
+
 def _week_key(row: Dict[str, Any]) -> float:
     # Present and finite on every row that passed ``_is_open``.
     week = _number(row.get("week_date"))
@@ -184,6 +205,8 @@ def _row_fields(row: Dict[str, Any]) -> Dict[str, Any]:
         "training_type": _str_or_none(row.get("training_type")),
         "sport": _str_or_none(row.get("sport")),
         "duration_min": _duration_min(row.get("expected_duration_min")),
+        "description": text_or_none(row.get("description")),
+        "coach_advice": text_or_none(row.get("coach_advice")),
     }
 
 
@@ -241,6 +264,18 @@ def _safe_item(
         _count_failure(counters)
         item = _internal_item(row)
         return item, _serialized_size(item)
+
+
+def workout_item(
+    row: Dict[str, Any], counters: Dict[str, int], range_alerts: bool = False,
+) -> Dict[str, Any]:
+    """One session as a ``/plan/workouts`` item, with the same isolation: never raises.
+
+    Public so ``/home/summary`` builds its next-session file with the exact same
+    mapping, filename and failure handling (``WorkoutMapFailed`` in ``counters``).
+    """
+    item, _ = _safe_item(row, counters, range_alerts)
+    return item
 
 
 def build_plan_workouts(

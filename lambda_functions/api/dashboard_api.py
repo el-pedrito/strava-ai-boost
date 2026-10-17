@@ -166,10 +166,17 @@ def get_home_summary_response(event: Dict[str, Any]) -> Dict[str, Any]:
             projection = "activity_id, enduraw_metrics, start_date, start_date_local, activity_data_json"
             return _query_user_activities(owner, since=since, projection=projection)
 
+        # Same switch as /plan/workouts: the next session's .workout file is built
+        # by the same mapper, so it must carry the same RANGE alerts.
+        range_alerts = os.environ.get('RANGE_ALERTS_ENABLED', '') == 'true'
+        counters: Dict[str, int] = {}
         payload = home_summary.build_home_summary(
             wellness_table, sessions_table, user_config,
             activities_reader, datetime.now(timezone.utc), owner,
+            range_alerts=range_alerts, counters=counters,
         )
+        for name, value in sorted(counters.items()):
+            metrics.add_metric(name=name, unit=MetricUnit.Count, value=value)
         # Log only non-sensitive shape counts, never health values.
         logger.info("Home summary built", extra={
             "health_signals": len(payload.get('health', {})),
