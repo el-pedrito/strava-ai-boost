@@ -5,6 +5,33 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6](https://github.com/el-pedrito/strava-ai-boost/compare/v0.2.5...v0.2.6) (2026-10-17)
+
+
+### Features
+
+* Apple Watch export and Campus pace zones ([cfdccd8](https://github.com/el-pedrito/strava-ai-boost/commit/cfdccd8dda8867b0f445b1259c0cedfd1d08bc98))
+* **campus:** probe_schema returns a bounded sample of one week ([9a078c8](https://github.com/el-pedrito/strava-ai-boost/commit/9a078c80e5ce671c481d70d93fcc3284a3b2bb35))
+* **campus:** read-only probe_schema mode to inspect provider pace fields ([00bc40d](https://github.com/el-pedrito/strava-ai-boost/commit/00bc40d9d67f006f95172fcbe4c8e3a90675d606))
+* **campus:** single-value zones except EF range ([18c7293](https://github.com/el-pedrito/strava-ai-boost/commit/18c7293469da9d839fd92c2e8782fc52d98991af))
+* **paces:** Campus paces everywhere (Watch ranges, pace zones), switches off ([c200b64](https://github.com/el-pedrito/strava-ai-boost/commit/c200b643bd782efdb3cf9cd9719ac9d13019c880))
+* **watch:** Apple Watch .workout export, step 1 (not exposed) ([aca18e3](https://github.com/el-pedrito/strava-ai-boost/commit/aca18e3877994e637f6f986d3d8c1969c1b070ec))
+* **watch:** exact Campus target pace as a VALUE alert instead of a range ([6c4baa6](https://github.com/el-pedrito/strava-ai-boost/commit/6c4baa66e45089f4a6d805038772341a5b4c2c9d))
+* **watch:** plan page to add Campus sessions to the Apple Watch (step 3) ([67aa764](https://github.com/el-pedrito/strava-ai-boost/commit/67aa764463523126a30937cfab41867314d934d6))
+
+
+### Bug Fixes
+
+* **campus:** parse athlete loads by clause and whole-word family ([b0ad22b](https://github.com/el-pedrito/strava-ai-boost/commit/b0ad22b65406f5b2d0dcd78898c6a69d02d7f61d))
+* **coach:** show a single-value zone as one pace in prompts ([afadb0f](https://github.com/el-pedrito/strava-ai-boost/commit/afadb0f181436177efff8db0cca63b1e1fa6cee6))
+* **coach:** stop the coach writing its own output to AgentCore memory ([b2e9dc5](https://github.com/el-pedrito/strava-ai-boost/commit/b2e9dc5ff5f34deedafbfb86f22db03762e9c011))
+* **data:** keep the whole activity history, disable the 1-year TTL ([83927a2](https://github.com/el-pedrito/strava-ai-boost/commit/83927a2715ff20b609643838ed23b8a8c4ad6967))
+* **deps:** pin mcp 1.30.0 for CVE-2026-59951 ([3d8f60e](https://github.com/el-pedrito/strava-ai-boost/commit/3d8f60e6d81117363cc2d0d9847c77df1e993c06))
+* **intervals:** read Apple Watch HRV from hrvSDNN when rMSSD is absent ([36f225a](https://github.com/el-pedrito/strava-ai-boost/commit/36f225a5043c4e34640d515d52bc97df4c8d29cf))
+* **paces:** abstract Campus paces (Rapide, Lent) named without a pace, as the app shows ([aa29234](https://github.com/el-pedrito/strava-ai-boost/commit/aa2923417edd762b59e8b91662392e4b54069dc3))
+* **paces:** Campus range is value to value+30 s ([93fe32a](https://github.com/el-pedrito/strava-ai-boost/commit/93fe32a96b0b6e17727e72d4fb2cf8b59f8d6512))
+* **strength:** plan-based tonnage for Campus PPG sessions ([c76110a](https://github.com/el-pedrito/strava-ai-boost/commit/c76110a899063f5cd3b548d770ffd209633aba34))
+
 ## [Unreleased]
 
 ### Security
