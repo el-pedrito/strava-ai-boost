@@ -250,12 +250,17 @@ si `awaiting`, sinon « Déjà traitée ». 409 au `POST` -> « Déjà traitée 
 (signal par activité, lu sur l'item) : une seule notif par activité. Flag off
 -> pas de `athlete_input_state` -> comportement d'aujourd'hui. Une
 republication par dictée tardive ne renvoie pas de notif.
+Sur le chemin d'erreur de `input_wait` une fois la fenêtre ouverte
+(`push_error`, `error` après l'ouverture, crash attrapé par le `Catch`), la
+ligne porte déjà `athlete_input_state` : l'activité ne reçoit aucune notif, ni
+demande ni « Activité enrichie ». Voulu ; l'alarme
+`InputWait{outcome=error|push_error}` (ou `Errors` de la Lambda) signale l'incident.
 
 ## Well-Architected
 
 | Pilier | Ce que fait le plan |
 |---|---|
-| Excellence opérationnelle | Tout en CDK ; flag par utilisateur ; état visible dans Step Functions ; métriques EMF `InputWait{outcome}` (`waiting`, `no_push`, `replay`, `error` depuis `input_wait` ; `expired`, `submitted` depuis le fetcher) et `InputSubmit{outcome}` (`ok`, `409`, `late`, `callback_error`). Un timeout d'attente rattrapé ne rend pas l'exécution `TIMED_OUT` : c'est `expired` qui le mesure, pas une erreur. Alarme `ExecutionsTimedOut` à ajouter (seul `ExecutionsFailed` existe, `webhook_processing_stack.py:598-614`) ; alarmes erreurs Lambda `input_*` et 5XX/throttles API |
+| Excellence opérationnelle | Tout en CDK ; flag par utilisateur ; état visible dans Step Functions ; métriques EMF `InputWait{outcome}` (`waiting`, `no_push` (aucun appareil atteint), `push_error` (PushSend en échec ou réponse illisible), `replay`, `error` depuis `input_wait` ; `expired`, `submitted` depuis le fetcher) et `InputSubmit{outcome}` (`ok`, `409`, `late`, `callback_error`). Un timeout d'attente rattrapé ne rend pas l'exécution `TIMED_OUT` : c'est `expired` qui le mesure, pas une erreur. Alarme `ExecutionsTimedOut` à ajouter (seul `ExecutionsFailed` existe, `webhook_processing_stack.py:598-614`) ; alarmes erreurs Lambda `input_*` et 5XX/throttles API |
 | Sécurité | Cognito + propriétaire vérifié sur la ligne ; validation stricte ; jeton jamais renvoyé, jamais loggé, retiré de la ligne à chaque sortie (submit, `sent == 0`, fermeture) ; IAM moindre privilège ; résumé balisé et échappé ; throttling dédié |
 | Fiabilité | Une seule exécution ; écritures conditionnelles ; fetcher arbitre unique, tolérant aux relances ; échec ouvert (D8) ; Lot 0 rend les vraies pannes visibles |
 | Efficacité des performances | Pas de polling ; lancement à la seconde ; aucune nouvelle table ni file |
