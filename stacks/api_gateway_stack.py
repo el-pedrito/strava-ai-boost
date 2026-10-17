@@ -13,15 +13,23 @@ from aws_cdk import (
     Aws,
     Stack,
     aws_apigateway as apigateway,
+    aws_cloudwatch as cloudwatch,
+    aws_cloudwatch_actions as cw_actions,
     aws_lambda as lambda_,
     aws_iam as iam,
     aws_cognito as cognito,
+    aws_sns as sns,
     Duration,
     CfnOutput
 )
 from constructs import Construct
 from .api_logging import api_stage_logging_options
 from .core_infrastructure_stack import CoreInfrastructureStack
+
+
+FEEDBACK_POST_THROTTLE_RATE_LIMIT = 5
+FEEDBACK_POST_THROTTLE_BURST_LIMIT = 10
+OPS_ALERTS_TOPIC_NAME = "strava-ai-boost-ops-alerts"
 
 
 class ApiGatewayStack(Stack):
@@ -210,6 +218,60 @@ class ApiGatewayStack(Stack):
                 "DEFAULT_USER_ID": os.environ.get("DEFAULT_USER_ID", "")
             }
         )
+
+        feedback_code = lambda_.Code.from_asset(
+            "lambda_functions",
+            exclude=["**/__pycache__", "**/*.pyc"],
+        )
+        feedback_environment = {
+            "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
+        }
+
+        # Dedicated roles keep this authenticated API slice limited to the exact
+        # table operations each handler uses. Neither Lambda can scan or query.
+        self.input_status_lambda = lambda_.Function(
+            self, "InputStatus",
+            function_name="StravaAIBoost-InputStatus",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="athlete_input.input_status.handler",
+            code=feedback_code,
+            layers=[self.core_stack.dependencies_layer],
+            timeout=Duration.seconds(10),
+            memory_size=128,
+            environment=feedback_environment,
+        )
+        self.input_status_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["dynamodb:GetItem"],
+                resources=[self.core_stack.table_arns["activities"]],
+            )
+        )
+
+        self.input_submit_lambda = lambda_.Function(
+            self, "InputSubmit",
+            function_name="StravaAIBoost-InputSubmit",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="athlete_input.input_submit.handler",
+            code=feedback_code,
+            layers=[self.core_stack.dependencies_layer],
+            timeout=Duration.seconds(10),
+            memory_size=128,
+            environment=feedback_environment,
+        )
+        self.input_submit_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["dynamodb:GetItem", "dynamodb:UpdateItem"],
+                resources=[self.core_stack.table_arns["activities"]],
+            )
+        )
+        # SendTaskSuccess has no resource type in IAM, so AWS requires Resource "*".
+        # Keep it in its own statement so no other action inherits that scope.
+        self.input_submit_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["states:SendTaskSuccess"],
+                resources=["*"],
+            )
+        )
         
         # AgentCore Health Check Lambda
         agentcore_env = {
@@ -286,6 +348,12 @@ class ApiGatewayStack(Stack):
             deploy_options=apigateway.StageOptions(
                 throttling_rate_limit=100,
                 throttling_burst_limit=200,
+                method_options={
+                    "/activities/{activityId}/feedback/POST": apigateway.MethodDeploymentOptions(
+                        throttling_rate_limit=FEEDBACK_POST_THROTTLE_RATE_LIMIT,
+                        throttling_burst_limit=FEEDBACK_POST_THROTTLE_BURST_LIMIT,
+                    ),
+                },
                 **api_stage_logging_options(self, "ApiAccessLogs"),
             )
         )
@@ -491,10 +559,45 @@ class ApiGatewayStack(Stack):
             authorization_type=apigateway.AuthorizationType.COGNITO if self.cognito_authorizer else apigateway.AuthorizationType.NONE,
         )
         
+        # Shared /activities/{activityId} parent for feedback and optional audio.
+        # It is created once so enabling audio cannot produce a duplicate variable
+        # resource such as /activities/{id} beside /activities/{activityId}.
+        activities_root = self.api.root.add_resource("activities")
+        activity_item = activities_root.add_resource("{activityId}")
+
+        # Feedback is personal health/training data. If this stack is instantiated
+        # without Cognito (some isolated tests do that), fail closed by omitting the
+        # methods rather than silently exposing them with AuthorizationType.NONE.
+        if self.cognito_authorizer is not None:
+            feedback_resource = activity_item.add_resource("feedback")
+            feedback_resource.add_method(
+                "GET",
+                apigateway.LambdaIntegration(self.input_status_lambda),
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(status_code="200"),
+                    apigateway.MethodResponse(status_code="400"),
+                    apigateway.MethodResponse(status_code="403"),
+                    apigateway.MethodResponse(status_code="500"),
+                ],
+            )
+            feedback_resource.add_method(
+                "POST",
+                apigateway.LambdaIntegration(self.input_submit_lambda),
+                authorizer=self.cognito_authorizer,
+                authorization_type=apigateway.AuthorizationType.COGNITO,
+                method_responses=[
+                    apigateway.MethodResponse(status_code="202"),
+                    apigateway.MethodResponse(status_code="400"),
+                    apigateway.MethodResponse(status_code="403"),
+                    apigateway.MethodResponse(status_code="409"),
+                    apigateway.MethodResponse(status_code="500"),
+                ],
+            )
+
         # /activities/{activityId}/audio-url — presigned URL for voice debrief MP3
         if self.audio_debrief_lambda is not None:
-            activities_root = self.api.root.add_resource("activities")
-            activity_item = activities_root.add_resource("{activityId}")
             audio_url_resource = activity_item.add_resource("audio-url")
             audio_url_resource.add_method(
                 "GET",
@@ -560,6 +663,77 @@ class ApiGatewayStack(Stack):
             validate_request_body=True,
             validate_request_parameters=True
         )
+
+        self._create_operational_alarms()
+
+    def _create_operational_alarms(self) -> None:
+        """Alarm on feedback Lambda failures and API 5XX/4XX rate-limit signals."""
+        topic = sns.Topic.from_topic_arn(
+            self,
+            "OpsAlertsTopic",
+            f"arn:{Aws.PARTITION}:sns:{Aws.REGION}:{Aws.ACCOUNT_ID}:{OPS_ALERTS_TOPIC_NAME}",
+        )
+        alarm_action = cw_actions.SnsAction(topic)
+        period = Duration.minutes(5)
+
+        for alarm_id, alarm_name, function in (
+            (
+                "InputStatusErrorsAlarm",
+                "strava-ai-boost-input-status-errors",
+                self.input_status_lambda,
+            ),
+            (
+                "InputSubmitErrorsAlarm",
+                "strava-ai-boost-input-submit-errors",
+                self.input_submit_lambda,
+            ),
+        ):
+            alarm = cloudwatch.Alarm(
+                self,
+                alarm_id,
+                alarm_name=alarm_name,
+                alarm_description=f"{function.function_name} reported a Lambda error",
+                metric=function.metric_errors(period=period),
+                threshold=1,
+                evaluation_periods=1,
+                comparison_operator=(
+                    cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD
+                ),
+                treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+            )
+            alarm.add_alarm_action(alarm_action)
+
+        api_5xx = cloudwatch.Alarm(
+            self,
+            "ApiServerErrorsAlarm",
+            alarm_name="strava-ai-boost-api-5xx-errors",
+            alarm_description="The authenticated frontend API returned a 5XX response",
+            metric=self.api.metric_server_error(period=period, statistic="Sum"),
+            threshold=1,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+        )
+        api_5xx.add_alarm_action(alarm_action)
+
+        # API Gateway reports method throttles (429) in 4XXError rather than a
+        # dedicated throttle series. A threshold avoids paging on one expired JWT
+        # while still making sustained throttling or auth failures visible.
+        api_4xx = cloudwatch.Alarm(
+            self,
+            "ApiThrottlesAndClientErrorsAlarm",
+            alarm_name="strava-ai-boost-api-throttles-or-client-errors",
+            alarm_description=(
+                "The authenticated frontend API returned at least 10 4XX responses "
+                "in five minutes, including any throttled requests"
+            ),
+            metric=self.api.metric_client_error(period=period, statistic="Sum"),
+            threshold=10,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+        )
+        api_4xx.add_alarm_action(alarm_action)
 
     @property
     def api_url(self) -> str:

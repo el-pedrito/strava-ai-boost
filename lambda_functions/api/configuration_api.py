@@ -617,6 +617,9 @@ def get_modules() -> Dict[str, Any]:
         intervals_icu_enabled = intervals_icu_config.get('enabled', False)
         intervals_icu_configured = intervals_icu_config.get('configured', False)
 
+        athlete_input_config = modules_config.get('athlete_input', {})
+        athlete_input_enabled = athlete_input_config.get('enabled', False)
+
         modules = {
             'campus_coach': {
                 'id': 'campus_coach',
@@ -646,6 +649,15 @@ def get_modules() -> Dict[str, Any]:
                 'configured': intervals_icu_configured,
                 'requires_credentials': True,
                 'status': 'active' if intervals_icu_enabled else 'disabled'
+            },
+            'athlete_input': {
+                'id': 'athlete_input',
+                'name': 'Ressenti après séance',
+                'description': 'Ask for an RPE and optional summary before enrichment',
+                'enabled': athlete_input_enabled,
+                'configured': True,
+                'requires_credentials': False,
+                'status': 'active' if athlete_input_enabled else 'disabled'
             }
         }
 
@@ -664,8 +676,14 @@ def configure_module(event: Dict[str, Any]) -> Dict[str, Any]:
         enabled = body.get('enabled', False)
         config = body.get('config', {})
 
-        if not module_id or module_id not in ['campus_coach', 'enduraw', 'intervals_icu']:
+        if not module_id or module_id not in ['campus_coach', 'enduraw', 'intervals_icu', 'athlete_input']:
             return create_error_response(400, 'Invalid or missing module_id', cors_headers=CORS_HEADERS)
+        if module_id == 'athlete_input' and (
+            'enabled' not in body or type(enabled) is not bool
+        ):
+            return create_error_response(
+                400, 'athlete_input enabled must be a boolean', cors_headers=CORS_HEADERS
+            )
 
         user_id = get_authenticated_user_id()
 
