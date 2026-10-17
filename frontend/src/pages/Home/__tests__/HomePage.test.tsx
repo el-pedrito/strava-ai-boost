@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { ThemeProvider } from '@/theme/ThemeProvider';
-import { HomePage } from '../HomePage';
+import { HomePage, filterHrvByLatestKind } from '../HomePage';
 import { ApiError } from '@/api/client';
 import type { HomeSummary } from '@/types/home';
 
@@ -161,7 +161,8 @@ describe('HomePage', () => {
     expect(screen.getByText('29 days left')).toBeInTheDocument();
     expect(screen.getByText('1:35:59')).toBeInTheDocument();
     expect(screen.getAllByText('1:37:37').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText(/estimate:/)).toBeInTheDocument();
+    // Both the race card and the predictions block label their range an estimate.
+    expect(screen.getAllByText(/estimate:/).length).toBeGreaterThanOrEqual(1);
 
     // Plan
     expect(screen.getByRole('heading', { name: 'Campus plan' })).toBeInTheDocument();
@@ -284,4 +285,68 @@ describe('HomePage', () => {
     expect(await screen.findByRole('heading', { name: 'Campus plan' })).toBeInTheDocument();
     expect(getHomeSummaryMock).toHaveBeenCalledTimes(2);
   });
+
+  it('shows "n/a" and hides the week bar when week km are null', async () => {
+    const fx = fullFixture();
+    fx.plan!.week_km_expected = null;
+    fx.plan!.week_km_real = null;
+    getHomeSummaryMock.mockResolvedValue(fx);
+    const { container } = renderHome();
+    await screen.findByRole('heading', { name: 'Campus plan' });
+    expect(screen.getByText('n/a')).toBeInTheDocument();
+    // The progress bar track (role=presentation) is not rendered.
+    expect(container.querySelector('[role="presentation"]')).toBeNull();
+  });
+
+  it('shows "no prediction this week" when predictions is null', async () => {
+    const fx = fullFixture();
+    fx.predictions = null;
+    getHomeSummaryMock.mockResolvedValue(fx);
+    renderHome();
+    await screen.findByRole('heading', { name: 'Predictions' });
+    expect(screen.getByText('No prediction this week')).toBeInTheDocument();
+  });
+
+  it('shows "no prediction this week" when predictions items are empty', async () => {
+    const fx = fullFixture();
+    fx.predictions = { week: '2026-W42', items: [] };
+    getHomeSummaryMock.mockResolvedValue(fx);
+    renderHome();
+    await screen.findByRole('heading', { name: 'Predictions' });
+    expect(screen.getByText('No prediction this week')).toBeInTheDocument();
+  });
+
+  it('hides the Health card when intervals is on but there are no values', async () => {
+    const fx = fullFixture();
+    // Every signal null -> the card is hidden even though the module is on.
+    fx.health = {
+      resting_hr: null, hrv: null, sleep_s: null, sleep_score: null,
+      ctl: null, atl: null, form: null, vo2max: null, weight: null,
+    };
+    getHomeSummaryMock.mockResolvedValue(fx);
+    renderHome();
+    await screen.findByRole('heading', { name: 'Campus plan' });
+    expect(screen.queryByRole('heading', { name: 'Health' })).not.toBeInTheDocument();
+    // The intervals empty-state is NOT shown either (the module is on).
+    expect(screen.queryByText('intervals.icu not connected')).not.toBeInTheDocument();
+  });
+
+  it('filters the HRV series to the latest hrv_kind (pure helper)', () => {
+    // Latest point is rmssd: the earlier sdnn value must be nulled on the line.
+    const out = filterHrvByLatestKind([
+      { hrv: 60.0, hrv_kind: 'sdnn' },
+      { hrv: 42.0, hrv_kind: 'rmssd' },
+    ]);
+    expect(out[0].hrv).toBeNull();   // sdnn point dropped from the line
+    expect(out[1].hrv).toBe(42.0);   // latest kind kept
+  });
+
+  it('keeps all HRV points when every kind matches the latest', () => {
+    const out = filterHrvByLatestKind([
+      { hrv: 50.0, hrv_kind: 'sdnn' },
+      { hrv: 48.0, hrv_kind: 'sdnn' },
+    ]);
+    expect(out.map((p) => p.hrv)).toEqual([50.0, 48.0]);
+  });
+
 });

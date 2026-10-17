@@ -212,9 +212,11 @@ function RaceBlock({ race }: { race: NonNullable<HomeSummary['race']> }) {
 
 function PlanBlock({ plan }: { plan: NonNullable<HomeSummary['plan']> }) {
   const { t } = useTranslation();
+  // Null week km (the campus#week# row is not synced yet) -> "n/a", no bar.
+  const hasKm = plan.week_km_expected != null && plan.week_km_real != null;
   const expected = plan.week_km_expected ?? 0;
   const real = plan.week_km_real ?? 0;
-  const pct = expected > 0 ? Math.min(100, Math.round((real / expected) * 100)) : 0;
+  const pct = hasKm && expected > 0 ? Math.min(100, Math.round((real / expected) * 100)) : 0;
   const volLow = plan.weekly_volume_low;
   const volHigh = plan.weekly_volume_high;
 
@@ -252,15 +254,19 @@ function PlanBlock({ plan }: { plan: NonNullable<HomeSummary['plan']> }) {
         <div className="flex items-baseline justify-between text-sm">
           <span className="text-muted-foreground">{t('home.plan.weekKm')}</span>
           <span className="font-numeric font-medium">
-            {t('home.plan.kmRealExpected', {
-              real: num(real, 1) ?? '0',
-              expected: num(expected, 1) ?? '0',
-            })}
+            {hasKm
+              ? t('home.plan.kmRealExpected', {
+                  real: num(real, 1) ?? '0',
+                  expected: num(expected, 1) ?? '0',
+                })
+              : t('home.plan.na')}
           </span>
         </div>
-        <div className="mt-1.5 h-2.5 w-full overflow-hidden rounded-full bg-muted" role="presentation">
-          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
-        </div>
+        {hasKm && (
+          <div className="mt-1.5 h-2.5 w-full overflow-hidden rounded-full bg-muted" role="presentation">
+            <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+          </div>
+        )}
       </div>
 
       {volLow != null && volHigh != null && (
@@ -334,6 +340,25 @@ function WeekSessionsBlock({
 }
 
 /* ------------------------------------------------------------- Health block */
+
+/** Keep only the latest hrv_kind's HRV values on a series (others -> null), so a
+ * chart line never mixes SDNN and rMSSD scales. Pure + exported for tests. */
+export function filterHrvByLatestKind<T extends { hrv: number | null; hrv_kind?: string | null }>(
+  series: T[]
+): Array<T & { hrv: number | null }> {
+  const kinded = series.filter((p) => p.hrv != null && p.hrv_kind);
+  const latest = kinded.length > 0 ? kinded[kinded.length - 1].hrv_kind : null;
+  return series.map((p) => ({
+    ...p,
+    hrv: latest != null && p.hrv_kind !== latest ? null : p.hrv,
+  }));
+}
+
+/** True when at least one health signal carries a value (an all-null health
+ * object means intervals.icu is on but has nothing yet -> hide the card). */
+function healthHasValues(health: NonNullable<HomeSummary['health']>): boolean {
+  return Object.values(health).some((m) => m != null && m.value != null);
+}
 
 interface HealthRow {
   key: keyof HomeHealth;
@@ -427,9 +452,11 @@ function HealthBlock({
     },
   ];
 
+  // The HRV chart must plot a single kind: SDNN and rMSSD live on different
+  // scales. Keep only the latest kind's points on the hrv line (null the rest).
   const chartData = useMemo(
     () =>
-      (series ?? []).map((p) => ({
+      filterHrvByLatestKind(series ?? []).map((p) => ({
         date: formatDayMonth(p.date) ?? p.date,
         resting_hr: p.resting_hr,
         hrv: p.hrv,
@@ -496,12 +523,13 @@ function PredictionsBlock({
   predictions,
   history,
 }: {
-  predictions: NonNullable<HomeSummary['predictions']>;
+  predictions: HomeSummary['predictions'];
   history: NonNullable<HomeSummary['predictions_history']> | null;
 }) {
   const { t } = useTranslation();
   const chartTheme = useChartTheme();
-  const items = predictions.items ?? [];
+  const items = predictions?.items ?? [];
+  const hasItems = items.length > 0;
 
   const historyData = useMemo(
     () =>
@@ -517,7 +545,11 @@ function PredictionsBlock({
         {t('home.predictions.title')}
       </h2>
 
-      {items.length > 0 && (
+      {!hasItems && (
+        <p className="mt-4 text-sm text-muted-foreground">{t('home.predictions.empty')}</p>
+      )}
+
+      {hasItems && (
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
           {items.map((p) => {
             const time = formatDuration(p.time_s);
@@ -528,7 +560,11 @@ function PredictionsBlock({
                   {t(PRED_LABEL[p.distance] ?? '', { defaultValue: p.distance })}
                 </p>
                 <p className="font-numeric text-xl font-semibold">{time ?? t('home.na')}</p>
-                {range && <p className="text-[11px] text-muted-foreground">{range}</p>}
+                {range && (
+                  <p className="text-[11px] text-muted-foreground">
+                    {t('home.estimation')}: {range}
+                  </p>
+                )}
               </div>
             );
           })}
@@ -716,7 +752,9 @@ export function HomePage() {
           )}
 
           {intervalsOn ? (
-            data.health && <HealthBlock health={data.health} series={data.health_series ?? null} />
+            data.health && healthHasValues(data.health) && (
+              <HealthBlock health={data.health} series={data.health_series ?? null} />
+            )
           ) : (
             <EmptyState
               illustration="connect"
@@ -725,7 +763,7 @@ export function HomePage() {
             />
           )}
 
-          {data.predictions && (
+          {campusOn && (
             <PredictionsBlock
               predictions={data.predictions}
               history={data.predictions_history ?? null}

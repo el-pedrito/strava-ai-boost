@@ -882,5 +882,7 @@
   "home.empty.campus.title": "Campus Coach non connecté",
   "home.empty.campus.description": "Connecte Campus Coach pour voir ton plan et tes séances.",
   "home.empty.intervals.title": "intervals.icu non connecté",
-  "home.empty.intervals.description": "Connecte intervals.icu pour suivre tes données de santé."
+  "home.empty.intervals.description": "Connecte intervals.icu pour suivre tes données de santé.",
+  "home.plan.na": "n/a",
+  "home.predictions.empty": "Pas de prédiction cette semaine"
 }
