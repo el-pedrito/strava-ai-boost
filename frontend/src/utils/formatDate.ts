@@ -17,3 +17,12 @@ export function computeProcessingTime(createdAt?: string, updatedAt?: string): s
     return 'N/A';
   }
 }
+
+/** An ISO 8601 instant as a local "HH:MM", or null when absent or unreadable. */
+export function formatLocalTime(isoString: string | undefined): string | null {
+  if (!isoString) return null;
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) return null;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}

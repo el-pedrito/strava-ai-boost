@@ -89,9 +89,15 @@ describe('AthleteInputCard', () => {
     expect(await toggle()).toHaveAttribute('aria-checked', 'false');
   });
 
-  it('still works off when the modules GET fails', async () => {
+  it('shows the load error and keeps the toggle disabled when the modules GET fails', async () => {
     getMock.mockRejectedValue(new Error('down'));
     render(<AthleteInputCard />);
-    expect(await toggle()).toHaveAttribute('aria-checked', 'false');
+    expect(
+      await screen.findByText('Could not load this setting. Refresh the page to try again.'),
+    ).toBeInTheDocument();
+    const el = screen.getByRole('switch', { name: 'Ask for my feedback after each session' });
+    expect(el).toBeDisabled();
+    await userEvent.click(el);
+    expect(postMock).not.toHaveBeenCalled();
   });
 });

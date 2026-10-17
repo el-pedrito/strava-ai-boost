@@ -26,6 +26,9 @@ function AthleteInputCardInner() {
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(false);
+  // The stored value is unknown when the GET fails: saving blind could flip a
+  // flag the athlete set on another device, so the toggle stays disabled.
+  const [loadError, setLoadError] = useState(false);
   // Once the athlete taps, a late GET must not overwrite their choice.
   const touched = useRef(false);
 
@@ -37,7 +40,7 @@ function AthleteInputCardInner() {
         if (!cancelled && !touched.current) setEnabled(res.modules?.athlete_input?.enabled === true);
       })
       .catch(() => {
-        // Off by default: the toggle still works, it just starts unchecked.
+        if (!cancelled) setLoadError(true);
       })
       .finally(() => {
         if (!cancelled) setLoaded(true);
@@ -80,7 +83,7 @@ function AthleteInputCardInner() {
           <Toggle
             id="athlete-input-toggle"
             checked={enabled}
-            disabled={!loaded || saving}
+            disabled={!loaded || loadError || saving}
             onCheckedChange={(checked) => void onToggle(checked)}
             aria-label={t('preferences.athleteInput.toggle')}
           />
@@ -88,6 +91,7 @@ function AthleteInputCardInner() {
         {enabled && (
           <p className="text-xs text-muted-foreground">{t('preferences.athleteInput.needsPush')}</p>
         )}
+        {loadError && <Alert variant="error">{t('preferences.athleteInput.loadError')}</Alert>}
         {error && <Alert variant="error">{t('preferences.athleteInput.error')}</Alert>}
       </div>
     </Card>

@@ -1,10 +1,11 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router';
 import { CheckCircle2, Loader2 } from 'lucide-react';
 import { Alert, Button, Card, CardDescription, CardHeader, CardTitle, Label, Textarea } from '../../ui';
 import { ApiError, getActivityFeedback, submitActivityFeedback } from '../../api/client.ts';
 import { cn } from '../../lib/cn.ts';
+import { formatLocalTime } from '../../utils/formatDate.ts';
 
 /** Same bound as the API (plan §6): longer text is rejected with a 400. */
 export const SUMMARY_MAX_LENGTH = 2000;
@@ -34,13 +35,17 @@ export function ActivityFeedbackPage() {
   const [summary, setSummary] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deadline, setDeadline] = useState<string | null>(null);
+  const rpeRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   useEffect(() => {
     if (!validId) return;
     let cancelled = false;
     getActivityFeedback(id)
       .then((res) => {
-        if (!cancelled) setView(res.state === 'awaiting' ? 'form' : 'done');
+        if (cancelled) return;
+        setDeadline(formatLocalTime(res.deadline_at));
+        setView(res.state === 'awaiting' ? 'form' : 'done');
       })
       .catch(() => {
         if (!cancelled) setView('unavailable');
@@ -72,6 +77,21 @@ export function ActivityFeedbackPage() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // Radio-group keyboard model: arrows move and select, like native radios.
+  const onRpeKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    let next: number;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      next = (index + 1) % RPE_VALUES.length;
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      next = (index - 1 + RPE_VALUES.length) % RPE_VALUES.length;
+    } else {
+      return;
+    }
+    event.preventDefault();
+    setRpe(RPE_VALUES[next]);
+    rpeRefs.current[next]?.focus();
   };
 
   const backToActivity = (
@@ -116,6 +136,9 @@ export function ActivityFeedbackPage() {
   } else {
     body = (
       <form className="flex flex-col gap-6" onSubmit={onSubmit} noValidate>
+        {deadline && (
+          <p className="text-sm text-muted-foreground">{t('activityFeedback.deadline', { time: deadline })}</p>
+        )}
         <fieldset className="flex flex-col gap-3" aria-describedby="rpe-hint">
           <legend className="mb-1 text-sm font-medium text-foreground">
             {t('activityFeedback.rpe.label')}
@@ -123,14 +146,27 @@ export function ActivityFeedbackPage() {
           <p id="rpe-hint" className="text-xs text-muted-foreground">
             {t('activityFeedback.rpe.hint')}
           </p>
-          <div className="grid grid-cols-5 gap-2">
-            {RPE_VALUES.map((value) => {
+          <div
+            className="grid grid-cols-5 gap-2"
+            role="radiogroup"
+            aria-label={t('activityFeedback.rpe.label')}
+            aria-required="true"
+          >
+            {RPE_VALUES.map((value, index) => {
               const selected = rpe === value;
+              // Roving tabindex: one stop in the tab order, on the choice or the first value.
+              const tabbable = rpe === null ? index === 0 : selected;
               return (
                 <button
                   key={value}
+                  ref={(el) => {
+                    rpeRefs.current[index] = el;
+                  }}
                   type="button"
-                  aria-pressed={selected}
+                  role="radio"
+                  aria-checked={selected}
+                  tabIndex={tabbable ? 0 : -1}
+                  onKeyDown={(e) => onRpeKeyDown(e, index)}
                   aria-label={t('activityFeedback.rpe.valueAria', { value })}
                   onClick={() => setRpe(value)}
                   className={cn(
