@@ -18,7 +18,7 @@ SCRIPT = "\n".join(
         "import os, sys",
         "sys.path.insert(0, sys.argv[1])",
         "os.environ['ACTIVITIES_TABLE'] = 'test-activities'",
-        "os.environ['STRAVA_OAUTH_SECRET'] = 'test-oauth-secret'",
+        "os.environ['STRAVA_OAUTH_SECRET'] = 'test-oauth-secret'",  # pragma: allowlist secret
         "import processing.strava_updater as su",
         "assert hasattr(su, '_maybe_push_completed')",
         "print('imported')",

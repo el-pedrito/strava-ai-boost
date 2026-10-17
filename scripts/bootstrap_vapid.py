@@ -38,7 +38,7 @@ import boto3
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
-SECRET_NAME = "strava-ai-boost-vapid-keys"
+SECRET_NAME = "strava-ai-boost-vapid-keys"  # pragma: allowlist secret
 APP_SERVER_KEY_PARAM = "/strava-ai-boost/push/vapid-application-server-key"
 PARAM_TAGS = [
     {"Key": "Project", "Value": "strava-ai-boost"},

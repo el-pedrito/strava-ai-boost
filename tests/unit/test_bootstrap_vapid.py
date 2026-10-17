@@ -41,7 +41,7 @@ def test_apply_stores_a_tagged_securestring_and_hides_the_signing_key(monkeypatc
     sm = boto3.client("secretsmanager", region_name=REGION)
     ssm = boto3.client("ssm", region_name=REGION)
     # CDK creates the secret with a random placeholder value (Secret() default).
-    sm.create_secret(Name=mod.SECRET_NAME, SecretString="cdk-generated-placeholder")
+    sm.create_secret(Name=mod.SECRET_NAME, SecretString="cdk-generated-placeholder")  # pragma: allowlist secret
 
     assert _run(mod, monkeypatch, "--apply") == 0
 
@@ -82,7 +82,7 @@ def test_dry_run_writes_nothing(monkeypatch):
 
     mod = _load()
     boto3.client("secretsmanager", region_name=REGION).create_secret(
-        Name=mod.SECRET_NAME, SecretString="cdk-generated-placeholder"
+        Name=mod.SECRET_NAME, SecretString="cdk-generated-placeholder"  # pragma: allowlist secret
     )
     assert _run(mod, monkeypatch) == 0
     names = [

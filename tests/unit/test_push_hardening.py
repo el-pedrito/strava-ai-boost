@@ -93,7 +93,7 @@ def test_allowlist_refuses_internal_and_lookalike_targets():
         "https://web.push.apple.com.evil.example/x",       # suffix trick
         "https://evilpush.apple.com/x",                    # no dot before the suffix
         "https://fcm.googleapis.com.evil.example/x",
-        "https://user:pw@web.push.apple.com/x",            # credentials
+        "https://user:pw@web.push.apple.com/x",            # credentials  # pragma: allowlist secret
         "https://web.push.apple.com:8443/x",               # other port
         "https://web.push.apple.com/" + "a" * 1100,        # too long
         "",
@@ -158,7 +158,7 @@ def _fake_pywebpush(monkeypatch) -> list[dict[str, Any]]:
 def test_send_push_sets_ttl_timeout_and_urgency(monkeypatch):
     core = _core()
     calls = _fake_pywebpush(monkeypatch)
-    monkeypatch.setattr(core, "_load_vapid", lambda: {"public_key": "pub", "private_key": "priv"})
+    monkeypatch.setattr(core, "_load_vapid", lambda: {"public_key": "pub", "private_key": "priv"})  # pragma: allowlist secret
 
     core.send_push({"endpoint": APPLE, "keys": {"p256dh": "p", "auth": "a"}}, {"title": "t", "body": "b"})
 

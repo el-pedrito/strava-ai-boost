@@ -50,7 +50,7 @@ from .core_infrastructure_stack import CoreInfrastructureStack
 from .layer_hash import compute_layer_asset_hash
 
 PUSH_SUBSCRIPTIONS_TABLE_NAME = "strava-ai-boost-push-subscriptions"
-VAPID_SECRET_NAME = "strava-ai-boost-vapid-keys"
+VAPID_SECRET_NAME = "strava-ai-boost-vapid-keys"  # pragma: allowlist secret
 # Browser half of the VAPID pair (W3C applicationServerKey), SSM SecureString written
 # by scripts/bootstrap_vapid.py. PushApi reads this and nothing else.
 VAPID_APP_SERVER_KEY_PARAM = "/strava-ai-boost/push/vapid-application-server-key"
