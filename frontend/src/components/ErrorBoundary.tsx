@@ -6,6 +6,19 @@ import { Button } from '@/ui';
 interface Props {
   children: ReactNode;
   fallbackMessage?: string;
+  /**
+   * A custom node rendered instead of the full-page fallback when a child
+   * throws. Used to wrap individual dashboard blocks in a compact "block
+   * unavailable" card so one failing block never blanks the whole page.
+   */
+  fallback?: ReactNode;
+  /**
+   * When this value changes between renders, the boundary resets and retries
+   * its children. Pass a STABLE reference (e.g. the fetched summary object or a
+   * fetch generation), never an inline `?? []`, which would reset on every
+   * parent render and loop on a persistently throwing child.
+   */
+  resetKey?: unknown;
 }
 
 interface State {
@@ -65,6 +78,12 @@ export class ErrorBoundary extends Component<Props, State> {
     console.error('ErrorBoundary caught:', error, errorInfo);
   }
 
+  componentDidUpdate(prevProps: Props): void {
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false, error: null });
+    }
+  }
+
   private handleRetry = (): void => {
     this.setState({ hasError: false, error: null });
   };
@@ -75,6 +94,10 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render(): ReactNode {
     if (this.state.hasError) {
+      // A custom (compact) fallback takes precedence over the full-page one.
+      if (this.props.fallback !== undefined) {
+        return this.props.fallback;
+      }
       return (
         <ErrorFallback
           error={this.state.error}
