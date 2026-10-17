@@ -121,10 +121,13 @@ If an exercise's history mixes a per-side-noted session and a plain one, switchi
 notation would fake a record.
 
 Notation is three-valued per (session, exercise): **per_side** when every stored
-positive load equals 2 x a number written just before a per-side token and is not
-also written as a plain number; **plain** when there is at least one positive load
-on a valid set and it is not per_side; **unknown** when there is no positive load
-on a valid set (no detail, or holds only). The load link ties the notation to the
+positive load equals 2 x a number written just before a per-side token and none is
+written as a plain number on another clause; **plain** when at least one positive
+load on a valid set is not a doubled per-side value; **unknown** when there is no
+positive load on a valid set, or when every load matches a per-side value but one is
+also written plain elsewhere (ambiguous). A clause is a line, or a ", " / ". " in
+prose. Numbers on the per-side clause itself never count as plain, so a rep count
+equal to the doubled load ("Curl 3x12 6/c" stores 12) stays per-side. The load link ties the notation to the
 lift it belongs to: a first version tainted every exercise of a session as soon as
 one line said "/c", which on live data marked 19 of 22 lifts (bench press included)
 and emptied the records board. The "not written plain" rule stops a coincidence
@@ -135,7 +138,8 @@ unknown (no-load) session counts as neither, so an always-per-side lift plus a
 no-load session is not mixed (a no-load session cannot fake a record). A
 notation-mixed exercise is made e1RM-ineligible and excluded from the e1RM,
 top-weight and volume records. The chart shows a "total load noted, mixed notation"
-note. Rows with no record at all (holds, jumps) are left off the board.
+note. Rows with no record at all (holds, jumps, notation-mixed lifts with nothing
+comparable) are left off the board.
 
 ## Records board
 
