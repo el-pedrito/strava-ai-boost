@@ -110,9 +110,13 @@ _GLOBAL: List[NagPackSuppression] = [
 # Service APIs that only accept Resource '*', keyed by stack -> construct paths.
 _STAR_ONLY_REASON = (
     "These actions do not support resource-level permissions "
-    "(logs delivery/resource policy, X-Ray config, Polly, dynamodb:ListStreams)."
+    "(logs delivery/resource policy, X-Ray config, Polly, dynamodb:ListStreams, "
+    "states:SendTaskSuccess)."
 )
 _STAR_ONLY: Dict[str, List[str]] = {
+    "StravaAIBoost-API": [
+        "/StravaAIBoost-API/InputSubmit/ServiceRole/DefaultPolicy/Resource",
+    ],
     "StravaAIBoost-Content": ["/StravaAIBoost-Content/StepFunctionsRole/DefaultPolicy/Resource"],
     "StravaAIBoost-Feedback": [
         # CDK singleton LogRetention provider id (a fixed hash, not a secret)

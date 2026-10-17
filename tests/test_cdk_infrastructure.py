@@ -22,7 +22,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from stacks.core_infrastructure_stack import CoreInfrastructureStack
 from stacks.content_generation_stack import ContentGenerationStack
 from stacks.webhook_processing_stack import WebhookProcessingStack
-from stacks.api_gateway_stack import ApiGatewayStack
+from stacks.api_gateway_stack import (
+    FEEDBACK_POST_THROTTLE_BURST_LIMIT,
+    FEEDBACK_POST_THROTTLE_RATE_LIMIT,
+    ApiGatewayStack,
+)
 
 
 class TestCoreInfrastructureStack:
@@ -472,20 +476,107 @@ class TestApiGatewayStack:
         template.has_resource_properties("AWS::ApiGateway::RestApi", {
             "Name": assertions.Match.string_like_regexp(".*Local Interface.*")
         })
-    
+
+    def test_feedback_route_is_omitted_without_cognito(self, api_stack):
+        """An isolated stack without a user pool must not expose feedback methods."""
+        template = assertions.Template.from_stack(api_stack)
+        resources = template.find_resources("AWS::ApiGateway::Resource")
+        assert all(
+            resource["Properties"].get("PathPart") != "feedback"
+            for resource in resources.values()
+        )
+
+    def test_feedback_post_has_dedicated_throttling(self, api_stack):
+        """POST /activities/{activityId}/feedback is capped below the stage default."""
+        template = assertions.Template.from_stack(api_stack)
+        stages = template.find_resources("AWS::ApiGateway::Stage")
+        assert len(stages) == 1
+        settings = next(iter(stages.values()))["Properties"]["MethodSettings"]
+        feedback_post = next(
+            setting for setting in settings
+            if setting["HttpMethod"] == "POST"
+            and setting["ResourcePath"] == "/~1activities~1{activityId}~1feedback"
+        )
+        assert feedback_post["ThrottlingRateLimit"] == FEEDBACK_POST_THROTTLE_RATE_LIMIT == 5
+        assert feedback_post["ThrottlingBurstLimit"] == FEEDBACK_POST_THROTTLE_BURST_LIMIT == 10
+
+    def test_feedback_lambdas_have_least_privilege_iam(self, api_stack):
+        """Status gets GetItem; submit gets GetItem/UpdateItem and callback success only."""
+        template = assertions.Template.from_stack(api_stack)
+        resources = template.to_json()["Resources"]
+
+        def statements_for(function_name):
+            function = next(
+                resource for resource in resources.values()
+                if resource["Type"] == "AWS::Lambda::Function"
+                and resource["Properties"].get("FunctionName") == function_name
+            )
+            role_ref = function["Properties"]["Role"]["Fn::GetAtt"][0]
+            return [
+                statement
+                for resource in resources.values()
+                if resource["Type"] == "AWS::IAM::Policy"
+                and {"Ref": role_ref} in resource["Properties"]["Roles"]
+                for statement in resource["Properties"]["PolicyDocument"]["Statement"]
+            ]
+
+        status_statements = statements_for("StravaAIBoost-InputStatus")
+        assert len(status_statements) == 1
+        assert status_statements[0]["Action"] == "dynamodb:GetItem"
+        activities_table_arn = status_statements[0]["Resource"]
+        assert set(activities_table_arn) == {"Fn::ImportValue"}
+        assert "StravaActivitiesTable" in activities_table_arn["Fn::ImportValue"]
+        assert "*" not in json.dumps(activities_table_arn)
+
+        submit_statements = statements_for("StravaAIBoost-InputSubmit")
+        ddb = next(
+            statement for statement in submit_statements
+            if "dynamodb:GetItem" in (
+                statement["Action"] if isinstance(statement["Action"], list)
+                else [statement["Action"]]
+            )
+        )
+        assert set(ddb["Action"]) == {"dynamodb:GetItem", "dynamodb:UpdateItem"}
+        assert ddb["Resource"] == activities_table_arn
+        callback = next(
+            statement for statement in submit_statements
+            if statement["Action"] == "states:SendTaskSuccess"
+        )
+        assert callback["Resource"] == "*"
+        assert "states:SendTaskFailure" not in json.dumps(submit_statements)
+        assert "states:SendTaskHeartbeat" not in json.dumps(submit_statements)
+
+    def test_feedback_operational_alarms_notify_ops_topic(self, api_stack):
+        template = assertions.Template.from_stack(api_stack)
+        alarms = {
+            resource["Properties"]["AlarmName"]: resource["Properties"]
+            for resource in template.find_resources("AWS::CloudWatch::Alarm").values()
+        }
+        expected = {
+            "strava-ai-boost-input-status-errors",
+            "strava-ai-boost-input-submit-errors",
+            "strava-ai-boost-api-5xx-errors",
+            "strava-ai-boost-api-throttles-or-client-errors",
+        }
+        assert expected == set(alarms)
+        for name in expected:
+            assert alarms[name]["AlarmActions"], name
+            assert alarms[name]["TreatMissingData"] == "notBreaching"
+
     def test_lambda_functions_for_api(self, api_stack):
         """Test Lambda functions for API endpoints"""
         template = assertions.Template.from_stack(api_stack)
         
-        # Config, dashboard, preferences, health. The coach ask/stream Lambdas
-        # were replaced by the coach_chat AgentCore Runtime (outside CDK), and
-        # the audio debrief Lambda belongs to the voice debrief stack.
-        template.resource_count_is("AWS::Lambda::Function", 4)
+        # Config, dashboard, preferences, health, and the two dedicated
+        # athlete-input API handlers. The audio Lambda belongs to its own stack.
+        template.resource_count_is("AWS::Lambda::Function", 6)
         for name in (
             "StravaAIBoost-ConfigurationAPI",
             "StravaAIBoost-DashboardAPI",
             "StravaAIBoost-UserPreferencesAPI",
             "StravaAIBoost-AgentCoreHealthCheck",
+            "StravaAIBoost-InputStatus",
+            "StravaAIBoost-InputSubmit",
         ):
             template.has_resource_properties(
                 "AWS::Lambda::Function", {"FunctionName": name}
@@ -501,6 +592,7 @@ class TestPlanWorkoutsRoute:
     def stacks(self):
         from pathlib import Path
         from stacks.frontend_hosting_stack import FrontendHostingStack
+        from aws_cdk import aws_lambda as lambda_
         cdk_context = json.loads(
             (Path(__file__).parent.parent / "cdk.json").read_text()
         ).get("context", {})
@@ -508,9 +600,15 @@ class TestPlanWorkoutsRoute:
         env = cdk.Environment(account="123456789012", region="us-east-1")
         core = CoreInfrastructureStack(app, "TestCoreStack", env=env)
         frontend = FrontendHostingStack(app, "TestFrontendStack", env=env)
+        audio = lambda_.Function.from_function_arn(
+            core,
+            "TestAudioDebriefApi",
+            "arn:aws:lambda:us-east-1:123456789012:function:test-audio-api",
+        )
         api = ApiGatewayStack(
             app, "TestAPIStack", core_stack=core,
             user_pool=frontend.user_pool, user_pool_client=frontend.user_pool_client,
+            audio_debrief_lambda=audio,
             env=env,
         )
         return {
@@ -538,6 +636,51 @@ class TestPlanWorkoutsRoute:
         assert get[0]["AuthorizationType"] == "COGNITO_USER_POOLS"
         assert get[0]["AuthorizerId"] == {"Ref": next(iter(template.find_resources("AWS::ApiGateway::Authorizer")))}
         assert "DashboardAPI" in json.dumps(get[0]["Integration"]["Uri"])
+
+    def test_feedback_route_uses_cognito_authorizer(self, stacks):
+        template = stacks["api"]
+        resources = template.find_resources("AWS::ApiGateway::Resource")
+        by_id = {logical_id: resource["Properties"] for logical_id, resource in resources.items()}
+
+        activities = [
+            logical_id for logical_id, props in by_id.items()
+            if props["PathPart"] == "activities"
+            and props["ParentId"] == {"Fn::GetAtt": [
+                next(iter(template.find_resources("AWS::ApiGateway::RestApi"))),
+                "RootResourceId",
+            ]}
+        ]
+        assert len(activities) == 1
+        activity_items = [
+            logical_id for logical_id, props in by_id.items()
+            if props["PathPart"] == "{activityId}"
+            and props["ParentId"] == {"Ref": activities[0]}
+        ]
+        assert len(activity_items) == 1
+        feedback_ids = [
+            logical_id for logical_id, props in by_id.items()
+            if props["PathPart"] == "feedback"
+            and props["ParentId"] == {"Ref": activity_items[0]}
+        ]
+        assert len(feedback_ids) == 1
+        audio_ids = [
+            logical_id for logical_id, props in by_id.items()
+            if props["PathPart"] == "audio-url"
+            and props["ParentId"] == {"Ref": activity_items[0]}
+        ]
+        assert len(audio_ids) == 1
+
+        methods = [
+            method["Properties"]
+            for method in template.find_resources("AWS::ApiGateway::Method").values()
+            if method["Properties"].get("ResourceId") == {"Ref": feedback_ids[0]}
+            and method["Properties"].get("HttpMethod") != "OPTIONS"
+        ]
+        assert {method["HttpMethod"] for method in methods} == {"GET", "POST"}
+        assert all(method["AuthorizationType"] == "COGNITO_USER_POOLS" for method in methods)
+        integrations = {method["HttpMethod"]: json.dumps(method["Integration"]["Uri"]) for method in methods}
+        assert "InputStatus" in integrations["GET"]
+        assert "InputSubmit" in integrations["POST"]
 
     def test_home_summary_route_uses_cognito_authorizer(self, stacks):
         """A4: GET /home/summary is COGNITO_USER_POOLS, integrated with DashboardAPI."""
@@ -588,8 +731,8 @@ class TestPlanWorkoutsRoute:
             })},
         })
 
-    def test_lambda_function_count_unchanged(self, stacks):
-        stacks["api"].resource_count_is("AWS::Lambda::Function", 4)
+    def test_lambda_function_count_includes_feedback_handlers(self, stacks):
+        stacks["api"].resource_count_is("AWS::Lambda::Function", 6)
 
     def test_client_cannot_write_strava_claim(self, stacks):
         clients = stacks["frontend"].find_resources("AWS::Cognito::UserPoolClient")
