@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, within, fireEvent } from '@testing-library/react';
 import { PlanPage } from '../PlanPage';
 import { setLanguage } from '@/i18n';
@@ -41,6 +41,14 @@ describe('PlanPage', () => {
   beforeEach(() => {
     getPlanWorkoutsMock.mockReset();
     downloadWorkoutMock.mockReset();
+    // Only Date is faked (promises and timers stay real). Default "today" is in
+    // 2026-W41, so the W43/W44 fixtures keep their plain "Week N" headers.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-07T10:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('shows a loading status while the request is pending', () => {
@@ -281,5 +289,172 @@ describe('PlanPage', () => {
       unmount?.();
       await setLanguage('en');
     }
+  });
+
+  describe('hierarchy, coach words and race', () => {
+    // Wednesday of 2026-W43 in Paris.
+    const WED_W43 = new Date('2026-10-21T10:00:00Z');
+
+    it('labels this week and next week, with their date range and short week number', async () => {
+      vi.setSystemTime(WED_W43);
+      respond([
+        item({ session_id: 'a', week_iso: '2026-W43', title: 'Footing' }),
+        item({ session_id: 'b', week_iso: '2026-W44', title: 'Allure 21 km' }),
+        item({ session_id: 'c', week_iso: '2026-W45', title: 'Sortie longue' }),
+      ]);
+      render(<PlanPage />);
+      const thisWeek = await screen.findByRole('region', { name: 'This week' });
+      expect(within(thisWeek).getByTestId('plan-week-range')).toHaveTextContent('Mon 19 – Sun 25 Oct · W43');
+      const nextWeek = screen.getByRole('region', { name: 'Next week' });
+      expect(within(nextWeek).getByTestId('plan-week-range')).toHaveTextContent('Mon 26 Oct – Sun 1 Nov · W44');
+      expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual([
+        'This week',
+        'Next week',
+        'Week 45',
+      ]);
+    });
+
+    it('gives only the next session a filled Watch button, the others an icon button with an aria-label', async () => {
+      vi.setSystemTime(WED_W43);
+      respond([
+        item({ session_id: 'a', week_iso: '2026-W43', title: 'Footing' }),
+        item({ session_id: 'b', week_iso: '2026-W43', title: 'Allure 21 km' }),
+        item({ session_id: 'c', week_iso: '2026-W44', title: 'Sortie longue' }),
+      ]);
+      render(<PlanPage />);
+      const buttons = await screen.findAllByRole('button', { name: /^Add to Watch: / });
+      expect(buttons).toHaveLength(3);
+      // Visible label only on the next one; the icon buttons rely on aria-label.
+      expect(buttons.filter((b) => b.textContent === 'Add to Watch')).toEqual([
+        screen.getByRole('button', { name: 'Add to Watch: Footing' }),
+      ]);
+      expect(screen.getByRole('button', { name: 'Add to Watch: Allure 21 km' })).toHaveTextContent('');
+      const cards = screen.getAllByTestId('plan-session');
+      expect(cards.map((c) => c.getAttribute('data-role'))).toEqual(['next', 'normal', 'normal']);
+      expect(within(cards[0]).getByText('Next')).toBeInTheDocument();
+      expect(within(cards[0]).getByText('Campus sets no day: to do by Sun 25 Oct.')).toBeInTheDocument();
+    });
+
+    it('takes the first session of next week as next when this week has none left', async () => {
+      vi.setSystemTime(WED_W43);
+      respond([
+        item({ session_id: 'b', week_iso: '2026-W44', title: 'Allure 21 km' }),
+        item({ session_id: 'c', week_iso: '2026-W44', title: 'Sortie longue' }),
+      ]);
+      render(<PlanPage />);
+      const cards = await screen.findAllByTestId('plan-session');
+      expect(cards.map((c) => c.getAttribute('data-role'))).toEqual(['next', 'normal']);
+    });
+
+    it('shows the next session coach word open and its instructions collapsed', async () => {
+      vi.setSystemTime(WED_W43);
+      respond([
+        item({
+          session_id: 'a',
+          title: 'Footing',
+          coach_advice: 'Reste facile, **vraiment** facile.',
+          description: 'Footing en endurance fondamentale.',
+        }),
+        item({ session_id: 'b', title: 'Allure', coach_advice: 'Arrive reposé.', description: 'Quatre fois neuf minutes.' }),
+      ]);
+      render(<PlanPage />);
+      const [next, other] = await screen.findAllByTestId('plan-session');
+
+      const box = within(next).getByTestId('plan-coach-box');
+      expect(within(box).getByText("Campus coach's word")).toBeInTheDocument();
+      expect(within(box).getByText('vraiment').tagName).toBe('STRONG');
+      // Coach word not inside a <details>; instructions inside a closed one.
+      expect(within(box).getByText(/Reste facile/).closest('details')).toBeNull();
+      const consigne = within(box).getByText('Footing en endurance fondamentale.').closest('details');
+      expect(consigne).not.toBeNull();
+      expect(consigne).not.toHaveAttribute('open');
+      expect(within(consigne as HTMLElement).getByText('Session instructions')).toBeInTheDocument();
+
+      // Other sessions: one collapsed "Coach's word" holding both texts.
+      const disclosure = within(other).getByText("Coach's word").closest('details');
+      expect(disclosure).not.toHaveAttribute('open');
+      expect(within(disclosure as HTMLElement).getByText('Arrive reposé.')).toBeInTheDocument();
+      expect(within(disclosure as HTMLElement).getByText('Quatre fois neuf minutes.')).toBeInTheDocument();
+    });
+
+    it('renders no coach block when the session has neither text', async () => {
+      vi.setSystemTime(WED_W43);
+      respond([item({ session_id: 'a' }), item({ session_id: 'b', coach_advice: '  ', description: null })]);
+      render(<PlanPage />);
+      await screen.findAllByTestId('plan-session');
+      expect(screen.queryByTestId('plan-coach-box')).not.toBeInTheDocument();
+      expect(screen.queryByText("Coach's word")).not.toBeInTheDocument();
+    });
+
+    it('renders the race as a race card with its countdown, coach word open, and a header strip', async () => {
+      vi.setSystemTime(WED_W43);
+      respond([
+        item({ session_id: 'a', week_iso: '2026-W43', title: 'Footing' }),
+        item({
+          session_id: 'r',
+          week_iso: '2026-W46',
+          title: 'SEMI-MARATHON',
+          training_type: 'Competition',
+          coach_advice: 'Bon courage pour ta compétition !',
+          description: 'Pars prudemment.',
+        }),
+      ]);
+      render(<PlanPage />);
+      const raceWeek = await screen.findByRole('region', { name: 'Race week' });
+      const race = within(raceWeek).getByTestId('plan-session');
+      expect(race).toHaveAttribute('data-role', 'race');
+      expect(within(race).getByText('Race day')).toBeInTheDocument();
+      // Sunday of W46 (15 Nov) minus Wednesday 21 Oct = 25 days.
+      expect(within(race).getByRole('img', { name: 'in 25 days' })).toHaveTextContent('D-25');
+      expect(within(race).getByText('Estimated date: end of week, Sun 15 Nov')).toBeInTheDocument();
+      expect(within(race).getByText('Bon courage pour ta compétition !').closest('details')).toBeNull();
+      // Not the next session: icon button only.
+      expect(within(race).getByRole('button', { name: 'Add to Watch: SEMI-MARATHON' })).toHaveTextContent('');
+
+      const strip = screen.getByTestId('plan-race-strip');
+      expect(strip).toHaveTextContent('SEMI-MARATHON · Sun 15 Nov');
+      expect(strip).toHaveTextContent('D-25');
+    });
+
+    it('detects the race from a MARATHON title alone, not from an intermediate race', async () => {
+      vi.setSystemTime(WED_W43);
+      respond([
+        item({ session_id: 'i', title: 'Course intermédiaire', training_type: 'low-priority-race' }),
+        item({ session_id: 'm', week_iso: '2026-W46', title: 'Semi-marathon', training_type: null }),
+      ]);
+      render(<PlanPage />);
+      const cards = await screen.findAllByTestId('plan-session');
+      expect(cards.map((c) => c.getAttribute('data-role'))).toEqual(['next', 'race']);
+    });
+
+    it('shows no race strip when the plan has no race', async () => {
+      vi.setSystemTime(WED_W43);
+      respond([item({})]);
+      render(<PlanPage />);
+      await screen.findByTestId('plan-session');
+      expect(screen.queryByTestId('plan-race-strip')).not.toBeInTheDocument();
+    });
+
+    it('renders the French hierarchy: Cette semaine, dates, Prochaine and J-x', async () => {
+      vi.setSystemTime(WED_W43);
+      await setLanguage('fr');
+      let unmount: (() => void) | undefined;
+      try {
+        respond([
+          item({ session_id: 'a', week_iso: '2026-W43', title: 'Footing', coach_advice: 'Écoute ton corps.' }),
+          item({ session_id: 'r', week_iso: '2026-W46', title: 'SEMI-MARATHON', training_type: 'Competition' }),
+        ]);
+        ({ unmount } = render(<PlanPage />));
+        const thisWeek = await screen.findByRole('region', { name: 'Cette semaine' });
+        expect(within(thisWeek).getByTestId('plan-week-range')).toHaveTextContent('lun. 19 – dim. 25 oct. · S43');
+        expect(within(thisWeek).getByText('Prochaine')).toBeInTheDocument();
+        expect(within(thisWeek).getByText('Mot du coach Campus')).toBeInTheDocument();
+        expect(screen.getByRole('region', { name: 'Semaine de course' })).toBeInTheDocument();
+        expect(screen.getAllByRole('img', { name: 'dans 25 jours' })[0]).toHaveTextContent('J-25');
+      } finally {
+        unmount?.();
+        await setLanguage('en');
+      }
+    });
   });
 });
