@@ -88,6 +88,16 @@ def _sync_lambda_client() -> Any:
     return _input_request_client
 
 
+class PushRequestError(Exception):
+    """The input request could not be handed to PushSend, or its answer is unusable.
+
+    Distinct from a genuine ``sent == 0`` (nobody subscribed, every device gone):
+    the caller still fails open, but records ``push_error`` instead of
+    ``no_push`` so a broken push path is alarmed rather than counted as normal.
+    The message carries no secret (never the payload).
+    """
+
+
 def notify_input_request(
     user_id: str,
     activity_id: str,
@@ -98,8 +108,10 @@ def notify_input_request(
     """Ask the athlete for their session feeling; return how many devices got it.
 
     RequestResponse invocation of PushSend with ``url``, ``tag="input-<id>"`` and
-    ``ttl=3600``. Any error (invoke, function error, unreadable payload) returns 0,
-    so the caller releases the run immediately. Never raises.
+    ``ttl=3600``. Returns PushSend's ``sent`` (0 when nobody was reached). Raises
+    ``PushRequestError`` on an invocation error, a function error or a malformed
+    answer, so the caller can tell a broken push path from an empty one. Raises
+    nothing else.
     """
     function_name = os.environ.get("PUSH_SEND_FUNCTION", "StravaAIBoost-PushSend")
     payload = {
@@ -117,15 +129,19 @@ def notify_input_request(
             InvocationType="RequestResponse",
             Payload=_json_bytes(payload),
         )
-        if response.get("FunctionError"):
-            logger.warning(f"notify_input_request: PushSend failed activity={activity_id}")
-            return 0
+    except Exception as exc:  # noqa: BLE001 - surfaced as a typed failure
+        logger.warning(f"notify_input_request: invoke failed activity={activity_id}: {type(exc).__name__}")
+        raise PushRequestError(f"invoke failed: {type(exc).__name__}") from None
+    if response.get("FunctionError"):
+        logger.warning(f"notify_input_request: PushSend failed activity={activity_id}")
+        raise PushRequestError("PushSend function error")
+    try:
         result = json.loads(response["Payload"].read() or b"{}")
-        sent = result.get("sent", 0) if isinstance(result, dict) else 0
-        if isinstance(sent, bool) or not isinstance(sent, int) or sent < 0:
-            return 0
-        logger.info(f"notify_input_request user={user_id} activity={activity_id} sent={sent}")
-        return sent
-    except Exception as exc:  # noqa: BLE001 - best-effort, never propagate
-        logger.warning(f"notify_input_request failed (non-blocking): {exc}")
-        return 0
+    except Exception as exc:  # noqa: BLE001 - surfaced as a typed failure
+        raise PushRequestError(f"unreadable PushSend answer: {type(exc).__name__}") from None
+    sent = result.get("sent") if isinstance(result, dict) else None
+    if isinstance(sent, bool) or not isinstance(sent, int) or sent < 0:
+        logger.warning(f"notify_input_request: malformed PushSend answer activity={activity_id}")
+        raise PushRequestError("malformed PushSend answer")
+    logger.info(f"notify_input_request user={user_id} activity={activity_id} sent={sent}")
+    return sent

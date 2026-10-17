@@ -119,6 +119,29 @@ def test_notify_exception_closes_and_releases(env):
     assert env["outcomes"] == ["error"]
 
 
+def test_push_request_failure_is_push_error_not_no_push(env):
+    """PushSend broken (invoke/function/malformed answer): fail open, but distinct."""
+    from shared.push_notify import PushRequestError
+
+    env["notify"].side_effect = PushRequestError("PushSend function error")
+    result = input_wait.handler(_event(), None)
+
+    assert result == {"outcome": "push_error"}
+    row = _row(env)
+    assert row["athlete_input_state"] == "closed"
+    assert "input_task_token" not in row
+    env["sfn"].send_task_success.assert_called_once_with(taskToken=TOKEN, output="{}")
+    assert env["outcomes"] == ["push_error"]
+
+
+def test_non_numeric_user_id_releases_without_writing(env):
+    result = input_wait.handler(_event(user_id="42; x"), None)
+    assert result == {"outcome": "error"}
+    env["sfn"].send_task_success.assert_called_once()
+    env["notify"].assert_not_called()
+    assert env["table"].scan()["Items"] == []
+
+
 def test_replay_on_used_window_releases_and_keeps_row(env):
     env["table"].put_item(Item={
         "activity_id": "777", "athlete_input_state": "submitted",

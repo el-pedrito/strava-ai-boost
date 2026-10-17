@@ -6,8 +6,9 @@ asks the athlete for their feeling through a push notification, and returns. The
 execution then waits until the input API calls ``SendTaskSuccess`` with the stored
 token, or until the 1 h task timeout, caught by the state machine (D4).
 
-Fail open (D5, D8): when nobody can be asked (push disabled, no device reached,
-any error) the window is closed again and the execution is released at once with
+Fail open (D5, D8): when nobody can be asked (push disabled or no device reached:
+``no_push``; PushSend invocation/function/answer failure: ``push_error``; any other
+error: ``error``) the window is closed again and the execution is released at once with
 ``SendTaskSuccess``. A replayed invocation on an already opened or closed window
 releases at once too (D3: one input per activity).
 
@@ -27,7 +28,7 @@ from aws_lambda_powertools.metrics import single_metric
 from botocore.exceptions import ClientError
 
 from shared.logger import METRICS_NAMESPACE, MetricUnit, get_logger
-from shared.push_notify import notify_input_request
+from shared.push_notify import PushRequestError, notify_input_request
 
 logger = get_logger("input_wait")
 
@@ -40,6 +41,8 @@ INPUT_WINDOW = timedelta(hours=1)
 NOTIFICATION_TITLE = "Nouvelle séance"
 NOTIFICATION_BODY = "Ton ressenti ?"
 _ACTIVITY_ID_RE = re.compile(r"^[0-9]{1,20}$")
+# Strava athlete id, compared with the custom:strava_id claim by the feedback API.
+_USER_ID_RE = re.compile(r"^[0-9]+$")
 # Step Functions task tokens are at most 2048 characters (API reference, SendTaskSuccess).
 MAX_TOKEN_LENGTH = 2048
 
@@ -128,7 +131,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         _record("error")
         return {"outcome": "error"}
 
-    if not _ACTIVITY_ID_RE.match(activity_id) or not user_id:
+    if not _ACTIVITY_ID_RE.match(activity_id) or not _USER_ID_RE.match(user_id):
         logger.error("input_wait: invalid activity_id or user_id, releasing")
         _release(task_token, activity_id)
         _record("error")
@@ -159,7 +162,13 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 body=NOTIFICATION_BODY,
                 url=f"/activities/{activity_id}/feedback",
             )
-        except Exception as exc:  # noqa: BLE001 - notify_input_request never raises; belt and braces
+        except PushRequestError:
+            # PushSend unreachable, crashed or answered garbage: not the same as
+            # "nobody subscribed". Still fail open (D5, D8), but alarmed.
+            logger.error(f"input_wait: push request failed activity={activity_id}")
+            sent = 0
+            outcome = "push_error"
+        except Exception as exc:  # noqa: BLE001 - notify_input_request raises nothing else; belt and braces
             logger.error(f"input_wait: notify failed activity={activity_id}: {type(exc).__name__}")
             sent = 0
             outcome = "error"

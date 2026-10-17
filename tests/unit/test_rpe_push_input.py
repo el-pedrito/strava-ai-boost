@@ -2,7 +2,9 @@
 
 - ``notify_input_request`` invokes PushSend in RequestResponse with url, tag and
   ttl, on a dedicated client that never retries (a retried read timeout would
-  notify the devices twice), and returns ``sent``; any error returns 0.
+  notify the devices twice), and returns ``sent``; an invocation error, a
+  function error or a malformed answer raises ``PushRequestError`` (``push_error``
+  for InputWait, distinct from a genuine ``sent == 0``).
 - PushSend accepts the optional ``tag`` and ``ttl`` fields; an invalid ttl falls
   back to the 24 h default; absent fields keep today's behaviour.
 """
@@ -78,22 +80,24 @@ def test_dedicated_client_never_retries(mock_boto3):
 
 
 @patch("shared.push_notify.boto3")
-def test_read_timeout_invokes_push_send_once_and_returns_zero(mock_boto3):
+def test_read_timeout_invokes_push_send_once_and_raises(mock_boto3):
     from botocore.exceptions import ReadTimeoutError
 
     client = MagicMock()
     client.invoke.side_effect = ReadTimeoutError(endpoint_url="https://lambda")
     mock_boto3.client.return_value = client
-    assert _call() == 0
+    with pytest.raises(push_notify.PushRequestError):
+        _call()
     assert client.invoke.call_count == 1
 
 
 @patch("shared.push_notify.boto3")
-def test_function_error_returns_zero(mock_boto3):
+def test_function_error_raises_push_request_error(mock_boto3):
     client = MagicMock()
     client.invoke.return_value = _response({"errorMessage": "boom"}, function_error="Unhandled")
     mock_boto3.client.return_value = client
-    assert _call() == 0
+    with pytest.raises(push_notify.PushRequestError):
+        _call()
 
 
 @patch("shared.push_notify.boto3")
@@ -105,19 +109,30 @@ def test_zero_sent_returns_zero(mock_boto3):
 
 
 @patch("shared.push_notify.boto3")
-def test_malformed_sent_returns_zero(mock_boto3):
+def test_malformed_sent_raises_push_request_error(mock_boto3):
     client = MagicMock()
     client.invoke.return_value = _response({"sent": True})
     mock_boto3.client.return_value = client
-    assert _call() == 0
+    with pytest.raises(push_notify.PushRequestError):
+        _call()
 
 
 @patch("shared.push_notify.boto3")
-def test_non_json_payload_returns_zero(mock_boto3):
+def test_missing_sent_raises_push_request_error(mock_boto3):
+    client = MagicMock()
+    client.invoke.return_value = _response({"statusCode": 200})
+    mock_boto3.client.return_value = client
+    with pytest.raises(push_notify.PushRequestError):
+        _call()
+
+
+@patch("shared.push_notify.boto3")
+def test_non_json_payload_raises_push_request_error(mock_boto3):
     client = MagicMock()
     client.invoke.return_value = {"StatusCode": 200, "Payload": io.BytesIO(b"not json")}
     mock_boto3.client.return_value = client
-    assert _call() == 0
+    with pytest.raises(push_notify.PushRequestError):
+        _call()
 
 
 @patch("shared.push_notify.boto3")
