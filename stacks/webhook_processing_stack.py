@@ -764,11 +764,30 @@ class WebhookProcessingStack(Stack):
                     if str(self.node.try_get_context("campus_zones_enabled")).lower() == "true"
                     else "false"
                 ),
+                # A3: home aggregates (campus#* keys) in the wellness table.
+                "WELLNESS_TABLE": "strava-ai-boost-wellness",
+                "CAMPUS_OWNER_STRAVA_ID": str(self.node.try_get_context("default_user_id") or ""),
             }
         )
 
         campus_coach_secret.grant_read(self.campus_coach_sync)
         coaching_sessions_table.grant_read_write_data(self.campus_coach_sync)
+
+        # A3: narrow inline grant to write the owner's campus#* home aggregates in
+        # the wellness table. UpdateItem/PutItem only, scoped to the owner's own
+        # partition via dynamodb:LeadingKeys (no read, no other partition).
+        owner = str(self.node.try_get_context("default_user_id") or "")
+        self.campus_coach_sync.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["dynamodb:UpdateItem", "dynamodb:PutItem"],
+                resources=[
+                    f"arn:aws:dynamodb:{Aws.REGION}:{Aws.ACCOUNT_ID}:table/strava-ai-boost-wellness"
+                ],
+                conditions={
+                    "ForAllValues:StringEquals": {"dynamodb:LeadingKeys": [owner]}
+                },
+            )
+        )
 
         # Also need to read user config to check if module is enabled
         user_config_table = dynamodb.Table.from_table_name(

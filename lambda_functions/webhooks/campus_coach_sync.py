@@ -34,6 +34,10 @@ secretsmanager = boto3.client('secretsmanager', region_name=REGION)
 COACHING_SESSIONS_TABLE = os.environ['COACHING_SESSIONS_TABLE']
 SECRET_ARN = os.environ.get('SECRET_ARN', 'strava-ai-boost-campus-coach-credentials')
 USER_CONFIG_TABLE = os.environ.get('USER_CONFIG_TABLE', 'strava-ai-boost-user-configuration')
+# A3: home aggregates land in the wellness table under campus#* keys, keyed by
+# the owner's Strava id. Empty owner -> never write (feature off).
+WELLNESS_TABLE = os.environ.get('WELLNESS_TABLE', 'strava-ai-boost-wellness')
+CAMPUS_OWNER_STRAVA_ID = os.environ.get('CAMPUS_OWNER_STRAVA_ID', '')
 
 API_BASE = os.environ.get("CAMPUS_COACH_API_URL", "https://api.campus.coach")
 
@@ -99,9 +103,10 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         if event.get('probe_schema'):
             return {'statusCode': 200, 'probe': _probe_schema(token)}
 
-        # Fetch supplementary data (goal, profile, assiduity)
+        # Fetch supplementary data (goal, profile, assiduity). Reuse the goal
+        # it returns for the A3 home aggregates (no second goal/active call).
         table = dynamodb.Table(COACHING_SESSIONS_TABLE)
-        _sync_athlete_context(token, table, user_id)
+        goals = _sync_athlete_context(token, table, user_id)
 
         now = datetime.now(timezone.utc)
         from_ms = int((now - timedelta(weeks=6)).timestamp() * 1000)
@@ -171,6 +176,13 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
         # Delete stale sessions
         deleted = _delete_stale_sessions(table, new_session_ids)
+
+        # A3: write the home aggregates to the wellness table. Non-blocking: a
+        # failure here must never break the existing session sync.
+        try:
+            _store_home_campus(goals, allowed_weeks, now, monday_current)
+        except Exception as home_exc:  # noqa: BLE001
+            logger.warning(f"Home campus aggregates write failed (non-fatal): {home_exc}")
 
         summary = {
             'weeks_synced': len(allowed_weeks),
@@ -305,6 +317,187 @@ def _to_iso_week(week_date_ms: int) -> str:
     dt = datetime.fromtimestamp(week_date_ms / 1000, tz=timezone.utc)
     iso_year, iso_week, _ = dt.isocalendar()
     return f"{iso_year}-W{iso_week:02d}"
+
+
+# --------------------------------------------------------------------- A3 home
+#
+# Home aggregates for GET /home/summary, written to the wellness table under
+# campus#* keys. Separate from the coaching-sessions table on purpose: the
+# session cleanup and three readers there treat any non `athlete-context` row as
+# a session, so these must not live beside the sessions.
+
+# Competitive race-pace slugs -> (contract distance label, distance in km).
+_COMPETITIVE_SLUGS = {
+    "5km": ("5km", 5.0),
+    "10km": ("10km", 10.0),
+    "half-marathon": ("half-marathon", 21.0975),
+    "semi": ("half-marathon", 21.0975),
+    "half": ("half-marathon", 21.0975),
+    "21km": ("half-marathon", 21.0975),
+    "marathon": ("marathon", 42.195),
+    "42km": ("marathon", 42.195),
+}
+
+
+def _wellness_table():
+    return dynamodb.Table(WELLNESS_TABLE)
+
+
+def _finite(value: Any) -> Optional[float]:
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    if f != f or f in (float('inf'), float('-inf')) or f <= 0:
+        return None
+    return f
+
+
+def _campus_competitive_paces(estimated: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """Parse estimatedPaces into {distance_label: {pace_s, dpace_s, time_s,
+    range_s:[lo,hi]}} for the competitive slugs. First slug per distance wins;
+    non-finite or <=0 values are ignored. ``time_s = value * distance_km``;
+    ``range = (value +/- dvalue) * distance_km``.
+
+    NOTE: to be fused with the feat/paces-be pace parser once that branch merges.
+    """
+    out: Dict[str, Dict[str, Any]] = {}
+    for p in estimated or []:
+        if not isinstance(p, dict):
+            continue
+        if p.get('competitive') is not True:
+            continue
+        slug = p.get('slug')
+        mapping = _COMPETITIVE_SLUGS.get(slug)
+        if not mapping:
+            continue
+        label, dist_km = mapping
+        if label in out:  # first slug wins
+            continue
+        value = _finite(p.get('value'))
+        if value is None:
+            continue
+        dvalue = _finite(p.get('dvalue')) or 0.0
+        time_s = round(value * dist_km)
+        lo = round((value - dvalue) * dist_km)
+        hi = round((value + dvalue) * dist_km)
+        out[label] = {
+            'pace_s': round(value),
+            'dpace_s': round(dvalue),
+            'time_s': time_s,
+            'range_s': [lo, hi],
+        }
+    return out
+
+
+def _goal_item(goals: Optional[List[Dict[str, Any]]], now: datetime) -> Optional[Dict[str, Any]]:
+    """Build the campus#goal item from the goal tri-state. ``None`` -> no write
+    (return None), ``[]`` -> {active: false}, a goal -> the full card."""
+    if goals is None:
+        return None
+    synced_at = now.isoformat()
+    if not goals:
+        return {'sk': 'campus#goal', 'active': False, 'synced_at': synced_at}
+
+    g = goals[0] if isinstance(goals[0], dict) else {}
+    stats = g.get('stats', {}) if isinstance(g.get('stats'), dict) else {}
+    item: Dict[str, Any] = {
+        'sk': 'campus#goal',
+        'active': True,
+        'synced_at': synced_at,
+        'name': g.get('name', '') or g.get('displayName', ''),
+        'type': g.get('goalType', ''),
+        'competition_date': str(g.get('competitionDate', '')),
+        'sessions_per_week': g.get('sessionsPerWeek'),
+        'week_index': g.get('weekIndex'),
+        'weeks_total': g.get('durationInWeeks'),
+        'cycle_theme': g.get('cycleTheme', ''),
+        'coach_name': g.get('coachName', ''),
+        'trainings_done': stats.get('trainingsDoneCount'),
+        'trainings_total': stats.get('trainingsCount'),
+    }
+    td = _finite(stats.get('targetDuration') or g.get('targetDuration'))
+    if td is not None:
+        item['target_duration_s'] = round(td)
+    dist = _finite(g.get('targetDistance'))
+    if dist is not None:
+        item['target_distance_km'] = round(dist / 1000, 1) if dist > 1000 else round(dist, 1)
+    vol_low = _finite(g.get('weeklyVolumeLow'))
+    vol_high = _finite(g.get('weeklyVolumeHigh'))
+    if vol_low is not None:
+        item['weekly_volume_low'] = round(vol_low)
+    if vol_high is not None:
+        item['weekly_volume_high'] = round(vol_high)
+    # Drop None values (DynamoDB cannot store them).
+    return {k: v for k, v in item.items() if v is not None}
+
+
+def _week_stat_item(week: Dict[str, Any], now: datetime) -> Optional[Dict[str, Any]]:
+    """campus#week#YYYY-Www: expected/real distance (km) and duration (s)."""
+    week_date = week.get('weekDate')
+    if week_date is None:
+        return None
+    week_iso = _to_iso_week(week_date)
+    stats = week.get('stats', {}) if isinstance(week.get('stats'), dict) else {}
+    item: Dict[str, Any] = {'sk': f'campus#week#{week_iso}', 'week': week_iso,
+                            'synced_at': now.isoformat()}
+    exp_dist = _finite(stats.get('expectedDistance'))
+    real_dist = _finite(stats.get('realDistance'))
+    exp_dur = _finite(stats.get('expectedDuration'))
+    real_dur = _finite(stats.get('realDuration'))
+    if exp_dist is not None:
+        item['expected_distance_km'] = round(exp_dist / 1000, 1)
+    if real_dist is not None:
+        item['real_distance_km'] = round(real_dist / 1000, 1)
+    if exp_dur is not None:
+        item['expected_duration_s'] = round(exp_dur)
+    if real_dur is not None:
+        item['real_duration_s'] = round(real_dur)
+    return item
+
+
+def _store_home_campus(goals, allowed_weeks, now, monday_current) -> None:
+    """Write campus#goal (tri-state), campus#pred#YYYY-Www (current week), and
+    campus#week#YYYY-Www to the wellness table. Does nothing without an owner."""
+    if not CAMPUS_OWNER_STRAVA_ID:
+        logger.info("No CAMPUS_OWNER_STRAVA_ID; skipping home campus aggregates")
+        return
+    user_id = CAMPUS_OWNER_STRAVA_ID
+    table = _wellness_table()
+
+    goal_item = _goal_item(goals, now)
+    if goal_item is not None:  # None means "could not read" -> keep previous item
+        table.put_item(Item={'user_id': user_id, **_decimalize(goal_item)})
+
+    current_ms = int(monday_current.timestamp() * 1000)
+    for week in allowed_weeks:
+        wk_item = _week_stat_item(week, now)
+        if wk_item is not None:
+            table.put_item(Item={'user_id': user_id, **_decimalize(wk_item)})
+
+        # Predictions: one item per week, labelled with the SAME ISO week as the
+        # sessions. Only the current ISO week's item is "current" to the reader.
+        if week.get('weekDate') == current_ms:
+            paces = _campus_competitive_paces(week.get('estimatedPaces', []))
+            if paces:
+                week_iso = _to_iso_week(week['weekDate'])
+                pred_item = {
+                    'sk': f'campus#pred#{week_iso}',
+                    'source_week': week_iso,
+                    'synced_at': now.isoformat(),
+                    **paces,
+                }
+                table.put_item(Item={'user_id': user_id, **_decimalize(pred_item)})
+
+
+def _decimalize(obj: Any) -> Any:
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    if isinstance(obj, dict):
+        return {k: _decimalize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_decimalize(v) for v in obj]
+    return obj
 
 
 def _find_pace(paces: List, slug: str) -> Optional[float]:
@@ -621,14 +814,26 @@ def _delete_stale_sessions(table: Any, current_ids: set[str]) -> int:
     return deleted
 
 
-def _sync_athlete_context(token: str, table: Any, user_id: str) -> None:
-    """Fetch and store supplementary athlete context from Campus Coach API."""
+def _sync_athlete_context(token: str, table: Any, user_id: str) -> Optional[List[Dict[str, Any]]]:
+    """Fetch and store supplementary athlete context from Campus Coach API.
+
+    Returns the parsed goal/active payload (a list) ONLY on a 200 response, so
+    the caller can tell the three states apart (A3 tri-state): ``None`` means the
+    goal could not be read (non-200 or exception) and the previous home item must
+    be kept; ``[]`` means "no active goal" and the home card goes inactive.
+    """
+    goals_result: Optional[List[Dict[str, Any]]] = None
     try:
         headers = {"Authorization": f"Bearer {token}"}
 
         # Active goal (race objective, progress)
         goal_resp = requests.get(f"{API_BASE}/smart-training/goal/active", headers=headers, timeout=10)
-        goals = goal_resp.json() if goal_resp.status_code == 200 else []
+        if goal_resp.status_code == 200:
+            parsed = goal_resp.json()
+            goals = parsed if isinstance(parsed, list) else []
+            goals_result = goals
+        else:
+            goals = []
 
         # Assiduity status
         assiduity_resp = requests.get(f"{API_BASE}/smart-training/assiduity-status", headers=headers, timeout=10)
@@ -688,3 +893,5 @@ def _sync_athlete_context(token: str, table: Any, user_id: str) -> None:
 
     except Exception as e:
         logger.warning(f"Failed to sync athlete context (non-fatal): {e}")
+        return None
+    return goals_result

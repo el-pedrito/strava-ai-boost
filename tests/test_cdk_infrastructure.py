@@ -302,6 +302,31 @@ class TestWebhookProcessingStack:
                 invoke_only.append(props)
         assert invoke_only, "expected an invoke-only policy for the scheduler role"
 
+    def test_campus_sync_wellness_grant_is_narrow(self, webhook_stack):
+        """A3: CampusCoachSync may only UpdateItem/PutItem the owner's partition in
+        the wellness table (LeadingKeys), nothing broader."""
+        import json as _json
+        template = assertions.Template.from_stack(webhook_stack)
+        template.has_resource_properties("AWS::Lambda::Function", {
+            "FunctionName": "StravaAIBoost-CampusCoachSync",
+            "Environment": {"Variables": assertions.Match.object_like({
+                "WELLNESS_TABLE": "strava-ai-boost-wellness",
+            })},
+        })
+        policies = template.find_resources("AWS::IAM::Policy")
+        statements = []
+        for props in (r["Properties"] for r in policies.values()):
+            statements += props["PolicyDocument"]["Statement"]
+        wellness_writes = [
+            st for st in statements
+            if "dynamodb:LeadingKeys" in _json.dumps(st.get("Condition", {}))
+            and "strava-ai-boost-wellness" in _json.dumps(st.get("Resource", ""))
+        ]
+        assert wellness_writes, "expected a LeadingKeys-scoped wellness write for CampusCoachSync"
+        for st in wellness_writes:
+            actions = st["Action"] if isinstance(st["Action"], list) else [st["Action"]]
+            assert set(actions) <= {"dynamodb:UpdateItem", "dynamodb:PutItem"}
+
     def test_wellness_sync_lambda_role_least_privilege(self, webhook_stack):
         """The WellnessSync Lambda role: no '*' resource/action, reads the
         intervals secret, writes/queries only the wellness table, GetItem on
