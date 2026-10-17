@@ -136,6 +136,14 @@ class ApiGatewayStack(Stack):
                 "CAMPUS_OWNER_STRAVA_ID": str(self.node.try_get_context("default_user_id") or ""),
                 "RECAP_TABLE": "strava-ai-boost-weekly-recaps",
                 "AUDIO_DEBRIEF_BUCKET": f"strava-ai-boost-audio-debriefs-{Aws.ACCOUNT_ID}",
+                # Watch RANGE alerts for Campus `range` steps (docs/design/campus-paces.md C).
+                # Off unless the context flag is exactly "true". Only this Lambda maps
+                # sessions to .workout files (api/plan_workouts.py).
+                "RANGE_ALERTS_ENABLED": (
+                    "true"
+                    if str(self.node.try_get_context("range_alerts_enabled")).lower() == "true"
+                    else "false"
+                ),
             }
         )
         

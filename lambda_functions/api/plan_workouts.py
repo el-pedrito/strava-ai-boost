@@ -202,9 +202,9 @@ def _serialized_size(item: Dict[str, Any]) -> int:
     return len(json.dumps(item, ensure_ascii=False).encode("utf-8"))
 
 
-def _item(row: Dict[str, Any], counters: Dict[str, int]) -> Dict[str, Any]:
+def _item(row: Dict[str, Any], counters: Dict[str, int], range_alerts: bool = False) -> Dict[str, Any]:
     try:
-        result = campus_workout.map_session(row)
+        result = campus_workout.map_session(row, range_alerts=range_alerts)
     except Exception:  # noqa: BLE001 - one bad row must not fail the whole list
         _count_failure(counters)
         result = campus_workout.MapResult(False, campus_workout.REASON_INTERNAL)
@@ -228,12 +228,14 @@ def _item(row: Dict[str, Any], counters: Dict[str, int]) -> Dict[str, Any]:
     return item
 
 
-def _safe_item(row: Dict[str, Any], counters: Dict[str, int]) -> Tuple[Dict[str, Any], int]:
+def _safe_item(
+    row: Dict[str, Any], counters: Dict[str, int], range_alerts: bool = False,
+) -> Tuple[Dict[str, Any], int]:
     """Item and its serialized size. The isolation covers the item build, the base64
     and the serialization: a malformed row becomes an ``internal`` item, never a 500.
     """
     try:
-        item = _item(row, counters)
+        item = _item(row, counters, range_alerts)
         return item, _serialized_size(item)
     except Exception:  # noqa: BLE001 - one bad row must not fail the whole list
         _count_failure(counters)
@@ -241,8 +243,12 @@ def _safe_item(row: Dict[str, Any], counters: Dict[str, int]) -> Tuple[Dict[str,
         return item, _serialized_size(item)
 
 
-def build_plan_workouts(table: Any, now_utc: datetime) -> Tuple[Dict[str, Any], Dict[str, int]]:
+def build_plan_workouts(
+    table: Any, now_utc: datetime, range_alerts: bool = False,
+) -> Tuple[Dict[str, Any], Dict[str, int]]:
     """Payload ``{workouts, count, truncated}`` and the metric counters to emit.
+
+    ``range_alerts``: the ``RANGE_ALERTS_ENABLED`` switch, read by the caller.
 
     Rows are sorted nearest week first and the ceilings are applied a whole week at a
     time: a week is either fully listed or not at all, so the kept items are exactly the
@@ -257,7 +263,7 @@ def build_plan_workouts(table: Any, now_utc: datetime) -> Tuple[Dict[str, Any], 
     size = 0
     truncated = False
     for _, week_rows in groupby(rows, key=_week_key):
-        week = [_safe_item(row, counters) for row in week_rows]
+        week = [_safe_item(row, counters, range_alerts) for row in week_rows]
         week_size = sum(item_size for _, item_size in week)
         if len(workouts) + len(week) > MAX_ITEMS or size + week_size > MAX_RESPONSE_BYTES:
             truncated = True

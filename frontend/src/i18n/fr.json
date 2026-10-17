@@ -638,8 +638,13 @@
       "tone": "Ton"
     },
     "zones": {
-      "description": "Définis tes zones d'allure pour que l'IA classifie correctement tes séances",
-      "title": "Zones d'allure (10 zones)"
+      "description": "Lues dans Campus Coach à chaque synchro. Affichées pour référence, non modifiables.",
+      "title": "Zones d'allure (10 zones)",
+      "week": "semaine {{week}}",
+      "synced": "synchro {{time}}",
+      "stale": "Pas à jour",
+      "awaitingSync": "En attente de la synchro Campus. Affichage de tes anciennes zones manuelles.",
+      "none": "Aucune zone d'allure. Elles apparaîtront après la prochaine synchro Campus."
     }
   },
   "metrics.ctl.label": "CTL",
@@ -771,7 +776,7 @@
   "preferences.records.help.calculation": "Mélangés avec les meilleures performances Strava si disponibles. Les vieux records pèsent moins dans le raisonnement du coach.",
   "preferences.zones.help.title": "Zones d'allure",
   "preferences.zones.help.definition": "Bornes qui classent chaque sortie en Récup, EF, Tempo, Seuil ou VO2max. Pilote le label des séances et les graphiques de progression d'allure.",
-  "preferences.zones.help.calculation": "Les valeurs par défaut sont prudentes. Affine-les avec ton dernier test de seuil ou ta dernière course.",
+  "preferences.zones.help.calculation": "Synchronisées depuis ton plan Campus Coach (semaine en cours). Modifie-les dans Campus Coach, pas ici.",
   "preferences.style.help.title": "Style de contenu",
   "preferences.style.help.definition": "Contrôle la façon dont l'IA écrit tes descriptions : longueur, ton, densité d'emojis, profondeur technique et langue.",
   "preferences.style.help.calculation": "Ces réglages façonnent chaque titre et compte rendu généré. Modifiable à tout moment - s'applique aux futures activités.",

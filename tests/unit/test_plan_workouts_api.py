@@ -504,3 +504,42 @@ class TestNoCampusTextInLogs:
         assert "ClientError" in text
         assert self.SECRET_TITLE not in text
         assert "ValidationException" not in text
+
+
+class TestRangeAlertsSwitch:
+    """RANGE_ALERTS_ENABLED (docs/design/campus-paces.md C): read by the handler, strict."""
+
+    def _seen(self, monkeypatch, table, value):
+        if value is None:
+            monkeypatch.delenv("RANGE_ALERTS_ENABLED", raising=False)
+        else:
+            monkeypatch.setenv("RANGE_ALERTS_ENABLED", value)
+        real = plan_workouts.campus_workout.map_session
+        seen = []
+
+        def spy(row, *args, **kwargs):
+            seen.append(kwargs.get("range_alerts"))
+            return real(row, *args, **kwargs)
+
+        with patch.object(plan_workouts.campus_workout, "map_session", side_effect=spy):
+            assert handler(_event(), None)["statusCode"] == 200
+        return seen
+
+    def test_off_unless_exactly_true(self, owner_env, table, monkeypatch):
+        for value in (None, "", "false", "True", "1"):
+            assert self._seen(monkeypatch, table, value) == [False], value
+        assert self._seen(monkeypatch, table, "true") == [True]
+
+    def test_range_row_gets_a_range_alert_only_when_on(self, owner_env, table, monkeypatch):
+        row = _row(
+            intervals=[{"type": "work", "duration": "30 min", "pace": "EF (5:55/km)",
+                        "pace_kind": "range", "pace_slug": "ef", "pace_value_s": 355}],
+            estimated_paces={"ef": {"value": Decimal("355.4"), "dvalue": Decimal("12.4")}},
+        )
+        table.scan.return_value = {"Items": [row]}
+        monkeypatch.setenv("RANGE_ALERTS_ENABLED", "true")
+        on = _body(handler(_event(), None))["workouts"][0]
+        monkeypatch.setenv("RANGE_ALERTS_ENABLED", "false")
+        off = _body(handler(_event(), None))["workouts"][0]
+        assert "5:43-6:08" in on["summary"] and "5:43-6:08" not in off["summary"]
+        assert on["workout_b64"] != off["workout_b64"]

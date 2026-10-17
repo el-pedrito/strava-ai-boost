@@ -114,7 +114,10 @@ def get_plan_workouts_response(event: Dict[str, Any]) -> Dict[str, Any]:
             logger.warning("Plan workouts denied: claim missing or not the Campus owner")
             return create_error_response(403, 'Forbidden', cors_headers=PLAN_WORKOUTS_HEADERS)
         table = dynamodb.Table(COACHING_SESSIONS_TABLE)
-        payload, counters = plan_workouts.build_plan_workouts(table, datetime.now(timezone.utc))
+        # Watch RANGE alerts for Campus `range` steps: off unless exactly "true".
+        range_alerts = os.environ.get('RANGE_ALERTS_ENABLED', '') == 'true'
+        payload, counters = plan_workouts.build_plan_workouts(
+            table, datetime.now(timezone.utc), range_alerts=range_alerts)
         for name, value in sorted(counters.items()):
             metrics.add_metric(name=name, unit=MetricUnit.Count, value=value)
         logger.info("Plan workouts listed", extra={"count": payload['count'], "truncated": payload['truncated']})

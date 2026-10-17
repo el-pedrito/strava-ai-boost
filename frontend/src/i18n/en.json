@@ -638,8 +638,13 @@
       "tone": "Tone"
     },
     "zones": {
-      "description": "Define your pace zones so the AI correctly classifies your workouts",
-      "title": "Pace Zones (10 zones)"
+      "description": "Read from Campus Coach at each sync. Shown here for reference, not editable.",
+      "title": "Pace Zones (10 zones)",
+      "week": "week {{week}}",
+      "synced": "synced {{time}}",
+      "stale": "Out of date",
+      "awaitingSync": "Waiting for the Campus sync. Showing your former manual zones.",
+      "none": "No pace zones yet. They will appear after the next Campus sync."
     }
   },
   "metrics.ctl.label": "CTL",
@@ -771,7 +776,7 @@
   "preferences.records.help.calculation": "Mixed with Strava best efforts when available. Older PRs are weighted lower in coach reasoning.",
   "preferences.zones.help.title": "Pace zones",
   "preferences.zones.help.definition": "Boundaries that classify each run as Recovery, EF, Tempo, Threshold, or VO2max. Drives session labeling and pace-progression charts.",
-  "preferences.zones.help.calculation": "Defaults are conservative estimates. Tune them based on your latest threshold test or race performance.",
+  "preferences.zones.help.calculation": "Synced from your Campus Coach plan (current week). Update them in Campus Coach, not here.",
   "preferences.style.help.title": "Content style",
   "preferences.style.help.definition": "Controls how the AI writes your activity descriptions: length, tone, emoji density, technical depth, and language.",
   "preferences.style.help.calculation": "These knobs shape every generated title and report. Change them anytime - applies to future activities.",

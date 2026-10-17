@@ -19,6 +19,7 @@ from aws_lambda_powertools.metrics import single_metric
 from botocore.exceptions import ClientError
 
 from shared.llm_models import no_thinking
+from shared.pace_zones import effective_pace_zones
 
 from shared.logger import get_logger, MetricUnit, METRICS_NAMESPACE
 
@@ -336,7 +337,8 @@ Règles :
 
     # Build rich user context from config
     prefs = (user_config or {}).get("user_preferences", {})
-    pace_zones = prefs.get("pace_zones", {})
+    # Campus zones first, legacy manual zones as fallback (shared.pace_zones).
+    pace_zones, _zones_source = effective_pace_zones(user_config)
     personal_records = prefs.get("personal_records", [])
     max_hr = prefs.get("max_hr", "")
 

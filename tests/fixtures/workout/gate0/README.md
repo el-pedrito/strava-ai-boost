@@ -9,7 +9,7 @@ dump of real sessions (skipped when the dump is absent).
 Each `<case>.json` holds `{"guid": ..., "session": {...}}`; `<case>.workout` is the file
 `shared.campus_workout.map_session` produces for it with that fixed GUID.
 `tests/unit/test_campus_workout.py` asserts
-`map_session(session, guid=guid) == golden`.
+`map_session(session, guid=guid, range_alerts=spec.get("range_alerts", False)) == golden`.
 
 | Case | Covers |
 |---|---|
@@ -18,6 +18,7 @@ Each `<case>.json` holds `{"guid": ..., "session": {...}}`; `<case>.workout` is 
 | `sl_tempo` | WU, Aerobie (no alert), `1:30 min` recovery, Tempo (alert), CD |
 | `ppg_renfo` | strength, 13 flat steps (reps -> OPEN, timed holds), block x3, long-name abbreviation with gender agreement (`lestée`), `PPG` stripped from the title |
 | `race_semi` | race `96:42 min`, `course` family, AVERAGE alert |
+| `ef_range` | `RANGE_ALERTS_ENABLED` on (`"range_alerts": true`): structured `range` steps, WU 15' + 30' + CD 10' EF, RANGE CURRENT alert on all three, names `EF 5:43-6:08` (value 355.4 +/- 12.4) |
 
 Regenerate (from the repo root, project venv):
 

@@ -20,6 +20,7 @@ from shared.responses import (
     create_error_response,
 )
 from shared.logger import get_logger, inject_correlation_id
+from shared.pace_zones import effective_pace_zones
 
 logger = get_logger("user_preferences_api")
 
@@ -90,6 +91,13 @@ def get_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
         # Include auto-accumulated PRs if available
         best_efforts_prs = stored_config.get('best_efforts_prs', {})
 
+        # Campus is the only source of pace zones; the page shows them read-only.
+        # The source comes from the same rule every reader uses.
+        _, pace_zones_source = effective_pace_zones(stored_config)
+        campus_pace_zones = stored_config.get('campus_pace_zones')
+        if not isinstance(campus_pace_zones, dict) or not campus_pace_zones:
+            campus_pace_zones = None
+
         # Return with defaults
         result = {
             'success': True,
@@ -110,6 +118,10 @@ def get_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
                 'height_cm': preferences.get('height_cm', None),
                 'best_efforts_prs': best_efforts_prs,
                 'strength_program': preferences.get('strength_program', None),
+                'campus_pace_zones': campus_pace_zones,
+                'campus_pace_zones_week': stored_config.get('campus_pace_zones_week'),
+                'campus_pace_zones_synced_at': stored_config.get('campus_pace_zones_synced_at'),
+                'pace_zones_source': pace_zones_source,
             }
         }
 
@@ -159,7 +171,10 @@ def update_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(interests, list) or len(interests) > 20:
             return create_error_response(400, 'interests must be a list with at most 20 items', cors_headers=CORS_HEADERS)
 
-        # Validate athlete_profile (free-text, max 2000 chars)
+        # Validate athlete_profile (free-text, max 2000 chars). Deliberately NOT in
+        # OPTIONAL_REMOVABLE_KEYS: an omitted athlete_profile is stored as '' (always
+        # SET), exactly as before the child-path save. Readers treat '' and absent the
+        # same, so keeping today's behaviour avoids a semantic change in this branch.
         athlete_profile = body.get('athlete_profile', '')
         if not isinstance(athlete_profile, str) or len(athlete_profile) > 2000:
             return create_error_response(400, 'athlete_profile must be a string with at most 2000 characters', cors_headers=CORS_HEADERS)
@@ -176,19 +191,11 @@ def update_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
             'athlete_profile': athlete_profile
         }
 
-        # Add pace_zones if provided (validated format: {zone: {min: "mm:ss", max: "mm:ss"}})
-        pace_zones = body.get('pace_zones')
-        if pace_zones and isinstance(pace_zones, dict):
-            valid_zones = {}
-            for zone_key, zone_val in pace_zones.items():
-                if isinstance(zone_val, dict) and 'min' in zone_val and 'max' in zone_val:
-                    valid_zones[zone_key] = {
-                        'min': str(zone_val['min']),
-                        'max': str(zone_val['max'])
-                    }
-            if valid_zones:
-                preferences['pace_zones'] = valid_zones
-                logger.info(f"Pace zones configured: {list(valid_zones.keys())}")
+        # pace_zones from the request is ignored: Campus is the only source of pace
+        # zones (docs/design/campus-paces.md), and a save must never overwrite the
+        # legacy manual zones still stored under user_preferences.pace_zones.
+        if 'pace_zones' in body:
+            logger.info("Ignoring pace_zones in preferences POST (Campus is the only source)")
 
         # Add personal_records if provided (manual PRs: [{distance, time, date, event}])
         personal_records = body.get('personal_records')
@@ -256,16 +263,8 @@ def update_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
         if strength_program is not None:
             preferences['strength_program'] = strength_program
 
-        # Save to DynamoDB
-        table = dynamodb.Table(USER_CONFIG_TABLE)
-        table.update_item(
-            Key={'user_id': user_id},
-            UpdateExpression='SET user_preferences = :prefs, updated_at = :timestamp',
-            ExpressionAttributeValues={
-                ':prefs': preferences,
-                ':timestamp': datetime.now(UTC).isoformat()
-            }
-        )
+        # Save to DynamoDB without replacing the whole map (see _save_preferences)
+        _save_preferences(user_id, preferences)
         
         logger.info(f"User preferences updated for user {user_id}")
         
@@ -281,3 +280,75 @@ def update_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
     except ClientError as e:
         logger.error(f"Update user preferences DynamoDB error: {str(e)}")
         return create_error_response(500, 'Failed to update user preferences', cors_headers=CORS_HEADERS)
+
+
+# Optional keys this API owns: absent from a POST means "cleared", so they are
+# REMOVEd from the stored map (the old full-map replace dropped them the same way).
+# personal_records is owned too but only written when sent: an absent list keeps
+# the stored one. Every other key of user_preferences (pace_zones,
+# strength_history, anything another writer adds) is never touched by a save.
+OPTIONAL_REMOVABLE_KEYS = ('max_hr', 'body_weight_kg', 'height_cm', 'strength_program')
+
+
+def _child_path_update(table: Any, user_id: str, preferences: Dict[str, Any], timestamp: str) -> None:
+    """SET each sent key and REMOVE each absent optional key, by child path.
+
+    Conditional on the map existing: a child path on a missing map is invalid,
+    and the condition turns that case into ConditionalCheckFailedException.
+    """
+    names: Dict[str, str] = {'#prefs': 'user_preferences', '#updated': 'updated_at'}
+    values: Dict[str, Any] = {':timestamp': timestamp}
+    set_parts = ['#updated = :timestamp']
+    for index, (key, value) in enumerate(sorted(preferences.items())):
+        names[f'#k{index}'] = key
+        values[f':v{index}'] = value
+        set_parts.append(f'#prefs.#k{index} = :v{index}')
+    remove_parts = []
+    for index, key in enumerate(k for k in OPTIONAL_REMOVABLE_KEYS if k not in preferences):
+        names[f'#r{index}'] = key
+        remove_parts.append(f'#prefs.#r{index}')
+    expression = 'SET ' + ', '.join(set_parts)
+    if remove_parts:
+        expression += ' REMOVE ' + ', '.join(remove_parts)
+    table.update_item(
+        Key={'user_id': user_id},
+        UpdateExpression=expression,
+        ConditionExpression='attribute_exists(#prefs)',
+        ExpressionAttributeNames=names,
+        ExpressionAttributeValues=values,
+    )
+
+
+def _is_conditional_failure(error: ClientError) -> bool:
+    return error.response.get('Error', {}).get('Code') == 'ConditionalCheckFailedException'
+
+
+def _save_preferences(user_id: str, preferences: Dict[str, Any]) -> None:
+    """Persist the API-owned preference keys without replacing the whole map.
+
+    1. Map present: child-path update (keys not owned by this API survive).
+    2. Map absent: create it with the API keys, only if still absent.
+    3. Another writer created it in between: child-path update once more.
+    """
+    table = dynamodb.Table(USER_CONFIG_TABLE)
+    timestamp = datetime.now(UTC).isoformat()
+    try:
+        _child_path_update(table, user_id, preferences, timestamp)
+        return
+    except ClientError as e:
+        if not _is_conditional_failure(e):
+            raise
+    try:
+        table.update_item(
+            Key={'user_id': user_id},
+            UpdateExpression='SET #prefs = :prefs, #updated = :timestamp',
+            ConditionExpression='attribute_not_exists(#prefs)',
+            ExpressionAttributeNames={'#prefs': 'user_preferences', '#updated': 'updated_at'},
+            ExpressionAttributeValues={':prefs': preferences, ':timestamp': timestamp},
+        )
+        return
+    except ClientError as e:
+        if not _is_conditional_failure(e):
+            raise
+    logger.info("user_preferences created concurrently, retrying child-path update")
+    _child_path_update(table, user_id, preferences, timestamp)

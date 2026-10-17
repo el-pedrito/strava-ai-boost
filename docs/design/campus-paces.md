@@ -72,7 +72,8 @@ dans `src/coach_chat/` + test de parité, comme campus_status).
 - API POST : ne remplace plus toute la map (ça efface aujourd'hui `strength_history`,
   `pace_zones`, `personal_records`). Map présente : une mise à jour par chemins enfants, `SET`
   des clés de l'API présentes, `REMOVE` des clés optionnelles absentes (max_hr, body_weight_kg,
-  height_cm, strength_program, athlete_profile selon les règles actuelles), sans jamais toucher
+  height_cm, strength_program selon les règles actuelles ; `athlete_profile` garde le
+  comportement d'aujourd'hui : absent, il est écrit `''`, jamais `REMOVE`), sans jamais toucher
   `pace_zones`, `strength_history`, ni les autres clés non possédées. Map absente : création de
   la map complète des clés de l'API avec `attribute_not_exists(user_preferences)` ; si un autre
   écrivain l'a créée entre-temps, refaire la mise à jour par chemins enfants une fois. Test sur

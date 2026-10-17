@@ -17,7 +17,8 @@ from shared.campus_workout import map_session  # noqa: E402
 def main() -> None:
     for case in sorted(HERE.glob("*.json")):
         spec = json.loads(case.read_text(encoding="utf-8"))
-        result = map_session(spec["session"], guid=spec["guid"])
+        # `range_alerts` mirrors the RANGE_ALERTS_ENABLED switch (absent = off).
+        result = map_session(spec["session"], guid=spec["guid"], range_alerts=spec.get("range_alerts", False))
         if not result.encodable:
             raise SystemExit(f"{case.name}: not encodable ({result.reason_code})")
         case.with_suffix(".workout").write_bytes(result.bytes)

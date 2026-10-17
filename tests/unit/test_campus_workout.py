@@ -13,6 +13,7 @@ import json
 import os
 import re
 import struct
+from decimal import Decimal
 import sys
 
 import pytest
@@ -902,3 +903,237 @@ class TestFilename:
     def test_non_string_title_and_surrogate_never_raise(self):
         assert cw.workout_filename({"title": ["x"], "week_date_iso": 7}) == "week-0-seance.workout"
         assert cw.workout_filename({"title": "Foot\ud800ing"}) == "week-0-footing.workout"
+
+
+# ------------------------------------------- Campus pace kinds (campus-paces.md C)
+
+# Family -> (pace_kind, pace_slug) of the structured twin of a legacy golden step.
+_TWIN_KINDS = {
+    "ef": ("range", "ef"),
+    "aerobie": ("single-value", "aerobie"),
+    "lent": ("abstract", "slow"),
+    "semi marathon": ("single-value", "half-marathon"),
+    "tempo": ("single-value", "tempo"),
+    "course": ("single-value", "race"),
+}
+
+
+def _twin_entry(entry):
+    if entry.get("type") == "block":
+        return {**entry, "exercises": [_twin_entry(e) for e in entry["exercises"]]}
+    pace = entry.get("pace") or ""
+    family = cw.normalize_family(cw._family_text(pace))
+    if family not in _TWIN_KINDS:
+        return dict(entry)
+    kind, slug = _TWIN_KINDS[family]
+    twin = {**entry, "pace_kind": kind, "pace_slug": slug, "pace_zone": slug}
+    target = cw._target_sec_per_km(pace)
+    if target is not None:
+        twin["pace_value_s"] = target
+    return twin
+
+
+def _twin(session, estimated=None):
+    """Structured twin of a legacy golden session: what the new sync writes for it."""
+    twin = {**session, "intervals": [_twin_entry(e) for e in session["intervals"]]}
+    if estimated is not None:
+        twin["estimated_paces"] = estimated
+    return twin
+
+
+LEGACY_GOLDENS = ("ef_45", "intensity_semi", "sl_tempo", "ppg_renfo", "race_semi")
+
+
+class TestStructuredParity:
+    """Switch off, a structured row maps to the same bytes as its legacy golden."""
+
+    def test_twins_of_every_golden_are_byte_identical_switch_off(self):
+        for case in LEGACY_GOLDENS:
+            spec, golden = _gate0(case)
+            twin = _twin(spec["session"], estimated={"ef": {"value": 355.4, "dvalue": 12.4}})
+            assert twin != spec["session"] or case == "ppg_renfo", case
+            result = cw.map_session(twin, guid=spec["guid"])
+            assert result.bytes == golden, case
+
+    def test_twins_switch_on_without_estimated_paces_keep_the_bytes(self):
+        """No range data: no alert (as today for EF), the old name, and a metric."""
+        for case in LEGACY_GOLDENS:
+            spec, golden = _gate0(case)
+            result = cw.map_session(_twin(spec["session"]), guid=spec["guid"], range_alerts=True)
+            assert result.bytes == golden, case
+        spec, _ = _gate0("ef_45")
+        result = cw.map_session(_twin(spec["session"]), guid=spec["guid"], range_alerts=True)
+        assert result.metrics == {cw.METRIC_PACE_INVALID: 1}
+
+    def test_single_value_target_comes_from_pace_value_s(self):
+        step = _work("10 min", "Tempo (5:00/km)", pace_kind="single-value", pace_value_s=290)
+        workout = _map(_session([step]))[1]
+        assert _only_step(workout)["alert"]["target"] == pytest.approx(1000 / 290)
+        assert _only_step(workout)["name"] == "Tempo 4:50"
+
+    def test_ef_range_golden_needs_the_switch(self):
+        spec, golden = _gate0("ef_range")
+        assert spec["range_alerts"] is True
+        assert cw.map_session(spec["session"], guid=spec["guid"]).bytes != golden
+
+
+class TestRangeAlerts:
+    EST = {"ef": {"value": Decimal("355.4"), "dvalue": Decimal("12.4")}}
+
+    def _range(self, duration="30 min", type_="work", **extra):
+        entry = {"type": type_, "duration": duration, "pace": "EF (5:55/km)",
+                 "pace_kind": "range", "pace_slug": "ef", "pace_value_s": 355}
+        entry.update(extra)
+        return entry
+
+    def _map_on(self, intervals, estimated=None, **session_extra):
+        session = _session(intervals, estimated_paces=self.EST if estimated is None else estimated,
+                           **session_extra)
+        result = cw.map_session(session, guid=GUID, range_alerts=True)
+        assert result.encodable, result.reason_code
+        return result, _decode(result.bytes)["workout"]
+
+    def test_ef_range_golden(self):
+        spec, golden = _gate0("ef_range")
+        result = cw.map_session(spec["session"], guid=spec["guid"], range_alerts=spec["range_alerts"])
+        assert result.bytes == golden
+        workout = _decode(golden)["workout"]
+        for step in (workout["warmup"], _only_step(workout), workout["cooldown"]):
+            assert step["alert"]["style"] == "RANGE" and step["alert"]["metric"] == "CURRENT"
+            assert step["alert"]["lower"] == pytest.approx(1000 / (355.4 + 12.4))
+            assert step["alert"]["upper"] == pytest.approx(1000 / (355.4 - 12.4))
+            assert step["name"] == "EF 5:43-6:08"
+        assert result.summary == "WU 15' · 30' EF 5:43-6:08 · CD 10'"
+        assert result.metrics == {}
+
+    def test_switch_off_range_step_follows_todays_rules(self):
+        session = _session([self._range()], estimated_paces=self.EST)
+        step = _only_step(_decode(cw.map_session(session, guid=GUID).bytes)["workout"])
+        assert "alert" not in step and step["name"] == "EF 5:55"
+
+    def test_raw_floats_and_half_up_name(self):
+        """348.8 +/- 13.3: bounds from 1000/362.1 and 1000/335.5, name 5:36-6:02."""
+        est = {"ef": {"value": Decimal("348.8"), "dvalue": Decimal("13.3")}}
+        step = _only_step(self._map_on([self._range()], est)[1])
+        assert step["alert"]["lower"] == 1000.0 / 362.1
+        assert step["alert"]["upper"] == 1000.0 / 335.5
+        assert step["alert"]["lower"] < step["alert"]["upper"]
+        assert step["name"] == "EF 5:36-6:02"
+
+    def test_short_range_step_has_no_alert_but_the_range_name(self):
+        step = _only_step(self._map_on([self._range("179 sec")])[1])
+        assert "alert" not in step and step["name"] == "EF 5:43-6:08"
+        assert "alert" in _only_step(self._map_on([self._range("3 min")])[1])
+
+    def test_short_range_warmup_and_cooldown_still_alert(self):
+        """The 180 s floor is for non-edge WORK steps only (spec C, review cr1)."""
+        intervals = [self._range("179 sec", type_="warm-up"), self._range(),
+                     self._range("179 sec", type_="cool-down")]
+        workout = self._map_on(intervals)[1]
+        for edge in ("warmup", "cooldown"):
+            assert workout[edge]["alert"]["style"] == "RANGE", edge
+            assert workout[edge]["alert"]["lower"] == pytest.approx(1000 / (355.4 + 12.4)), edge
+            assert workout[edge]["name"] == "EF 5:43-6:08", edge
+
+    def test_short_range_edges_switch_off_keep_todays_no_alert(self):
+        intervals = [self._range("179 sec", type_="warm-up"), self._range(),
+                     self._range("179 sec", type_="cool-down")]
+        session = _session(intervals, estimated_paces=self.EST)
+        workout = _decode(cw.map_session(session, guid=GUID).bytes)["workout"]
+        assert "alert" not in workout["warmup"] and "alert" not in workout["cooldown"]
+
+    def test_recovery_range_step_never_alerts(self):
+        intervals = [self._range(), self._range("5 min", type_="recovery")]
+        rec = self._map_on(intervals)[1]["blocks"][0]["steps"][1]
+        assert rec["purpose"] == "RECOVERY" and "alert" not in rec
+
+    def test_race_uses_average(self):
+        step = _only_step(self._map_on([self._range()], training_type="Competition")[1])
+        assert step["alert"]["metric"] == "AVERAGE"
+
+    def test_intensity_semi_cool_down_range_switch_on(self):
+        """EF warm-up / cool-down get a RANGE alert, the Semi block keeps its VALUE alert."""
+        spec, _ = _gate0("intensity_semi")
+        result = cw.map_session(_twin(spec["session"], {k: dict(v) for k, v in self.EST.items()}),
+                                guid=spec["guid"], range_alerts=True)
+        workout = _decode(result.bytes)["workout"]
+        assert workout["warmup"]["alert"]["style"] == "RANGE"
+        assert workout["cooldown"]["alert"]["style"] == "RANGE"
+        work, rec = workout["blocks"][0]["steps"]
+        assert work["alert"]["style"] == "VALUE" and work["alert"]["target"] == pytest.approx(1000 / 268)
+        assert "alert" not in rec
+
+    def test_invalid_range_data_no_alert_with_metric_never_refused(self):
+        cases = (
+            ({"ef": {"value": 355.4, "dvalue": 0}}, cw.METRIC_PACE_OUT_OF_RANGE),
+            ({"ef": {"value": 355.4, "dvalue": 61}}, cw.METRIC_PACE_OUT_OF_RANGE),
+            ({"ef": {"value": 125, "dvalue": 10}}, cw.METRIC_PACE_OUT_OF_RANGE),
+            ({"ef": {"value": 895, "dvalue": 10}}, cw.METRIC_PACE_OUT_OF_RANGE),
+            ({"ef": {"value": "nan", "dvalue": 10}}, cw.METRIC_PACE_INVALID),
+            ({"ef": {"value": True, "dvalue": 10}}, cw.METRIC_PACE_INVALID),
+            ({"ef": "junk"}, cw.METRIC_PACE_INVALID),
+            ({"tempo": {"value": 300, "dvalue": 10}}, cw.METRIC_PACE_INVALID),
+        )
+        for estimated, metric in cases:
+            result, workout = self._map_on([self._range()], estimated)
+            step = _only_step(workout)
+            assert "alert" not in step, estimated
+            assert step["name"] == "EF 5:55", estimated
+            assert result.metrics == {metric: 1}, estimated
+
+    def test_range_bounds_are_inclusive(self):
+        for value, dvalue in ((130, 10), (890, 10), (355.4, 60)):
+            result, workout = self._map_on([self._range()], {"ef": {"value": value, "dvalue": dvalue}})
+            assert "alert" in _only_step(workout), (value, dvalue)
+            assert result.metrics == {}
+
+    def test_decimal_string_and_int_inputs_are_converted(self):
+        for est in ({"ef": {"value": "355.4", "dvalue": "12.4"}},
+                    {"ef": {"value": 351, "dvalue": 12}}):
+            assert "alert" in _only_step(self._map_on([self._range()], est)[1]), est
+
+
+class TestPaceKinds:
+    def test_abstract_never_alerts(self):
+        step = _work("10 min", "Tempo (5:00/km)", pace_kind="abstract")
+        result, workout = _map(_session([step]))
+        assert "alert" not in _only_step(workout) and result.metrics == {}
+
+    def test_unknown_kind_follows_legacy_string_rules_with_metric(self):
+        """A kind Campus adds later must not silence a quality step that alerts today.
+
+        Same bytes as the legacy row (no pace_kind): target from the pace string, so
+        a pace_value_s that disagrees with it is ignored.
+        """
+        legacy = _session([_work("10 min", "Tempo (5:00/km)")])
+        legacy_bytes = cw.map_session(legacy, guid=GUID).bytes
+        for kind in ("zone", 3, ""):
+            step = _work("10 min", "Tempo (5:00/km)", pace_kind=kind, pace_value_s=290)
+            result = cw.map_session(_session([step]), guid=GUID)
+            assert result.bytes == legacy_bytes, kind
+            alert = _only_step(_decode(result.bytes)["workout"])["alert"]
+            assert alert["target"] == pytest.approx(1000 / 300), kind
+            assert result.metrics == {cw.METRIC_UNKNOWN_PACE_KIND: 1}, kind
+            switch_on = cw.map_session(_session([step]), guid=GUID, range_alerts=True)
+            assert switch_on.bytes == legacy_bytes, kind
+
+    def test_single_value_without_value_no_alert_with_metric(self):
+        for bad in (None, "x", float("nan"), {"v": 1}):
+            step = _work("10 min", "Tempo (5:00/km)", pace_kind="single-value", pace_value_s=bad)
+            result, workout = _map(_session([step]))
+            assert "alert" not in _only_step(workout), bad
+            assert _only_step(workout)["name"] == "Tempo", bad
+            assert result.metrics == {cw.METRIC_PACE_INVALID: 1}, bad
+
+    def test_single_value_out_of_range_metric(self):
+        step = _work("10 min", "Tempo (5:00/km)", pace_kind="single-value", pace_value_s=950)
+        result, workout = _map(_session([step]))
+        assert "alert" not in _only_step(workout)
+        assert result.metrics == {cw.METRIC_PACE_OUT_OF_RANGE: 1}
+
+    def test_bad_pace_slug_type_is_not_a_refusal(self):
+        step = {"type": "work", "duration": "30 min", "pace": "EF (5:55/km)",
+                "pace_kind": "range", "pace_slug": ["ef"]}
+        result = cw.map_session(_session([step], estimated_paces={"ef": {"value": 351, "dvalue": 12}}),
+                                guid=GUID, range_alerts=True)
+        assert result.encodable and result.metrics == {cw.METRIC_PACE_INVALID: 1}

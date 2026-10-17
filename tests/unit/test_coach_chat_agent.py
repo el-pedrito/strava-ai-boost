@@ -601,3 +601,70 @@ def test_system_prompt_includes_current_date(patch_dynamo):
     # The model must know the real date (and year) to build correct date filters.
     assert today in prompt
     assert "Date du jour" in prompt
+
+
+def test_get_pace_zones_prefers_campus_zones(patch_dynamo):
+    """The chat tool reads the same effective zones as the Lambdas (local mirror)."""
+    campus = {"ef": {"min": "5:36", "max": "6:02", "slug": "ef"}}
+    item = {
+        "user_id": "42",
+        "campus_pace_zones": campus,
+        "campus_pace_zones_week": "2000-W01",
+        "user_preferences": {"pace_zones": {"ef": {"min": "5:40", "max": "6:10"}}},
+    }
+    patch_dynamo(**{cca.USER_CONFIG_TABLE: _FakeTable(item=item)})
+    result = cca._get_pace_zones_impl("42")
+    assert result["pace_zones"] == campus
+    assert result["pace_zones_source"] == "campus_stale"
+
+
+def test_get_pace_zones_manual_legacy_output_is_unchanged(patch_dynamo):
+    """Switches off (no Campus zones): the tool output is exactly the pre-paces one."""
+    item = {"user_id": "42", "user_preferences": {"pace_zones": {"ef": {"min": "5:40", "max": "6:10"}}}}
+    patch_dynamo(**{cca.USER_CONFIG_TABLE: _FakeTable(item=item)})
+    result = cca._get_pace_zones_impl("42")
+    assert result == {
+        "pace_zones": {"ef": {"min": "5:40", "max": "6:10"}},
+        "personal_records": [],
+        "max_hr": None,
+        "athlete_zones": {},
+        "best_efforts_prs": {},
+    }
+    assert "pace_zones_source" not in result
+
+
+def test_get_pace_zones_current_campus_carries_source(patch_dynamo):
+    from datetime import datetime, timezone
+    week = datetime.now(timezone.utc).strftime("%G-W%V")
+    item = {"user_id": "42", "campus_pace_zones": {"ef": {"min": "5:36", "max": "6:02"}},
+            "campus_pace_zones_week": week}
+    patch_dynamo(**{cca.USER_CONFIG_TABLE: _FakeTable(item=item)})
+    assert cca._get_pace_zones_impl("42")["pace_zones_source"] == "campus"
+
+
+def _plan_row(structured: bool) -> dict:
+    work = {"type": "work", "duration": "10min", "pace": "5:36/km"}
+    block_ex = {"type": "work", "duration": "1min", "pace": "4:10/km"}
+    if structured:
+        work = {**work, "pace_kind": "range", "pace_slug": "ef", "pace_zone": "ef", "pace_value_s": 349}
+        block_ex = {**block_ex, "pace_kind": "single-value", "pace_slug": "vma",
+                    "pace_zone": "vma", "pace_value_s": 250}
+    row = {
+        "session_date": "week-2026-W29", "title": "VMA", "week_date_iso": "2026-W29",
+        "is_current_week": True,
+        "intervals": [work, {"type": "block", "repeat": 8, "exercises": [block_ex]}],
+    }
+    if structured:
+        row["estimated_paces"] = {"ef": {"value": Decimal("348.8"), "dvalue": Decimal("13.0")}}
+    return row
+
+
+def test_get_campus_plan_structured_row_matches_legacy_twin(patch_dynamo):
+    """Payload parity: a new-sync row gives the model the same tool output as its legacy twin."""
+    outputs = []
+    for structured in (False, True):
+        patch_dynamo(**{cca.COACHING_SESSIONS_TABLE: _FakeTable(scan_items=[_plan_row(structured)])})
+        outputs.append(json.dumps(cca._get_campus_plan_impl(""), sort_keys=True))
+    assert outputs[0] == outputs[1]
+    assert '"exercises"' in outputs[1] and '"5:36/km"' in outputs[1]  # not trivially empty
+    assert "pace_kind" not in outputs[1] and "estimated_paces" not in outputs[1]

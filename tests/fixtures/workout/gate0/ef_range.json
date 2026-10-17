@@ -1,0 +1,48 @@
+{
+  "guid": "0A7E0000-0000-4000-8000-000000000006",
+  "range_alerts": true,
+  "session": {
+    "session_id": "gate0-ef-range",
+    "title": "Endurance en plage",
+    "week_date_iso": "2026-W50",
+    "training_index": 3,
+    "sport": "road",
+    "training_type": "EF",
+    "expected_duration_min": 55,
+    "estimated_paces": {
+      "ef": {"value": 355.4, "dvalue": 12.4}
+    },
+    "intervals": [
+      {
+        "duration": "15 min",
+        "name": "step_1",
+        "pace": "EF (5:55/km)",
+        "pace_kind": "range",
+        "pace_slug": "ef",
+        "pace_zone": "ef",
+        "pace_value_s": 355,
+        "type": "warm-up"
+      },
+      {
+        "duration": "30 min",
+        "name": "step_2",
+        "pace": "EF (5:55/km)",
+        "pace_kind": "range",
+        "pace_slug": "ef",
+        "pace_zone": "ef",
+        "pace_value_s": 355,
+        "type": "work"
+      },
+      {
+        "duration": "10 min",
+        "name": "step_3",
+        "pace": "EF (5:55/km)",
+        "pace_kind": "range",
+        "pace_slug": "ef",
+        "pace_zone": "ef",
+        "pace_value_s": 355,
+        "type": "cool-down"
+      }
+    ]
+  }
+}

@@ -13,11 +13,16 @@ its own ``repeat > 1`` is refused (``legacy_shape``): that producer copied the b
 factor onto every exercise, so the real structure is lost and guessing it would put a
 wrong session on the Watch.
 
+Pace alerts follow the step's Campus ``pace_kind`` (``docs/design/campus-paces.md`` C):
+legacy rows and ``single-value`` steps keep the exact pre-existing rules and bytes;
+``range`` steps get a RANGE alert only when the caller passes ``range_alerts=True``.
+
 Never raises: any malformed row (wrong types, NaN, lone surrogates...) comes back as a
 non-encodable ``MapResult`` with a reason code.
 
 Metrics are NOT emitted here. ``MapResult.metrics`` carries counters
-(``WorkoutStepOpenFallback``, ``WorkoutUnknownPaceFamily``, ``WorkoutPaceOutOfRange``)
+(``WorkoutStepOpenFallback``, ``WorkoutUnknownPaceFamily``, ``WorkoutPaceOutOfRange``,
+``WorkoutPaceInvalid``, ``WorkoutUnknownPaceKind``)
 for the caller to flush with its own ``@metrics.log_metrics`` handler. Each counter is
 counted per STEP, not per repetition: a 4x block whose step has an unknown pace family
 counts 1. Calling ``add_metric`` from a shared helper would make every Lambda handler
@@ -34,6 +39,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
 from shared import workout_file as wf
+from shared.pace_zones import fmt_pace
 
 # ------------------------------------------------------------------- tunables
 
@@ -97,6 +103,17 @@ REASON_INTERNAL = "internal"
 METRIC_OPEN_FALLBACK = "WorkoutStepOpenFallback"
 METRIC_UNKNOWN_PACE_FAMILY = "WorkoutUnknownPaceFamily"
 METRIC_PACE_OUT_OF_RANGE = "WorkoutPaceOutOfRange"
+METRIC_PACE_INVALID = "WorkoutPaceInvalid"
+METRIC_UNKNOWN_PACE_KIND = "WorkoutUnknownPaceKind"
+
+# Campus ``pace.kind`` as stored by the sync in ``pace_kind`` (docs/design/campus-paces.md
+# C). A row without ``pace_kind`` is a legacy row: today's string rules apply unchanged.
+KIND_RANGE = "range"
+KIND_SINGLE_VALUE = "single-value"
+KIND_ABSTRACT = "abstract"
+# A Campus range is value +/- dvalue. Wider than a minute per km either side is not a
+# training zone, it is a data error.
+MAX_RANGE_HALF_WIDTH_SEC = 60
 
 _SPORTS = {
     "road": (wf.ACTIVITY_RUNNING, wf.LOCATION_OUTDOOR),
@@ -198,10 +215,6 @@ def _family_text(pace: str) -> str:
     return match.group(1).strip() if match else (pace or "").strip()
 
 
-def _fmt_pace(sec_per_km: int) -> str:
-    return f"{sec_per_km // 60}:{sec_per_km % 60:02d}"
-
-
 def _fmt_duration(seconds: Optional[int]) -> str:
     if seconds is None:
         return "libre"
@@ -239,6 +252,17 @@ def _cap_name(base: str, suffix: str, limit: int) -> str:
     return (base + suffix).strip()
 
 
+def _to_float(value: Any) -> Optional[float]:
+    """A finite float from int / float / Decimal / numeric string, else None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal, str)):
+        return None
+    try:
+        number = float(value)
+    except (ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) else None
+
+
 def _to_int(value: Any) -> Optional[int]:
     """An integer from int / Decimal / integral float / digit string, else None."""
     if isinstance(value, bool):
@@ -258,9 +282,12 @@ def _to_int(value: Any) -> Optional[int]:
 # ------------------------------------------------------------------- mapping
 
 class _Mapper:
-    def __init__(self, session: Dict[str, Any], run: bool) -> None:
+    def __init__(self, session: Dict[str, Any], run: bool, range_alerts: bool = False) -> None:
         self.run = run
         self.race = session.get("training_type") in RACE_TRAINING_TYPES
+        self.range_alerts = range_alerts
+        estimated = session.get("estimated_paces")
+        self.estimated: Dict[str, Any] = estimated if isinstance(estimated, dict) else {}
         self.metrics: Dict[str, int] = {}
 
     def _count(self, name: str) -> None:
@@ -281,11 +308,92 @@ class _Mapper:
         return wf.time_goal(float(seconds), wf.TIME_UNIT_SECONDS), seconds
 
     def _run_step(self, entry, purpose, seconds, is_edge) -> Tuple[Optional[bytes], Optional[str], Optional[str]]:
-        """Alert, step name and summary label for a running step."""
+        """Alert, step name and summary label for a running step, by Campus pace kind.
+
+        - no ``pace_kind`` (legacy row) and ``range`` with the switch off: today's rules,
+          target parsed from the ``pace`` string.
+        - ``single-value``: today's rules, target from ``pace_value_s`` (the same integer
+          the string was printed from, so the bytes are identical).
+        - ``range`` with ``range_alerts``: a RANGE alert (:meth:`_range_step`).
+        - ``abstract``: never an alert; the name keeps today's rules.
+        - an unknown kind (Campus added one): today's legacy string rules, exactly as a
+          row without ``pace_kind``, plus ``WorkoutUnknownPaceKind``. A quality step
+          that alerts today keeps alerting whatever Campus renames.
+        """
+        kind = entry.get("pace_kind")
+        if kind is None:
+            return self._value_step(entry, purpose, seconds, is_edge, _target_sec_per_km(_text(entry, "pace")))
+        if kind == KIND_SINGLE_VALUE:
+            target = _to_float(entry.get("pace_value_s"))
+            if target is None:
+                self._count(METRIC_PACE_INVALID)
+            return self._value_step(entry, purpose, seconds, is_edge, target)
+        if kind == KIND_RANGE:
+            if not self.range_alerts:
+                return self._value_step(entry, purpose, seconds, is_edge, _target_sec_per_km(_text(entry, "pace")))
+            ranged = self._range_step(entry, purpose, seconds, is_edge)
+            if ranged is not None:
+                return ranged
+        elif kind != KIND_ABSTRACT:
+            self._count(METRIC_UNKNOWN_PACE_KIND)
+            return self._value_step(entry, purpose, seconds, is_edge, _target_sec_per_km(_text(entry, "pace")))
+        _alert, name, label = self._value_step(
+            entry, purpose, seconds, is_edge, _target_sec_per_km(_text(entry, "pace")))
+        return None, name, label
+
+    def _range_bounds(self, entry) -> Optional[Tuple[float, float]]:
+        """(fast, slow) s/km = value -/+ dvalue from the session ``estimated_paces``.
+
+        Raw floats, never rounded before the 1000/x conversion: rounding only happens
+        in the displayed name. None (with a metric) when anything is missing or invalid.
+        """
+        slug = entry.get("pace_slug")
+        paces = self.estimated.get(slug) if isinstance(slug, str) else None
+        value = _to_float(paces.get("value")) if isinstance(paces, dict) else None
+        dvalue = _to_float(paces.get("dvalue")) if isinstance(paces, dict) else None
+        if value is None or dvalue is None:
+            self._count(METRIC_PACE_INVALID)
+            return None
+        fast, slow = value - dvalue, value + dvalue
+        if (
+            not 0 < dvalue <= MAX_RANGE_HALF_WIDTH_SEC
+            or fast < MIN_TARGET_SEC_PER_KM
+            or slow > MAX_TARGET_SEC_PER_KM
+        ):
+            self._count(METRIC_PACE_OUT_OF_RANGE)
+            return None
+        return fast, slow
+
+    def _range_step(self, entry, purpose, seconds, is_edge) -> Optional[Tuple[Optional[bytes], Optional[str], Optional[str]]]:
+        """RANGE alert on a Campus ``range`` step (EF, EF warm-up / cool-down).
+
+        Two cases alert (spec C): a range warm-up / cool-down (``is_edge``), whatever
+        its length, and a non-edge WORK step of at least MIN_PACE_ALERT_SECONDS. The
+        180 s floor is for short intervals only; an edge step is never that short in
+        practice and must not lose its alert when it is. Recovery steps never alert.
+        """
+        bounds = self._range_bounds(entry)
+        if bounds is None:
+            return None
+        fast, slow = bounds
+        alert = None
+        long_work = seconds is not None and seconds >= MIN_PACE_ALERT_SECONDS
+        if purpose == wf.PURPOSE_WORK and (is_edge or long_work):
+            metric = wf.ALERT_METRIC_AVERAGE if self.race else wf.ALERT_METRIC_CURRENT
+            alert = wf.pace_range_alert(1000.0 / slow, 1000.0 / fast, metric)
+        span = f"{fmt_pace(fast)}-{fmt_pace(slow)}"
+        display = strip_banned_words(_family_text(_text(entry, "pace")))
+        name = (_cap_name(display, f" {span}", MAX_STEP_NAME_CHARS) or None) if display else None
+        label = None
+        if purpose == wf.PURPOSE_WORK and not is_edge and display:
+            label = f"{display.split()[0]} {span}"
+        return alert, name, label
+
+    def _value_step(self, entry, purpose, seconds, is_edge, target) -> Tuple[Optional[bytes], Optional[str], Optional[str]]:
+        """Today's rules: a VALUE alert on a quality-family WORK step, given its target."""
         pace = _text(entry, "pace")
         family_text = _family_text(pace)
         family = normalize_family(family_text)
-        target = _target_sec_per_km(pace)
         if target is not None and not MIN_TARGET_SEC_PER_KM <= target <= MAX_TARGET_SEC_PER_KM:
             self._count(METRIC_PACE_OUT_OF_RANGE)
             target = None
@@ -314,12 +422,12 @@ class _Mapper:
         display = strip_banned_words(family_text)
         name = None
         if display:
-            suffix = f" {_fmt_pace(target)}" if target else ""
+            suffix = f" {fmt_pace(target)}" if target else ""
             name = _cap_name(display, suffix, MAX_STEP_NAME_CHARS) or None
         label = None
         if purpose == wf.PURPOSE_WORK and not is_edge and display:
             short = display.split()[0]
-            label = f"{short} {_fmt_pace(target)}" if target else short
+            label = f"{short} {fmt_pace(target)}" if target else short
         return alert, name, label
 
     def _strength_name(self, entry) -> Optional[str]:
@@ -414,11 +522,15 @@ def _check_shape(intervals: List[Any]) -> None:
             raise _Refused(REASON_LEGACY_SHAPE)
 
 
-def map_session(session: Dict[str, Any], guid: Optional[str] = None) -> MapResult:
+def map_session(
+    session: Dict[str, Any], guid: Optional[str] = None, range_alerts: bool = False,
+) -> MapResult:
     """Encode one Campus session, or say why it cannot be. Never raises.
 
     ``guid``: a fresh UUIDv4 per export in production; tests pass a fixed one. A bad
     ``guid`` is a caller bug, not row data: it raises ValueError here, before any mapping.
+    ``range_alerts``: the caller's ``RANGE_ALERTS_ENABLED`` switch (this module reads no
+    environment). Off, the output is byte-identical to the pre-switch mapper.
     """
     if guid is not None:
         wf.validate_guid(guid)
@@ -435,7 +547,7 @@ def map_session(session: Dict[str, Any], guid: Optional[str] = None) -> MapResul
         intervals = session.get("intervals")
         if not isinstance(intervals, list) or not intervals:
             raise _Refused(REASON_NO_INTERVALS)
-        mapper = _Mapper(session, sport == "road")
+        mapper = _Mapper(session, sport == "road", range_alerts=bool(range_alerts))
         return _encode(session, sport, intervals, mapper, guid)
     except _Refused as refused:
         return MapResult(False, refused.reason, metrics=mapper.metrics if mapper else {})

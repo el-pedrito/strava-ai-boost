@@ -121,6 +121,16 @@ export interface PaceZones {
   interval: PaceZone;
 }
 
+/** One pace zone as synced from Campus Coach (read-only, written by the sync). */
+export interface CampusPaceZone extends PaceZone {
+  slug: string;
+  value_s: number;
+  dvalue_s: number;
+}
+
+/** Where the effective pace zones come from (mirrors shared/pace_zones.effective_pace_zones). */
+export type PaceZonesSource = 'campus' | 'campus_stale' | 'manual_legacy' | 'none';
+
 export interface UserPreferences {
   age_range: string;
   sport_approach: string;

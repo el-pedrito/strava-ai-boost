@@ -1,10 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Calculator, Check, ChevronDown, ChevronRight, Plus, RotateCcw, Trash2, X } from 'lucide-react';
+import { Calculator, Check, ChevronDown, ChevronRight, Plus, Trash2, X } from 'lucide-react';
 import {
-  Alert,
-  Badge,
   Button,
   Card,
   CardDescription,
@@ -21,7 +19,8 @@ import {
 import { api } from '../../api/client.ts';
 import { getConfig } from '../../config.ts';
 import { useFlash } from '../../layouts/AppLayout.tsx';
-import type { PaceZones } from '../../types/index.ts';
+import type { CampusPaceZone, PaceZone, PaceZonesSource } from '../../types/index.ts';
+import { PaceZonesCard, type ZoneMap } from './PaceZonesCard.tsx';
 
 const AGE_OPTIONS: SelectOption[] = [
   { value: '18-25', label: '18-25' },
@@ -87,32 +86,6 @@ const INTEREST_OPTIONS: SelectOption[] = [
   { value: 'competition', label: 'Competition' },
 ];
 
-const DEFAULT_PACE_ZONES: PaceZones = {
-  recovery: { min: '6:30', max: '8:00' },
-  ef: { min: '5:45', max: '7:30' },
-  aerobic: { min: '5:15', max: '5:50' },
-  tempo: { min: '5:00', max: '5:45' },
-  sweet_spot: { min: '4:45', max: '5:15' },
-  seuil_60: { min: '4:30', max: '5:00' },
-  seuil_30: { min: '4:15', max: '4:45' },
-  allure_marathon: { min: '4:40', max: '5:10' },
-  allure_semi: { min: '4:20', max: '4:50' },
-  interval: { min: '3:30', max: '4:20' },
-};
-
-const ZONE_LABELS: Record<keyof PaceZones, { number: string; label: string; description: string }> = {
-  recovery: { number: 'Z1', label: 'Recovery', description: 'Very easy pace' },
-  ef: { number: 'Z2', label: 'EF (Endurance Fond.)', description: 'Easy, conversational' },
-  aerobic: { number: 'Z3', label: 'Aerobic', description: 'Active endurance' },
-  tempo: { number: 'Z4', label: 'Tempo', description: 'Comfortably hard' },
-  sweet_spot: { number: 'Z5', label: 'Sweet Spot', description: 'Tempo to threshold' },
-  seuil_60: { number: 'Z6', label: 'Threshold 60', description: 'Lactate threshold, 60min effort' },
-  seuil_30: { number: 'Z7', label: 'Threshold 30', description: 'Critical, 30min effort' },
-  allure_marathon: { number: 'Z8', label: 'Marathon Pace', description: 'Target marathon pace' },
-  allure_semi: { number: 'Z9', label: 'Half-Marathon Pace', description: 'Target half pace' },
-  interval: { number: 'Z10', label: 'Intervals / VO2max', description: 'Fast intervals' },
-};
-
 const DEFAULTS = {
   age_range: '26-35',
   sport_approach: 'health & wellness',
@@ -170,7 +143,6 @@ interface PreferencesState {
   technicalDetail: string;
   contentLanguage: string;
   interests: string[];
-  paceZones: PaceZones;
   athleteProfile: string;
   personalRecords: PersonalRecord[];
   maxHr: string;
@@ -188,7 +160,6 @@ const initialState: PreferencesState = {
   technicalDetail: DEFAULTS.technical_detail,
   contentLanguage: DEFAULTS.content_language,
   interests: [],
-  paceZones: { ...DEFAULT_PACE_ZONES },
   athleteProfile: '',
   personalRecords: [],
   maxHr: '',
@@ -196,6 +167,43 @@ const initialState: PreferencesState = {
   heightCm: '',
   strengthProgram: [],
 };
+
+interface ZonesView {
+  source: PaceZonesSource;
+  zones: ZoneMap | null;
+  week: string | null;
+  syncedAt: string | null;
+}
+
+const NO_ZONES: ZonesView = { source: 'none', zones: null, week: null, syncedAt: null };
+
+const SOURCES: PaceZonesSource[] = ['campus', 'campus_stale', 'manual_legacy', 'none'];
+
+function isZoneMap(value: unknown): value is ZoneMap {
+  return !!value && typeof value === 'object' && Object.keys(value).length > 0;
+}
+
+/**
+ * Resolve the read-only zones view from the GET /preferences payload. The API
+ * states the source; when it does not (older API), infer it the same way the
+ * backend does: Campus zones first, then the legacy manual zones.
+ */
+function resolveZonesView(p: Record<string, unknown>): ZonesView {
+  const campus = isZoneMap(p.campus_pace_zones) ? (p.campus_pace_zones as Record<string, CampusPaceZone>) : null;
+  const legacy = isZoneMap(p.pace_zones) ? (p.pace_zones as Record<string, PaceZone>) : null;
+  const declared = SOURCES.includes(p.pace_zones_source as PaceZonesSource)
+    ? (p.pace_zones_source as PaceZonesSource)
+    : null;
+  const source: PaceZonesSource = declared ?? (campus ? 'campus' : legacy ? 'manual_legacy' : 'none');
+  const fromCampus = source === 'campus' || source === 'campus_stale';
+  if (fromCampus && !campus) return NO_ZONES;
+  return {
+    source,
+    zones: fromCampus ? campus : source === 'manual_legacy' ? legacy : null,
+    week: typeof p.campus_pace_zones_week === 'string' ? p.campus_pace_zones_week : null,
+    syncedAt: typeof p.campus_pace_zones_synced_at === 'string' ? p.campus_pace_zones_synced_at : null,
+  };
+}
 
 function statesEqual(a: PreferencesState, b: PreferencesState): boolean {
   if (
@@ -214,11 +222,6 @@ function statesEqual(a: PreferencesState, b: PreferencesState): boolean {
     return false;
   if (a.interests.length !== b.interests.length) return false;
   if (![...a.interests].sort().every((v, i) => v === [...b.interests].sort()[i])) return false;
-  const zoneKeys = Object.keys(DEFAULT_PACE_ZONES) as Array<keyof PaceZones>;
-  for (const k of zoneKeys) {
-    if (a.paceZones[k].min !== b.paceZones[k].min) return false;
-    if (a.paceZones[k].max !== b.paceZones[k].max) return false;
-  }
   if (a.personalRecords.length !== b.personalRecords.length) return false;
   for (let i = 0; i < a.personalRecords.length; i++) {
     const ra = a.personalRecords[i];
@@ -235,6 +238,7 @@ export function PreferencesPage() {
   const [state, setState] = useState<PreferencesState>(initialState);
   const lastLoadedRef = useRef<PreferencesState>(initialState);
   const [autoPrs, setAutoPrs] = useState<Record<string, AutoPr>>({});
+  const [zonesView, setZonesView] = useState<ZonesView>(NO_ZONES);
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [showAddRecord, setShowAddRecord] = useState(false);
@@ -256,10 +260,6 @@ export function PreferencesPage() {
           technicalDetail: (p.technical_detail as string) || DEFAULTS.technical_detail,
           contentLanguage: (p.content_language as string) || DEFAULTS.content_language,
           interests: Array.isArray(p.interests) ? (p.interests as string[]) : [],
-          paceZones:
-            p.pace_zones && typeof p.pace_zones === 'object'
-              ? { ...DEFAULT_PACE_ZONES, ...(p.pace_zones as PaceZones) }
-              : { ...DEFAULT_PACE_ZONES },
           athleteProfile: (p.athlete_profile as string) || '',
           personalRecords: Array.isArray(p.personal_records)
             ? (p.personal_records as Array<{ distance: string; time: string; date: string; event: string }>).map(
@@ -277,6 +277,7 @@ export function PreferencesPage() {
         };
         setState(next);
         lastLoadedRef.current = next;
+        setZonesView(resolveZonesView(p));
         if (p.best_efforts_prs && typeof p.best_efforts_prs === 'object') {
           setAutoPrs(p.best_efforts_prs as Record<string, AutoPr>);
         }
@@ -308,7 +309,6 @@ export function PreferencesPage() {
         technical_detail: state.technicalDetail,
         content_language: state.contentLanguage,
         interests: state.interests,
-        pace_zones: state.paceZones,
         athlete_profile: state.athleteProfile,
         personal_records: state.personalRecords
           .filter((r) => r.distance && r.time)
@@ -523,87 +523,13 @@ export function PreferencesPage() {
         </Card>
       )}
 
-      {/* Pace zones */}
-      <Card padding="lg">
-        <CardHeader>
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-center gap-1.5">
-                <CardTitle>{t('preferences.zones.title')}</CardTitle>
-                <InfoTooltip i18nKey="preferences.zones.help" align="start" />
-              </div>
-              <CardDescription>{t('preferences.zones.description')}</CardDescription>
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setState((prev) => ({ ...prev, paceZones: { ...DEFAULT_PACE_ZONES } }))}
-            >
-              <RotateCcw className="h-4 w-4" aria-hidden="true" />
-              Reset to defaults
-            </Button>
-          </div>
-        </CardHeader>
-        <Alert variant="info" className="mb-4">
-          Enter your paces in <strong>mm:ss /km</strong>. Start = fastest pace in zone, End = slowest.
-        </Alert>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {(Object.keys(ZONE_LABELS) as Array<keyof PaceZones>).map((zoneKey) => {
-            const zone = state.paceZones[zoneKey] ?? DEFAULT_PACE_ZONES[zoneKey];
-            const meta = ZONE_LABELS[zoneKey];
-            return (
-              <div
-                key={zoneKey}
-                className="flex flex-col gap-2 rounded-lg border border-border bg-surface-muted p-3"
-              >
-                <div className="flex items-baseline gap-2">
-                  <Badge variant="primary" size="sm">
-                    {meta.number}
-                  </Badge>
-                  <span className="font-medium text-sm text-foreground">{meta.label}</span>
-                </div>
-                <p className="text-xs text-muted-foreground">{meta.description}</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="flex flex-col gap-1">
-                    <Label htmlFor={`${zoneKey}-min`} className="text-xs text-muted-foreground">
-                      Start
-                    </Label>
-                    <Input
-                      id={`${zoneKey}-min`}
-                      value={zone.min}
-                      placeholder="5:00"
-                      onChange={(e) =>
-                        setState((prev) => ({
-                          ...prev,
-                          paceZones: { ...prev.paceZones, [zoneKey]: { ...prev.paceZones[zoneKey], min: e.target.value } },
-                        }))
-                      }
-                      className="font-numeric"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <Label htmlFor={`${zoneKey}-max`} className="text-xs text-muted-foreground">
-                      End
-                    </Label>
-                    <Input
-                      id={`${zoneKey}-max`}
-                      value={zone.max}
-                      placeholder="6:00"
-                      onChange={(e) =>
-                        setState((prev) => ({
-                          ...prev,
-                          paceZones: { ...prev.paceZones, [zoneKey]: { ...prev.paceZones[zoneKey], max: e.target.value } },
-                        }))
-                      }
-                      className="font-numeric"
-                    />
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </Card>
+      {/* Pace zones (read-only, Campus is the single source) */}
+      <PaceZonesCard
+        source={zonesView.source}
+        zones={zonesView.zones}
+        week={zonesView.week}
+        syncedAt={zonesView.syncedAt}
+      />
 
       {/* Content style */}
       <Card padding="lg">
