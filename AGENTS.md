@@ -191,7 +191,7 @@ strava-ai-boost/
 │   └── vite.config.ts                  # Vite + Vitest configuration
 │
 ├── tests/                      # Test suite
-│   ├── unit/                           # Lambda unit tests (1369 tests)
+│   ├── unit/                           # Lambda unit tests (1383 tests)
 │   │   ├── conftest.py                 # Env vars for Lambda imports
 │   │   ├── test_webhook_handler.py     # Validation, routing, signature
 │   │   ├── test_content_generator.py   # DynamoDB, parsing, storage, strength extraction
@@ -408,7 +408,7 @@ class MyModule(BaseModule):
 
 ### Running Tests
 
-**Lambda Unit Tests (1369 tests, ~2s):**
+**Lambda Unit Tests (1383 tests, ~2s):**
 ```bash
 pytest tests/unit/ -v
 ```
