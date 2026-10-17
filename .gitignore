@@ -157,3 +157,6 @@ frontend/public/config.json
 
 # Operational reports produced by scripts/validate_deployment.sh
 validation-report-*.json
+
+# Local credential notes, never commit
+credentials-local.txt
