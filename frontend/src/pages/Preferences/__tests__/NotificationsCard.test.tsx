@@ -218,25 +218,42 @@ describe('NotificationsCard', () => {
     expect(screen.getByRole('switch').getAttribute('aria-checked')).toBe('false');
   });
 
-  it('turning off waits for the mount re-POST, so DELETE always lands last', async () => {
+  it('shows "on" only once the server has the existing subscription again', async () => {
     installPushEnv({ existingSubscription: true });
     let releasePost: () => void = () => undefined;
     subscribeMock.mockImplementationOnce(
       () => new Promise((resolve) => (releasePost = () => resolve({ subscribed: true })))
     );
     render(<NotificationsCard />);
+
+    // While the re-POST is in flight the toggle is locked and not "on".
+    await waitFor(() => expect(subscribeMock).toHaveBeenCalledTimes(1));
+    const toggle = screen.getByRole('switch');
+    expect(toggle).toBeDisabled();
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+
+    releasePost();
     await waitFor(() =>
       expect(screen.getByRole('switch').getAttribute('aria-checked')).toBe('true')
     );
 
     await userEvent.click(screen.getByRole('switch'));
-    expect(unsubscribeMock).not.toHaveBeenCalled(); // still waiting for the POST
-    releasePost();
-
     await waitFor(() => expect(unsubscribeMock).toHaveBeenCalledTimes(1));
     expect(subscribeMock.mock.invocationCallOrder[0]).toBeLessThan(
       unsubscribeMock.mock.invocationCallOrder[0]
     );
+  });
+
+  it('shows "off" with a hint when the server refuses the existing subscription', async () => {
+    installPushEnv({ existingSubscription: true });
+    subscribeMock.mockRejectedValueOnce(new ApiError('Server error', 500));
+    render(<NotificationsCard />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/reset on the server/i)).toBeInTheDocument()
+    );
+    expect(screen.getByRole('switch').getAttribute('aria-checked')).toBe('false');
+    expect(screen.getByRole('switch')).not.toBeDisabled();
   });
 
   it('keeps a subscription made with the current server key', async () => {

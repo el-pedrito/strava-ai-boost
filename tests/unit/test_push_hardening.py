@@ -428,3 +428,67 @@ def test_push_stack_alarms_on_failed_deliveries():
             "TreatMissingData": "notBreaching",
         },
     )
+
+
+# ---- round 4 ---------------------------------------------------------------
+
+
+def test_vapid_keys_are_cached_for_minutes_only(monkeypatch):
+    core = _core()
+    reads: list[int] = []
+    monkeypatch.setattr(core, "_fetch_vapid", lambda: reads.append(1) or {"public_key": "a", "private_key": "b"})  # pragma: allowlist secret
+    clock = [1000.0]
+    monkeypatch.setattr(core.time, "monotonic", lambda: clock[0])
+
+    core._load_vapid()
+    core._load_vapid()
+    assert len(reads) == 1  # cached
+    clock[0] += core.KEY_CACHE_SECONDS + 1
+    core._load_vapid()
+    assert len(reads) == 2  # a rotated key is picked up by a warm container
+
+
+def test_server_key_is_cached_for_minutes_only(monkeypatch):
+    core = _core()
+    reads: list[int] = []
+    monkeypatch.setattr(core, "_fetch_application_server_key", lambda: reads.append(1) or "KEY")
+    clock = [1000.0]
+    monkeypatch.setattr(core.time, "monotonic", lambda: clock[0])
+
+    assert core.get_application_server_key() == "KEY"
+    core.get_application_server_key()
+    assert len(reads) == 1
+    clock[0] += core.KEY_CACHE_SECONDS + 1
+    core.get_application_server_key()
+    assert len(reads) == 2
+
+
+@mock_aws
+def test_send_fans_out_to_ten_devices_at_most(monkeypatch):
+    import boto3
+    import push.push_send as send_mod
+
+    _core()
+    send = importlib.reload(send_mod)
+    table = _create_table(boto3)
+    for i in range(14):
+        table.put_item(
+            Item={"user_id": USER, "endpoint_hash": f"h{i:02d}", "endpoint": f"{APPLE}-{i}", "p256dh": "p", "auth": "a"}
+        )
+    sent: list[str] = []
+    monkeypatch.setattr(send, "send_push", lambda sub, payload: sent.append(sub["endpoint"]))
+    monkeypatch.setattr(send, "_record_delivery", lambda **kw: None)
+
+    send.handler({"user_id": USER, "activity_id": "a1"}, None)
+
+    assert len(sent) == send.MAX_DEVICES == 10
+
+
+def test_push_send_errors_are_alarmed_too():
+    _app, push = _push_app()
+    push.add_delivery_alarm("strava-ai-boost-ops-alerts")
+    template = assertions.Template.from_stack(push)
+    template.has_resource_properties(
+        "AWS::CloudWatch::Alarm",
+        {"MetricName": "Errors", "Namespace": "AWS/Lambda", "AlarmName": "strava-ai-boost-push-send-errors"},
+    )

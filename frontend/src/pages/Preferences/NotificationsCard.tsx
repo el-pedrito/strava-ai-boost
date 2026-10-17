@@ -113,6 +113,9 @@ function NotificationsCardInner() {
   // Toggle actions wait for it, so a quick "off" can never DELETE before an
   // in-flight re-POST lands and recreates the row.
   const reconciling = useRef<Promise<void>>(Promise.resolve());
+  // Set once the user taps the toggle: from then on the mount reconciliation
+  // no longer writes the card state, the user's action owns it.
+  const acting = useRef(false);
 
   // Reflect the current subscription on mount — no prompting, just reading.
   // An existing subscription is sent to the server again (idempotent): after a
@@ -124,6 +127,7 @@ function NotificationsCardInner() {
       return;
     }
     let cancelled = false;
+    const live = () => !cancelled && !acting.current;
     const keyRequest = getApplicationServerKey()
       .then((res) => {
         serverKey.current = res.application_server_key;
@@ -135,28 +139,35 @@ function NotificationsCardInner() {
         const reg = await navigator.serviceWorker.getRegistration();
         const sub = reg ? await reg.pushManager.getSubscription() : null;
         if (!sub) {
-          if (!cancelled) setState('idle');
+          if (live()) setState('idle');
           return;
         }
+        // A subscription exists: "on" only once the server has it again.
+        if (live()) setState('busy');
         const key = await keyRequest;
         if (key && !sameKey(sub, key)) {
           // Bound to an older server key (VAPID rotation): it can never be
           // delivered again. Drop it and ask for a new opt-in.
           await dropSubscription(sub);
-          if (!cancelled) {
+          if (live()) {
             setState('idle');
             setMessage({ variant: 'warning', text: t('preferences.notifications.keyChanged') });
           }
           return;
         }
-        if (!cancelled) setState('enabled');
         try {
           await subscribePush(toSubscriptionBody(sub));
+          if (live()) setState('enabled');
         } catch {
-          // Best-effort refresh; the toggle still lets the user re-subscribe.
+          // The server may not know this device: show "off" so turning it on
+          // re-subscribes, instead of an "on" that delivers nothing.
+          if (live()) {
+            setState('idle');
+            setMessage({ variant: 'warning', text: t('preferences.notifications.keyChanged') });
+          }
         }
       } catch {
-        if (!cancelled) setState('idle');
+        if (live()) setState('idle');
       }
     })();
     return () => {
@@ -169,6 +180,7 @@ function NotificationsCardInner() {
     //    inside the user's tap. The card is only rendered when config.json sets
     //    pushEnabled, so a deployment without push never reaches this prompt.
     const permissionRequest = Notification.requestPermission();
+    acting.current = true;
     setState('busy');
     setMessage(null);
 
@@ -240,6 +252,7 @@ function NotificationsCardInner() {
   }, [t]);
 
   const disable = useCallback(async () => {
+    acting.current = true;
     setState('busy');
     setMessage(null);
     await reconciling.current;

@@ -37,6 +37,8 @@ _dynamodb: Any = boto3.resource("dynamodb", region_name=REGION)
 # Neutral user-facing defaults, in the app's language (French, like the coach output).
 DEFAULT_TITLE = "Activité enrichie"
 DEFAULT_BODY = "Ta description enrichie est en ligne."
+# Mirrors push_api.MAX_SUBSCRIPTIONS_PER_USER.
+MAX_DEVICES = 10
 
 
 def _table() -> Any:
@@ -88,7 +90,9 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         "tag": tag,
     }
 
-    subs = _subscriptions(user_id)
+    # Same bound as the subscribe API: keeps the fan-out inside the timeout even
+    # if two subscribes raced past the cap.
+    subs = _subscriptions(user_id)[:MAX_DEVICES]
     if not subs:
         logger.info(f"push_send user={user_id} activity={activity_id} subscriptions=0")
         return {"statusCode": 200, "sent": 0}

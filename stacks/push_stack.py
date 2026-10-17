@@ -268,6 +268,20 @@ class PushStack(Stack):
             self.format_arn(service="sns", resource=alerts_topic_name),
         )
         alarm.add_alarm_action(cw_actions.SnsAction(topic))
+        # A hard failure (DynamoDB error, timeout) ends before the metric above
+        # is emitted: watch the function's own Errors too.
+        errors = cloudwatch.Alarm(
+            self,
+            "PushSendErrorsAlarm",
+            alarm_name="strava-ai-boost-push-send-errors",
+            alarm_description="StravaAIBoost-PushSend raised or timed out in the last hour",
+            metric=self.push_send_lambda.metric_errors(period=Duration.hours(1), statistic="Sum"),
+            threshold=1,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+        )
+        errors.add_alarm_action(cw_actions.SnsAction(topic))
         return alarm
 
     def grant_notify(self, grantee: iam.IGrantable) -> None:

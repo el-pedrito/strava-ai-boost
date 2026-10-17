@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from functools import lru_cache
 from typing import Any
 
@@ -177,9 +178,25 @@ def vapid_subject() -> str:
     return subject
 
 
-@lru_cache(maxsize=1)
+# Key caches live a few minutes, not for the container's life: after
+# `bootstrap_vapid.py --rotate`, a warm Lambda must not keep the old key.
+KEY_CACHE_SECONDS = 300
+_vapid_cache: tuple[float, dict[str, str]] | None = None
+_server_key_cache: tuple[float, str] | None = None
+
+
 def _load_vapid() -> dict[str, str]:
-    """Load the VAPID pair from Secrets Manager (cached per container)."""
+    """Load the VAPID pair from Secrets Manager (cached KEY_CACHE_SECONDS)."""
+    global _vapid_cache
+    now = time.monotonic()
+    if _vapid_cache and now - _vapid_cache[0] < KEY_CACHE_SECONDS:
+        return _vapid_cache[1]
+    data = _fetch_vapid()
+    _vapid_cache = (now, data)
+    return data
+
+
+def _fetch_vapid() -> dict[str, str]:
     resp = _secrets_client().get_secret_value(SecretId=VAPID_SECRET_NAME)
     data = json.loads(resp["SecretString"])
     if "public_key" not in data or "private_key" not in data:
@@ -189,8 +206,18 @@ def _load_vapid() -> dict[str, str]:
     return data
 
 
-@lru_cache(maxsize=1)
 def get_application_server_key() -> str:
+    """Application server key, cached KEY_CACHE_SECONDS (see _load_vapid)."""
+    global _server_key_cache
+    now = time.monotonic()
+    if _server_key_cache and now - _server_key_cache[0] < KEY_CACHE_SECONDS:
+        return _server_key_cache[1]
+    value = _fetch_application_server_key()
+    _server_key_cache = (now, value)
+    return value
+
+
+def _fetch_application_server_key() -> str:
     """VAPID application server key (base64url), served to the browser.
 
     Read from its own SecureString parameter (decrypted by SSM with ``aws/ssm``) so
