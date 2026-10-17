@@ -21,6 +21,7 @@ from strands.hooks import HookProvider, MessageAddedEvent
 
 # Import embedded prompts
 from embedded_prompts import CONTENT_GENERATION_PROMPT
+from athlete_input_prompt import rpe_line, summary_block
 
 # Initialize AgentCore app
 app = BedrockAgentCoreApp()
@@ -925,6 +926,26 @@ def invoke(payload, context=None):
                 "guardrail_intervention": True
             }
         
+        # Athlete's post-session input (RPE + summary). Both fragments are '' when the
+        # keys are absent, and each is glued to an existing line with a leading
+        # newline, so a prompt without input is exactly the prompt of before.
+        # The summary goes through the same input guardrail as the description; a
+        # blocked summary is dropped (it never fails the run, D8).
+        athlete_input_view = {'athlete_rpe': activity_data.get('athlete_rpe')}
+        raw_summary = activity_data.get('athlete_summary')
+        if raw_summary not in (None, ''):
+            validated_summary, summary_blocked = validate_user_input_with_guardrail(
+                str(raw_summary), "athlete_summary"
+            )
+            if summary_blocked:
+                logger.warning("🛡️ Athlete summary blocked by guardrail, dropped from the prompt")
+            else:
+                athlete_input_view['athlete_summary'] = validated_summary
+        athlete_rpe_text = rpe_line(athlete_input_view)
+        athlete_rpe_fragment = f"\n- {athlete_rpe_text}" if athlete_rpe_text else ""
+        athlete_summary_text = summary_block(athlete_input_view)
+        athlete_summary_fragment = f"\n{athlete_summary_text}" if athlete_summary_text else ""
+
         # Generate prompt for content creation with ALL user preferences
         activity_type = activity_data.get('sport_type', activity_data.get('type', 'Activity'))
         distance = float(activity_data.get('distance', 0)) / 1000  # km
@@ -1106,7 +1127,7 @@ If you exceed {max_chars} chars, CUT content to fit. Keep most important element
 Title: "{validated_title}"
 Description: "{validated_description}"
 {f"⚠️ Note: Title was sanitized by security filters" if title_blocked else ""}
-{f"⚠️ Note: Description was sanitized by security filters" if desc_blocked else ""}
+{f"⚠️ Note: Description was sanitized by security filters" if desc_blocked else ""}{athlete_summary_fragment}
 ⚠️ Le RESSENTI et le CONTEXTE de l'athlète (sensations, humeur, événement, rôle) sont repris fidèlement et ouvrent la description. Ses NOTES TECHNIQUES (dates type "10/07", séries "80x10", abréviations) sont des données à exploiter, jamais recopiées telles quelles en tête de texte.
 ⚠️ NÉGATIONS : reprends le sens EXACT. "pas une énergie de dingue" reste une séance SANS énergie de dingue, dans la description ET dans le titre. Ne transforme jamais un ressenti négatif ou mitigé en ressenti positif.
 ⚠️ Si l'athlète nomme un événement (course, semi, 20km de Paris, rôle de pacer, accompagnement), c'est le sujet principal : mets-le en avant dès la première phrase et dans le titre.
@@ -1124,7 +1145,7 @@ Description: "{validated_description}"
 {f"- Average Cadence: {avg_cadence:.0f} spm{f' (Max: {max_cadence:.0f} spm)' if max_cadence else ''}" if avg_cadence else ""}
 {f"- Power: Avg {avg_watts:.0f}W{f', Max {max_watts:.0f}W' if max_watts else ''}{f', Weighted {weighted_avg_watts:.0f}W' if weighted_avg_watts else ''} {'(Device)' if device_watts else '(Estimated)'}" if avg_watts else ""}
 {f"- Calories: {calories:.0f} kcal" if calories else ""}
-{f"- Strava Relative Effort (suffer_score, heart-rate based, open-ended scale, NOT out of 100, NOT the athlete's RPE): {suffer_score:.0f}" if suffer_score else ""}
+{f"- Strava Relative Effort (suffer_score, heart-rate based, open-ended scale, NOT out of 100, NOT the athlete's RPE): {suffer_score:.0f}" if suffer_score else ""}{athlete_rpe_fragment}
 {f"- Workout Type: {workout_type_str}" if workout_type_str else ""}
 - Date: {activity_data.get('start_date', 'Unknown')}
 
