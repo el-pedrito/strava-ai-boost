@@ -16,8 +16,10 @@ livrés éteints.
 
 - `exercise.pace` = {name, value (s/km entier), kind, zoneKind, abstract, slug}.
 - `week.estimatedPaces` = 21 entrées {slug, value (float), dvalue (float), abstract, competitive}.
-- Plage supposée = value ± dvalue (EF 348.8 ± 13.0 -> 5:36..6:02). À confirmer avec l'écran de
-  l'app avant d'allumer les interrupteurs.
+- Plage `range` = value -> value + 30 s, PAS value ± dvalue. Preuve : 6 écrans de l'app Campus
+  (2026-10-17) : EF value 346 -> « 5:46 - 6:16 », 349 -> « 5:49 - 6:19 » (footing EF,
+  échauffement EF, retour au calme EF). Les allures `single-value` (Tempo 5:15, Semi Marathon
+  4:33) n'affichent que la valeur ; Lent n'affiche aucune allure.
 
 ## A. Sync (`webhooks/campus_coach_sync.py`)
 
@@ -33,9 +35,12 @@ livrés éteints.
   existent, sinon rien + métrique `CampusZonesSkipped`.
   Correspondance : recovery<-slow, ef<-ef, aerobic<-aerobie, tempo<-tempo,
   sweet_spot<-sweet-spot, seuil_60<-seuil60, seuil_30<-seuil30, allure_marathon<-marathon,
-  allure_semi<-half-marathon, interval<-vma. min = value - dvalue (rapide), max = value + dvalue
-  (lent), format m:ss arrondi au plus proche (une seule fonction `shared/pace_zones.fmt_pace`).
-  Pour les slugs `single-value`, la largeur ± dvalue est déduite : commentaire dans le code.
+  allure_semi<-half-marathon, interval<-vma. min = borne rapide, max = borne lente, format m:ss
+  arrondi au plus proche (une seule fonction `shared/pace_zones.fmt_pace`). Slugs affichés en
+  plage par Campus (`CAMPUS_RANGE_SLUGS` = {ef}) : exactement l'écran de l'app, value arrondie à
+  la seconde puis + 30 s (`CAMPUS_RANGE_WIDTH_SEC`) : 348.8 -> 5:49..6:19. Slugs `single-value`
+  (Campus n'affiche pas de plage) : largeur déduite value ± dvalue, l'écart du fournisseur
+  autour de cette allure : commentaire dans le code.
 - CDK : `dynamodb:UpdateItem` sur la table user-config pour CampusCoachSync seulement ; test CDK.
 - Module coupé ou abonnement fini : les zones restent figées à la dernière semaine (`campus_stale`).
 - Retour arrière : interrupteur éteint puis `REMOVE` des 3 attributs (commande documentée).
@@ -60,8 +65,10 @@ dans `src/coach_chat/` + test de parité, comme campus_status).
   `pace_value_s` (même entier).
 - `range` (seulement si `RANGE_ALERTS_ENABLED=true` sur DashboardAPI, défaut éteint) : alerte
   RANGE sur les étapes WORK >= 180 s ET sur échauffement / retour au calme de type range ;
-  `slow = 1000/(value+dvalue)`, `fast = 1000/(value-dvalue)` en float brut, bornes dans
-  2:00..15:00, 0 < dvalue <= 60 ; CURRENT (AVERAGE pour les courses) ; nom « EF 5:36-6:02 ».
+  `value` = le `pace_value_s` entier de l'étape (ce qu'affiche l'app), `slow = 1000/(value+30)`,
+  `fast = 1000/value` ; `estimated_paces` n'est pas lu ; borne rapide >= 2:00 et borne lente
+  <= 15:00, sinon pas d'alerte + métrique ; CURRENT (AVERAGE pour les courses) ; nom
+  « EF 5:46-6:16 » pour 346 (même écran que l'app).
 - `abstract` / récup : rien. Ligne legacy (pas de `pace_kind`) : règles d'aujourd'hui.
 - Test de parité : jumeaux structurés de chaque golden existant -> mêmes octets, interrupteur
   éteint. Nouveau golden `ef_range` pour l'interrupteur allumé (refaire Gate 0 2b).

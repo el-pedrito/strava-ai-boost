@@ -18,7 +18,7 @@ Each `<case>.json` holds `{"guid": ..., "session": {...}}`; `<case>.workout` is 
 | `sl_tempo` | WU, Aerobie (no alert), `1:30 min` recovery, Tempo (alert), CD |
 | `ppg_renfo` | strength, 13 flat steps (reps -> OPEN, timed holds), block x3, long-name abbreviation with gender agreement (`lestée`), `PPG` stripped from the title |
 | `race_semi` | race `96:42 min`, `course` family, AVERAGE alert |
-| `ef_range` | `RANGE_ALERTS_ENABLED` on (`"range_alerts": true`): structured `range` steps, WU 15' + 30' + CD 10' EF, RANGE CURRENT alert on all three, names `EF 5:43-6:08` (value 355.4 +/- 12.4) |
+| `ef_range` | `RANGE_ALERTS_ENABLED` on (`"range_alerts": true`): structured `range` steps, WU 15' + 30' + CD 10' EF, RANGE CURRENT alert on all three, names `EF 5:55-6:25` (`pace_value_s` 355 to 355 + 30 s, as the Campus app shows) |
 
 Regenerate (from the repo root, project venv):
 

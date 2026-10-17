@@ -16,6 +16,8 @@ wrong session on the Watch.
 Pace alerts follow the step's Campus ``pace_kind`` (``docs/design/campus-paces.md`` C):
 legacy rows and ``single-value`` steps keep the exact pre-existing rules and bytes;
 ``range`` steps get a RANGE alert only when the caller passes ``range_alerts=True``.
+That range is ``pace_value_s`` to ``pace_value_s + 30 s``, what the Campus app shows;
+the session ``estimated_paces`` is not read here.
 
 Never raises: any malformed row (wrong types, NaN, lone surrogates...) comes back as a
 non-encodable ``MapResult`` with a reason code.
@@ -39,6 +41,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
 from shared import workout_file as wf
+from shared import pace_zones as pz
 from shared.pace_zones import fmt_pace
 
 # ------------------------------------------------------------------- tunables
@@ -111,9 +114,10 @@ METRIC_UNKNOWN_PACE_KIND = "WorkoutUnknownPaceKind"
 KIND_RANGE = "range"
 KIND_SINGLE_VALUE = "single-value"
 KIND_ABSTRACT = "abstract"
-# A Campus range is value +/- dvalue. Wider than a minute per km either side is not a
-# training zone, it is a data error.
-MAX_RANGE_HALF_WIDTH_SEC = 60
+# A Campus range runs from the step's own pace value to RANGE_WIDTH_SEC slower: the
+# Campus app shows "5:46 - 6:16" for value 346 and "5:49 - 6:19" for 349 (checked on 6
+# screens, 2026-10-17). It is NOT value +/- dvalue.
+RANGE_WIDTH_SEC = pz.CAMPUS_RANGE_WIDTH_SEC
 
 _SPORTS = {
     "road": (wf.ACTIVITY_RUNNING, wf.LOCATION_OUTDOOR),
@@ -286,8 +290,6 @@ class _Mapper:
         self.run = run
         self.race = session.get("training_type") in RACE_TRAINING_TYPES
         self.range_alerts = range_alerts
-        estimated = session.get("estimated_paces")
-        self.estimated: Dict[str, Any] = estimated if isinstance(estimated, dict) else {}
         self.metrics: Dict[str, int] = {}
 
     def _count(self, name: str) -> None:
@@ -342,24 +344,17 @@ class _Mapper:
         return None, name, label
 
     def _range_bounds(self, entry) -> Optional[Tuple[float, float]]:
-        """(fast, slow) s/km = value -/+ dvalue from the session ``estimated_paces``.
+        """(fast, slow) s/km = (value, value + RANGE_WIDTH_SEC), as the Campus app shows.
 
-        Raw floats, never rounded before the 1000/x conversion: rounding only happens
-        in the displayed name. None (with a metric) when anything is missing or invalid.
+        ``value`` is the step's own integer ``pace_value_s`` (what the app displays).
+        None (with a metric) when it is missing or the bounds are out of range.
         """
-        slug = entry.get("pace_slug")
-        paces = self.estimated.get(slug) if isinstance(slug, str) else None
-        value = _to_float(paces.get("value")) if isinstance(paces, dict) else None
-        dvalue = _to_float(paces.get("dvalue")) if isinstance(paces, dict) else None
-        if value is None or dvalue is None:
+        value = _to_float(entry.get("pace_value_s"))
+        if value is None:
             self._count(METRIC_PACE_INVALID)
             return None
-        fast, slow = value - dvalue, value + dvalue
-        if (
-            not 0 < dvalue <= MAX_RANGE_HALF_WIDTH_SEC
-            or fast < MIN_TARGET_SEC_PER_KM
-            or slow > MAX_TARGET_SEC_PER_KM
-        ):
+        fast, slow = value, value + RANGE_WIDTH_SEC
+        if fast < MIN_TARGET_SEC_PER_KM or slow > MAX_TARGET_SEC_PER_KM:
             self._count(METRIC_PACE_OUT_OF_RANGE)
             return None
         return fast, slow

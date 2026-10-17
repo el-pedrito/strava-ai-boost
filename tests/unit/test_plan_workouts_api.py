@@ -541,5 +541,5 @@ class TestRangeAlertsSwitch:
         on = _body(handler(_event(), None))["workouts"][0]
         monkeypatch.setenv("RANGE_ALERTS_ENABLED", "false")
         off = _body(handler(_event(), None))["workouts"][0]
-        assert "5:43-6:08" in on["summary"] and "5:43-6:08" not in off["summary"]
+        assert "5:55-6:25" in on["summary"] and "5:55-6:25" not in off["summary"]
         assert on["workout_b64"] != off["workout_b64"]

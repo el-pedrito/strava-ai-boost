@@ -955,15 +955,27 @@ class TestStructuredParity:
             result = cw.map_session(twin, guid=spec["guid"])
             assert result.bytes == golden, case
 
-    def test_twins_switch_on_without_estimated_paces_keep_the_bytes(self):
-        """No range data: no alert (as today for EF), the old name, and a metric."""
-        for case in LEGACY_GOLDENS:
+    def test_twins_switch_on_without_estimated_paces(self):
+        """The range comes from the step's pace_value_s alone: estimated_paces is not needed.
+
+        Twins without an EF step keep their bytes. An EF twin gets its RANGE alert
+        (5:57 -> 5:57-6:27) with no metric.
+        """
+        for case in ("ppg_renfo", "race_semi"):
             spec, golden = _gate0(case)
             result = cw.map_session(_twin(spec["session"]), guid=spec["guid"], range_alerts=True)
             assert result.bytes == golden, case
-        spec, _ = _gate0("ef_45")
-        result = cw.map_session(_twin(spec["session"]), guid=spec["guid"], range_alerts=True)
-        assert result.metrics == {cw.METRIC_PACE_INVALID: 1}
+        for case in ("ef_45", "intensity_semi", "sl_tempo"):
+            spec, golden = _gate0(case)
+            result = cw.map_session(_twin(spec["session"]), guid=spec["guid"], range_alerts=True)
+            assert result.bytes != golden, case
+            assert result.metrics == {}, case
+            workout = _decode(result.bytes)["workout"]
+            ef = workout["warmup"] if "warmup" in workout else _only_step(workout)
+            assert ef["alert"]["style"] == "RANGE", case
+            assert ef["alert"]["lower"] == 1000.0 / 387, case
+            assert ef["alert"]["upper"] == 1000.0 / 357, case
+            assert ef["name"] == "EF 5:57-6:27", case
 
     def test_single_value_target_comes_from_pace_value_s(self):
         step = _work("10 min", "Tempo (5:00/km)", pace_kind="single-value", pace_value_s=290)
@@ -1000,10 +1012,10 @@ class TestRangeAlerts:
         workout = _decode(golden)["workout"]
         for step in (workout["warmup"], _only_step(workout), workout["cooldown"]):
             assert step["alert"]["style"] == "RANGE" and step["alert"]["metric"] == "CURRENT"
-            assert step["alert"]["lower"] == pytest.approx(1000 / (355.4 + 12.4))
-            assert step["alert"]["upper"] == pytest.approx(1000 / (355.4 - 12.4))
-            assert step["name"] == "EF 5:43-6:08"
-        assert result.summary == "WU 15' · 30' EF 5:43-6:08 · CD 10'"
+            assert step["alert"]["lower"] == 1000.0 / 385
+            assert step["alert"]["upper"] == 1000.0 / 355
+            assert step["name"] == "EF 5:55-6:25"
+        assert result.summary == "WU 15' · 30' EF 5:55-6:25 · CD 10'"
         assert result.metrics == {}
 
     def test_switch_off_range_step_follows_todays_rules(self):
@@ -1011,18 +1023,27 @@ class TestRangeAlerts:
         step = _only_step(_decode(cw.map_session(session, guid=GUID).bytes)["workout"])
         assert "alert" not in step and step["name"] == "EF 5:55"
 
-    def test_raw_floats_and_half_up_name(self):
-        """348.8 +/- 13.3: bounds from 1000/362.1 and 1000/335.5, name 5:36-6:02."""
-        est = {"ef": {"value": Decimal("348.8"), "dvalue": Decimal("13.3")}}
-        step = _only_step(self._map_on([self._range()], est)[1])
-        assert step["alert"]["lower"] == 1000.0 / 362.1
-        assert step["alert"]["upper"] == 1000.0 / 335.5
+    def test_range_is_value_to_value_plus_30_as_the_campus_app_shows(self):
+        """EF 346 -> "5:46 - 6:16" on the Campus app (6 screens, 2026-10-17)."""
+        entry = self._range(pace="EF (5:46/km)", pace_value_s=346)
+        step = _only_step(self._map_on([entry])[1])
+        assert step["alert"]["style"] == "RANGE"
+        assert step["alert"]["lower"] == 1000.0 / 376
+        assert step["alert"]["upper"] == 1000.0 / 346
         assert step["alert"]["lower"] < step["alert"]["upper"]
-        assert step["name"] == "EF 5:36-6:02"
+        assert step["name"] == "EF 5:46-6:16"
+
+    def test_range_ignores_estimated_paces(self):
+        """Same bytes with the session's estimated_paces, without it, or with junk in it."""
+        reference = self._map_on([self._range()])[0].bytes
+        for est in ({}, {"ef": {"value": 348.8, "dvalue": 13.3}}, {"ef": "junk"}):
+            result, _ = self._map_on([self._range()], est)
+            assert result.bytes == reference, est
+            assert result.metrics == {}, est
 
     def test_short_range_step_has_no_alert_but_the_range_name(self):
         step = _only_step(self._map_on([self._range("179 sec")])[1])
-        assert "alert" not in step and step["name"] == "EF 5:43-6:08"
+        assert "alert" not in step and step["name"] == "EF 5:55-6:25"
         assert "alert" in _only_step(self._map_on([self._range("3 min")])[1])
 
     def test_short_range_warmup_and_cooldown_still_alert(self):
@@ -1032,8 +1053,8 @@ class TestRangeAlerts:
         workout = self._map_on(intervals)[1]
         for edge in ("warmup", "cooldown"):
             assert workout[edge]["alert"]["style"] == "RANGE", edge
-            assert workout[edge]["alert"]["lower"] == pytest.approx(1000 / (355.4 + 12.4)), edge
-            assert workout[edge]["name"] == "EF 5:43-6:08", edge
+            assert workout[edge]["alert"]["lower"] == 1000.0 / 385, edge
+            assert workout[edge]["name"] == "EF 5:55-6:25", edge
 
     def test_short_range_edges_switch_off_keep_todays_no_alert(self):
         intervals = [self._range("179 sec", type_="warm-up"), self._range(),
@@ -1065,32 +1086,32 @@ class TestRangeAlerts:
 
     def test_invalid_range_data_no_alert_with_metric_never_refused(self):
         cases = (
-            ({"ef": {"value": 355.4, "dvalue": 0}}, cw.METRIC_PACE_OUT_OF_RANGE),
-            ({"ef": {"value": 355.4, "dvalue": 61}}, cw.METRIC_PACE_OUT_OF_RANGE),
-            ({"ef": {"value": 125, "dvalue": 10}}, cw.METRIC_PACE_OUT_OF_RANGE),
-            ({"ef": {"value": 895, "dvalue": 10}}, cw.METRIC_PACE_OUT_OF_RANGE),
-            ({"ef": {"value": "nan", "dvalue": 10}}, cw.METRIC_PACE_INVALID),
-            ({"ef": {"value": True, "dvalue": 10}}, cw.METRIC_PACE_INVALID),
-            ({"ef": "junk"}, cw.METRIC_PACE_INVALID),
-            ({"tempo": {"value": 300, "dvalue": 10}}, cw.METRIC_PACE_INVALID),
+            (119, cw.METRIC_PACE_OUT_OF_RANGE),
+            (871, cw.METRIC_PACE_OUT_OF_RANGE),
+            ("nan", cw.METRIC_PACE_INVALID),
+            (float("nan"), cw.METRIC_PACE_INVALID),
+            (True, cw.METRIC_PACE_INVALID),
+            ({"v": 1}, cw.METRIC_PACE_INVALID),
+            (None, cw.METRIC_PACE_INVALID),
         )
-        for estimated, metric in cases:
-            result, workout = self._map_on([self._range()], estimated)
+        for value, metric in cases:
+            result, workout = self._map_on([self._range(pace_value_s=value)])
             step = _only_step(workout)
-            assert "alert" not in step, estimated
-            assert step["name"] == "EF 5:55", estimated
-            assert result.metrics == {metric: 1}, estimated
+            assert "alert" not in step, value
+            assert step["name"] == "EF 5:55", value
+            assert result.metrics == {metric: 1}, value
 
     def test_range_bounds_are_inclusive(self):
-        for value, dvalue in ((130, 10), (890, 10), (355.4, 60)):
-            result, workout = self._map_on([self._range()], {"ef": {"value": value, "dvalue": dvalue}})
-            assert "alert" in _only_step(workout), (value, dvalue)
+        """fast >= 120 s/km and slow = value + 30 <= 900 s/km."""
+        for value in (120, 870):
+            result, workout = self._map_on([self._range(pace_value_s=value)])
+            assert "alert" in _only_step(workout), value
             assert result.metrics == {}
 
     def test_decimal_string_and_int_inputs_are_converted(self):
-        for est in ({"ef": {"value": "355.4", "dvalue": "12.4"}},
-                    {"ef": {"value": 351, "dvalue": 12}}):
-            assert "alert" in _only_step(self._map_on([self._range()], est)[1]), est
+        for value in (Decimal("355"), "355", 355, 355.0):
+            step = _only_step(self._map_on([self._range(pace_value_s=value)])[1])
+            assert step["alert"]["upper"] == 1000.0 / 355, value
 
 
 class TestPaceKinds:

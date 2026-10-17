@@ -26,6 +26,12 @@ SOURCE_CAMPUS_STALE = "campus_stale"
 SOURCE_MANUAL_LEGACY = "manual_legacy"
 SOURCE_NONE = "none"
 
+# A Campus ``range`` pace runs from its value to this many seconds slower: the app
+# shows "5:46 - 6:16 /km" for EF value 346 and "5:49 - 6:19" for 349 (6 screens,
+# 2026-10-17). It is not value +/- dvalue. Slugs Campus shows as a range:
+CAMPUS_RANGE_WIDTH_SEC = 30
+CAMPUS_RANGE_SLUGS = frozenset({"ef"})
+
 # Our zone key <- Campus estimatedPaces slug. The zone keys are the ones the
 # classifier in processing/workout_analysis.py already knows.
 CAMPUS_ZONE_SLUGS: Dict[str, str] = {
@@ -113,15 +119,17 @@ def effective_pace_zones(
 def build_campus_zones(estimated: Any) -> Optional[Dict[str, Dict[str, Any]]]:
     """Zone map from the session-level ``estimated_paces`` ({slug: {value, dvalue}}).
 
-    ``min`` is the FAST bound (value - dvalue), ``max`` the SLOW one (value + dvalue),
-    as ``m:ss`` text, which is the format of the legacy manual zones. Every mapped
-    slug must be present and valid (finite value, ``dvalue > 0``), otherwise None (the caller writes nothing):
-    a partial map would silently mix Campus zones with missing ones.
+    ``min`` is the FAST bound, ``max`` the SLOW one, as ``m:ss`` text, which is the
+    format of the legacy manual zones. Every mapped slug must be present and valid
+    (finite value, ``dvalue > 0``), otherwise None (the caller writes nothing): a
+    partial map would silently mix Campus zones with missing ones.
 
-    Campus only publishes a ``range`` for the EF-like slugs. For the slugs whose
-    steps are ``single-value`` (tempo, seuil, semi...) the +/- dvalue width is
-    deduced here, not provided as a range by Campus: it is still the provider's own
-    spread around that pace, which is what a classifier zone needs.
+    For a slug Campus shows as a range (:data:`CAMPUS_RANGE_SLUGS`, EF) the zone is
+    exactly what the app displays: the whole-second value, then
+    :data:`CAMPUS_RANGE_WIDTH_SEC` slower (348.8 -> 5:49-6:19). For the slugs whose
+    steps are ``single-value`` (tempo, seuil, semi...) Campus shows no range, so the
+    width is deduced here as value +/- dvalue: the provider's own spread around that
+    pace, which is what a classifier zone needs.
     """
     if not isinstance(estimated, dict):
         return None
@@ -136,9 +144,15 @@ def build_campus_zones(estimated: Any) -> Optional[Dict[str, Dict[str, Any]]]:
         # classifier can never match, and the Watch rejects it too (0 < dvalue).
         if value is None or dvalue is None or dvalue <= 0 or value - dvalue <= 0:
             return None
+        if slug in CAMPUS_RANGE_SLUGS:
+            # Exactly what the Campus app displays: the whole-second value, then +30 s.
+            fast = float(math.floor(value + 0.5))
+            slow = fast + CAMPUS_RANGE_WIDTH_SEC
+        else:
+            fast, slow = value - dvalue, value + dvalue
         zones[zone] = {
-            "min": fmt_pace(value - dvalue),
-            "max": fmt_pace(value + dvalue),
+            "min": fmt_pace(fast),
+            "max": fmt_pace(slow),
             "slug": slug,
             "value_s": Decimal(str(round(value, 1))),
             "dvalue_s": Decimal(str(round(dvalue, 1))),

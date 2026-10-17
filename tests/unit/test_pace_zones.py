@@ -144,8 +144,27 @@ class TestBuildCampusZones:
         estimated = _estimated()
         estimated["ef"] = {"value": Decimal("348.8"), "dvalue": Decimal("13.0")}
         ef = pz.build_campus_zones(estimated)["ef"]
-        assert (ef["min"], ef["max"]) == ("5:36", "6:02")
+        # value -> value + 30 s, as the Campus app shows (349 -> "5:49 - 6:19").
+        assert (ef["min"], ef["max"]) == ("5:49", "6:19")
         assert (ef["value_s"], ef["dvalue_s"]) == (Decimal("348.8"), Decimal("13.0"))
+
+    def test_ef_range_matches_the_campus_app_screens(self):
+        """EF 346 -> 5:46-6:16 and 349 -> 5:49-6:19 (6 Campus screens, 2026-10-17)."""
+        for value, expected in ((Decimal("346"), ("5:46", "6:16")),
+                                (Decimal("349"), ("5:49", "6:19")),
+                                (Decimal("345.5"), ("5:46", "6:16"))):
+            estimated = _estimated()
+            estimated["ef"] = {"value": value, "dvalue": Decimal("13.0")}
+            ef = pz.build_campus_zones(estimated)["ef"]
+            assert (ef["min"], ef["max"]) == expected, value
+
+    def test_single_value_slug_zone_stays_value_plus_minus_dvalue(self):
+        """Campus shows tempo as one pace: its zone keeps the provider spread."""
+        estimated = _estimated()
+        estimated["tempo"] = {"value": Decimal("315"), "dvalue": Decimal("8.0")}
+        tempo = pz.build_campus_zones(estimated)["tempo"]
+        assert (tempo["min"], tempo["max"]) == ("5:07", "5:23")
+        assert "tempo" not in pz.CAMPUS_RANGE_SLUGS
 
     def test_missing_slug_builds_nothing(self):
         estimated = _estimated()
