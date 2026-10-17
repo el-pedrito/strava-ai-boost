@@ -303,8 +303,8 @@ class TestWebhookProcessingStack:
         assert invoke_only, "expected an invoke-only policy for the scheduler role"
 
     def test_campus_sync_wellness_grant_is_narrow(self, webhook_stack):
-        """A3: CampusCoachSync may only UpdateItem/PutItem the owner's partition in
-        the wellness table (LeadingKeys), nothing broader."""
+        """A3: CampusCoachSync may only UpdateItem the owner's partition in
+        the wellness table (LeadingKeys), nothing broader. No PutItem."""
         import json as _json
         template = assertions.Template.from_stack(webhook_stack)
         template.has_resource_properties("AWS::Lambda::Function", {
@@ -325,7 +325,8 @@ class TestWebhookProcessingStack:
         assert wellness_writes, "expected a LeadingKeys-scoped wellness write for CampusCoachSync"
         for st in wellness_writes:
             actions = st["Action"] if isinstance(st["Action"], list) else [st["Action"]]
-            assert set(actions) <= {"dynamodb:UpdateItem", "dynamodb:PutItem"}
+            assert set(actions) <= {"dynamodb:UpdateItem"}
+            assert "dynamodb:PutItem" not in actions
 
     def test_wellness_sync_lambda_role_least_privilege(self, webhook_stack):
         """The WellnessSync Lambda role: no '*' resource/action, reads the
@@ -356,6 +357,17 @@ class TestWebhookProcessingStack:
         # No wildcard dynamodb or secretsmanager action anywhere in these policies.
         assert "dynamodb:*" not in blob
         assert "secretsmanager:*" not in blob
+        # The wellness write statement is UpdateItem/Query only (no PutItem/GetItem)
+        # and scoped to the owner's partition by LeadingKeys.
+        wellness_writes = [
+            st for st in all_statements
+            if "strava-ai-boost-wellness" in _json.dumps(st.get("Resource", ""))
+        ]
+        assert wellness_writes, "expected a wellness statement on the WellnessSync role"
+        for st in wellness_writes:
+            actions = set(st["Action"] if isinstance(st["Action"], list) else [st["Action"]])
+            assert actions <= {"dynamodb:UpdateItem", "dynamodb:Query"}, actions
+            assert "dynamodb:LeadingKeys" in _json.dumps(st.get("Condition", {}))
 
 
 
@@ -523,6 +535,9 @@ class TestPlanWorkoutsRoute:
                 <= {"dynamodb:GetItem", "dynamodb:Query"}
         ]
         assert wellness_reads, "expected a read-only wellness grant on the shared dashboard role"
+        for st in wellness_reads:
+            assert "dynamodb:LeadingKeys" in _json.dumps(st.get("Condition", {})), \
+                "dashboard wellness read must be scoped by LeadingKeys"
 
     def test_owner_env_var_on_dashboard_lambda(self, stacks):
         stacks["api"].has_resource_properties("AWS::Lambda::Function", {

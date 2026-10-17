@@ -176,12 +176,12 @@ class ApiGatewayStack(Stack):
         # dashboard uses the SHARED webhook_lambda_role (single-user project);
         # this is accepted and intentional. Read-only here: GetItem + Query, no
         # writes (WellnessSync/CampusCoachSync own the writes).
+        owner = str(self.node.try_get_context("default_user_id") or "")
         self.dashboard_lambda.add_to_role_policy(
             iam.PolicyStatement(
                 actions=["dynamodb:GetItem", "dynamodb:Query"],
-                resources=[
-                    f"arn:aws:dynamodb:{Aws.REGION}:{Aws.ACCOUNT_ID}:table/strava-ai-boost-wellness"
-                ],
+                resources=[self.core_stack.table_arns["wellness"]],
+                conditions={"ForAllValues:StringEquals": {"dynamodb:LeadingKeys": [owner]}},
             )
         )
 

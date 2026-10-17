@@ -353,46 +353,72 @@ def _finite(value: Any) -> Optional[float]:
     return f
 
 
-def _campus_competitive_paces(estimated: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-    """Parse estimatedPaces into {distance_label: {pace_s, dpace_s, time_s,
-    range_s:[lo,hi]}} for the competitive slugs. First slug per distance wins;
-    non-finite or <=0 values are ignored. ``time_s = value * distance_km``;
-    ``range = (value +/- dvalue) * distance_km``.
+def _campus_competitive_paces(estimated: Any) -> Dict[str, Dict[str, Any]]:
+    """Competitive race predictions from ``estimatedPaces``.
 
-    NOTE: to be fused with the feat/paces-be pace parser once that branch merges.
+    Thin wrapper around the single parser ``_parse_estimated_paces`` (shared with
+    feat/paces-be). That parser returns ``{slug: {value, dvalue}}`` for every
+    slug; here we keep only the competitive race distances and turn each into
+    ``{distance_label: {pace_s, dpace_s, time_s, range_s:[lo,hi]}}``.
+    First slug per distance wins; ``time_s = value * distance_km``,
+    ``range = (value +/- dvalue) * distance_km``.
     """
+    parsed = _parse_estimated_paces(estimated)
     out: Dict[str, Dict[str, Any]] = {}
-    for p in estimated or []:
-        if not isinstance(p, dict):
-            continue
-        if p.get('competitive') is not True:
-            continue
-        slug = p.get('slug')
+    # Walk the provider list order so the FIRST competitive entry for a distance
+    # wins (same rule as the single parser), not the slug-map order.
+    order = [p.get('slug') for p in estimated if isinstance(p, dict)] if isinstance(estimated, list) else []
+    for slug in order:
         mapping = _COMPETITIVE_SLUGS.get(slug)
         if not mapping:
             continue
         label, dist_km = mapping
-        if label in out:  # first slug wins
+        if label in out:  # first slug for this distance wins
             continue
-        value = _finite(p.get('value'))
-        if value is None:
+        entry = parsed.get(slug)
+        if not entry:
             continue
-        dvalue = _finite(p.get('dvalue')) or 0.0
-        time_s = round(value * dist_km)
-        lo = round((value - dvalue) * dist_km)
-        hi = round((value + dvalue) * dist_km)
+        value = float(entry['value'])
+        dvalue = float(entry['dvalue'])
         out[label] = {
             'pace_s': round(value),
             'dpace_s': round(dvalue),
-            'time_s': time_s,
-            'range_s': [lo, hi],
+            'time_s': round(value * dist_km),
+            'range_s': [round((value - dvalue) * dist_km),
+                        round((value + dvalue) * dist_km)],
         }
     return out
 
 
+def _normalise_goal_type(goal_type: Any) -> str:
+    """Normalise a raw Campus ``goalType`` to a prediction slug.
+
+    The predictions are keyed by ``5km/10km/half-marathon/marathon``; the goal's
+    ``type`` must match so the reader finds ``predicted_*``. Reuses the same slug
+    map as the competitive paces.
+    """
+    if not isinstance(goal_type, str):
+        return ''
+    key = goal_type.strip().lower().replace('_', '-').replace(' ', '-')
+    mapping = _COMPETITIVE_SLUGS.get(key)
+    if mapping:
+        return mapping[0]
+    return goal_type
+
+
 def _goal_item(goals: Optional[List[Dict[str, Any]]], now: datetime) -> Optional[Dict[str, Any]]:
     """Build the campus#goal item from the goal tri-state. ``None`` -> no write
-    (return None), ``[]`` -> {active: false}, a goal -> the full card."""
+    (return None), ``[]`` -> {active: false}, a goal -> the full card.
+
+    Field paths are the real provider shapes (verified against a captured
+    goal/active payload): the race name and targets live under
+    ``sessionCompetitionInfo.sessionCompetition`` and its ``stats``
+    (``expectedDuration`` seconds, ``expectedDistance`` already in km);
+    weekly volume under ``simulatedWeeklyVolume.lowerBound/upperBound``;
+    plan totals under ``stats.trainingsCount/trainingsDoneCount``.
+    ``week_index`` is not here: it is the current week's ``goalDuration.index``,
+    stored on the week item and copied into the card by the reader.
+    """
     if goals is None:
         return None
     synced_at = now.isoformat()
@@ -401,29 +427,31 @@ def _goal_item(goals: Optional[List[Dict[str, Any]]], now: datetime) -> Optional
 
     g = goals[0] if isinstance(goals[0], dict) else {}
     stats = g.get('stats', {}) if isinstance(g.get('stats'), dict) else {}
+    sci = g.get('sessionCompetitionInfo', {}) if isinstance(g.get('sessionCompetitionInfo'), dict) else {}
+    sc = sci.get('sessionCompetition', {}) if isinstance(sci.get('sessionCompetition'), dict) else {}
+    sc_stats = sc.get('stats', {}) if isinstance(sc.get('stats'), dict) else {}
+
     item: Dict[str, Any] = {
         'sk': 'campus#goal',
         'active': True,
         'synced_at': synced_at,
-        'name': g.get('name', '') or g.get('displayName', ''),
-        'type': g.get('goalType', ''),
+        'name': sc.get('displayName') or sc.get('name') or '',
+        'type': _normalise_goal_type(g.get('goalType', '')),
         'competition_date': str(g.get('competitionDate', '')),
         'sessions_per_week': g.get('sessionsPerWeek'),
-        'week_index': g.get('weekIndex'),
         'weeks_total': g.get('durationInWeeks'),
-        'cycle_theme': g.get('cycleTheme', ''),
-        'coach_name': g.get('coachName', ''),
         'trainings_done': stats.get('trainingsDoneCount'),
         'trainings_total': stats.get('trainingsCount'),
     }
-    td = _finite(stats.get('targetDuration') or g.get('targetDuration'))
+    td = _finite(sc_stats.get('expectedDuration'))
     if td is not None:
         item['target_duration_s'] = round(td)
-    dist = _finite(g.get('targetDistance'))
+    dist = _finite(sc_stats.get('expectedDistance'))  # already km
     if dist is not None:
-        item['target_distance_km'] = round(dist / 1000, 1) if dist > 1000 else round(dist, 1)
-    vol_low = _finite(g.get('weeklyVolumeLow'))
-    vol_high = _finite(g.get('weeklyVolumeHigh'))
+        item['target_distance_km'] = round(dist, 3)
+    vol = g.get('simulatedWeeklyVolume', {}) if isinstance(g.get('simulatedWeeklyVolume'), dict) else {}
+    vol_low = _finite(vol.get('lowerBound'))
+    vol_high = _finite(vol.get('upperBound'))
     if vol_low is not None:
         item['weekly_volume_low'] = round(vol_low)
     if vol_high is not None:
@@ -433,32 +461,55 @@ def _goal_item(goals: Optional[List[Dict[str, Any]]], now: datetime) -> Optional
 
 
 def _week_stat_item(week: Dict[str, Any], now: datetime) -> Optional[Dict[str, Any]]:
-    """campus#week#YYYY-Www: expected/real distance (km) and duration (s)."""
+    """campus#week#YYYY-Www from the real smart-training week shape.
+
+    ``weekStats.expectedDistance/realDistance`` are ALREADY in km (do not divide
+    by 1000); ``expectedDuration/realDuration`` are seconds. The week also
+    carries ``goalDuration.index`` (plan week number), ``context.cycleTheme`` and
+    ``coach.name``; the reader copies the current week's values into the goal
+    card so there is one source for them.
+    """
     week_date = week.get('weekDate')
     if week_date is None:
         return None
     week_iso = _to_iso_week(week_date)
-    stats = week.get('stats', {}) if isinstance(week.get('stats'), dict) else {}
+    ws = week.get('weekStats', {}) if isinstance(week.get('weekStats'), dict) else {}
+    gd = week.get('goalDuration', {}) if isinstance(week.get('goalDuration'), dict) else {}
+    ctx = week.get('context', {}) if isinstance(week.get('context'), dict) else {}
+    coach = week.get('coach', {}) if isinstance(week.get('coach'), dict) else {}
     item: Dict[str, Any] = {'sk': f'campus#week#{week_iso}', 'week': week_iso,
                             'synced_at': now.isoformat()}
-    exp_dist = _finite(stats.get('expectedDistance'))
-    real_dist = _finite(stats.get('realDistance'))
-    exp_dur = _finite(stats.get('expectedDuration'))
-    real_dur = _finite(stats.get('realDuration'))
+    exp_dist = _finite(ws.get('expectedDistance'))
+    real_dist = _finite(ws.get('realDistance'))
+    exp_dur = _finite(ws.get('expectedDuration'))
+    real_dur = _finite(ws.get('realDuration'))
     if exp_dist is not None:
-        item['expected_distance_km'] = round(exp_dist / 1000, 1)
+        item['expected_distance_km'] = round(exp_dist, 1)
     if real_dist is not None:
-        item['real_distance_km'] = round(real_dist / 1000, 1)
+        item['real_distance_km'] = round(real_dist, 1)
     if exp_dur is not None:
         item['expected_duration_s'] = round(exp_dur)
     if real_dur is not None:
         item['real_duration_s'] = round(real_dur)
+    week_index = gd.get('index')
+    if isinstance(week_index, int):
+        item['week_index'] = week_index
+    weeks_total = gd.get('durationInWeeks')
+    if isinstance(weeks_total, int):
+        item['weeks_total'] = weeks_total
+    cycle_theme = ctx.get('cycleTheme')
+    if cycle_theme:
+        item['cycle_theme'] = cycle_theme
+    coach_name = coach.get('name')
+    if coach_name:
+        item['coach_name'] = coach_name
     return item
 
 
 def _store_home_campus(goals, allowed_weeks, now, monday_current) -> None:
     """Write campus#goal (tri-state), campus#pred#YYYY-Www (current week), and
-    campus#week#YYYY-Www to the wellness table. Does nothing without an owner."""
+    campus#week#YYYY-Www to the wellness table via UpdateItem (SET). Does nothing
+    without an owner."""
     if not CAMPUS_OWNER_STRAVA_ID:
         logger.info("No CAMPUS_OWNER_STRAVA_ID; skipping home campus aggregates")
         return
@@ -467,13 +518,13 @@ def _store_home_campus(goals, allowed_weeks, now, monday_current) -> None:
 
     goal_item = _goal_item(goals, now)
     if goal_item is not None:  # None means "could not read" -> keep previous item
-        table.put_item(Item={'user_id': user_id, **_decimalize(goal_item)})
+        _put_campus_item(table, user_id, goal_item)
 
     current_ms = int(monday_current.timestamp() * 1000)
     for week in allowed_weeks:
         wk_item = _week_stat_item(week, now)
         if wk_item is not None:
-            table.put_item(Item={'user_id': user_id, **_decimalize(wk_item)})
+            _put_campus_item(table, user_id, wk_item)
 
         # Predictions: one item per week, labelled with the SAME ISO week as the
         # sessions. Only the current ISO week's item is "current" to the reader.
@@ -487,7 +538,32 @@ def _store_home_campus(goals, allowed_weeks, now, monday_current) -> None:
                     'synced_at': now.isoformat(),
                     **paces,
                 }
-                table.put_item(Item={'user_id': user_id, **_decimalize(pred_item)})
+                _put_campus_item(table, user_id, pred_item)
+
+
+def _put_campus_item(table: Any, user_id: str, item: Dict[str, Any]) -> None:
+    """UpdateItem(SET) one campus#* home-aggregate row, keyed by (user_id, sk).
+
+    SET of each attribute (no PutItem): writes only the keys we computed and never
+    requires replacing the whole row.
+    """
+    attrs = _decimalize({k: v for k, v in item.items() if k != 'sk'})
+    names = {'#sk_attr': 'sk'}
+    values = {':sk_val': item['sk']}
+    set_parts = []
+    for idx, (key, value) in enumerate(attrs.items()):
+        names[f'#a{idx}'] = key
+        values[f':a{idx}'] = value
+        set_parts.append(f'#a{idx} = :a{idx}')
+    # Mirror the sort key into an attribute too, harmless and keeps the item
+    # self-describing even if read without the key projection.
+    set_parts.append('#sk_attr = :sk_val')
+    table.update_item(
+        Key={'user_id': user_id, 'sk': item['sk']},
+        UpdateExpression='SET ' + ', '.join(set_parts),
+        ExpressionAttributeNames=names,
+        ExpressionAttributeValues=values,
+    )
 
 
 def _decimalize(obj: Any) -> Any:
@@ -830,8 +906,14 @@ def _sync_athlete_context(token: str, table: Any, user_id: str) -> Optional[List
         goal_resp = requests.get(f"{API_BASE}/smart-training/goal/active", headers=headers, timeout=10)
         if goal_resp.status_code == 200:
             parsed = goal_resp.json()
-            goals = parsed if isinstance(parsed, list) else []
-            goals_result = goals
+            if isinstance(parsed, list):
+                goals = parsed
+                goals_result = goals
+            else:
+                # A 200 whose body is not a list (nor the expected dict shape) is
+                # an unexpected provider response: keep the previous home item.
+                goals = []
+                goals_result = None
         else:
             goals = []
 

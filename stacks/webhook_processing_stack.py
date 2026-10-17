@@ -24,6 +24,7 @@ from aws_cdk import (
     aws_sns_subscriptions as sns_subscriptions,
     aws_budgets as budgets,
     aws_scheduler as scheduler,
+    aws_logs as logs,
     Aws,
     Duration
 )
@@ -774,15 +775,13 @@ class WebhookProcessingStack(Stack):
         coaching_sessions_table.grant_read_write_data(self.campus_coach_sync)
 
         # A3: narrow inline grant to write the owner's campus#* home aggregates in
-        # the wellness table. UpdateItem/PutItem only, scoped to the owner's own
+        # the wellness table. UpdateItem only (SET of campus#* attrs), scoped to the owner's own
         # partition via dynamodb:LeadingKeys (no read, no other partition).
         owner = str(self.node.try_get_context("default_user_id") or "")
         self.campus_coach_sync.add_to_role_policy(
             iam.PolicyStatement(
-                actions=["dynamodb:UpdateItem", "dynamodb:PutItem"],
-                resources=[
-                    f"arn:aws:dynamodb:{Aws.REGION}:{Aws.ACCOUNT_ID}:table/strava-ai-boost-wellness"
-                ],
+                actions=["dynamodb:UpdateItem"],
+                resources=[self.core_stack.table_arns["wellness"]],
                 conditions={
                     "ForAllValues:StringEquals": {"dynamodb:LeadingKeys": [owner]}
                 },
@@ -862,21 +861,23 @@ class WebhookProcessingStack(Stack):
             actions=["secretsmanager:GetSecretValue"],
             resources=[intervals_secret_arn],
         ))
-        # wellness table: write the day/brief rows and read them back for the brief.
+        # wellness table: write the day/brief rows (SET/REMOVE) and Query them back
+        # for the brief. No GetItem/PutItem (unused). Scoped to the owner's partition.
         wellness_role.add_to_policy(iam.PolicyStatement(
-            actions=["dynamodb:UpdateItem", "dynamodb:PutItem", "dynamodb:Query", "dynamodb:GetItem"],
-            resources=[wellness_arn],
+            actions=["dynamodb:UpdateItem", "dynamodb:Query"],
+            resources=[self.core_stack.table_arns["wellness"]],
+            conditions={"ForAllValues:StringEquals": {"dynamodb:LeadingKeys": [owner]}},
         ))
         # user-config GetItem, scoped to the owner's own partition key.
         wellness_role.add_to_policy(iam.PolicyStatement(
             actions=["dynamodb:GetItem"],
-            resources=[user_config_arn],
+            resources=[self.core_stack.table_arns["user_config"]],
             conditions={"ForAllValues:StringEquals": {"dynamodb:LeadingKeys": [owner]}},
         ))
         # coaching table Query for the morning brief's next-session lookup.
         wellness_role.add_to_policy(iam.PolicyStatement(
             actions=["dynamodb:Query"],
-            resources=[coaching_arn],
+            resources=[self.core_stack.table_arns["coaching_sessions"]],
         ))
 
         self.wellness_sync = lambda_.Function(
@@ -892,6 +893,7 @@ class WebhookProcessingStack(Stack):
             timeout=Duration.minutes(5),  # backfill mode walks 90-day slices
             memory_size=256,
             role=wellness_role,
+            log_retention=logs.RetentionDays.ONE_WEEK,
             environment={
                 "WELLNESS_TABLE": "strava-ai-boost-wellness",
                 "USER_CONFIG_TABLE": "strava-ai-boost-user-configuration",
