@@ -114,8 +114,72 @@ def test_unexpected_error_fails_open(monkeypatch, outcomes):
 
     broken = MagicMock()
     broken.Table.return_value.update_item.side_effect = RuntimeError("ddb down")
+    broken.Table.return_value.get_item.side_effect = RuntimeError("ddb down")
     monkeypatch.setattr(activity_fetcher, "dynamodb", broken)
     assert activity_fetcher.close_athlete_input_window("777") == (None, None)
+
+
+def _throttle_close(monkeypatch, table):
+    """Real moto table, but the close UpdateItem is throttled."""
+    from unittest.mock import MagicMock
+
+    from botocore.exceptions import ClientError
+
+    wrapped = MagicMock(wraps=table)
+    wrapped.update_item.side_effect = ClientError(
+        {"Error": {"Code": "ProvisionedThroughputExceededException", "Message": "slow down"}},
+        "UpdateItem",
+    )
+    resource = MagicMock()
+    resource.Table.return_value = wrapped
+    monkeypatch.setattr(activity_fetcher, "dynamodb", resource)
+    return wrapped
+
+
+def test_throttled_close_keeps_submitted_input(table, outcomes, monkeypatch):
+    """A non-conditional error must not drop the RPE: consistent read fallback."""
+    table.put_item(Item={"activity_id": "777", "athlete_input_state": "submitted", "athlete_input": INPUT})
+    wrapped = _throttle_close(monkeypatch, table)
+
+    athlete_input, state = activity_fetcher.close_athlete_input_window("777")
+
+    assert state == "closed"
+    assert athlete_input["rpe"] == 7
+    assert athlete_input["summary"] == "Jambes lourdes au début"
+    assert wrapped.get_item.call_args.kwargs["ConsistentRead"] is True
+
+
+def test_throttled_close_on_awaiting_window_still_reports_closed(table, outcomes, monkeypatch):
+    """No input yet, but a window existed: closed, so no second "enriched" push."""
+    table.put_item(Item={"activity_id": "777", "athlete_input_state": "awaiting", "input_task_token": "tok"})
+    _throttle_close(monkeypatch, table)
+
+    assert activity_fetcher.close_athlete_input_window("777") == (None, "closed")
+
+
+def test_throttled_close_without_window_stays_flag_off(table, outcomes, monkeypatch):
+    table.put_item(Item={"activity_id": "777", "processing_status": "processing"})
+    _throttle_close(monkeypatch, table)
+
+    assert activity_fetcher.close_athlete_input_window("777") == (None, None)
+
+
+def test_throttled_close_then_store_keeps_input_on_the_row(table, outcomes, monkeypatch):
+    table.put_item(Item={"activity_id": "777", "athlete_input_state": "submitted", "athlete_input": INPUT,
+                         "input_task_token": "tok"})
+    _throttle_close(monkeypatch, table)
+    athlete_input, state = activity_fetcher.close_athlete_input_window("777")
+    monkeypatch.setattr(activity_fetcher, "dynamodb", boto3.resource("dynamodb", region_name="eu-west-1"))
+
+    activity_fetcher.store_activity_data(
+        "777", _activity(), None, None, {"user_id": "42"},
+        athlete_input=athlete_input, athlete_input_state=state,
+    )
+
+    row = table.get_item(Key={"activity_id": "777"})["Item"]
+    assert row["athlete_input_state"] == "closed"
+    assert row["athlete_input"]["rpe"] == 7
+    assert "input_task_token" not in row
 
 
 def test_apply_athlete_input_sets_both_keys():

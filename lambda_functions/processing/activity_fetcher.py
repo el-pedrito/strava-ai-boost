@@ -871,6 +871,30 @@ def _record_input_wait(outcome: str) -> None:
         logger.warning(f"Could not emit InputWait{{outcome={outcome}}}: {exc}")
 
 
+def _read_input_after_failed_close(table: Any, activity_id: str) -> tuple:
+    """Fallback when the close UpdateItem failed for a non-conditional reason.
+
+    Without it the store would rewrite the row with neither ``athlete_input``
+    nor ``athlete_input_state``: a submitted RPE lost for good, and a second
+    ("enriched") push after the input request. ConsistentRead, unlike the
+    fetcher's own get_item, so a submit that already landed is seen.
+    """
+    try:
+        response = table.get_item(
+            Key={'activity_id': activity_id},
+            ConsistentRead=True,
+            ProjectionExpression='athlete_input, athlete_input_state',
+        )
+    except Exception as exc:  # noqa: BLE001 - fail open (D8)
+        logger.warning(f"Could not read athlete input for {activity_id}: {type(exc).__name__}")
+        return None, None
+    old = response.get('Item') or {}
+    if 'athlete_input_state' not in old:
+        return None, None
+    athlete_input = old.get('athlete_input')
+    return (athlete_input if isinstance(athlete_input, dict) else None), INPUT_STATE_CLOSED
+
+
 def close_athlete_input_window(activity_id: str) -> tuple:
     """Close the athlete-input window; return ``(athlete_input, state)``.
 
@@ -884,7 +908,10 @@ def close_athlete_input_window(activity_id: str) -> tuple:
     - condition failed (flag off, reprocess, window already closed): not an error.
       The old item (raw DynamoDB format) is deserialised to keep an RPE already
       entered across a reprocess.
-    - any other error: fail open (D8), the run goes on without input.
+    - any other error (throttling, 5xx): the input is not dropped. A consistent
+      read fetches ``athlete_input``/``athlete_input_state``; if a window existed
+      the state returned is ``closed`` (the complete put_item that follows is
+      then the close). If that read fails too: fail open (D8), no input.
 
     Returns ``(None, None)`` when the activity never had a window (flag off): the
     item then carries no ``athlete_input_state`` and behaves exactly as today.
@@ -909,7 +936,7 @@ def close_athlete_input_window(activity_id: str) -> tuple:
                 f"Could not close athlete-input window for {activity_id}: "
                 f"{exc.response.get('Error', {}).get('Code')}"
             )
-            return None, None
+            return _read_input_after_failed_close(table, activity_id)
         raw = exc.response.get('Item') or {}
         try:
             old = {k: _deserializer.deserialize(v) for k, v in raw.items()}
@@ -922,7 +949,7 @@ def close_athlete_input_window(activity_id: str) -> tuple:
         return (athlete_input if isinstance(athlete_input, dict) else None), INPUT_STATE_CLOSED
     except Exception as exc:  # noqa: BLE001 - fail open (D8)
         logger.warning(f"Could not close athlete-input window for {activity_id}: {type(exc).__name__}")
-        return None, None
+        return _read_input_after_failed_close(table, activity_id)
 
     attributes = response.get('Attributes') or {}
     athlete_input = attributes.get('athlete_input')
