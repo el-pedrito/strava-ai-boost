@@ -91,6 +91,36 @@ class TestHandler:
         assert mock_table.update_item.call_count >= 1
 
 
+class TestProbeSchema:
+    WEEK = {
+        "weekDate": 1, "access": "allowed",
+        "estimatedPaces": [{"slug": "ef", "name": "EF", "value": 346, "min": 330, "max": 365}],
+        "sessions": [{"displayName": "EF", "description": "texte privé", "exercisesBlocks": [
+            {"repeat": 1, "exercises": [{"name": "EF_40", "pace": {"name": "EF", "value": 346, "min": 330}}]},
+        ]}],
+    }
+
+    @patch('webhooks.campus_coach_sync.requests.get')
+    @patch('webhooks.campus_coach_sync.dynamodb')
+    @patch('webhooks.campus_coach_sync._fetch_plan')
+    @patch('webhooks.campus_coach_sync._login', return_value='fake-token')
+    @patch('webhooks.campus_coach_sync._get_credentials', return_value={'username': 'u', 'password': 'p'})
+    @patch('webhooks.campus_coach_sync._is_module_enabled', return_value=True)
+    def test_probe_returns_shapes_and_writes_nothing(self, _en, _cr, _lg, mock_fetch, mock_ddb, mock_get):
+        mock_fetch.return_value = [self.WEEK]
+        mock_get.return_value = MagicMock(status_code=200, json=lambda: {"type": "half", "date": 1})
+        out = handler({"probe_schema": True, "user_id": "u1"}, None)
+        probe = out["probe"]
+        assert out["statusCode"] == 200
+        assert probe["pace_keys"] == ["min", "name", "value"]
+        assert probe["estimated_paces"][0]["max"] == 365
+        assert "description" in probe["session_keys"]
+        assert "texte privé" not in json.dumps(probe, ensure_ascii=False)
+        assert probe["other_endpoints_keys"]["goal/active"] == ["date", "type"]
+        # Nothing touched in DynamoDB: no table handle, no write.
+        mock_ddb.Table.assert_not_called()
+
+
 class TestLogin:
 
     @patch('webhooks.campus_coach_sync.requests.post')

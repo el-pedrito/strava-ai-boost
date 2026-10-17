@@ -80,6 +80,13 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         credentials = _get_credentials()
         token = _login(credentials['username'], credentials['password'])
 
+        # Read-only diagnostic: report what the provider sends (field names and the
+        # pace objects), write nothing. Lets an operator see fields the sync drops
+        # without ever handling the Campus credentials. Invoke with
+        # {"probe_schema": true}; the result is returned, never logged.
+        if event.get('probe_schema'):
+            return {'statusCode': 200, 'probe': _probe_schema(token)}
+
         # Fetch supplementary data (goal, profile, assiduity)
         table = dynamodb.Table(COACHING_SESSIONS_TABLE)
         _sync_athlete_context(token, table, user_id)
@@ -186,6 +193,58 @@ def _fetch_plan(token: str, from_ms: int, to_ms: int) -> List[Dict]:
     )
     resp.raise_for_status()
     return resp.json()
+
+
+def _probe_schema(token: str) -> Dict[str, Any]:
+    """Describe the provider payload: key sets and every distinct pace object shape.
+
+    Pace objects and estimatedPaces are training data (target paces), returned in
+    full so a range (min/max) can be spotted. Free text (descriptions) is not
+    returned, only the key names.
+    """
+    now = datetime.now(timezone.utc)
+    weeks = _fetch_plan(
+        token,
+        int((now - timedelta(weeks=1)).timestamp() * 1000),
+        int((now + timedelta(weeks=3)).timestamp() * 1000),
+    )
+    week_keys, session_keys, block_keys, exercise_keys, pace_keys = (set() for _ in range(5))
+    pace_samples: Dict[str, Any] = {}
+    estimated: List[Any] = []
+    for week in weeks:
+        week_keys.update(week.keys())
+        if not estimated and week.get('estimatedPaces'):
+            estimated = week['estimatedPaces']
+        for session in week.get('sessions', []) or []:
+            session_keys.update(session.keys())
+            for block in session.get('exercisesBlocks', []) or []:
+                block_keys.update(block.keys())
+                for exercise in block.get('exercises', []) or []:
+                    exercise_keys.update(exercise.keys())
+                    pace = exercise.get('pace') or {}
+                    pace_keys.update(pace.keys())
+                    shape = f"{pace.get('name')}|{','.join(sorted(pace.keys()))}"
+                    pace_samples.setdefault(shape, pace)
+    headers = {"Authorization": f"Bearer {token}"}
+    extra: Dict[str, Any] = {}
+    for name in ('goal/active', 'assiduity-status'):
+        try:
+            resp = requests.get(f"{API_BASE}/smart-training/{name}", headers=headers, timeout=10)
+            body = resp.json() if resp.status_code == 200 else {}
+            extra[name] = sorted(body.keys()) if isinstance(body, dict) else type(body).__name__
+        except Exception as exc:  # diagnostic only
+            extra[name] = f"error {type(exc).__name__}"
+    return {
+        'weeks': len(weeks),
+        'week_keys': sorted(week_keys),
+        'session_keys': sorted(session_keys),
+        'block_keys': sorted(block_keys),
+        'exercise_keys': sorted(exercise_keys),
+        'pace_keys': sorted(pace_keys),
+        'pace_samples': list(pace_samples.values())[:40],
+        'estimated_paces': estimated,
+        'other_endpoints_keys': extra,
+    }
 
 
 def _monday_of_iso_week(dt: datetime) -> datetime:
