@@ -71,6 +71,34 @@ class TestInputStatus:
             Key={"activity_id": ACTIVITY_ID}, ConsistentRead=True
         )
 
+    def test_row_without_owner_yet_returns_none(self):
+        """Processor wrote the row, input_wait/fetcher not yet: none, not 403."""
+        table = MagicMock()
+        table.get_item.return_value = {"Item": {"activity_id": ACTIVITY_ID, "processing_status": "processing"}}
+        with patch.object(input_status.dynamodb, "Table", return_value=table):
+            result = input_status.handler(_event(), None)
+
+        assert result["statusCode"] == 200
+        body = json.loads(result["body"])
+        assert body["state"] == "none"
+        assert "deadline_at" not in body
+
+    def test_missing_row_returns_none(self):
+        table = MagicMock()
+        table.get_item.return_value = {}
+        with patch.object(input_status.dynamodb, "Table", return_value=table):
+            result = input_status.handler(_event(), None)
+
+        assert result["statusCode"] == 200
+        assert json.loads(result["body"])["state"] == "none"
+
+    def test_table_name_is_read_at_call_time(self, monkeypatch):
+        monkeypatch.setenv("ACTIVITIES_TABLE", "late-bound-activities")
+        with patch.object(input_status.dynamodb, "Table") as table:
+            table.return_value.get_item.return_value = {}
+            input_status.handler(_event(), None)
+        table.assert_called_once_with("late-bound-activities")
+
     def test_open_window_returns_deadline_without_token(self):
         deadline = (datetime.now(UTC) + timedelta(minutes=30)).isoformat()
         table = MagicMock()
@@ -180,6 +208,29 @@ class TestInputSubmitValidation:
         assert error is None
         assert submission == {"rpe": 7, "summary": "x" * 2000}
 
+    def test_strips_format_characters_but_keeps_zwj(self):
+        raw = "a\u202eb\u200bc\u2060d\ufeffe \U0001F468\u200d\U0001F469"
+        assert input_submit._clean_summary(raw) == "abcde \U0001F468\u200d\U0001F469"
+
+    def test_keeps_newlines_and_normalises_crlf(self):
+        assert input_submit._clean_summary("un\r\ndeux\rtrois\nquatre") == "un\ndeux\ntrois\nquatre"
+
+    def test_collapses_three_or_more_newlines_to_two(self):
+        assert input_submit._clean_summary("a\n\n\n\nb\r\n\r\n\r\nc\n\nd") == "a\n\nb\n\nc\n\nd"
+
+    def test_newline_runs_split_by_removed_characters_are_collapsed(self):
+        assert input_submit._clean_summary("a\n\u200b\n\u0000\nb") == "a\n\nb"
+
+    def test_strips_other_control_characters(self):
+        assert input_submit._clean_summary("a\tb\u0007c\u0085d") == "abcd"
+
+    def test_submit_table_name_is_read_at_call_time(self, monkeypatch):
+        monkeypatch.setenv("ACTIVITIES_TABLE", "late-bound-activities")
+        with patch.object(input_submit.dynamodb, "Table") as table:
+            table.return_value.get_item.return_value = {}
+            input_submit.handler(_event("POST", {"rpe": 7}), None)
+        table.assert_called_once_with("late-bound-activities")
+
     def test_rejects_invalid_json(self):
         event = _event("POST", {"rpe": 7})
         event["body"] = "{"
@@ -256,7 +307,7 @@ class TestInputSubmit:
         assert "REMOVE input_task_token" in kwargs["UpdateExpression"]
         stored = kwargs["ExpressionAttributeValues"][":input"]
         assert stored["rpe"] == 8
-        assert stored["summary"] == "Durmais bien"
+        assert stored["summary"] == "Dur\nmais bien"
         assert datetime.fromisoformat(stored["submitted_at"]).tzinfo is not None
 
     def test_empty_summary_is_stored_when_omitted(self):

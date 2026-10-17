@@ -24,7 +24,6 @@ logger = get_logger("input_submit")
 
 dynamodb = boto3.resource("dynamodb")
 stepfunctions = boto3.client("stepfunctions")
-ACTIVITIES_TABLE = os.environ["ACTIVITIES_TABLE"]
 
 _RESPONSE_HEADERS = {**CORS_HEADERS_WRITE, "Cache-Control": "no-store"}
 _ACTIVITY_ID = re.compile(r"^[0-9]+$")
@@ -49,6 +48,11 @@ def _record_outcome(outcome: str) -> None:
         )
 
 
+def _table() -> Any:
+    # Read at call time (invariant 8), like input_wait: importing needs no environment.
+    return dynamodb.Table(os.environ["ACTIVITIES_TABLE"])
+
+
 def _activity_id(event: dict[str, Any]) -> str:
     value = (event.get("pathParameters") or {}).get("activityId")
     return value if isinstance(value, str) and _ACTIVITY_ID.fullmatch(value) else ""
@@ -63,8 +67,24 @@ def _claim_user_id(event: dict[str, Any]) -> str:
         return ""
 
 
+_ZWJ = "\u200d"  # zero-width joiner: emoji sequences need it
+_EXCESS_NEWLINES = re.compile(r"\n{3,}")
+
+
+def _keep_character(character: str) -> bool:
+    if character == "\n" or character == _ZWJ:
+        return True
+    # Cc: control characters. Cf: invisible format characters (bidi overrides
+    # such as U+202E, zero-width space U+200B, word joiner U+2060...), a cheap
+    # way to hide text from a human reader of the published post.
+    return unicodedata.category(character) not in ("Cc", "Cf")
+
+
 def _clean_summary(value: str) -> str:
-    return "".join(character for character in value if unicodedata.category(character) != "Cc")
+    """Drop control and format characters, keep paragraphs (at most one blank line)."""
+    value = value.replace("\r\n", "\n").replace("\r", "\n")
+    cleaned = "".join(character for character in value if _keep_character(character))
+    return _EXCESS_NEWLINES.sub("\n\n", cleaned)
 
 
 def _validated_body(event: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
@@ -111,7 +131,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     if not claim_user_id:
         return create_error_response(403, "Forbidden", cors_headers=_RESPONSE_HEADERS)
 
-    table = dynamodb.Table(ACTIVITIES_TABLE)
+    table = _table()
     try:
         item = table.get_item(
             Key={"activity_id": activity_id},

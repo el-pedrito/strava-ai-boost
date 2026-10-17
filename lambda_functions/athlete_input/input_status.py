@@ -24,11 +24,15 @@ from shared.responses import (
 logger = get_logger("input_status")
 
 dynamodb = boto3.resource("dynamodb")
-ACTIVITIES_TABLE = os.environ["ACTIVITIES_TABLE"]
 
 _RESPONSE_HEADERS = {**CORS_HEADERS_READ, "Cache-Control": "no-store"}
 _ACTIVITY_ID = re.compile(r"^[0-9]+$")
 _VALID_STATES = {"awaiting", "submitted", "closed"}
+
+
+def _table() -> Any:
+    # Read at call time (invariant 8), like input_wait: importing needs no environment.
+    return dynamodb.Table(os.environ["ACTIVITIES_TABLE"])
 
 
 def _activity_id(event: dict[str, Any]) -> str:
@@ -71,7 +75,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         return create_error_response(403, "Forbidden", cors_headers=_RESPONSE_HEADERS)
 
     try:
-        response = dynamodb.Table(ACTIVITIES_TABLE).get_item(
+        response = _table().get_item(
             Key={"activity_id": activity_id},
             ConsistentRead=True,
         )
@@ -83,6 +87,11 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         return create_error_response(500, "Internal server error", cors_headers=_RESPONSE_HEADERS)
 
     item = response.get("Item") or {}
+    if not item.get("user_id"):
+        # No owner yet (row written by the processor before input_wait or the
+        # fetcher ran, or no row at all): no window can exist, and "none" leaks
+        # nothing about the activity.
+        return create_success_response({"state": "none"}, cors_headers=_RESPONSE_HEADERS)
     if str(item.get("user_id", "")) != claim_user_id:
         logger.warning("Athlete-input status denied", extra={"activity_id": activity_id})
         return create_error_response(403, "Forbidden", cors_headers=_RESPONSE_HEADERS)
