@@ -335,7 +335,7 @@ describe('PlanPage', () => {
       expect(within(cards[0]).getByText('Campus sets no day: to do by Sun 25 Oct.')).toBeInTheDocument();
     });
 
-    it('takes the first session of next week as next when this week has none left', async () => {
+    it('shows no next session when this week has none left, like the home page', async () => {
       vi.setSystemTime(WED_W43);
       respond([
         item({ session_id: 'b', week_iso: '2026-W44', title: 'Allure 21 km' }),
@@ -343,7 +343,18 @@ describe('PlanPage', () => {
       ]);
       render(<PlanPage />);
       const cards = await screen.findAllByTestId('plan-session');
-      expect(cards.map((c) => c.getAttribute('data-role'))).toEqual(['next', 'normal']);
+      expect(cards.map((c) => c.getAttribute('data-role'))).toEqual(['normal', 'normal']);
+    });
+
+    it('never takes an intermediate race titled marathon for the goal race', async () => {
+      vi.setSystemTime(WED_W43);
+      respond([
+        item({ session_id: 'p', training_type: 'low-priority-race', title: 'Semi-marathon de préparation' }),
+        item({ session_id: 'r', week_iso: '2026-W46', training_type: 'Competition', title: 'SEMI-MARATHON' }),
+      ]);
+      render(<PlanPage />);
+      const cards = await screen.findAllByTestId('plan-session');
+      expect(cards.map((c) => c.getAttribute('data-role'))).toEqual(['next', 'race']);
     });
 
     it('shows the next session coach word open and its instructions collapsed', async () => {

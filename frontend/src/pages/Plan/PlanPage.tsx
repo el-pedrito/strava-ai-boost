@@ -91,6 +91,8 @@ function isDownloadable(item: PlanWorkoutItem): item is PlanWorkoutItem & { work
 
 /** The goal race: a Campus competition, or a session titled "...MARATHON...". */
 function isRace(item: PlanWorkoutItem): boolean {
+  // An intermediate race is an ordinary plan session, even when its title says "marathon".
+  if (item.training_type === 'low-priority-race') return false;
   return RACE_TRAINING_TYPES.has(item.training_type ?? '') || RACE_TITLE_RE.test(item.title ?? '');
 }
 
@@ -377,7 +379,7 @@ function IphoneHelp() {
   const { t } = useTranslation();
   return (
     <details className="group rounded-xl border border-border bg-surface px-4 py-3 text-sm">
-      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-md font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <HelpCircle className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
         {t('plan.help.title')}
       </summary>
@@ -479,12 +481,12 @@ export function PlanPage() {
   const groups = useMemo(() => groupByWeek(workouts), [workouts]);
 
   // The API lists only open sessions (done and skipped ones are filtered server-side),
-  // in Campus order, nearest week first. So the next session is the first one of the
-  // first dated week: the current week's first remaining session, or next week's
-  // first if this week is already complete.
-  const nextItem = groups.find((g) => g.weekIso !== null)?.items[0] ?? null;
-  const raceItem = workouts.find(isRace) ?? null;
+  // in Campus order, nearest week first. The next session is the current week's first
+  // remaining session, and nothing when the week is complete: same rule as /home/summary
+  // (home_summary._build_week_sessions), so Home and Plan never disagree.
   const currentWeek = today ? isoWeekLabel(today) : null;
+  const nextItem = groups.find((g) => g.weekIso !== null && g.weekIso === currentWeek)?.items[0] ?? null;
+  const raceItem = workouts.find(isRace) ?? null;
   const followingWeek = today ? shiftedWeekLabel(today, 1) : null;
 
   const weekTitle = (weekIso: string | null, items: PlanWorkoutItem[]): string => {
