@@ -269,7 +269,8 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         build_and_store_brief(table, user_id, today, now)
         brief_built = True
     except Exception as exc:  # noqa: BLE001 - brief is best-effort, never blocks the sync
-        logger.warning(f"Morning brief build failed (non-fatal): {exc}")
+        logger.warning(f"Morning brief build failed (non-fatal): {type(exc).__name__}")
+        metrics.add_metric(name="MorningBriefFailed", unit=MetricUnit.Count, value=1)
 
     logger.info("WellnessSync complete", extra={'days_written': written, 'brief_built': brief_built})
     return {'statusCode': 200, 'days_written': written, 'brief_built': brief_built}
