@@ -576,8 +576,40 @@ class ContentGenerationStack(Stack):
             .next(check_fetch_success)
         )
         
-        # Parallel → Assembly → Update → Success
-        parallel_generation.next(assemble_content).next(update_strava).next(success)
+        # The Lambdas answer ordinary errors with a {"statusCode": 500} payload
+        # instead of raising, so a failed generation or update used to reach
+        # ProcessingComplete. Both payloads are checked: a non-200 fails the
+        # execution, which the Step Functions error handler then records (status
+        # failed + DLQ). The coach branch is not checked here: its failure is a
+        # degraded run (no coach block), not a failed one.
+        content_failed = sfn.Fail(
+            self, "ContentGenerationFailed",
+            comment="Content generation answered a non-200 payload",
+            cause="Content generation failed",
+        )
+        update_failed = sfn.Fail(
+            self, "StravaUpdateFailed",
+            comment="Strava update answered a non-200 payload",
+            cause="Strava update failed",
+        )
+        check_content_success = sfn.Choice(
+            self, "CheckContentSuccess",
+            comment="The merged payload carries the content branch statusCode",
+        )
+        check_update_success = sfn.Choice(
+            self, "CheckUpdateSuccess",
+            comment="Did UpdateStrava publish (or have nothing to change)?",
+        )
+        check_content_success.when(
+            sfn.Condition.number_equals("$.statusCode", 200), update_strava
+        ).otherwise(content_failed)
+        check_update_success.when(
+            sfn.Condition.number_equals("$.statusCode", 200), success
+        ).otherwise(update_failed)
+
+        # Parallel → Assembly → check → Update → check → Success
+        parallel_generation.next(assemble_content).next(check_content_success)
+        update_strava.next(check_update_success)
 
         # Create Step Functions state machine
         self.state_machine = sfn.StateMachine(
