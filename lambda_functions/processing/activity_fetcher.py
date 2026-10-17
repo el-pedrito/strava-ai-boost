@@ -43,7 +43,7 @@ ACTIVITIES_TABLE = os.environ['ACTIVITIES_TABLE']
 STRAVA_OAUTH_SECRET = os.environ['STRAVA_OAUTH_SECRET']
 
 # Strava API configuration
-STRAVA_API_BASE = "https://www.strava.com/api/v3"
+from shared.strava_oauth import STRAVA_API_BASE  # noqa: E402  single source of the base URL
 
 # Body weight bounds (kg), mirrored from user_preferences_api validation
 BODY_WEIGHT_MIN_KG = 30

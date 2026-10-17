@@ -42,7 +42,7 @@ STEP_FUNCTIONS_ARN = os.environ['STEP_FUNCTIONS_ARN']
 PROCESSING_QUEUE_URL = os.environ.get('PROCESSING_QUEUE_URL', 
     f"https://sqs.{os.environ.get('AWS_REGION', 'eu-west-1')}.amazonaws.com/{os.environ.get('AWS_ACCOUNT_ID', '')}/strava-ai-boost-activity-processing")
 
-STRAVA_API_BASE = "https://www.strava.com/api/v3"
+from shared.strava_oauth import STRAVA_API_BASE  # noqa: E402  single source of the base URL
 
 # Step Functions execution names: 1-80 chars, letters, digits, '-' and '_' only.
 EXECUTION_NAME_MAX_LEN = 80
