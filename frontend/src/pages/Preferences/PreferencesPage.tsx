@@ -22,6 +22,7 @@ import { useFlash } from '../../layouts/AppLayout.tsx';
 import type { CampusPaceZone, PaceZone, PaceZonesSource } from '../../types/index.ts';
 import { PaceZonesCard, type ZoneMap } from './PaceZonesCard.tsx';
 import { NotificationsCard } from './NotificationsCard.tsx';
+import { AthleteInputCard } from './AthleteInputCard.tsx';
 
 const AGE_OPTIONS: SelectOption[] = [
   { value: '18-25', label: '18-25' },
@@ -677,6 +678,9 @@ export function PreferencesPage() {
 
       {/* Notifications (opt-in Web Push) */}
       <NotificationsCard />
+
+      {/* Post-session RPE + summary request (module athlete_input) */}
+      <AthleteInputCard />
 
       {/* Sticky save bar */}
       {dirty && (
