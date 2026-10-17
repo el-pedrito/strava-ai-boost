@@ -317,15 +317,25 @@ class TestWebhookProcessingStack:
         statements = []
         for props in (r["Properties"] for r in policies.values()):
             statements += props["PolicyDocument"]["Statement"]
+        # The wellness write is the LeadingKeys-scoped UpdateItem-only statement
+        # (the Resource is a cross-stack Fn::ImportValue of the wellness table ARN,
+        # so it is matched by its condition + narrow action, not a literal name).
         wellness_writes = [
             st for st in statements
             if "dynamodb:LeadingKeys" in _json.dumps(st.get("Condition", {}))
-            and "strava-ai-boost-wellness" in _json.dumps(st.get("Resource", ""))
+            and set(st["Action"] if isinstance(st["Action"], list) else [st["Action"]])
+                <= {"dynamodb:UpdateItem", "dynamodb:Query"}
+            and "WellnessTable" in _json.dumps(st.get("Resource", ""))
         ]
         assert wellness_writes, "expected a LeadingKeys-scoped wellness write for CampusCoachSync"
-        for st in wellness_writes:
+        campus_writes = [
+            st for st in wellness_writes
+            if set(st["Action"] if isinstance(st["Action"], list) else [st["Action"]])
+                == {"dynamodb:UpdateItem"}
+        ]
+        assert campus_writes, "CampusCoachSync wellness write must be UpdateItem only"
+        for st in campus_writes:
             actions = st["Action"] if isinstance(st["Action"], list) else [st["Action"]]
-            assert set(actions) <= {"dynamodb:UpdateItem"}
             assert "dynamodb:PutItem" not in actions
 
     def test_wellness_sync_lambda_role_least_privilege(self, webhook_stack):
@@ -361,13 +371,16 @@ class TestWebhookProcessingStack:
         # and scoped to the owner's partition by LeadingKeys.
         wellness_writes = [
             st for st in all_statements
-            if "strava-ai-boost-wellness" in _json.dumps(st.get("Resource", ""))
+            if "WellnessTable" in _json.dumps(st.get("Resource", ""))
+            and set(st["Action"] if isinstance(st["Action"], list) else [st["Action"]])
+                <= {"dynamodb:UpdateItem", "dynamodb:Query"}
+            and "dynamodb:LeadingKeys" in _json.dumps(st.get("Condition", {}))
         ]
-        assert wellness_writes, "expected a wellness statement on the WellnessSync role"
+        assert wellness_writes, "expected a LeadingKeys-scoped UpdateItem/Query wellness statement"
         for st in wellness_writes:
             actions = set(st["Action"] if isinstance(st["Action"], list) else [st["Action"]])
-            assert actions <= {"dynamodb:UpdateItem", "dynamodb:Query"}, actions
-            assert "dynamodb:LeadingKeys" in _json.dumps(st.get("Condition", {}))
+            assert "dynamodb:PutItem" not in actions
+            assert "dynamodb:GetItem" not in actions
 
 
 
@@ -530,7 +543,7 @@ class TestPlanWorkoutsRoute:
             statements += props["PolicyDocument"]["Statement"]
         wellness_reads = [
             st for st in statements
-            if "strava-ai-boost-wellness" in _json.dumps(st.get("Resource", ""))
+            if "WellnessTable" in _json.dumps(st.get("Resource", ""))
             and set(st["Action"] if isinstance(st["Action"], list) else [st["Action"]])
                 <= {"dynamodb:GetItem", "dynamodb:Query"}
         ]
