@@ -71,3 +71,28 @@ def in_activity_window(item: Dict[str, Any], since: str, until: str) -> bool:
     if until and d > until[:10]:
         return False
     return True
+
+
+# --------------------------------------------------------------- Paris date
+#
+# Hand-coded EU DST rule (same oracle as api.plan_workouts.paris_date), kept
+# here so webhook Lambdas and readers get Paris calendar dates without a
+# cross-package import and without a tzdata dependency the Lambda image does not
+# guarantee.
+from datetime import datetime, timedelta, timezone  # noqa: E402
+
+
+def _last_sunday_utc(year: int, month: int) -> datetime:
+    """01:00 UTC on the last Sunday of ``month``: the EU DST switch instant."""
+    first_next = datetime(year + (month == 12), month % 12 + 1, 1, tzinfo=timezone.utc)
+    last_day = first_next - timedelta(days=1)
+    sunday = last_day - timedelta(days=(last_day.weekday() + 1) % 7)
+    return sunday.replace(hour=1)
+
+
+def paris_date(now_utc: datetime):
+    """Calendar date in Europe/Paris (CEST between the last Sundays of March and
+    October at 01:00 UTC, CET otherwise)."""
+    now_utc = now_utc.astimezone(timezone.utc)
+    summer = _last_sunday_utc(now_utc.year, 3) <= now_utc < _last_sunday_utc(now_utc.year, 10)
+    return (now_utc + timedelta(hours=2 if summer else 1)).date()

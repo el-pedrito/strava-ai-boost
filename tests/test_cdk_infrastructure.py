@@ -260,6 +260,79 @@ class TestWebhookProcessingStack:
             ]),
         })
 
+    def test_wellness_sync_scheduler_paris_timezone(self, webhook_stack):
+        """A2: EventBridge Scheduler schedules for WellnessSync run in Europe/Paris
+        with retry 2 / max age 1h, flexible window OFF."""
+        template = assertions.Template.from_stack(webhook_stack)
+        template.resource_count_is("AWS::Scheduler::Schedule", 2)
+        schedules = template.find_resources("AWS::Scheduler::Schedule")
+        for props in (r["Properties"] for r in schedules.values()):
+            assert props["ScheduleExpressionTimezone"] == "Europe/Paris"
+            assert props["FlexibleTimeWindow"]["Mode"] == "OFF"
+            retry = props["Target"]["RetryPolicy"]
+            assert retry["MaximumRetryAttempts"] == 2
+            assert retry["MaximumEventAgeInSeconds"] == 3600
+        exprs = {props["ScheduleExpression"] for props in
+                 (r["Properties"] for r in schedules.values())}
+        # 06:30 + 09:30 and 11:00 + 15:00 Paris.
+        assert "cron(30 6,9 ? * * *)" in exprs
+        assert "cron(0 11,15 ? * * *)" in exprs
+
+    def test_wellness_sync_scheduler_role_invoke_only(self, webhook_stack):
+        """The scheduler role is assumable only by scheduler.amazonaws.com and may
+        only lambda:InvokeFunction (no wildcards)."""
+        template = assertions.Template.from_stack(webhook_stack)
+        roles = template.find_resources("AWS::IAM::Role")
+        sched_roles = [
+            props for props in (r["Properties"] for r in roles.values())
+            if any(
+                st["Principal"].get("Service") == "scheduler.amazonaws.com"
+                for st in props["AssumeRolePolicyDocument"]["Statement"]
+            )
+        ]
+        assert len(sched_roles) == 1
+        policies = template.find_resources("AWS::IAM::Policy")
+        invoke_only = []
+        for props in (r["Properties"] for r in policies.values()):
+            actions = []
+            for st in props["PolicyDocument"]["Statement"]:
+                a = st["Action"]
+                actions += a if isinstance(a, list) else [a]
+            if actions == ["lambda:InvokeFunction"]:
+                invoke_only.append(props)
+        assert invoke_only, "expected an invoke-only policy for the scheduler role"
+
+    def test_wellness_sync_lambda_role_least_privilege(self, webhook_stack):
+        """The WellnessSync Lambda role: no '*' resource/action, reads the
+        intervals secret, writes/queries only the wellness table, GetItem on
+        user-config scoped by LeadingKeys, Query on the coaching table."""
+        template = assertions.Template.from_stack(webhook_stack)
+        template.has_resource_properties("AWS::Lambda::Function", {
+            "FunctionName": "StravaAIBoost-WellnessSync",
+            "Handler": "webhooks.wellness_sync.handler",
+        })
+        policies = template.find_resources("AWS::IAM::Policy")
+        all_statements = []
+        for props in (r["Properties"] for r in policies.values()):
+            all_statements += props["PolicyDocument"]["Statement"]
+
+        import json as _json
+        blob = _json.dumps(all_statements)
+        # LeadingKeys condition present for the user-config GetItem.
+        assert "dynamodb:LeadingKeys" in blob
+        # The owner-scoped GetItem statement carries the LeadingKeys condition.
+        getitem_scoped = [
+            st for st in all_statements
+            if "dynamodb:GetItem" in (st["Action"] if isinstance(st["Action"], list) else [st["Action"]])
+            and "Condition" in st
+            and "dynamodb:LeadingKeys" in _json.dumps(st["Condition"])
+        ]
+        assert getitem_scoped, "user-config GetItem must be scoped by LeadingKeys"
+        # No wildcard dynamodb or secretsmanager action anywhere in these policies.
+        assert "dynamodb:*" not in blob
+        assert "secretsmanager:*" not in blob
+
+
 
 class TestApiGatewayStack:
     """Test API Gateway stack"""

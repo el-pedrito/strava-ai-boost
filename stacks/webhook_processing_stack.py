@@ -23,6 +23,8 @@ from aws_cdk import (
     aws_sns as sns,
     aws_sns_subscriptions as sns_subscriptions,
     aws_budgets as budgets,
+    aws_scheduler as scheduler,
+    Aws,
     Duration
 )
 from constructs import Construct
@@ -76,6 +78,9 @@ class WebhookProcessingStack(Stack):
 
         # Create Campus Coach sync
         self._create_campus_coach_sync()
+
+        # Create WellnessSync (intervals.icu daily health + morning brief)
+        self._create_wellness_sync()
 
     def _create_sqs_queues(self) -> None:
         """Create SQS queues for reliable message processing"""
@@ -803,6 +808,124 @@ class WebhookProcessingStack(Stack):
                 hour="5,7,9,11,13,15,17,19,21",
             ),
             targets=[targets.LambdaFunction(self.campus_coach_sync)]
+        )
+
+    def _create_wellness_sync(self) -> None:
+        """WellnessSync Lambda + EventBridge Scheduler (Europe/Paris passes).
+
+        Dedicated least-privilege roles (not the shared webhook role): the Lambda
+        reads only the intervals.icu secret, writes/queries only the wellness
+        table, reads the owner's user-config row (LeadingKeys), and queries the
+        coaching table for the morning brief. A separate scheduler role may only
+        invoke this one function.
+        """
+        owner = str(self.node.try_get_context("default_user_id") or "")
+        region, account = Aws.REGION, Aws.ACCOUNT_ID
+
+        wellness_arn = f"arn:aws:dynamodb:{region}:{account}:table/strava-ai-boost-wellness"
+        user_config_arn = f"arn:aws:dynamodb:{region}:{account}:table/strava-ai-boost-user-configuration"
+        coaching_arn = f"arn:aws:dynamodb:{region}:{account}:table/strava-ai-boost-campus-coaching-sessions"
+        intervals_secret_arn = (
+            f"arn:aws:secretsmanager:{region}:{account}:secret:strava-ai-boost-intervals-icu-credentials-*"
+        )
+
+        wellness_role = iam.Role(
+            self, "WellnessSyncRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AWSLambdaBasicExecutionRole"
+                )
+            ],
+        )
+        # intervals.icu secret (read only).
+        wellness_role.add_to_policy(iam.PolicyStatement(
+            actions=["secretsmanager:GetSecretValue"],
+            resources=[intervals_secret_arn],
+        ))
+        # wellness table: write the day/brief rows and read them back for the brief.
+        wellness_role.add_to_policy(iam.PolicyStatement(
+            actions=["dynamodb:UpdateItem", "dynamodb:PutItem", "dynamodb:Query", "dynamodb:GetItem"],
+            resources=[wellness_arn],
+        ))
+        # user-config GetItem, scoped to the owner's own partition key.
+        wellness_role.add_to_policy(iam.PolicyStatement(
+            actions=["dynamodb:GetItem"],
+            resources=[user_config_arn],
+            conditions={"ForAllValues:StringEquals": {"dynamodb:LeadingKeys": [owner]}},
+        ))
+        # coaching table Query for the morning brief's next-session lookup.
+        wellness_role.add_to_policy(iam.PolicyStatement(
+            actions=["dynamodb:Query"],
+            resources=[coaching_arn],
+        ))
+
+        self.wellness_sync = lambda_.Function(
+            self, "WellnessSync",
+            function_name="StravaAIBoost-WellnessSync",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="webhooks.wellness_sync.handler",
+            code=lambda_.Code.from_asset(
+                "lambda_functions",
+                exclude=["**/__pycache__", "**/*.pyc"],
+            ),
+            layers=[self.core_stack.dependencies_layer],
+            timeout=Duration.minutes(5),  # backfill mode walks 90-day slices
+            memory_size=256,
+            role=wellness_role,
+            environment={
+                "WELLNESS_TABLE": "strava-ai-boost-wellness",
+                "USER_CONFIG_TABLE": "strava-ai-boost-user-configuration",
+                "COACHING_SESSIONS_TABLE": "strava-ai-boost-campus-coaching-sessions",
+                "INTERVALS_ICU_SECRET": "strava-ai-boost-intervals-icu-credentials",
+                "CAMPUS_OWNER_STRAVA_ID": owner,
+                # "lat,lon" rounded to 0.1 deg for the brief weather; local
+                # context only (cdk.context.json, not versioned). Absent -> no weather.
+                "BRIEF_LOCATION": str(self.node.try_get_context("brief_location") or ""),
+            },
+        )
+
+        # Dedicated scheduler role: may only invoke WellnessSync.
+        scheduler_role = iam.Role(
+            self, "WellnessSyncSchedulerRole",
+            assumed_by=iam.ServicePrincipal("scheduler.amazonaws.com"),
+        )
+        scheduler_role.add_to_policy(iam.PolicyStatement(
+            actions=["lambda:InvokeFunction"],
+            resources=[self.wellness_sync.function_arn],
+        ))
+
+        # EventBridge Scheduler, Europe/Paris: 06:30, 09:30, 11:00, 15:00.
+        # HRV-SDNN syncs after 09:00, so the later passes capture it.
+        scheduler.CfnSchedule(
+            self, "WellnessSyncSchedule",
+            name="strava-ai-boost-wellness-sync",
+            flexible_time_window=scheduler.CfnSchedule.FlexibleTimeWindowProperty(mode="OFF"),
+            schedule_expression="cron(30 6,9 ? * * *)",
+            schedule_expression_timezone="Europe/Paris",
+            target=scheduler.CfnSchedule.TargetProperty(
+                arn=self.wellness_sync.function_arn,
+                role_arn=scheduler_role.role_arn,
+                retry_policy=scheduler.CfnSchedule.RetryPolicyProperty(
+                    maximum_retry_attempts=2,
+                    maximum_event_age_in_seconds=3600,
+                ),
+            ),
+        )
+        scheduler.CfnSchedule(
+            self, "WellnessSyncScheduleMidday",
+            name="strava-ai-boost-wellness-sync-midday",
+            flexible_time_window=scheduler.CfnSchedule.FlexibleTimeWindowProperty(mode="OFF"),
+            schedule_expression="cron(0 11,15 ? * * *)",
+            schedule_expression_timezone="Europe/Paris",
+            target=scheduler.CfnSchedule.TargetProperty(
+                arn=self.wellness_sync.function_arn,
+                role_arn=scheduler_role.role_arn,
+                retry_policy=scheduler.CfnSchedule.RetryPolicyProperty(
+                    maximum_retry_attempts=2,
+                    maximum_event_age_in_seconds=3600,
+                ),
+            ),
         )
 
     @property
