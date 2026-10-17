@@ -552,32 +552,33 @@ Example: "Run freestyle du jour ! Pas de plan, juste l'envie de courir. 6K @ 4:2
 **CRITIQUE** : Intégration complète des métriques enrichies Enduraw avec détection automatique.
 
 #### Métriques Enduraw Disponibles
+
+Le payload `enduraw_data` suit la structure réelle produite par
+`extract_enduraw_report` (`workout_analysis.py`) : un objet `report_available`,
+le texte brut du rapport, et un sous-objet `metrics` ne contenant QUE les lignes
+effectivement présentes dans le rapport (allure ajustée et coûts vent / dénivelé
+/ chaleur, chacun formaté `m'ss"/km`). Les champs absents ne sont pas inventés.
+
 ```json
 {
   "enduraw_data": {
-    "detected_in_description": "boolean (CRITICAL CHECK)",
-    "pace_without_wind": "number (min/km)",
-    "weather_conditions": {
-      "wind_speed": "number (km/h)",
-      "wind_direction": "string",
-      "temperature": "number (celsius)",
-      "humidity": "number (%)",
-      "pressure": "number (hPa)"
-    },
-    "elevation_cost": {
-      "energy_cost": "number (watts)",
-      "time_cost": "number (seconds)",
-      "equivalent_flat_distance": "number (km)"
-    },
-    "environmental_impact": {
-      "headwind_time": "number (seconds)",
-      "tailwind_time": "number (seconds)", 
-      "crosswind_time": "number (seconds)",
-      "temperature_impact": "string (positive|negative|neutral)"
+    "report_available": true,
+    "report_text": "string (texte brut du rapport Enduraw)",
+    "metrics": {
+      "adjusted_pace": "string m:ss/km (allure ajustée des conditions)",
+      "wind_speed": "string km/h",
+      "wind_cost": "string m'ss\"/km (temps perdu à cause du vent)",
+      "elevation_avg": "string % (pente moyenne)",
+      "elevation_cost": "string m'ss\"/km (temps perdu à cause du dénivelé)",
+      "heat_temp": "string °C",
+      "heat_cost": "string m'ss\"/km (temps perdu à cause de la chaleur)"
     }
   }
 }
 ```
+
+Note : chaque clé de `metrics` est optionnelle (présente seulement si la ligne
+correspondante figure dans le rapport). N'invente jamais une valeur manquante.
 
 #### Logique d'Intégration Enduraw avec Fun
 
