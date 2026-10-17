@@ -22,6 +22,7 @@ from shared.responses import (
     create_error_response,
 )
 from shared.logger import get_logger, inject_correlation_id
+from shared.strava_oauth import STRAVA_API_BASE
 
 logger = get_logger("configuration_api")
 
@@ -208,7 +209,7 @@ def test_strava_connection() -> Dict[str, Any]:
             return create_error_response(401, 'No access token available. Please connect to Strava first.', cors_headers=CORS_HEADERS)
 
         headers = {'Authorization': f'Bearer {access_token}'}
-        strava_response = requests.get('https://www.strava.com/api/v3/athlete', headers=headers, timeout=10)
+        strava_response = requests.get(f'{STRAVA_API_BASE}/athlete', headers=headers, timeout=10)
 
         if strava_response.status_code == 200:
             athlete = strava_response.json()
@@ -516,7 +517,7 @@ def handle_oauth_callback(event: Dict[str, Any]) -> Dict[str, Any]:
                     athlete_zones = None
                     try:
                         zones_response = requests.get(
-                            'https://www.strava.com/api/v3/athlete/zones',
+                            f'{STRAVA_API_BASE}/athlete/zones',
                             headers={'Authorization': f"Bearer {tokens['access_token']}"},
                             timeout=10
                         )

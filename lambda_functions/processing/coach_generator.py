@@ -30,6 +30,7 @@ from processing.coach_output_check import (
     verify_weekly_claims,
 )
 from shared.iso_week import iso_week_label
+from shared.pace_zones import effective_pace_zones, strip_structured_pace_fields
 from shared.coach_context import format_weekly_breakdown
 from shared.campus_structure import (
     compute_ppg_volume,
@@ -188,10 +189,14 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
         # Enrich historical summary with athlete context from user_config
         table = dynamodb.Table(USER_CONFIG_TABLE)
+        uc_item: Dict[str, Any] = {}
         try:
             uc_response = table.get_item(
                 Key={"user_id": user_id},
-                ProjectionExpression="athlete_zones, best_efforts_prs, segment_prs, user_preferences"
+                ProjectionExpression=(
+                    "athlete_zones, best_efforts_prs, segment_prs, user_preferences, "
+                    "campus_pace_zones, campus_pace_zones_week"
+                ),
             )
             uc_item = uc_response.get("Item", {})
             if uc_item.get("athlete_zones"):
@@ -258,6 +263,10 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             logger.warning(f"Failed to enrich historical summary: {e}")
             _mark_degraded("historical_enrichment")
 
+        # The coach agent reads user_config.user_preferences.pace_zones: put the
+        # EFFECTIVE zones there (Campus first, legacy manual as fallback).
+        user_config = with_effective_pace_zones(user_config, uc_item)
+
         # Add suffer_score and athlete_stats from current activity
         suffer_score = activity_data.get("suffer_score")
         if suffer_score:
@@ -293,7 +302,8 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             def _format_plan_session(s):
                 return {
                     "title": s.get("title", ""),
-                    "intervals": s.get("intervals", []),
+                    # Pre-paces schema for the model (no pace_kind/slug/zone/value_s).
+                    "intervals": strip_structured_pace_fields(s.get("intervals", [])),
                     "expected_distance_km": s.get("expected_distance_km"),
                     "expected_duration_min": s.get("expected_duration_min"),
                     # Canonical execution status (never the raw legacy `status`
@@ -399,7 +409,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                         "week_date_iso": matched_session.get("week_date_iso", ""),
                         "sport": matched_session.get("sport", ""),
                         "expected_duration_min": matched_session.get("expected_duration_min"),
-                        "intervals": matched_session.get("intervals", []),
+                        "intervals": strip_structured_pace_fields(matched_session.get("intervals", [])),
                         "match_score": round(matched["match_score"], 2),
                         "structure": summarize_structure(matched_session),
                         "fully_completed": is_fully_completed(matched_session, duration_min),
@@ -609,6 +619,25 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             "activity_id": event.get("activity_id"),
             "user_id": event.get("user_id"),
         }
+
+
+def with_effective_pace_zones(
+    user_config: Optional[Dict[str, Any]], fresh_item: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """Copy of ``user_config`` whose ``user_preferences.pace_zones`` are the effective ones.
+
+    ``fresh_item`` (the user-config row read by this Lambda) wins over the event copy.
+    Never mutates either input.
+    """
+    base = dict(user_config or {})
+    zones, _source = effective_pace_zones({**base, **(fresh_item or {})})
+    prefs = dict(base.get("user_preferences") or {})
+    if zones:
+        prefs["pace_zones"] = zones
+    else:
+        prefs.pop("pace_zones", None)
+    base["user_preferences"] = prefs
+    return base
 
 
 def _invoke_coach_agent(

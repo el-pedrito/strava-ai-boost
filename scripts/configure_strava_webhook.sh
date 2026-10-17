@@ -215,7 +215,7 @@ cleanup_webhook_subscriptions() {
     
     local subscriptions
     subscriptions=$(curl -s -X GET \
-        "https://www.strava.com/api/v3/push_subscriptions?client_id=$STRAVA_CLIENT_ID&client_secret=$STRAVA_CLIENT_SECRET" \
+        "${STRAVA_API_BASE:-https://www.strava.com/api/v3}/push_subscriptions?client_id=$STRAVA_CLIENT_ID&client_secret=$STRAVA_CLIENT_SECRET" \
         -H "Content-Type: application/json" || echo "[]")
     
     local subscription_count
@@ -238,7 +238,7 @@ cleanup_webhook_subscriptions() {
             
             local delete_response
             delete_response=$(curl -s -X DELETE \
-                "https://www.strava.com/api/v3/push_subscriptions/$subscription_id?client_id=$STRAVA_CLIENT_ID&client_secret=$STRAVA_CLIENT_SECRET" \
+                "${STRAVA_API_BASE:-https://www.strava.com/api/v3}/push_subscriptions/$subscription_id?client_id=$STRAVA_CLIENT_ID&client_secret=$STRAVA_CLIENT_SECRET" \
                 -H "Content-Type: application/json")
             
             if echo "$delete_response" | jq -e '.errors' > /dev/null 2>&1; then
@@ -328,7 +328,7 @@ validate_webhook_configuration() {
     if [ -n "$STRAVA_CLIENT_SECRET" ] || retrieve_strava_credentials_from_secrets 2>/dev/null; then
         local subscriptions
         subscriptions=$(curl -s -X GET \
-            "https://www.strava.com/api/v3/push_subscriptions?client_id=$STRAVA_CLIENT_ID&client_secret=$STRAVA_CLIENT_SECRET" \
+            "${STRAVA_API_BASE:-https://www.strava.com/api/v3}/push_subscriptions?client_id=$STRAVA_CLIENT_ID&client_secret=$STRAVA_CLIENT_SECRET" \
             -H "Content-Type: application/json" 2>/dev/null || echo "[]")
         
         local subscription_count
@@ -513,7 +513,7 @@ print_status "Checking existing webhook subscriptions..."
 
 # Get existing subscriptions
 EXISTING_SUBSCRIPTIONS=$(curl -s -X GET \
-    "https://www.strava.com/api/v3/push_subscriptions?client_id=$STRAVA_CLIENT_ID&client_secret=$STRAVA_CLIENT_SECRET" \
+    "${STRAVA_API_BASE:-https://www.strava.com/api/v3}/push_subscriptions?client_id=$STRAVA_CLIENT_ID&client_secret=$STRAVA_CLIENT_SECRET" \
     -H "Content-Type: application/json" || echo "[]")
 
 # Parse response to check for existing subscription
@@ -533,7 +533,7 @@ if [ "$SUBSCRIPTION_COUNT" -gt 0 ]; then
         # Verify subscription is active
         print_status "Verifying subscription status..."
         SUBSCRIPTION_DETAILS=$(curl -s -X GET \
-            "https://www.strava.com/api/v3/push_subscriptions/$SUBSCRIPTION_ID?client_id=$STRAVA_CLIENT_ID&client_secret=$STRAVA_CLIENT_SECRET" \
+            "${STRAVA_API_BASE:-https://www.strava.com/api/v3}/push_subscriptions/$SUBSCRIPTION_ID?client_id=$STRAVA_CLIENT_ID&client_secret=$STRAVA_CLIENT_SECRET" \
             -H "Content-Type: application/json" || echo "{}")
         
         echo "$SUBSCRIPTION_DETAILS" | jq '.' 2>/dev/null || echo "Could not parse subscription details"
@@ -559,7 +559,7 @@ if [ "$SUBSCRIPTION_COUNT" -gt 0 ]; then
                 print_status "Deleting existing subscription: $SUBSCRIPTION_ID"
                 
                 DELETE_RESPONSE=$(curl -s -X DELETE \
-                    "https://www.strava.com/api/v3/push_subscriptions/$SUBSCRIPTION_ID?client_id=$STRAVA_CLIENT_ID&client_secret=$STRAVA_CLIENT_SECRET" \
+                    "${STRAVA_API_BASE:-https://www.strava.com/api/v3}/push_subscriptions/$SUBSCRIPTION_ID?client_id=$STRAVA_CLIENT_ID&client_secret=$STRAVA_CLIENT_SECRET" \
                     -H "Content-Type: application/json")
                 
                 print_status "Delete response: $DELETE_RESPONSE"
@@ -575,7 +575,7 @@ fi
 print_status "Creating new webhook subscription..."
 
 SUBSCRIPTION_RESPONSE=$(curl -s -X POST \
-    "https://www.strava.com/api/v3/push_subscriptions" \
+    "${STRAVA_API_BASE:-https://www.strava.com/api/v3}/push_subscriptions" \
     -H "Content-Type: application/json" \
     -d "{
         \"client_id\": \"$STRAVA_CLIENT_ID\",

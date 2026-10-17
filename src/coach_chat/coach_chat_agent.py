@@ -50,6 +50,12 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from strands import Agent, tool
 from strands.models import BedrockModel
 
+from pace_zones import (
+    SOURCE_CAMPUS,
+    SOURCE_CAMPUS_STALE,
+    effective_pace_zones,
+    strip_structured_pace_fields,
+)
 from prompts import COACH_CHAT_SYSTEM_PROMPT
 
 logging.basicConfig(
@@ -450,7 +456,8 @@ def _get_campus_plan_impl(week_iso: str) -> dict:
             "expected_distance_km": s.get("expected_distance_km"),
             "expected_duration_min": s.get("expected_duration_min"),
             "difficulty": s.get("difficulty"),
-            "intervals": s.get("intervals", []),
+            # Pre-paces schema for the model (structured pace fields stripped).
+            "intervals": strip_structured_pace_fields(s.get("intervals", [])),
             "is_current_week": bool(s.get("is_current_week")),
             "is_future": bool(s.get("is_future")),
         }
@@ -487,15 +494,22 @@ def _get_pace_zones_impl(user_id: str) -> dict:
         return {}
 
     prefs = item.get("user_preferences", {})
-    return _jsonable(
-        {
-            "pace_zones": prefs.get("pace_zones", {}),
-            "personal_records": prefs.get("personal_records", []),
-            "max_hr": prefs.get("max_hr"),
-            "athlete_zones": item.get("athlete_zones", {}),
-            "best_efforts_prs": item.get("best_efforts_prs", {}),
-        }
-    )
+    # Campus zones first, legacy manual zones as fallback (local mirror of
+    # shared.pace_zones, this bundle cannot import lambda_functions/shared/).
+    zones, zones_source = effective_pace_zones(item)
+    result = {
+        "pace_zones": zones,
+        "personal_records": prefs.get("personal_records", []),
+        "max_hr": prefs.get("max_hr"),
+        "athlete_zones": item.get("athlete_zones", {}),
+        "best_efforts_prs": item.get("best_efforts_prs", {}),
+    }
+    # The source key only appears once Campus zones exist: with the sync writing
+    # nothing (CAMPUS_ZONES_ENABLED off), the tool output stays byte-identical to
+    # the pre-paces one (manual_legacy / none add no key).
+    if zones_source in (SOURCE_CAMPUS, SOURCE_CAMPUS_STALE):
+        result["pace_zones_source"] = zones_source
+    return _jsonable(result)
 
 
 def _get_intervals_metrics_impl(user_id: str, date_from: str, date_to: str) -> dict:

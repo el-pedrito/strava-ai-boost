@@ -23,6 +23,17 @@ def _parse_pace_mmss(pace_str: str) -> float:
         return 0.0
 
 
+# Single-value zone match window, in minutes per km (10 s/km).
+POINT_ZONE_MATCH_MIN = 10 / 60
+# Float slack so exactly 10 s still matches (5:25 vs a 5:15 zone).
+_POINT_ZONE_EPS = 1e-9
+
+
+def _zone_result(zone_key: str, zone_labels: Dict[str, Any]) -> Dict[str, str]:
+    type_name, label_fr = zone_labels.get(zone_key, (zone_key, zone_key.replace('_', ' ').title()))
+    return {'type': type_name, 'label': label_fr}
+
+
 def _classify_by_pace_zones(avg_pace: float, pace_zones: Dict[str, Any]) -> Optional[Dict[str, str]]:
     """
     Classify workout by matching average pace against user-configured pace zones.
@@ -43,6 +54,8 @@ def _classify_by_pace_zones(avg_pace: float, pace_zones: Dict[str, Any]) -> Opti
 
     best_match = None
     best_distance = float('inf')
+    best_point = None
+    best_point_distance = float('inf')
 
     for zone_key, zone_val in pace_zones.items():
         if not isinstance(zone_val, dict):
@@ -55,13 +68,25 @@ def _classify_by_pace_zones(avg_pace: float, pace_zones: Dict[str, Any]) -> Opti
         slow_pace = max(zone_min, zone_max)
         fast_pace = min(zone_min, zone_max)
 
+        if slow_pace == fast_pace:
+            # A single-value zone (Campus shows "Tempo 5:15", no range): it matches when
+            # it is the nearest single value and within POINT_ZONE_MATCH_MIN of it.
+            distance = abs(avg_pace - fast_pace)
+            if distance <= POINT_ZONE_MATCH_MIN + _POINT_ZONE_EPS and distance < best_point_distance:
+                best_point_distance = distance
+                best_point = _zone_result(zone_key, zone_labels)
+            continue
+
         if fast_pace <= avg_pace <= slow_pace:
             midpoint = (fast_pace + slow_pace) / 2
             distance = abs(avg_pace - midpoint)
             if distance < best_distance:
                 best_distance = distance
-                type_name, label_fr = zone_labels.get(zone_key, (zone_key, zone_key.replace('_', ' ').title()))
-                best_match = {'type': type_name, 'label': label_fr}
+                best_match = _zone_result(zone_key, zone_labels)
+
+    # A pace inside a real range wins; otherwise the nearest single-value zone.
+    if best_match is None:
+        best_match = best_point
 
     if best_match:
         logger.info(f"Pace zone match: avg_pace={avg_pace:.2f} -> {best_match['label']}")

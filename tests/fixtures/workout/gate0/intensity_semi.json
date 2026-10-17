@@ -1,0 +1,44 @@
+{
+  "guid": "0A7E0000-0000-4000-8000-000000000002",
+  "session": {
+    "session_id": "gate0-intensity",
+    "title": "Blocs allure semi",
+    "week_date_iso": "2026-W50",
+    "training_index": 2,
+    "sport": "road",
+    "training_type": "Intensity",
+    "expected_duration_min": 64,
+    "intervals": [
+      {
+        "duration": "15 min",
+        "name": "step_1",
+        "pace": "EF (5:57/km)",
+        "type": "warm-up"
+      },
+      {
+        "type": "block",
+        "repeat": "4",
+        "exercises": [
+          {
+            "duration": "9 min",
+            "name": "step_2",
+            "pace": "Semi Marathon (4:28/km)",
+            "type": "work"
+          },
+          {
+            "duration": "2 min",
+            "name": "step_3",
+            "pace": "Lent (11:14/km)",
+            "type": "recovery"
+          }
+        ]
+      },
+      {
+        "duration": "5 min",
+        "name": "step_4",
+        "pace": "EF (5:57/km)",
+        "type": "cool-down"
+      }
+    ]
+  }
+}

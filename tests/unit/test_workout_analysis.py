@@ -87,6 +87,48 @@ class TestClassifyByPaceZones:
         assert result is None
 
 
+class TestClassifyByPointZones:
+    """Campus single-value zones (min == max): nearest pace within 10 s/km."""
+
+    @pytest.fixture
+    def campus_zones(self):
+        return {
+            'ef': {'min': '5:46', 'max': '6:16'},
+            'tempo': {'min': '5:15', 'max': '5:15'},
+            'allure_semi': {'min': '4:35', 'max': '4:35'},
+            'seuil_30': {'min': '4:11', 'max': '4:11'},
+        }
+
+    def test_exact_single_value_matches(self, campus_zones):
+        assert _classify_by_pace_zones(5.25, campus_zones)['type'] == 'tempo'
+
+    def test_within_10s_matches(self, campus_zones):
+        # 5:23 /km is 8 s slower than tempo 5:15.
+        assert _classify_by_pace_zones(5 + 23 / 60, campus_zones)['type'] == 'tempo'
+
+    def test_exactly_10s_matches(self, campus_zones):
+        # 5:25 /km is exactly 10 s from tempo 5:15.
+        assert _classify_by_pace_zones(5 + 25 / 60, campus_zones)['type'] == 'tempo'
+
+    def test_beyond_10s_does_not_match(self, campus_zones):
+        # 4:55 /km is 20 s from both tempo and semi.
+        assert _classify_by_pace_zones(4 + 55 / 60, campus_zones) is None
+
+    def test_nearest_single_value_wins(self, campus_zones):
+        # 4:38 /km: 3 s from semi 4:35, far from tempo.
+        result = _classify_by_pace_zones(4 + 38 / 60, campus_zones)
+        assert result['label'] == _classify_by_pace_zones(4 + 35 / 60, campus_zones)['label']
+        assert result['type'] != 'tempo'
+
+    def test_real_range_beats_a_near_single_value(self):
+        zones = {'ef': {'min': '5:30', 'max': '6:00'}, 'tempo': {'min': '5:28', 'max': '5:28'}}
+        # 5:31 is inside EF and 3 s from tempo: the range wins.
+        assert _classify_by_pace_zones(5 + 31 / 60, zones)['type'] == 'steady_easy_run'
+
+    def test_ef_range_still_matches(self, campus_zones):
+        assert _classify_by_pace_zones(6.0, campus_zones)['type'] == 'steady_easy_run'
+
+
 def _make_laps(paces_min_km):
     """Helper: create laps from pace values (min/km).
     Converts pace to average_speed (m/s) for the Strava lap format.

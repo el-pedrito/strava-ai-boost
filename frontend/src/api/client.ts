@@ -1,5 +1,6 @@
 import { getConfig } from '../config.ts';
 import { CognitoUserPool } from 'amazon-cognito-identity-js';
+import type { PlanWorkoutsResponse } from '../types/index.ts';
 
 export class ApiError extends Error {
   status: number;
@@ -58,3 +59,8 @@ export const api = {
     request<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 };
+
+/** Upcoming Campus plan sessions with their Apple Watch `.workout` payloads. */
+export function getPlanWorkouts(): Promise<PlanWorkoutsResponse> {
+  return api.get<PlanWorkoutsResponse>('/plan/workouts');
+}

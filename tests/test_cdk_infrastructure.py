@@ -10,6 +10,7 @@ Tests the CDK stacks and infrastructure configuration:
 """
 
 import pytest
+import json
 import aws_cdk as cdk
 from aws_cdk import assertions
 import sys
@@ -307,6 +308,75 @@ class TestApiGatewayStack:
             )
 
 
+class TestPlanWorkoutsRoute:
+    """GET /plan/workouts: Cognito route, owner env var, client cannot write the claim."""
+
+    OWNER = "424242"
+
+    @pytest.fixture(scope="class")
+    def stacks(self):
+        from pathlib import Path
+        from stacks.frontend_hosting_stack import FrontendHostingStack
+        cdk_context = json.loads(
+            (Path(__file__).parent.parent / "cdk.json").read_text()
+        ).get("context", {})
+        app = cdk.App(context={**cdk_context, "default_user_id": self.OWNER})
+        env = cdk.Environment(account="123456789012", region="us-east-1")
+        core = CoreInfrastructureStack(app, "TestCoreStack", env=env)
+        frontend = FrontendHostingStack(app, "TestFrontendStack", env=env)
+        api = ApiGatewayStack(
+            app, "TestAPIStack", core_stack=core,
+            user_pool=frontend.user_pool, user_pool_client=frontend.user_pool_client,
+            env=env,
+        )
+        return {
+            "api": assertions.Template.from_stack(api),
+            "frontend": assertions.Template.from_stack(frontend),
+        }
+
+    def test_route_uses_cognito_authorizer(self, stacks):
+        template = stacks["api"]
+        resources = template.find_resources("AWS::ApiGateway::Resource")
+        by_id = {lid: r["Properties"] for lid, r in resources.items()}
+        workouts_ids = [
+            lid for lid, props in by_id.items()
+            if props["PathPart"] == "workouts"
+            and by_id.get(props["ParentId"].get("Ref"), {}).get("PathPart") == "plan"
+        ]
+        assert len(workouts_ids) == 1
+        methods = [
+            m["Properties"] for m in template.find_resources("AWS::ApiGateway::Method").values()
+            if m["Properties"].get("ResourceId", {}).get("Ref") == workouts_ids[0]
+        ]
+        get = [m for m in methods if m["HttpMethod"] == "GET"]
+        assert len(get) == 1
+        assert get[0]["AuthorizationType"] == "COGNITO_USER_POOLS"
+        assert get[0]["AuthorizerId"] == {"Ref": next(iter(template.find_resources("AWS::ApiGateway::Authorizer")))}
+        assert "DashboardAPI" in json.dumps(get[0]["Integration"]["Uri"])
+
+    def test_owner_env_var_on_dashboard_lambda(self, stacks):
+        stacks["api"].has_resource_properties("AWS::Lambda::Function", {
+            "FunctionName": "StravaAIBoost-DashboardAPI",
+            "Environment": {"Variables": assertions.Match.object_like({
+                "CAMPUS_OWNER_STRAVA_ID": self.OWNER,
+            })},
+        })
+
+    def test_lambda_function_count_unchanged(self, stacks):
+        stacks["api"].resource_count_is("AWS::Lambda::Function", 4)
+
+    def test_client_cannot_write_strava_claim(self, stacks):
+        clients = stacks["frontend"].find_resources("AWS::Cognito::UserPoolClient")
+        assert len(clients) == 1
+        props = next(iter(clients.values()))["Properties"]
+        write = props.get("WriteAttributes")
+        assert write, "WriteAttributes must be explicit (unset means every attribute is writable)"
+        assert "custom:strava_id" not in write
+        assert not any(attr.startswith("custom:") for attr in write)
+        read = props.get("ReadAttributes")
+        assert read is None or "custom:strava_id" in read
+
+
 class TestSecurityCompliance:
     """Test security and compliance configurations"""
     
@@ -400,3 +470,77 @@ class TestInfrastructureIntegration:
 
         # Verify we have 3 tables
         assert len(core_stack.table_names) == 3, f"Expected 3 tables, found {len(core_stack.table_names)}"
+
+
+def _campus_paces_templates(context):
+    """Webhook + API templates synthesized with the given extra CDK context."""
+    from pathlib import Path
+    cdk_context = json.loads(
+        (Path(__file__).parent.parent / "cdk.json").read_text()
+    ).get("context", {})
+    app = cdk.App(context={**cdk_context, **context})
+    env = cdk.Environment(account="123456789012", region="eu-west-1")
+    core = CoreInfrastructureStack(app, "TestCoreStack", env=env)
+    webhook = WebhookProcessingStack(
+        app, "TestWebhookStack", core_stack=core,
+        step_functions_arn="arn:aws:states:eu-west-1:123456789012:stateMachine:test", env=env,
+    )
+    api = ApiGatewayStack(app, "TestAPIStack", core_stack=core, env=env)
+    return assertions.Template.from_stack(webhook), assertions.Template.from_stack(api)
+
+
+def _env_of(template, function_name):
+    for resource in template.find_resources("AWS::Lambda::Function").values():
+        props = resource["Properties"]
+        if props.get("FunctionName") == function_name:
+            return props.get("Environment", {}).get("Variables", {})
+    raise AssertionError(f"{function_name} not found")
+
+
+class TestCampusPaceSwitches:
+    """docs/design/campus-paces.md: two switches, default off, each on its one Lambda."""
+
+    def test_flags_parse_strictly(self):
+        cases = (({}, "false"), ({"campus_zones_enabled": "false", "range_alerts_enabled": "false"}, "false"),
+                 ({"campus_zones_enabled": "yes", "range_alerts_enabled": "1"}, "false"),
+                 ({"campus_zones_enabled": "true", "range_alerts_enabled": "true"}, "true"),
+                 ({"campus_zones_enabled": True, "range_alerts_enabled": True}, "true"))
+        for context, expected in cases:
+            webhook, api = _campus_paces_templates(context)
+            assert _env_of(webhook, "StravaAIBoost-CampusCoachSync")["CAMPUS_ZONES_ENABLED"] == expected, context
+            assert _env_of(api, "StravaAIBoost-DashboardAPI")["RANGE_ALERTS_ENABLED"] == expected, context
+
+    def test_each_switch_lives_on_one_lambda_only(self):
+        webhook, api = _campus_paces_templates({"campus_zones_enabled": "true", "range_alerts_enabled": "true"})
+        for template in (webhook, api):
+            for resource in template.find_resources("AWS::Lambda::Function").values():
+                props = resource["Properties"]
+                variables = props.get("Environment", {}).get("Variables", {})
+                if props.get("FunctionName") != "StravaAIBoost-CampusCoachSync":
+                    assert "CAMPUS_ZONES_ENABLED" not in variables, props.get("FunctionName")
+                if props.get("FunctionName") != "StravaAIBoost-DashboardAPI":
+                    assert "RANGE_ALERTS_ENABLED" not in variables, props.get("FunctionName")
+        # Source check across every stack, not only the two synthesized here.
+        from pathlib import Path
+        stacks_dir = Path(__file__).parent.parent / "stacks"
+        for name in ("CAMPUS_ZONES_ENABLED", "RANGE_ALERTS_ENABLED"):
+            hits = sum(p.read_text().count(f'"{name}"') for p in stacks_dir.glob("*.py"))
+            assert hits == 1, name
+
+    def test_sync_can_update_user_config(self):
+        webhook, _ = _campus_paces_templates({})
+        functions = webhook.find_resources("AWS::Lambda::Function")
+        sync_role = next(
+            r["Properties"]["Role"]["Fn::GetAtt"][0] for r in functions.values()
+            if r["Properties"].get("FunctionName") == "StravaAIBoost-CampusCoachSync"
+        )
+        statements = []
+        for policy in webhook.find_resources("AWS::IAM::Policy").values():
+            if {"Ref": sync_role} in policy["Properties"]["Roles"]:
+                statements.extend(policy["Properties"]["PolicyDocument"]["Statement"])
+        on_config = [s for s in statements if "strava-ai-boost-user-configuration" in json.dumps(s["Resource"])]
+        actions = set()
+        for statement in on_config:
+            actions.update([statement["Action"]] if isinstance(statement["Action"], str) else statement["Action"])
+        assert "dynamodb:UpdateItem" in actions
+        assert not actions & {"dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:BatchWriteItem"}

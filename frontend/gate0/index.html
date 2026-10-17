@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <!-- The page is served from a presigned URL whose query string holds credentials:
+         never send it as a Referer, and allow nothing beyond the inline script/style.
+         Blob downloads still work: an <a download> click is not governed by CSP. -->
+    <meta name="referrer" content="no-referrer">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>Gate 0 - Séances Apple Watch</title>
+    <style>
+      body { font-family: -apple-system, system-ui, sans-serif; margin: 0; padding: 16px; max-width: 480px; }
+      h1 { font-size: 1.3rem; }
+      ol.help { padding-left: 1.2rem; line-height: 1.5; }
+      ul#workouts { list-style: none; padding: 0; }
+      ul#workouts li { margin: 10px 0; }
+      button { width: 100%; padding: 14px; font-size: 1rem; border-radius: 10px; border: 1px solid #888; background: #f2f2f7; text-align: left; }
+      #status { color: #b00020; min-height: 1.2em; }
+    </style>
+  </head>
+  <body>
+    <h1>Gate 0 - Séances Apple Watch</h1>
+    <ol class="help">
+      <li>Touchez une séance ci-dessous.</li>
+      <li>Safari : ouvrez les téléchargements, touchez le fichier, puis choisissez Exercice.</li>
+      <li>Sinon : app Fichiers, ouvrez le fichier, Partager, puis Exercice.</li>
+      <li>Un nouveau téléchargement ajoute une entrée : supprimez l'ancienne.</li>
+    </ol>
+    <p id="status" role="status"></p>
+    <ul id="workouts"></ul>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

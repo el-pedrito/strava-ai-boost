@@ -121,6 +121,16 @@ export interface PaceZones {
   interval: PaceZone;
 }
 
+/** One pace zone as synced from Campus Coach (read-only, written by the sync). */
+export interface CampusPaceZone extends PaceZone {
+  slug: string;
+  value_s: number;
+  dvalue_s: number;
+}
+
+/** Where the effective pace zones come from (mirrors shared/pace_zones.effective_pace_zones). */
+export type PaceZonesSource = 'campus' | 'campus_stale' | 'manual_legacy' | 'none';
+
 export interface UserPreferences {
   age_range: string;
   sport_approach: string;
@@ -138,4 +148,54 @@ export interface FlashMessage {
   type: 'success' | 'error' | 'warning' | 'info';
   content: string;
   dismissible: boolean;
+}
+
+/**
+ * Why a plan session cannot be exported as an Apple Watch `.workout`.
+ * Mirrors the REASON_* constants of lambda_functions/shared/campus_workout.py.
+ */
+export type WorkoutReasonCode =
+  | 'unsupported_sport'
+  | 'no_intervals'
+  | 'legacy_shape'
+  | 'bad_repeat'
+  | 'bad_shape'
+  | 'too_many_steps'
+  | 'too_large'
+  | 'internal';
+
+/**
+ * One upcoming Campus plan session, as served by `GET /plan/workouts`.
+ * Mirrors `api/plan_workouts.py::_item`: every field copied from a Campus row is
+ * null when the row holds no usable value of that type.
+ */
+export interface PlanWorkoutItem {
+  session_id: string | null;
+  /** ISO week label, `YYYY-Www`. */
+  week_iso: string | null;
+  training_index: number | null;
+  title: string | null;
+  training_type: string | null;
+  /** Campus sport code (`road`, `ppg`, ...). */
+  sport: string | null;
+  duration_min: number | null;
+  /** Step summary, null whenever the session is not encodable. */
+  summary: string | null;
+  filename: string;
+  encodable: boolean;
+  /**
+   * A `WorkoutReasonCode` when `encodable` is false. Typed as `string` so a code
+   * added server-side later still renders (with the generic sentence).
+   */
+  reason_code: string | null;
+  /** Base64 `.workout` bytes, present only when `encodable` is true. */
+  workout_b64?: string;
+}
+
+export interface PlanWorkoutsResponse {
+  workouts: PlanWorkoutItem[];
+  count: number;
+  /** True when the server dropped the furthest weeks to stay under its caps. */
+  truncated: boolean;
+  timestamp?: string;
 }

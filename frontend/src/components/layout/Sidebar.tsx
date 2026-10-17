@@ -2,7 +2,7 @@ import { NavLink } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import { NAV_ITEMS } from './navItems';
+import { getNavItems } from './navItems';
 import { UserMenu } from './UserMenu';
 
 interface SidebarProps {
@@ -67,7 +67,7 @@ export function Sidebar({ collapsed = false, width, onItemClick, onToggleCollaps
 
       <nav className="flex-1 overflow-y-auto p-2">
         <ul className="flex flex-col gap-1">
-          {NAV_ITEMS.map((item) => {
+          {getNavItems().map((item) => {
             const Icon = item.Icon;
             return (
               <li key={item.to}>

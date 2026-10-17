@@ -1,0 +1,20 @@
+{
+  "guid": "0A7E0000-0000-4000-8000-000000000001",
+  "session": {
+    "session_id": "gate0-ef",
+    "title": "Footing endurance douce",
+    "week_date_iso": "2026-W50",
+    "training_index": 1,
+    "sport": "road",
+    "training_type": "EF",
+    "expected_duration_min": 45,
+    "intervals": [
+      {
+        "duration": "45 min",
+        "name": "step_1",
+        "pace": "EF (5:57/km)",
+        "type": "work"
+      }
+    ]
+  }
+}

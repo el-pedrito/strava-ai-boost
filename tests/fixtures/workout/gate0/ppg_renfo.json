@@ -1,0 +1,124 @@
+{
+  "guid": "0A7E0000-0000-4000-8000-000000000004",
+  "session": {
+    "session_id": "gate0-ppg",
+    "title": "Renforcement PPG",
+    "week_date_iso": "2026-W50",
+    "training_index": 0,
+    "sport": "ppg",
+    "training_type": "PPG",
+    "expected_duration_min": 30,
+    "intervals": [
+      {
+        "duration": "",
+        "name": "Fente bulgare avec charge additionnelle",
+        "pace": "",
+        "reps": "6",
+        "type": "work"
+      },
+      {
+        "duration": "",
+        "name": "Saut groupé",
+        "pace": "",
+        "reps": "5",
+        "type": "work"
+      },
+      {
+        "duration": "1:30 min",
+        "name": "Repos",
+        "pace": "",
+        "type": "recovery"
+      },
+      {
+        "duration": "",
+        "name": "Soulevé de terre jambe tendue",
+        "pace": "",
+        "reps": "8",
+        "type": "work"
+      },
+      {
+        "duration": "30 sec",
+        "name": "Gainage ventral",
+        "pace": "",
+        "type": "work"
+      },
+      {
+        "duration": "1:30 min",
+        "name": "Repos",
+        "pace": "",
+        "type": "recovery"
+      },
+      {
+        "duration": "",
+        "name": "Fente bulgare avec charge additionnelle",
+        "pace": "",
+        "reps": "8",
+        "type": "work"
+      },
+      {
+        "duration": "",
+        "name": "Montée sur banc",
+        "pace": "",
+        "reps": "10",
+        "type": "work"
+      },
+      {
+        "duration": "40 sec",
+        "name": "Gainage latéral",
+        "pace": "",
+        "type": "work"
+      },
+      {
+        "duration": "2 min",
+        "name": "Repos",
+        "pace": "",
+        "type": "recovery"
+      },
+      {
+        "duration": "",
+        "name": "Pont fessier unilatéral",
+        "pace": "",
+        "reps": "12",
+        "type": "work"
+      },
+      {
+        "duration": "30 sec",
+        "name": "Chaise",
+        "pace": "",
+        "type": "work"
+      },
+      {
+        "duration": "2 min",
+        "name": "Repos",
+        "pace": "",
+        "type": "recovery"
+      },
+      {
+        "type": "block",
+        "repeat": "3",
+        "exercises": [
+          {
+            "duration": "",
+            "name": "Flexion de genou",
+            "pace": "",
+            "reps": "10",
+            "type": "work"
+          },
+          {
+            "duration": "",
+            "name": "Extension de mollet",
+            "pace": "",
+            "reps": "15",
+            "type": "work"
+          },
+          {
+            "duration": "1:00 min",
+            "name": "Repos",
+            "pace": "",
+            "type": "recovery"
+          }
+        ]
+      }
+    ]
+  }
+}

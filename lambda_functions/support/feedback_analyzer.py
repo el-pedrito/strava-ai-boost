@@ -40,7 +40,7 @@ def _get_secretsmanager():
 # Environment variables
 ACTIVITIES_TABLE = os.environ.get('ACTIVITIES_TABLE', 'strava-ai-boost-activities')
 STRAVA_OAUTH_SECRET = os.environ.get('STRAVA_OAUTH_SECRET', 'strava-ai-boost-oauth-tokens')
-STRAVA_API_BASE = "https://www.strava.com/api/v3"
+from shared.strava_oauth import STRAVA_API_BASE  # noqa: E402  single source of the base URL
 
 # HTTP session with retry for Strava API
 _http_session = None

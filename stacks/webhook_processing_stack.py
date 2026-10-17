@@ -751,6 +751,14 @@ class WebhookProcessingStack(Stack):
                 "COACHING_SESSIONS_TABLE": "strava-ai-boost-campus-coaching-sessions",
                 "USER_CONFIG_TABLE": "strava-ai-boost-user-configuration",
                 "DEFAULT_USER_ID": self.node.try_get_context("default_user_id") or "",
+                # Campus pace zones writer (docs/design/campus-paces.md A). Off unless
+                # the context flag is exactly "true" (-c campus_zones_enabled=false
+                # arrives as the truthy string "false", hence the strict parse).
+                "CAMPUS_ZONES_ENABLED": (
+                    "true"
+                    if str(self.node.try_get_context("campus_zones_enabled")).lower() == "true"
+                    else "false"
+                ),
             }
         )
 
@@ -762,6 +770,9 @@ class WebhookProcessingStack(Stack):
             self, "UserConfigTableRef", "strava-ai-boost-user-configuration"
         )
         user_config_table.grant_read_data(self.campus_coach_sync)
+        # The zone write: one UpdateItem SET of three top-level attributes on the
+        # owner's item. UpdateItem only, no PutItem/DeleteItem.
+        user_config_table.grant(self.campus_coach_sync, "dynamodb:UpdateItem")
 
         # Campus Coach data freshness.
         #

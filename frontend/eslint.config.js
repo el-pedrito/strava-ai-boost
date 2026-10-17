@@ -7,7 +7,7 @@ import tseslint from 'typescript-eslint';
 export default tseslint.config(
   {
     // Build output and dependencies are never linted.
-    ignores: ['dist', 'node_modules', 'coverage'],
+    ignores: ['dist', 'dist-gate0', 'node_modules', 'coverage'],
   },
   {
     files: ['**/*.{ts,tsx}'],

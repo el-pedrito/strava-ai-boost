@@ -270,7 +270,7 @@ manual_webhook_cleanup() {
                 
                 if [ -n "$STRAVA_SECRET" ] && [ "$STRAVA_SECRET" != "null" ]; then
                     DELETE_RESPONSE=$(curl -s -X DELETE \
-                        "https://www.strava.com/api/v3/push_subscriptions/$SUBSCRIPTION_ID" \
+                        "${STRAVA_API_BASE:-https://www.strava.com/api/v3}/push_subscriptions/$SUBSCRIPTION_ID" \
                         -H "Authorization: Bearer $STRAVA_SECRET" \
                         -H "Content-Type: application/json" || echo "ERROR")
                     

@@ -22,6 +22,7 @@ from shared.responses import (
     create_error_response,
 )
 from shared.logger import get_logger, inject_correlation_id, metrics, MetricUnit
+from api import plan_workouts
 import time
 
 logger = get_logger("dashboard_api")
@@ -95,6 +96,36 @@ def _resolve_coach_user_id(event: Dict[str, Any]) -> Optional[str]:
         logger.info("Using DEFAULT_USER_ID fallback for Coach (dev/test mode)")
         return DEFAULT_USER_ID
     return None
+
+
+# Plan workouts are personal and carry fresh GUIDs: never cached by a browser or proxy.
+PLAN_WORKOUTS_HEADERS = {**CORS_HEADERS, 'Cache-Control': 'no-store'}
+
+
+def get_plan_workouts_response(event: Dict[str, Any]) -> Dict[str, Any]:
+    """GET /plan/workouts: owner-only, every response (errors included) is no-store.
+
+    Never reads ``_get_user_id`` (its DEFAULT_USER_ID fallback) and never the module
+    ``_cache``. Logs carry no Campus text and no file bytes.
+    """
+    try:
+        owner = os.environ.get('CAMPUS_OWNER_STRAVA_ID', '')
+        if not plan_workouts.is_owner(_get_strava_claim(event), owner):
+            logger.warning("Plan workouts denied: claim missing or not the Campus owner")
+            return create_error_response(403, 'Forbidden', cors_headers=PLAN_WORKOUTS_HEADERS)
+        table = dynamodb.Table(COACHING_SESSIONS_TABLE)
+        # Watch RANGE alerts for Campus `range` steps: off unless exactly "true".
+        range_alerts = os.environ.get('RANGE_ALERTS_ENABLED', '') == 'true'
+        payload, counters = plan_workouts.build_plan_workouts(
+            table, datetime.now(timezone.utc), range_alerts=range_alerts)
+        for name, value in sorted(counters.items()):
+            metrics.add_metric(name=name, unit=MetricUnit.Count, value=value)
+        logger.info("Plan workouts listed", extra={"count": payload['count'], "truncated": payload['truncated']})
+        return create_success_response(payload, cors_headers=PLAN_WORKOUTS_HEADERS)
+    except Exception as exc:  # noqa: BLE001 - the branch owns its errors to keep no-store
+        # Type only: a message or traceback could quote a Campus row.
+        logger.error("Plan workouts failed", extra={"error_type": type(exc).__name__})
+        return create_error_response(500, 'Internal server error', cors_headers=PLAN_WORKOUTS_HEADERS)
 
 
 def _query_user_activities(user_id: str, since: datetime = None, projection: str = None) -> List[Dict[str, Any]]:
@@ -257,6 +288,11 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 'headers': CORS_HEADERS.copy(),
                 'body': json.dumps({'status': 'ok'})
             }
+
+        # Before the shared validator: this route takes no query parameter, and every
+        # response it returns (a 400 included) must carry no-store.
+        if path == '/plan/workouts' and http_method == 'GET':
+            return get_plan_workouts_response(event)
 
         # Validate request
         validation_error = validate_request(event)

@@ -1,4 +1,5 @@
 import logging
+import os
 from datetime import datetime, UTC
 from typing import Any, Dict, Optional
 
@@ -7,6 +8,16 @@ import requests
 logger = logging.getLogger(__name__)
 
 STRAVA_TOKEN_URL = "https://www.strava.com/oauth/token"
+
+# Single source of the Strava V3 API base URL.
+#
+# Strava's API changelog (2026-06-01) announces a move from
+# https://www.strava.com/api/v3 to https://api-v3.strava.com, available from
+# 2027-01-04. Every Lambda reads the base from here, so the switch is one
+# environment value (STRAVA_API_BASE) once the new host answers, not a hunt
+# through five modules. The default stays on the current host until then.
+_DEFAULT_STRAVA_API_BASE = "https://www.strava.com/api/v3"
+STRAVA_API_BASE = (os.environ.get("STRAVA_API_BASE") or _DEFAULT_STRAVA_API_BASE).rstrip("/")
 
 
 def refresh_access_token(

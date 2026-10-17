@@ -93,7 +93,7 @@ fi
 print_status "Retrieving existing webhook subscriptions..."
 
 SUBSCRIPTIONS=$(curl -s -X GET \
-    "https://www.strava.com/api/v3/push_subscriptions" \
+    "${STRAVA_API_BASE:-https://www.strava.com/api/v3}/push_subscriptions" \
     -H "Authorization: Bearer $STRAVA_CLIENT_SECRET" \
     -H "Content-Type: application/json" 2>/dev/null || echo "[]")
 
@@ -144,7 +144,7 @@ for SUBSCRIPTION_ID in $SUBSCRIPTION_IDS; do
         print_status "Removing subscription: $SUBSCRIPTION_ID"
         
         DELETE_RESPONSE=$(curl -s -X DELETE \
-            "https://www.strava.com/api/v3/push_subscriptions/$SUBSCRIPTION_ID" \
+            "${STRAVA_API_BASE:-https://www.strava.com/api/v3}/push_subscriptions/$SUBSCRIPTION_ID" \
             -H "Authorization: Bearer $STRAVA_CLIENT_SECRET" \
             -H "Content-Type: application/json" 2>/dev/null)
         

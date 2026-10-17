@@ -6,6 +6,7 @@ Triggered by: EventBridge schedule (daily 05:00 UTC) or on-demand invoke.
 """
 
 import json
+import math
 import os
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
@@ -20,7 +21,9 @@ from shared.campus_status import (
     effective_status,
     normalize_status,
 )
-from shared.logger import get_logger
+from botocore.exceptions import ClientError
+from shared.logger import get_logger, metrics, MetricUnit
+from shared.pace_zones import build_campus_zones
 
 logger = get_logger("campus-coach-sync")
 
@@ -65,6 +68,15 @@ def _is_module_enabled(user_id: str) -> bool:
         return True  # On error, try to sync anyway
 
 
+def _zones_enabled() -> bool:
+    """``CAMPUS_ZONES_ENABLED`` kill switch, off unless exactly ``"true"``.
+
+    Read at call time (not import time) so a test or a config change needs no reload.
+    """
+    return os.environ.get('CAMPUS_ZONES_ENABLED', '') == 'true'
+
+
+@metrics.log_metrics
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Main Lambda handler."""
     try:
@@ -79,6 +91,13 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
         credentials = _get_credentials()
         token = _login(credentials['username'], credentials['password'])
+
+        # Read-only diagnostic: report what the provider sends (field names and the
+        # pace objects), write nothing. Lets an operator see fields the sync drops
+        # without ever handling the Campus credentials. Invoke with
+        # {"probe_schema": true}; the result is returned, never logged.
+        if event.get('probe_schema'):
+            return {'statusCode': 200, 'probe': _probe_schema(token)}
 
         # Fetch supplementary data (goal, profile, assiduity)
         table = dynamodb.Table(COACHING_SESSIONS_TABLE)
@@ -95,6 +114,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
         new_session_ids: set[str] = set()
         sessions_stored = 0
+        zones_written = False
 
         for week in allowed_weeks:
             week_date = week['weekDate']  # timestamp ms
@@ -103,6 +123,9 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             is_future = week_date > int(monday_current.timestamp() * 1000)
             context_data = week.get('context', {})
             paces = week.get('estimatedPaces', [])
+            estimated_paces = _parse_estimated_paces(paces)
+            if is_current and _zones_enabled():
+                zones_written = _write_campus_zones(estimated_paces, week_iso, now)
 
             for idx, session in enumerate(week.get('sessions', [])):
                 session_id = f"{week_date}_{idx}"
@@ -132,6 +155,9 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     'intervals': _build_intervals(session, paces),
                     'target_pace_10km': _format_pace(_find_pace(paces, '10km')),
                     'target_pace_ef': _format_pace(_find_pace(paces, 'ef')),
+                    # {slug: {value, dvalue}} as Decimal, read by the Watch mapper for
+                    # range alerts. None (skipped by the upsert) when the week has none.
+                    'estimated_paces': estimated_paces or None,
                     'expected_distance_km': str(round(stats['expectedDistance'] / 1000, 1)) if stats.get('expectedDistance') else None,
                     'expected_duration_min': round(stats['expectedDuration'] / 60) if stats.get('expectedDuration') else None,
                     'cycle_theme': context_data.get('cycleTheme', ''),
@@ -150,6 +176,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'weeks_synced': len(allowed_weeks),
             'sessions_stored': sessions_stored,
             'sessions_deleted': deleted,
+            'zones_written': zones_written,
         }
         logger.info("Sync complete", extra=summary)
         return {'statusCode': 200, **summary}
@@ -188,6 +215,86 @@ def _fetch_plan(token: str, from_ms: int, to_ms: int) -> List[Dict]:
     return resp.json()
 
 
+def _sample(value: Any, depth: int = 0) -> Any:
+    """A bounded copy of a provider payload: strings cut to 80 chars, lists to 3 items.
+
+    Keeps every key (so unused fields are visible) without returning whole texts.
+    """
+    if depth > 8:
+        return '...'
+    if isinstance(value, dict):
+        return {k: _sample(v, depth + 1) for k, v in value.items()}
+    if isinstance(value, list):
+        out = [_sample(v, depth + 1) for v in value[:3]]
+        if len(value) > 3:
+            out.append(f'... +{len(value) - 3} more')
+        return out
+    if isinstance(value, str) and len(value) > 80:
+        return value[:80] + '...'
+    return value
+
+
+def _probe_schema(token: str) -> Dict[str, Any]:
+    """Describe the provider payload: key sets and every distinct pace object shape.
+
+    Pace objects and estimatedPaces are training data (target paces), returned in
+    full so a range (min/max) can be spotted. Free text (descriptions) is not
+    returned, only the key names.
+    """
+    now = datetime.now(timezone.utc)
+    weeks = _fetch_plan(
+        token,
+        int((now - timedelta(weeks=1)).timestamp() * 1000),
+        int((now + timedelta(weeks=3)).timestamp() * 1000),
+    )
+    week_keys, session_keys, block_keys, exercise_keys, pace_keys = (set() for _ in range(5))
+    pace_samples: Dict[str, Any] = {}
+    estimated: List[Any] = []
+    for week in weeks:
+        week_keys.update(week.keys())
+        if not estimated and week.get('estimatedPaces'):
+            estimated = week['estimatedPaces']
+        for session in week.get('sessions', []) or []:
+            session_keys.update(session.keys())
+            for block in session.get('exercisesBlocks', []) or []:
+                block_keys.update(block.keys())
+                for exercise in block.get('exercises', []) or []:
+                    exercise_keys.update(exercise.keys())
+                    pace = exercise.get('pace') or {}
+                    pace_keys.update(pace.keys())
+                    shape = f"{pace.get('name')}|{','.join(sorted(pace.keys()))}"
+                    pace_samples.setdefault(shape, pace)
+    headers = {"Authorization": f"Bearer {token}"}
+    extra: Dict[str, Any] = {}
+    for name in ('goal/active', 'assiduity-status'):
+        try:
+            resp = requests.get(f"{API_BASE}/smart-training/{name}", headers=headers, timeout=10)
+            body = resp.json() if resp.status_code == 200 else {}
+            extra[name] = sorted(body.keys()) if isinstance(body, dict) else type(body).__name__
+        except Exception as exc:  # diagnostic only
+            extra[name] = f"error {type(exc).__name__}"
+    sample_week = next((w for w in weeks if w.get('access') == 'allowed'), weeks[0] if weeks else {})
+    goal_sample: Any = None
+    try:
+        resp = requests.get(f"{API_BASE}/smart-training/goal/active", headers=headers, timeout=10)
+        goal_sample = _sample(resp.json()) if resp.status_code == 200 else None
+    except Exception as exc:  # diagnostic only
+        goal_sample = f"error {type(exc).__name__}"
+    return {
+        'weeks': len(weeks),
+        'sample_week': _sample(sample_week),
+        'goal_active_sample': goal_sample,
+        'week_keys': sorted(week_keys),
+        'session_keys': sorted(session_keys),
+        'block_keys': sorted(block_keys),
+        'exercise_keys': sorted(exercise_keys),
+        'pace_keys': sorted(pace_keys),
+        'pace_samples': list(pace_samples.values())[:40],
+        'estimated_paces': estimated,
+        'other_endpoints_keys': extra,
+    }
+
+
 def _monday_of_iso_week(dt: datetime) -> datetime:
     """Return Monday 00:00 UTC of the ISO week containing dt."""
     return (dt - timedelta(days=dt.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -208,6 +315,113 @@ def _find_pace(paces: List, slug: str) -> Optional[float]:
         if isinstance(p, dict) and p.get('slug') == slug:
             return p.get('value')
     return None
+
+
+def _finite_number(value: Any) -> Optional[float]:
+    """A finite float from int / float / Decimal / numeric string, else None."""
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _parse_estimated_paces(paces: Any) -> Dict[str, Dict[str, Decimal]]:
+    """``week.estimatedPaces`` -> ``{slug: {value, dvalue}}`` (s/km, Decimal, 1 decimal).
+
+    Strict first wins: the FIRST entry for a slug decides, valid or not. A later
+    duplicate is always dropped (and counts ``CampusEstimatedPaceDuplicate``), even when
+    the first one was invalid: the provider order is the only stable rule we have, and
+    letting a second entry stand in for a broken first one would hide the problem.
+    An entry whose value is not a finite number > 0, or whose dvalue is not a finite
+    number >= 0, is ignored (its slug stays absent).
+    """
+    parsed: Dict[str, Dict[str, Decimal]] = {}
+    if not isinstance(paces, list):
+        return parsed
+    seen: set[str] = set()
+    for entry in paces:
+        if not isinstance(entry, dict):
+            continue
+        slug = entry.get('slug')
+        if not isinstance(slug, str) or not slug:
+            continue
+        if slug in seen:
+            metrics.add_metric(name="CampusEstimatedPaceDuplicate", unit=MetricUnit.Count, value=1)
+            continue
+        seen.add(slug)
+        value = _finite_number(entry.get('value'))
+        dvalue = _finite_number(entry.get('dvalue'))
+        if value is None or value <= 0 or dvalue is None or dvalue < 0:
+            continue
+        parsed[slug] = {
+            'value': Decimal(str(round(value, 1))),
+            'dvalue': Decimal(str(round(dvalue, 1))),
+        }
+    return parsed
+
+
+def _write_campus_zones(
+    estimated_paces: Dict[str, Dict[str, Decimal]], week_iso: str, now: datetime
+) -> bool:
+    """Write the current week's Campus zones on the OWNER's user-config item.
+
+    Owner = ``DEFAULT_USER_ID`` only, never an event ``user_id``: the Campus account
+    belongs to one athlete. Top-level attributes, one ``UpdateItem SET`` of the three,
+    on an existing item only (``attribute_exists``), so a typo in the owner id never
+    creates a stray row. Incomplete paces write nothing (``CampusZonesSkipped``): the
+    readers keep the last full map. Never raises: a zone failure must not fail the sync.
+
+    Rollback: turn ``CAMPUS_ZONES_ENABLED`` off and deploy FIRST, then
+    ``REMOVE campus_pace_zones, campus_pace_zones_week, campus_pace_zones_synced_at``
+    (in the other order the next scheduled sync writes them back).
+    """
+    owner = os.environ.get('DEFAULT_USER_ID', '')
+    if not owner:
+        logger.warning("Campus zones not written: DEFAULT_USER_ID is empty")
+        metrics.add_metric(name="CampusZonesSkipped", unit=MetricUnit.Count, value=1)
+        return False
+    zones = build_campus_zones(estimated_paces)
+    if not zones:
+        logger.warning("Campus zones not written: estimatedPaces incomplete or invalid")
+        metrics.add_metric(name="CampusZonesSkipped", unit=MetricUnit.Count, value=1)
+        return False
+    try:
+        dynamodb.Table(USER_CONFIG_TABLE).update_item(
+            Key={'user_id': owner},
+            UpdateExpression='SET campus_pace_zones = :z, campus_pace_zones_week = :w, '
+                             'campus_pace_zones_synced_at = :t',
+            ConditionExpression='attribute_exists(user_id)',
+            ExpressionAttributeValues={':z': zones, ':w': week_iso, ':t': now.isoformat()},
+        )
+    except ClientError as e:
+        logger.warning("Campus zones write failed", extra={
+            "error_code": e.response.get('Error', {}).get('Code', '')})
+        metrics.add_metric(name="CampusZonesSkipped", unit=MetricUnit.Count, value=1)
+        return False
+    metrics.add_metric(name="CampusZonesWritten", unit=MetricUnit.Count, value=1)
+    return True
+
+
+def _pace_fields(pace_info: Dict[str, Any]) -> Dict[str, Any]:
+    """Structured pace fields of one step, next to the unchanged ``pace`` string.
+
+    ``pace_kind`` (range / single-value / abstract), ``pace_slug``, ``pace_zone``
+    (provider ``zoneKind``) and ``pace_value_s``: the provider integer, under the same
+    ``< 1000`` guard as the string (above it is an abstract placeholder, not a pace).
+    Absent or wrong-typed fields are left out, never guessed.
+    """
+    fields: Dict[str, Any] = {}
+    for key, source in (('pace_kind', 'kind'), ('pace_slug', 'slug'), ('pace_zone', 'zoneKind')):
+        value = pace_info.get(source)
+        if isinstance(value, str) and value:
+            fields[key] = value
+    value_s = _finite_number(pace_info.get('value'))
+    if value_s is not None and 0 < value_s < 1000:
+        fields['pace_value_s'] = int(value_s)
+    return fields
 
 
 def _format_pace(seconds_per_km: Optional[float]) -> Optional[str]:
@@ -268,6 +482,8 @@ def _build_exercise_entry(
         pace_str = f"{pace_name} ({int(pace_val) // 60}:{int(pace_val) % 60:02d}/km)"
 
     entry: Dict[str, Any] = {'type': ex_type, 'duration': dur_str, 'pace': pace_str}
+    if isinstance(pace_info, dict):
+        entry.update(_pace_fields(pace_info))
 
     # Movement name (PPG/renfo: "Split Squat", "Gainage Frontal", ...). Dropping it
     # left strength sessions as empty {type:work, duration:'', pace:''} placeholders,

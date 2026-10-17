@@ -5,6 +5,7 @@ import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { OAuthCallback } from './pages/Configuration/OAuthCallback.tsx';
 import { AuthProvider } from './auth/AuthContext.tsx';
 import { ProtectedRoute } from './auth/ProtectedRoute.tsx';
+import { PlanGate } from './pages/Plan/PlanGate.tsx';
 
 const DashboardPage = lazy(() => import('./pages/Dashboard/DashboardPage.tsx').then(m => ({ default: m.DashboardPage })));
 const ConfigurationPage = lazy(() => import('./pages/Configuration/ConfigurationPage.tsx').then(m => ({ default: m.ConfigurationPage })));
@@ -39,6 +40,7 @@ export default function App() {
                 <Route path="/preferences" element={<PreferencesPage />} />
                 <Route path="/quality" element={<ContentQualityPage />} />
                 <Route path="/coach" element={<CoachPage />} />
+                <Route path="/plan" element={<PlanGate />} />
                 <Route path="/onboarding" element={<OnboardingPage />} />
                 <Route path="/activities/:id" element={<ActivityDetailPage />} />
               </Route>

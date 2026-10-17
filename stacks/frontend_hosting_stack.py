@@ -121,6 +121,17 @@ class FrontendHostingStack(Stack):
                 custom=False,
                 user_password=False,
             ),
+            # Explicit write set WITHOUT custom:strava_id: that claim gates owner-only
+            # endpoints (GET /plan/workouts), so a user must not be able to set it with
+            # their own token (UpdateUserAttributes). The OAuth callback sets it
+            # server-side with admin_update_user_attributes; the SPA writes nothing.
+            # read_attributes stays unset (all readable), so the claim is still issued.
+            write_attributes=cognito.ClientAttributes().with_standard_attributes(
+                email=True,
+                fullname=True,
+                given_name=True,
+                family_name=True,
+            ),
         )
 
         # Outputs

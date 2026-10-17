@@ -38,6 +38,7 @@ from shared.campus_structure import (
 from processing.modules_processing import get_active_modules, apply_module_processing
 from shared.iso_week import iso_week_label
 from shared.llm_models import no_thinking
+from shared.pace_zones import effective_pace_zones, strip_structured_pace_fields
 from shared.strength_volume import compute_session_volume
 from shared.logger import get_logger, metrics, MetricUnit, METRICS_NAMESPACE
 from shared.strength_exercises import (
@@ -435,8 +436,12 @@ def get_user_configuration(user_id: str) -> Dict[str, Any]:
 def build_user_profile_from_config(user_config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Build user_profile from user configuration for agent personalization"""
     try:
-        preferences = user_config.get('user_preferences', {})
-        if not preferences:
+        preferences = user_config.get('user_preferences', {}) or {}
+        # Resolved BEFORE the "no preferences" return: Campus zones live at the top
+        # level of the item, so an athlete with Campus zones and no saved
+        # preferences still gets zone-based workout classification.
+        pace_zones, _source = effective_pace_zones(user_config)
+        if not preferences and not pace_zones:
             return None
 
         user_profile = {
@@ -452,7 +457,6 @@ def build_user_profile_from_config(user_config: Dict[str, Any]) -> Optional[Dict
             }
         }
 
-        pace_zones = preferences.get('pace_zones')
         if pace_zones:
             user_profile['pace_zones'] = pace_zones
 
@@ -590,8 +594,16 @@ def generate_enhanced_content(
         'athlete_profile': athlete_profile,
         'user_id': user_id,
         'user_profile': user_profile,
-        'active_modules': modules,
-        'campus_coach_session': campus_coach_sessions,
+        # Campus plan data in its pre-paces schema: the structured pace fields
+        # (pace_kind/slug/zone/value_s, estimated_paces) are for the Watch only, so a
+        # new-sync row and its legacy twin give the model the same input. Only the
+        # campus_coach module is projected (laps elsewhere carry a real pace_zone).
+        'active_modules': [
+            strip_structured_pace_fields(m)
+            if isinstance(m, dict) and m.get('name') == 'campus_coach' else m
+            for m in modules
+        ],
+        'campus_coach_session': strip_structured_pace_fields(campus_coach_sessions),
         # Title of the session the deterministic matcher bound to this activity, or
         # None when the sessions are passed as context only. The agent cannot see the
         # match score, so without this it could not know when the 📋 header is due.

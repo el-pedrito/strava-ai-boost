@@ -13,6 +13,9 @@ export interface AppConfig {
   // CoachChat POSTs straight to the AgentCore data plane with a Bearer Cognito
   // JWT; this is the sole coach chat transport (no buffered fallback).
   coachRuntimeArn?: string;
+  // Apple Watch export of the Campus plan (`/plan` page + nav item).
+  // Absent means disabled: only a strict `true` turns the feature on.
+  workoutExportEnabled?: boolean;
 }
 
 let _config: AppConfig | null = null;
@@ -43,6 +46,7 @@ export async function loadConfig(): Promise<AppConfig> {
     cognitoClientId: (import.meta.env.VITE_COGNITO_CLIENT_ID as string) || '',
     cognitoRegion: (import.meta.env.VITE_COGNITO_REGION as string) || 'us-east-1',
     coachRuntimeArn: (import.meta.env.VITE_COACH_RUNTIME_ARN as string) || undefined,
+    workoutExportEnabled: import.meta.env.VITE_WORKOUT_EXPORT_ENABLED === 'true',
   };
 
   return _config;
@@ -51,4 +55,16 @@ export async function loadConfig(): Promise<AppConfig> {
 export function getConfig(): AppConfig {
   if (!_config) throw new Error('Config not loaded. Call loadConfig() first.');
   return _config;
+}
+
+/**
+ * Whether the Apple Watch export (`/plan`) is exposed. Fails closed: a missing
+ * flag, a non-boolean value or a config that is not loaded yet all mean "off".
+ */
+export function isWorkoutExportEnabled(): boolean {
+  try {
+    return getConfig().workoutExportEnabled === true;
+  } catch {
+    return false;
+  }
 }
