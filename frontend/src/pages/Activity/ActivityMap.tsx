@@ -2,7 +2,6 @@ import { useMemo, useEffect } from 'react';
 import { MapContainer, TileLayer, Polyline, useMap } from 'react-leaflet';
 import type { LatLngBoundsExpression, LatLngTuple } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { useTheme } from '../../theme/ThemeProvider';
 
 function decodePolyline(encoded: string): LatLngTuple[] {
   const points: LatLngTuple[] = [];
@@ -44,8 +43,16 @@ interface ActivityMapProps {
   polyline: string;
 }
 
+// OSM tiles in both themes. The previous dark provider (CARTO dark_all) needs an API key and
+// answered HTTP 400 from the production domain, leaving the route on a watermark. Dark mode is
+// obtained with a CSS filter on .leaflet-tile-pane (styles/tokens.css), which leaves the route
+// (overlay pane) untouched.
+const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+// Transparent 1x1 GIF: a failed tile shows the themed map background instead of a broken image.
+const ERROR_TILE_URL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
 export function ActivityMap({ polyline }: ActivityMapProps) {
-  const { theme } = useTheme();
   const positions = useMemo(() => {
     try {
       return decodePolyline(polyline);
@@ -57,25 +64,21 @@ export function ActivityMap({ polyline }: ActivityMapProps) {
   if (positions.length === 0) return null;
 
   const bounds = positions as LatLngBoundsExpression;
-  const tileUrl =
-    theme === 'dark'
-      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-      : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-  const attribution =
-    theme === 'dark'
-      ? '&copy; <a href="https://carto.com/">CARTO</a>'
-      : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
 
   return (
-    <div className="h-[300px] w-full overflow-hidden rounded-xl">
+    <div className="activity-map h-[300px] w-full overflow-hidden rounded-xl">
       <MapContainer
         key={polyline}
         bounds={bounds}
         scrollWheelZoom={false}
         style={{ height: '100%', width: '100%' }}
       >
-        <TileLayer url={tileUrl} attribution={attribution} />
-        <Polyline positions={positions} pathOptions={{ color: '#3b82f6', weight: 3 }} />
+        <TileLayer url={TILE_URL} attribution={ATTRIBUTION} errorTileUrl={ERROR_TILE_URL} />
+        {/* stroke comes from .activity-route (var(--primary)); SVG attributes cannot resolve var(). */}
+        <Polyline
+          positions={positions}
+          pathOptions={{ color: '#fc4c02', weight: 3, className: 'activity-route' }}
+        />
         <FitBounds bounds={bounds} />
       </MapContainer>
     </div>
