@@ -191,6 +191,15 @@ describe('HomePage', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Loading home');
   });
 
+  it('links the Recovery card title to the Health page', async () => {
+    getHomeSummaryMock.mockResolvedValue(fullFixture());
+    renderHome();
+    const link = await screen.findByTestId('home-recovery-health-link');
+    expect(link).toHaveAttribute('href', '/health');
+    expect(link).toHaveTextContent('See my health');
+    expect(screen.getByRole('heading', { level: 2, name: /Recovery/ })).toContainElement(link);
+  });
+
   it('renders the hero with verdict, session, weather chips and signal words', async () => {
     getHomeSummaryMock.mockResolvedValue(fullFixture());
     renderHome();
