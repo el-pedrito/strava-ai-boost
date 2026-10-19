@@ -585,7 +585,7 @@ The Lambda Layer cannot be replaced via CDK due to CloudFormation cross-stack ex
 ## Testing
 
 ```bash
-# Lambda unit tests (1841 tests, ~2s — no AWS credentials needed)
+# Lambda unit tests (1842 tests, ~2s — no AWS credentials needed)
 pytest tests/unit/ -v
 
 # Prompt regression evaluators + LLM registry sync (114 tests, free)
@@ -595,14 +595,14 @@ pytest tests/regression/ -v
 export AWS_PROFILE=<your-aws-profile>
 pytest tests/ -v --ignore=tests/unit/
 
-# Frontend unit tests (351 tests, ~4s)
+# Frontend unit tests (352 tests, ~4s)
 cd frontend && npm test
 
 # All backend tests
 pytest tests/ -v
 ```
 
-**Test coverage:** 2306 total tests (1841 backend unit + 114 regression + 351 frontend), plus integration tests.
+**Test coverage:** 2308 total tests (1842 backend unit + 114 regression + 352 frontend), plus integration tests.
 
 **Prompt regression (on-demand, live):** after changing prompts and redeploying the agents, replay 10 synthetic reference activities against the deployed runtime:
 

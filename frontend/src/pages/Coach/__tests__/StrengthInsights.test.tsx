@@ -41,7 +41,7 @@ function emptyRunningTrends() {
   };
 }
 
-function points(field: 'top_weight_kg' | 'volume_kg' | 'e1rm_kg', values: number[]) {
+function points(field: 'top_weight_kg' | 'volume_kg' | 'e1rm_kg' | 'top_reps', values: number[]) {
   return values.map((v, i) => {
     const p: Record<string, unknown> = {
       date: `2026-10-${(i + 1).toString().padStart(2, '0')}`,
@@ -177,6 +177,34 @@ describe('Strength insights blocks', () => {
     // Squat appears both as a progression chip and a records row; Tractions in records.
     expect(screen.getAllByText('Squat').length).toBeGreaterThan(0);
     expect(screen.getByText('Tractions')).toBeInTheDocument();
+  });
+
+  it('bodyweight lift opens on max reps; a loaded lift keeps max load and has no reps toggle', async () => {
+    const user = userEvent.setup();
+    const reps = points('top_reps', [8, 9, 10, 10]).map((p, i) => ({ ...p, volume_kg: 2000 + i * 100 }));
+    mockSummary({
+      strength_progression: [
+        { exercise: 'Tractions', sessions: 4, e1rm_eligible: false, mixed: false, notation_mixed: false,
+          load_label: null, points: reps },
+        { exercise: 'Squat', sessions: 4, e1rm_eligible: true, mixed: false, notation_mixed: false,
+          load_label: null, points: points('top_weight_kg', [100, 102, 105, 110]) },
+      ],
+      strength_sessions: [],
+      strength_history: [],
+    });
+    renderCoach();
+    await openTrends(user);
+
+    const group = await screen.findByRole('group', { name: 'Progression metric' });
+    // Tractions first (default): no load points, so it opens on reps.
+    expect(within(group).getByRole('button', { name: 'Max load' })).toHaveAttribute('aria-pressed', 'false');
+    expect(within(group).getByRole('button', { name: 'Max reps' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Best bodyweight set per session (reps). Weighted sets are left out.')).toBeInTheDocument();
+    expect(screen.queryByText(/Not enough points/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Squat' }));
+    expect(within(group).getByRole('button', { name: 'Max load' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(group).queryByRole('button', { name: 'Max reps' })).not.toBeInTheDocument();
   });
 
   it('renders nothing strength-related when the payload is missing', async () => {

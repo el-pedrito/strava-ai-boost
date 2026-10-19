@@ -686,6 +686,23 @@ def _build_strength_progression(
                 )
                 if flat_weight is not None and flat_weight > 0 and flat_valid:
                     top_weight = flat_weight
+            # Top reps: max reps over BODYWEIGHT sets (no load or load 0). A pull-up
+            # or a dip has no load to chart, its reps are the progression. Weighted
+            # sets stay out so +10 kg x 5 never reads as a drop from 10 reps.
+            top_reps: Optional[float] = None
+            if isinstance(detail, list) and detail:
+                for row in detail:
+                    if not isinstance(row, dict):
+                        continue
+                    load = to_finite_float(row.get('weight_kg'))
+                    row_reps = to_finite_float(row.get('reps'))
+                    if (load is None or load <= 0) and row_reps is not None and row_reps > 0:
+                        top_reps = row_reps if top_reps is None else max(top_reps, row_reps)
+            else:
+                flat_weight = to_finite_float(s.get('weight_kg'))
+                flat_reps = to_finite_float(s.get('reps'))
+                if (flat_weight is None or flat_weight <= 0) and flat_reps is not None and flat_reps > 0:
+                    top_reps = flat_reps
             # Volume from the pipeline figures (never recomputed here).
             volume = per_exercise_volume.get(name)
             # Flat fallback only for a legacy row with no sets_detail: when detail
@@ -707,6 +724,7 @@ def _build_strength_progression(
                 'date': day,
                 'top_weight_kg': top_weight,
                 'volume_kg': volume,
+                'top_reps': int(top_reps) if top_reps is not None and float(top_reps).is_integer() else top_reps,
             }
             by_exercise.setdefault(name, []).append(point)
 
@@ -725,6 +743,8 @@ def _build_strength_progression(
                 cur['top_weight_kg'] = max(cur['top_weight_kg'] or 0, p['top_weight_kg'])
             if p['volume_kg'] is not None:
                 cur['volume_kg'] = round((cur['volume_kg'] or 0) + p['volume_kg'], 1)
+            if p['top_reps'] is not None:
+                cur['top_reps'] = max(cur['top_reps'] or 0, p['top_reps'])
         # Merge the e1RM per day (already the per-day max from strength_insights).
         day_e1rm = e1rm_by_day.get(name, {})
         merged = sorted(per_day.values(), key=lambda x: x['date'])

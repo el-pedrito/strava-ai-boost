@@ -1106,6 +1106,8 @@
   "health.body.title": "VO2max et poids",
   "health.body.vo2maxUnit": "ml/kg/min",
   "coach.strength.metric.e1rm": "1RM estimé",
+  "coach.strength.metric.repsMax": "Reps max",
+  "coach.strength.hint.repsMax": "Meilleure série au poids du corps par séance (reps). Les séries lestées ne comptent pas.",
   "coach.strength.unit.e1rm": "kg",
   "coach.strength.hint.e1rm": "1RM estimé (Epley) de la meilleure série ; dépend de la proximité de l'échec et comparable seulement sur le même exercice et le même matériel.",
   "coach.strength.e1rmLabel": "L'estimation vient de la meilleure série et n'est comparable que sur le même exercice et le même matériel.",

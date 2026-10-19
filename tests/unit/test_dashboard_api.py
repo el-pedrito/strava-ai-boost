@@ -241,6 +241,7 @@ class TestBuildStrengthProgression:
         # legacy rows), and each point carries e1rm_kg (None when not eligible/present).
         assert result[0]['points'][0] == {
             'date': '2026-07-01', 'top_weight_kg': 80.0, 'volume_kg': 2560.0, 'e1rm_kg': None,
+            'top_reps': None,
         }
         assert result[0]['points'][1]['top_weight_kg'] == 82.5
         # Bodyweight exercise → weight/volume None
@@ -313,6 +314,29 @@ class TestBuildStrengthProgression:
         assert pts[0]['e1rm_kg'] is None
 
 
+    def test_bodyweight_sets_give_top_reps_weighted_sets_do_not(self):
+        """A pull-up has no load to chart: its best bodyweight set (reps) is the
+        progression point. Weighted sets stay out, and several entries the same
+        day keep the max."""
+        entries = [
+            {'date': '2026-10-01', 'parsed_sets': [{'exercise': 'Tractions', 'sets_detail': [
+                {'reps': 8}, {'reps': 10, 'weight_kg': 0}, {'reps': 6}]}]},
+            {'date': '2026-10-01', 'parsed_sets': [{'exercise': 'Tractions', 'sets_detail': [
+                {'reps': 11}]}]},
+            {'date': '2026-10-08', 'parsed_sets': [{'exercise': 'Tractions', 'sets_detail': [
+                {'reps': 5, 'weight_kg': 10}, {'reps': 9}]}]},
+            {'date': '2026-10-15', 'parsed_sets': [{'exercise': 'Tractions', 'sets': 3, 'reps': 12}]},
+            {'date': '2026-10-15', 'parsed_sets': [{'exercise': 'Développé couché', 'sets_detail': [
+                {'reps': 10, 'weight_kg': 60}]}]},
+        ]
+        result = _build_strength_progression(entries)
+        tractions = next(e for e in result if e['exercise'] == 'Tractions')
+        assert [(p['date'], p['top_reps']) for p in tractions['points']] == [
+            ('2026-10-01', 11), ('2026-10-08', 9), ('2026-10-15', 12)]
+        assert tractions['points'][1]['top_weight_kg'] == 10.0
+        bench = next(e for e in result if e['exercise'] == 'Développé couché')
+        assert bench['points'][0]['top_reps'] is None
+
     def test_ambiguous_row_draws_no_load_point(self):
         """Round-4: the chart exclusion had no test. An unflagged row whose text
         holds a per-side wording draws no top weight, volume or e1RM."""
@@ -334,6 +358,7 @@ class TestBuildStrengthProgression:
         points = {p['date']: p for p in result[0]['points']}
         assert points['2026-10-06'] == {
             'date': '2026-10-06', 'top_weight_kg': None, 'volume_kg': None, 'e1rm_kg': None,
+            'top_reps': None,
         }
         assert points['2026-10-13']['top_weight_kg'] == 60.0
         assert points['2026-10-13']['volume_kg'] == 1800.0

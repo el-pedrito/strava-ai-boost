@@ -1106,6 +1106,8 @@
   "health.body.title": "VO2max and weight",
   "health.body.vo2maxUnit": "ml/kg/min",
   "coach.strength.metric.e1rm": "e1RM",
+  "coach.strength.metric.repsMax": "Max reps",
+  "coach.strength.hint.repsMax": "Best bodyweight set per session (reps). Weighted sets are left out.",
   "coach.strength.unit.e1rm": "kg",
   "coach.strength.hint.e1rm": "Estimated 1RM (Epley) of the best set; depends on how close to failure and comparable only on the same exercise and equipment.",
   "coach.strength.e1rmLabel": "The estimate is from the best set and is comparable only on the same exercise and the same equipment.",

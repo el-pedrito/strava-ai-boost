@@ -206,7 +206,7 @@ function FeedbackCard({ item }: FeedbackCardProps) {
             aria-hidden="true"
           />
           <div className="flex flex-col gap-0.5">
-            <span className="text-xs font-semibold text-primary">
+            <span className="text-xs font-semibold text-primary-text">
               {t('coach.feedback.recommendationNext')}
             </span>
             <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
@@ -270,6 +270,8 @@ interface StrengthProgressionPoint {
   top_weight_kg: number | null;
   volume_kg: number | null;
   e1rm_kg?: number | null;
+  /** Best bodyweight set of the day (reps); null when every set had a load. */
+  top_reps?: number | null;
 }
 
 interface StrengthProgressionEntry {
@@ -324,11 +326,11 @@ interface StrengthInsights {
   mixed_exercises?: Array<{ exercise: string; note_key: string }>;
 }
 
-type ProgressionMetric = 'weight' | 'volume' | 'e1rm';
+type ProgressionMetric = 'weight' | 'volume' | 'e1rm' | 'reps';
 
 const METRICS: Record<
   ProgressionMetric,
-  { field: 'top_weight_kg' | 'volume_kg' | 'e1rm_kg'; labelKey: string; unitKey: string; hintKey: string }
+  { field: 'top_weight_kg' | 'volume_kg' | 'e1rm_kg' | 'top_reps'; labelKey: string; unitKey: string; hintKey: string }
 > = {
   weight: {
     field: 'top_weight_kg',
@@ -348,7 +350,20 @@ const METRICS: Record<
     unitKey: 'coach.strength.unit.e1rm',
     hintKey: 'coach.strength.hint.e1rm',
   },
+  // Bodyweight lifts (pull-ups, dips): no load to chart, the best set's reps are
+  // the progression. Weighted sets are left out server-side.
+  reps: {
+    field: 'top_reps',
+    labelKey: 'coach.strength.metric.repsMax',
+    unitKey: 'coach.strength.unit.reps',
+    hintKey: 'coach.strength.hint.repsMax',
+  },
 };
+
+/** At least 3 points of `field`: below that a line says nothing. */
+function hasSeries(e: StrengthProgressionEntry, field: (typeof METRICS)[ProgressionMetric]['field']): boolean {
+  return e.points.filter((p) => p[field] != null).length >= 3;
+}
 
 /**
  * Per-exercise strength progression chart. Shows top weight, total volume or
@@ -366,7 +381,7 @@ function StrengthProgression({
 }) {
   const { t } = useTranslation();
   const chartTheme = useChartTheme();
-  const [chosenMetric, setMetric] = useState<ProgressionMetric>('weight');
+  const [chosenMetric, setMetric] = useState<ProgressionMetric | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
 
   // Exercises chartable on the baseline metrics (weight or volume). The chip row
@@ -375,8 +390,7 @@ function StrengthProgression({
     () =>
       data.filter(
         (e) =>
-          e.points.filter((p) => p.top_weight_kg != null).length >= 3 ||
-          e.points.filter((p) => p.volume_kg != null).length >= 3,
+          hasSeries(e, 'top_weight_kg') || hasSeries(e, 'volume_kg') || hasSeries(e, 'top_reps'),
       ),
     [data],
   );
@@ -388,10 +402,23 @@ function StrengthProgression({
 
   const e1rmEligible = Boolean(active?.e1rm_eligible);
 
-  // Selecting a non-eligible exercise while on e1RM falls back to weight, derived
-  // (no setState-in-effect): the chosen metric is overridden rather than reset.
+  // Buttons: max load and volume always (a thin one shows the metric empty
+  // state), e1RM when eligible, max reps only when the exercise has bodyweight
+  // sets to draw.
+  const availableMetrics: ProgressionMetric[] = active
+    ? (['weight', 'volume', 'e1rm', 'reps'] as const).filter((m) =>
+        m === 'e1rm' ? e1rmEligible : m === 'reps' ? hasSeries(active, 'top_reps') : true,
+      )
+    : [];
+
+  // Until the athlete picks a metric, a lift with no load series but bodyweight
+  // reps (pull-ups, dips) opens on reps instead of an empty "max load" chart.
+  // A metric the exercise does not offer falls back the same way, derived (no
+  // setState-in-effect): the chosen metric is overridden, not reset.
+  const preferred: ProgressionMetric =
+    active && !hasSeries(active, 'top_weight_kg') && hasSeries(active, 'top_reps') ? 'reps' : 'weight';
   const metric: ProgressionMetric =
-    chosenMetric === 'e1rm' && !e1rmEligible ? 'weight' : chosenMetric;
+    chosenMetric != null && availableMetrics.includes(chosenMetric) ? chosenMetric : preferred;
 
   if (chartable.length === 0 || !active) return null;
 
@@ -409,11 +436,6 @@ function StrengthProgression({
     exercise: active.exercise,
     metric: activeMetricLabel,
   });
-
-  // The metrics available for the selected exercise (e1RM only when eligible).
-  const availableMetrics: ProgressionMetric[] = e1rmEligible
-    ? ['weight', 'volume', 'e1rm']
-    : ['weight', 'volume'];
 
   return (
     <Card variant="default" padding="lg">
@@ -436,7 +458,7 @@ function StrengthProgression({
               className={cn(
                 'cursor-pointer rounded px-2 py-1 text-xs transition-colors',
                 metric === m
-                  ? 'bg-primary text-primary-foreground'
+                  ? 'bg-primary-strong text-primary-foreground'
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
@@ -454,16 +476,17 @@ function StrengthProgression({
             onClick={() => {
               setSelected(e.exercise);
               // If this exercise is not e1RM-eligible and e1RM is the chosen
-              // metric, store weight so the choice persists across reselection.
+              // metric, drop the choice so the exercise opens on its own default
+              // (max load, or max reps for a bodyweight lift).
               if (chosenMetric === 'e1rm' && !e.e1rm_eligible) {
-                setMetric('weight');
+                setMetric(null);
               }
             }}
             aria-pressed={active.exercise === e.exercise}
             className={cn(
               'cursor-pointer rounded-full border px-2.5 py-1 text-xs transition-colors',
               active.exercise === e.exercise
-                ? 'border-primary bg-primary/10 text-primary'
+                ? 'border-primary bg-primary/10 text-primary-text'
                 : 'border-border text-muted-foreground hover:text-foreground',
             )}
           >
@@ -502,7 +525,8 @@ function StrengthProgression({
                 tickLine={false}
                 axisLine={false}
                 width={44}
-                domain={['dataMin - 5', 'dataMax + 5']}
+                domain={metric === 'reps' ? [0, 'dataMax + 2'] : ['dataMin - 5', 'dataMax + 5']}
+                allowDecimals={metric !== 'reps'}
                 tickFormatter={(v: number) => `${Math.round(v)}`}
               />
               <Tooltip
@@ -537,9 +561,9 @@ function StrengthProgression({
         <p className="mt-1 text-xs text-muted-foreground">{t('coach.strength.e1rmLabel')}</p>
       ) : null}
       {active.mixed ? (
-        <p className="mt-1 text-xs text-warning">{t('coach.strength.note.mixed')}</p>
+        <p className="mt-1 text-xs text-warning-text">{t('coach.strength.note.mixed')}</p>
       ) : active.notation_mixed ? (
-        <p className="mt-1 text-xs text-warning">{t('coach.strength.note.notationMixed')}</p>
+        <p className="mt-1 text-xs text-warning-text">{t('coach.strength.note.notationMixed')}</p>
       ) : active.load_label === 'total_noted' && metric === 'weight' ? (
         <p className="mt-1 text-xs text-muted-foreground">{t('coach.strength.note.totalNoted')}</p>
       ) : null}
@@ -631,7 +655,7 @@ function StrengthSessionTotals({
               className={cn(
                 'cursor-pointer rounded px-2 py-1 text-xs transition-colors',
                 metric === m
-                  ? 'bg-primary text-primary-foreground'
+                  ? 'bg-primary-strong text-primary-foreground'
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
@@ -828,7 +852,7 @@ function StrengthWeeklyGroups({
               className={cn(
                 'cursor-pointer rounded-full border px-2.5 py-1 text-xs transition-colors',
                 current === g
-                  ? 'border-primary bg-primary/10 text-primary'
+                  ? 'border-primary bg-primary/10 text-primary-text'
                   : 'border-border text-muted-foreground hover:text-foreground',
               )}
             >
@@ -858,7 +882,12 @@ function StrengthWeeklyGroups({
               allowDecimals
             />
             <Tooltip content={<ChartTooltip />} />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Legend
+              wrapperStyle={{ fontSize: 12 }}
+              // Series colours are too pale for text (AA): the swatch keeps the
+              // colour, the label uses the body text colour.
+              formatter={(value) => <span className="text-foreground">{value}</span>}
+            />
             <Bar
               dataKey="logged"
               name={t('coach.strength.insights.segment.logged')}
@@ -935,7 +964,7 @@ function StrengthRecordsTable({
                 <td className="py-1.5 pr-2 font-medium text-foreground">
                   {r.exercise}
                   {r.notation_mixed ? (
-                    <span className="ml-1 text-warning" title={t('coach.strength.note.notationMixed')}>
+                    <span className="ml-1 text-warning-text" title={t('coach.strength.note.notationMixed')}>
                       *
                     </span>
                   ) : null}
@@ -1036,7 +1065,12 @@ function StrengthPushPull({
               allowDecimals
             />
             <Tooltip content={<ChartTooltip />} />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Legend
+              wrapperStyle={{ fontSize: 12 }}
+              // Series colours are too pale for text (AA): the swatch keeps the
+              // colour, the label uses the body text colour.
+              formatter={(value) => <span className="text-foreground">{value}</span>}
+            />
             <Line
               type="monotone"
               dataKey="push"
@@ -1514,8 +1548,8 @@ export function CoachPage() {
                       rampRate !== null ? (
                         <span
                           className={cn(
-                            rampTone === 'danger' && 'text-danger',
-                            rampTone === 'success' && 'text-success'
+                            rampTone === 'danger' && 'text-danger-text',
+                            rampTone === 'success' && 'text-success-text'
                           )}
                         >
                           {rampRate > 0 ? '+' : ''}
@@ -1530,8 +1564,8 @@ export function CoachPage() {
                         <RampIcon
                           className={cn(
                             'h-4 w-4',
-                            rampTone === 'danger' && 'text-danger',
-                            rampTone === 'success' && 'text-success'
+                            rampTone === 'danger' && 'text-danger-text',
+                            rampTone === 'success' && 'text-success-text'
                           )}
                           aria-hidden="true"
                         />
@@ -1569,9 +1603,9 @@ export function CoachPage() {
                     <div className="text-center">
                       <div className={cn(
                         'text-xl font-numeric font-bold',
-                        trends.recovery.form > 5 && 'text-success',
-                        trends.recovery.form < -10 && 'text-danger',
-                        trends.recovery.form >= -10 && trends.recovery.form <= 5 && 'text-warning',
+                        trends.recovery.form > 5 && 'text-success-text',
+                        trends.recovery.form < -10 && 'text-danger-text',
+                        trends.recovery.form >= -10 && trends.recovery.form <= 5 && 'text-warning-text',
                       )}>
                         {trends.recovery.form > 0 ? '+' : ''}{Math.round(trends.recovery.form)}
                       </div>
@@ -1592,7 +1626,7 @@ export function CoachPage() {
                         <InfoTooltip i18nKey="metrics.vo2max" />
                       </div>
                       {trends.recovery.vo2max_delta_7d !== null && (
-                        <div className={cn('text-xs mt-0.5', trends.recovery.vo2max_delta_7d >= 0 ? 'text-success' : 'text-danger')}>
+                        <div className={cn('text-xs mt-0.5', trends.recovery.vo2max_delta_7d >= 0 ? 'text-success-text' : 'text-danger-text')}>
                           {trends.recovery.vo2max_delta_7d > 0 ? '+' : ''}{trends.recovery.vo2max_delta_7d}/7j
                         </div>
                       )}
@@ -1606,7 +1640,7 @@ export function CoachPage() {
                         <InfoTooltip i18nKey="metrics.restinghr" />
                       </div>
                       {trends.recovery.resting_hr_delta_7d !== null && (
-                        <div className={cn('text-xs mt-0.5', trends.recovery.resting_hr_delta_7d <= 0 ? 'text-success' : 'text-danger')}>
+                        <div className={cn('text-xs mt-0.5', trends.recovery.resting_hr_delta_7d <= 0 ? 'text-success-text' : 'text-danger-text')}>
                           {trends.recovery.resting_hr_delta_7d > 0 ? '+' : ''}{trends.recovery.resting_hr_delta_7d}/7j
                         </div>
                       )}
@@ -1620,7 +1654,7 @@ export function CoachPage() {
                         <InfoTooltip i18nKey="metrics.sleep" />
                       </div>
                       {trends.recovery.sleep_delta_7d_min !== null && trends.recovery.sleep_delta_7d_min !== 0 && (
-                        <div className={cn('text-xs mt-0.5', trends.recovery.sleep_delta_7d_min > 0 ? 'text-success' : 'text-danger')}>
+                        <div className={cn('text-xs mt-0.5', trends.recovery.sleep_delta_7d_min > 0 ? 'text-success-text' : 'text-danger-text')}>
                           {trends.recovery.sleep_delta_7d_min > 0 ? '+' : ''}{trends.recovery.sleep_delta_7d_min}min/7j
                         </div>
                       )}
@@ -1657,7 +1691,7 @@ export function CoachPage() {
                     type="button"
                     onClick={handleGenerateRecap}
                     disabled={generating}
-                    className="text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                    className="text-xs px-3 py-1.5 rounded-md bg-primary-strong text-primary-foreground hover:bg-primary-strong-hover disabled:opacity-50"
                   >
                     {generating ? t('coach.recaps.generating') : t('coach.recaps.generate')}
                   </button>
@@ -1695,11 +1729,11 @@ export function CoachPage() {
                   <span
                     className={cn(
                       'text-sm font-numeric font-semibold',
-                      compliance.percentage >= 80 && 'text-success',
+                      compliance.percentage >= 80 && 'text-success-text',
                       compliance.percentage >= 50 &&
                         compliance.percentage < 80 &&
-                        'text-warning',
-                      compliance.percentage < 50 && 'text-danger'
+                        'text-warning-text',
+                      compliance.percentage < 50 && 'text-danger-text'
                     )}
                   >
                     {compliance.percentage}%
@@ -2193,7 +2227,7 @@ export function CoachPage() {
                         <div className="mb-3 flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <Footprints
-                              className="h-4 w-4 text-success"
+                              className="h-4 w-4 text-success-text"
                               aria-hidden="true"
                             />
                             <h3 className="text-sm font-semibold">
@@ -2445,7 +2479,7 @@ export function CoachPage() {
                       <Sparkles
                         className={cn(
                           'h-4 w-4 mt-0.5 flex-shrink-0',
-                          rampInsight.tone === 'info' && 'text-primary',
+                          rampInsight.tone === 'info' && 'text-primary-text',
                           rampInsight.tone === 'muted' && 'text-muted-foreground',
                         )}
                         aria-hidden="true"
