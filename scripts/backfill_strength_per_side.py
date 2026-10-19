@@ -49,8 +49,8 @@ Safety
   whole-entry updates (the live plan of 2026-10-19 needs 2). A failure says
   which updates landed; every op is idempotent, so a fresh plan resumes.
   Each update is conditional on ``last_updated``, on the ``activity_id`` of every
-  entry and on the ``exercise`` of every row it writes; ``--apply`` also checks
-  them before the backup.
+  entry, on the ``exercise`` of every row it writes and on that row being still
+  unflagged; ``--apply`` also checks them before the backup.
 
 The one-off re-read of 2026-10-17 (43 per side, 244 not, 23 unflagged) was not kept
 as a script. This one applies the rule above; its counts can differ.
@@ -215,9 +215,9 @@ def _entry_groups(ops: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
 def _build_update(ops: List[Dict[str, Any]], last_updated: Any) -> Dict[str, Any]:
     """One conditional, per-field ``update_item`` for ``ops``.
 
-    The condition pins ``last_updated``, the ``activity_id`` of every entry and the
-    ``exercise`` of every row it writes, so a shifted list fails instead of
-    landing on another lift. Attribute names are declared only when used:
+    The condition pins ``last_updated``, the ``activity_id`` of every entry, the
+    ``exercise`` of every row it writes and that the row is still unflagged, so a
+    shifted list or a flag set meanwhile fails instead of being overwritten. Attribute names are declared only when used:
     DynamoDB rejects an unused one.
     """
     names = {"#up": "user_preferences", "#sh": "strength_history", "#e": "entries",
@@ -324,6 +324,7 @@ def main(argv: Optional[List[str]] = None, table: Any = None, reread: Any = None
         plan_path = os.path.join(args.out_dir, f"plan_{args.user_id}_{_stamp()}.json")
         with open(plan_path, "x", encoding="utf-8") as fh:
             json.dump({"user_id": args.user_id, "last_updated": history.get("last_updated"),
+                       "recompute_volume": bool(args.recompute_volume),
                        "entries": len(entries), "ops": ops}, fh, ensure_ascii=False, indent=1)
         print(f"  plan: {plan_path} ({len(ops)} ops). Nothing written.")
         print(f"  review it, then: --apply --plan {plan_path}")
@@ -370,7 +371,9 @@ def main(argv: Optional[List[str]] = None, table: Any = None, reread: Any = None
             else:
                 print(f"  Updates 1..{k} were applied (whole entries only).")
             print(f"  On a timeout, update {k + 1} itself may have landed.")
-            print(f"  Backup: {backup_path}. Re-run without --apply for a fresh plan:")
+            again = " --recompute-volume" if plan.get("recompute_volume") else ""
+            print(f"  Backup: {backup_path}. Make a fresh plan with the SAME options:")
+            print(f"    python3 scripts/backfill_strength_per_side.py --user-id {args.user_id}{again}")
             print("  rows already flagged are skipped, so it resumes where it stopped.")
             return 3
     print(f"  {len(plan['ops'])} ops written in {len(updates)} update(s)")

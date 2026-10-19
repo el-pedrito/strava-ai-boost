@@ -338,6 +338,7 @@ def test_a_failed_update_reports_what_landed(tmp_path, monkeypatch, capsys):
     assert table.update_item.call_count == 2
     assert "FAILED on update 2/2" in out and "Updates 1..1 were applied" in out
     assert "update 2 itself may have landed" in out
+    assert "--user-id u\n" in out  # resume command, no option it was not planned with
 
 
 def test_apply_refuses_a_row_that_changed_exercise(tmp_path):
@@ -381,3 +382,14 @@ def test_apply_refuses_an_old_plan_missing_a_volume_field(tmp_path):
                           "--plan", str(plan)], table=table) == 2
     table.update_item.assert_not_called()
     assert not list(tmp_path.glob("backup_u_*.json"))  # refused before the backup
+
+
+def test_a_failed_apply_repeats_recompute_volume_in_the_resume_command(tmp_path, capsys):
+    table = _table(_entries())
+    backfill.main(["--user-id", "u", "--out-dir", str(tmp_path), "--recompute-volume"],
+                  table=table, reread=_never)
+    plan = str(next(tmp_path.glob("plan_u_*.json")))
+    table.update_item.side_effect = RuntimeError("timeout")
+    assert backfill.main(["--user-id", "u", "--out-dir", str(tmp_path), "--apply",
+                          "--plan", plan], table=table) == 3
+    assert "--user-id u --recompute-volume" in capsys.readouterr().out
