@@ -39,7 +39,7 @@ function StatusIcon({ kind, prepRace }: { kind: SessionKind; prepRace: boolean }
   }
   if (kind === 'missed') {
     return (
-      <span className={cn(base, 'bg-danger/10 text-danger')} aria-hidden="true">
+      <span className={cn(base, 'bg-danger/10 text-danger-text')} aria-hidden="true">
         <X className="h-3.5 w-3.5" strokeWidth={3} />
       </span>
     );

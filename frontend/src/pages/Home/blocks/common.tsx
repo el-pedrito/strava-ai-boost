@@ -11,7 +11,7 @@ import { PRIMARY_TEXT, type Tone } from './tones';
 const TONE_PILL: Record<Tone, string> = {
   success: 'bg-success/10 text-success-text',
   warning: 'bg-warning/15 text-warning-text',
-  danger: 'bg-danger/10 text-danger',
+  danger: 'bg-danger/10 text-danger-text',
   primary: `bg-primary/10 ring-1 ring-inset ring-primary/40 ${PRIMARY_TEXT}`,
   muted: 'bg-muted text-muted-foreground',
   info: 'bg-info/10 text-info',
