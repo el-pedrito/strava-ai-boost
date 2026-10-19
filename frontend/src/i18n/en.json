@@ -300,7 +300,7 @@
   "coach.chart.samePace": "Same pace as previous week",
   "coach.chart.legendVolume": "Volume",
   "coach.chart.legendPace": "Pace",
-  "coach.insights.volumeUp": "Volume up {{pct}}% over 4 weeks. Watch fatigue indicators.",
+  "coach.insights.volumeUp": "Volume up {{pct}}% vs previous week. Watch fatigue indicators.",
   "coach.insights.volumeDown": "Recovery week: −{{pct}}% volume vs previous week. Normal after a heavy week.",
   "coach.insights.volumeSteady": "Steady volume around {{avg}} km/week.",
   "coach.insights.volumePeak": "{{week}} was your highest at {{km}} km.",

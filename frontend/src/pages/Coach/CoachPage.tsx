@@ -70,6 +70,8 @@ interface PacePoint {
 
 interface CoachSummary {
   recent_feedback: CoachFeedbackItem[];
+  /** Run-km change between the last two COMPLETED weeks (null if unknown). */
+  volume_change_completed_weeks_pct?: number | null;
   current_week?: {
     runs: number;
     run_km: number;
@@ -1201,25 +1203,28 @@ export function CoachPage() {
   })();
 
   // Volume insight (computed on client from received trends)
+  // The last bucket of weekly_volume_km is the week in progress: on a Monday it
+  // is ~0 km, and comparing it read "recovery week: -100%". Up/down use the
+  // backend's completed-week delta (last two full weeks, i.e. "vs previous
+  // week"); steady/peak use the completed weeks only.
+  const completedWeekChange = data?.volume_change_completed_weeks_pct ?? rampRate;
   const volumeInsight = useMemo<string | null>(() => {
-    if (vol.length < 2) return null;
-    const first = vol[0] || 0;
-    const last = vol[vol.length - 1] || 0;
-    const avg = vol.reduce((a, b) => a + b, 0) / vol.length;
-    const max = Math.max(...vol);
-    const maxIdx = vol.findIndex((v) => v === max);
-    if (first > 0 && last > first * 1.15) {
-      const pct = Math.round(((last - first) / first) * 100);
-      return t('coach.insights.volumeUp', { pct });
+    const done = vol.slice(0, -1);
+    const doneLabels = weekLabels.slice(0, done.length);
+    if (completedWeekChange !== null && completedWeekChange > 15) {
+      return t('coach.insights.volumeUp', { pct: Math.round(completedWeekChange) });
     }
-    if (first > 0 && last < first * 0.85) {
-      const pct = Math.round(((first - last) / first) * 100);
-      return t('coach.insights.volumeDown', { pct });
+    if (completedWeekChange !== null && completedWeekChange < -15) {
+      return t('coach.insights.volumeDown', { pct: Math.round(-completedWeekChange) });
     }
+    if (done.length < 2) return null;
+    const avg = done.reduce((a, b) => a + b, 0) / done.length;
+    const max = Math.max(...done);
+    const maxIdx = done.findIndex((v) => v === max);
     const variance =
       avg > 0
         ? Math.sqrt(
-            vol.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / vol.length,
+            done.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / done.length,
           ) / avg
         : 0;
     if (variance < 0.1) {
@@ -1227,12 +1232,12 @@ export function CoachPage() {
     }
     if (maxIdx >= 0 && max > 0) {
       return t('coach.insights.volumePeak', {
-        week: weekLabels[maxIdx],
+        week: doneLabels[maxIdx],
         km: Math.round(max),
       });
     }
     return null;
-  }, [vol, t, weekLabels]);
+  }, [vol, t, weekLabels, completedWeekChange]);
 
   // Pace insight
   const paceInsight = useMemo<string | null>(() => {

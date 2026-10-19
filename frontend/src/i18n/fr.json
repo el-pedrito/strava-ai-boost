@@ -300,7 +300,7 @@
   "coach.chart.samePace": "Même allure que la semaine précédente",
   "coach.chart.legendVolume": "Volume",
   "coach.chart.legendPace": "Allure",
-  "coach.insights.volumeUp": "Volume en hausse de {{pct}}% sur 4 semaines. Surveille les signes de fatigue.",
+  "coach.insights.volumeUp": "Volume en hausse de {{pct}}% vs sem. précédente. Surveille les signes de fatigue.",
   "coach.insights.volumeDown": "Semaine de récupération : −{{pct}}% de volume vs sem. précédente. Normal après une grosse semaine.",
   "coach.insights.volumeSteady": "Volume stable autour de {{avg}} km/semaine.",
   "coach.insights.volumePeak": "{{week}} : ton plus gros volume à {{km}} km.",
