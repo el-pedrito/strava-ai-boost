@@ -8,23 +8,12 @@
 import { useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, ChevronDown, Gauge } from 'lucide-react';
-import {
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ReferenceArea,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
 import { InfoTooltip } from '@/ui';
-import { ChartTooltip, useChartTheme } from '@/ui/Chart';
 import { cn } from '@/lib/cn';
 import type { HealthMetric, HealthSeriesPoint, HomeHealth } from '@/types/home';
 import { fmtNumber, formatMetric, formatShortDate } from '../format';
 import type { LoadGap } from '../insights';
+import { LoadLineChart } from './charts';
 import { HomeCard, Pill, ValueUnit } from './common';
 import { INFO_HIT } from './tones';
 
@@ -95,7 +84,6 @@ export function LoadCard({
 }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language;
-  const chartTheme = useChartTheme();
   const [open, setOpen] = useState(false);
   const panelId = useId();
 
@@ -104,7 +92,6 @@ export function LoadCard({
     [series]
   );
   const hasChart = data.filter((p) => p.ctl != null || p.atl != null).length >= 2;
-  const fmt = (v: unknown) => fmtNumber(Number(v), 1, lang) ?? String(v);
   const visibleTiles = TILES.filter((tile) => health[tile.key] != null);
 
   return (
@@ -143,31 +130,7 @@ export function LoadCard({
                 atl: fmtNumber(health.atl?.value, 1, lang) ?? t('home.na'),
               })}
             >
-              <ResponsiveContainer width="100%" height={160}>
-                <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} vertical={false} />
-                  {gaps.map((g) => (
-                    <ReferenceArea key={g.start} x1={g.start} x2={g.end} fill="var(--warning)" fillOpacity={0.12} ifOverflow="hidden" />
-                  ))}
-                  <XAxis
-                    dataKey="date"
-                    stroke={chartTheme.axisColor}
-                    tick={{ fontSize: 12 }}
-                    interval="preserveStartEnd"
-                    minTickGap={40}
-                    tickFormatter={(d) => formatShortDate(String(d), lang) ?? String(d)}
-                  />
-                  <YAxis stroke={chartTheme.axisColor} tick={{ fontSize: 12 }} width={32} tickFormatter={(v) => fmtNumber(Number(v), 0, lang) ?? ''} />
-                  <Tooltip
-                    content={
-                      <ChartTooltip valueFormatter={fmt} labelFormatter={(d) => formatShortDate(String(d), lang) ?? String(d)} />
-                    }
-                  />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Line type="monotone" dataKey="ctl" stroke="var(--info)" dot={false} strokeWidth={2} name={t('home.health.ctl')} connectNulls={false} isAnimationActive={false} />
-                  <Line type="monotone" dataKey="atl" stroke={chartTheme.mutedColor} dot={false} strokeWidth={2} name={t('home.health.atl')} connectNulls={false} isAnimationActive={false} />
-                </LineChart>
-              </ResponsiveContainer>
+              <LoadLineChart data={data} gaps={gaps} ctlName={t('home.health.ctl')} atlName={t('home.health.atl')} lang={lang} />
             </div>
           </div>
         )}

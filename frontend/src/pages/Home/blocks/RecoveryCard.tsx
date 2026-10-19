@@ -6,16 +6,17 @@
  */
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowDown, ArrowRight, ArrowUp, HeartPulse } from 'lucide-react';
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Link } from 'react-router';
+import { ChevronRight, HeartPulse } from 'lucide-react';
 import { InfoTooltip } from '@/ui';
-import { ChartTooltip, useChartTheme } from '@/ui/Chart';
 import { cn } from '@/lib/cn';
 import type { HealthMetric, HealthSeriesPoint, HomeHealth } from '@/types/home';
-import { formatDiff, formatMetric, formatMetricText, formatShortDate } from '../format';
+import { formatMetric, formatMetricText, formatShortDate } from '../format';
 import { filterHrvByLatestKind, formZone } from '../insights';
 import { CardHead, HomeCard, Pill, ValueUnit } from './common';
-import { INFO_HIT, TONE_TEXT } from './tones';
+import { MetricLineChart } from './charts';
+import { INFO_HIT } from './tones';
+import { UsualLine } from './UsualLine';
 
 type RecoveryKey = 'hrv' | 'resting_hr' | 'sleep_s' | 'form';
 type ChartKey = 'hrv' | 'resting_hr' | 'sleep_s';
@@ -32,39 +33,6 @@ const CHART_KEYS: ReadonlyArray<{ key: ChartKey; label: string }> = [
   { key: 'resting_hr', label: 'home.health.restingHr' },
   { key: 'sleep_s', label: 'home.health.sleep' },
 ];
-
-const DIFF_TONE = { good: 'success', bad: 'warning', neutral: 'muted' } as const;
-
-function UsualLine({ metricKey, metric }: { metricKey: RecoveryKey; metric: HealthMetric }) {
-  const { t, i18n } = useTranslation();
-  const lang = i18n.language;
-  const isSleep = metricKey === 'sleep_s';
-  const baseline = isSleep ? metric.baseline_7d : metric.baseline_60d;
-  const usual = formatMetricText(metricKey, baseline, lang);
-  if (usual == null) return null;
-  const delta = metric.delta ?? (metric.value != null && baseline != null ? metric.value - baseline : null);
-  const diff = formatDiff(metricKey, delta, lang);
-  const windowText = t(isSleep ? 'home.recovery.window7' : 'home.recovery.window60');
-  const Arrow = diff?.direction === 'up' ? ArrowUp : diff?.direction === 'down' ? ArrowDown : ArrowRight;
-  return (
-    <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
-      <span title={windowText}>
-        {t('home.recovery.usual', { value: usual })}
-        <span className="sr-only"> ({windowText})</span>
-      </span>
-      {diff && (
-        <span
-          className={cn('inline-flex items-center gap-0.5 font-numeric font-semibold', TONE_TEXT[DIFF_TONE[diff.tone]])}
-          data-testid={`home-diff-${metricKey}`}
-          data-tone={diff.tone}
-        >
-          <Arrow className="h-3 w-3" aria-hidden="true" />
-          {diff.text}
-        </span>
-      )}
-    </p>
-  );
-}
 
 function RecoveryTile({
   tileKey,
@@ -112,7 +80,6 @@ function RecoveryTile({
 function MetricChart({ series }: { series: HealthSeriesPoint[] }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language;
-  const chartTheme = useChartTheme();
   const [metric, setMetric] = useState<ChartKey>('hrv');
 
   // HRV must plot a single kind (SDNN and rMSSD live on different scales).
@@ -130,10 +97,6 @@ function MetricChart({ series }: { series: HealthSeriesPoint[] }) {
   const last = points.length > 0 ? points[points.length - 1][metric] : null;
   const label = t(CHART_KEYS.find((c) => c.key === metric)!.label);
   const fmt = (v: unknown) => formatMetricText(metric, Number(v), lang) ?? String(v);
-  const tick = (v: unknown) => {
-    if (metric === 'sleep_s') return formatMetric('sleep', Number(v), lang)?.value ?? String(v);
-    return formatMetric(metric, Number(v), lang)?.value ?? String(v);
-  };
 
   return (
     <div className="min-w-0">
@@ -169,44 +132,7 @@ function MetricChart({ series }: { series: HealthSeriesPoint[] }) {
             role="img"
             aria-label={t('home.recovery.chartAria', { metric: label, count: points.length, last: fmt(last) })}
           >
-            <ResponsiveContainer width="100%" height={150}>
-              <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} vertical={false} />
-                <XAxis
-                  dataKey="date"
-                  stroke={chartTheme.axisColor}
-                  tick={{ fontSize: 12 }}
-                  interval="preserveStartEnd"
-                  minTickGap={40}
-                  tickFormatter={(d) => formatShortDate(String(d), lang) ?? String(d)}
-                />
-                <YAxis
-                  stroke={chartTheme.axisColor}
-                  tick={{ fontSize: 12 }}
-                  width={metric === 'sleep_s' ? 56 : 40}
-                  domain={['auto', 'auto']}
-                  tickFormatter={tick}
-                />
-                <Tooltip
-                  content={
-                    <ChartTooltip
-                      valueFormatter={fmt}
-                      labelFormatter={(d) => formatShortDate(String(d), lang) ?? String(d)}
-                    />
-                  }
-                />
-                <Line
-                  type="monotone"
-                  dataKey={metric}
-                  stroke="var(--info)"
-                  dot={false}
-                  strokeWidth={2}
-                  name={label}
-                  connectNulls={false}
-                  isAnimationActive={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <MetricLineChart data={data} metric={metric} label={label} lang={lang} />
           </div>
           <p className="mt-1 text-xs text-muted-foreground">{t('home.recovery.gapsNote')}</p>
         </>
@@ -234,7 +160,19 @@ export function RecoveryCard({
       <CardHead
         id="home-recovery-title"
         icon={<HeartPulse className="h-5 w-5 text-info" aria-hidden="true" />}
-        title={t('home.recovery.title')}
+        title={
+          <Link
+            to="/health"
+            className="group inline-flex min-h-11 items-center gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            data-testid="home-recovery-health-link"
+          >
+            <span className="group-hover:underline">{t('home.recovery.title')}</span>
+            <span className="inline-flex items-center text-sm font-medium text-muted-foreground group-hover:text-foreground">
+              {t('home.recovery.seeHealth')}
+              <ChevronRight className="h-4 w-4" aria-hidden="true" />
+            </span>
+          </Link>
+        }
       >
         {measuredOn && (
           <span className="ml-auto text-xs text-muted-foreground">{t('home.recovery.measuredOn', { date: measuredOn })}</span>

@@ -29,6 +29,7 @@ vi.mock('@/theme/ThemeProvider', () => ({
 
 // The home page fetches data; the routing tests only need to know it was reached.
 vi.mock('@/pages/Home/HomePage', () => ({ HomePage: () => <div>home page stub</div> }));
+vi.mock('@/pages/Health/HealthPage', () => ({ HealthPage: () => <div>health page stub</div> }));
 
 function renderAt(path: string) {
   return render(
@@ -77,5 +78,18 @@ describe('catch-all route', () => {
     auth.isAuthenticated = false;
     renderAt('/this/does/not/exist');
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+  });
+});
+
+describe('/health route', () => {
+  beforeEach(() => {
+    auth.isAuthenticated = true;
+    auth.isLoading = false;
+  });
+
+  it('renders the Health page inside the Shell', async () => {
+    renderAt('/health');
+    expect(await screen.findByText('health page stub')).toBeInTheDocument();
+    expect(screen.getByRole('banner')).toBeInTheDocument();
   });
 });
