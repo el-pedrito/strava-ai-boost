@@ -339,6 +339,54 @@ describe('HealthPage', () => {
     expect(screen.getByTestId('health-chart-form').getAttribute('aria-label')).toMatch(/^Freshness \(TSB\) over 90 days:/);
   });
 
+  it('says "no measurement" for 0 points and shows a dot with the value for 1 point, summary kept', async () => {
+    const empty = (date: string): HealthSeriesPoint => ({
+      date,
+      hrv: null,
+      hrv_kind: null,
+      resting_hr: null,
+      sleep_s: null,
+      ctl: null,
+      atl: null,
+      form: null,
+    });
+    const series = Array.from({ length: 30 }, (_, i) => empty(iso(Date.parse('2026-09-20T00:00:00Z') + i * DAY_MS)));
+    // One HRV, one load and one freshness value; resting HR and sleep have none.
+    series[29] = { ...series[29], hrv: 61, hrv_kind: 'sdnn', ctl: 20.5, atl: 24.1, form: -3.6 };
+    getHomeSummaryMock.mockResolvedValue(fixture({ health_series: series }));
+    renderHealth();
+
+    for (const k of ['resting_hr', 'sleep_s']) {
+      const fb = await screen.findByTestId(`health-chart-${k}-fallback`);
+      expect(fb).toHaveAttribute('data-points', '0');
+      expect(fb).toHaveTextContent('No measurement in this period.');
+      expect(screen.getByTestId(`health-chart-${k}-summary`)).toHaveTextContent(/over 90 days: no measurement\.$/);
+      expect(screen.queryByTestId(`probe-${k}`)).not.toBeInTheDocument();
+    }
+
+    const hrv = screen.getByTestId('health-chart-hrv-single');
+    expect(hrv).toHaveTextContent('A single measurement in this period: 61 ms, on 19 Oct.');
+    expect(screen.getByTestId('health-chart-hrv-summary')).toHaveTextContent('HRV over 90 days: a single measurement, 61 ms on 19 Oct.');
+    expect(screen.queryByTestId('probe-hrv')).not.toBeInTheDocument();
+
+    expect(screen.getByTestId('health-chart-load-single')).toHaveTextContent('latest fitness (CTL) 20.5, latest fatigue (ATL) 24.1');
+    expect(screen.getByTestId('health-chart-load-summary')).toHaveTextContent(/^Training load over 90 days: latest fitness/);
+    expect(screen.queryByTestId('probe-load')).not.toBeInTheDocument();
+
+    expect(screen.getByTestId('health-chart-form-single')).toHaveTextContent('\u22123.6');
+    expect(screen.getByTestId('health-chart-form-summary')).toHaveTextContent('Freshness (TSB) over 90 days: a single measurement');
+  });
+
+  it('keeps a summary for an empty load and freshness chart', async () => {
+    const series = realLikeSeries().map((p) => ({ ...p, ctl: null, atl: null, form: null }));
+    getHomeSummaryMock.mockResolvedValue(fixture({ health_series: series }));
+    renderHealth();
+    const load = await screen.findByTestId('health-chart-load-fallback');
+    expect(load).toHaveTextContent('No measurement in this period.');
+    expect(screen.getByTestId('health-chart-load-summary')).toHaveTextContent('Training load over 90 days: no measurement.');
+    expect(screen.getByTestId('health-chart-form-summary')).toHaveTextContent('Freshness (TSB) over 90 days: no measurement.');
+  });
+
   it('shows the VO2max tile and hides the weight tile whose value is null', async () => {
     getHomeSummaryMock.mockResolvedValue(fixture());
     renderHealth();
