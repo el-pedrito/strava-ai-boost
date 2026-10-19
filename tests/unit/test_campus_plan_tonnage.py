@@ -203,6 +203,12 @@ class TestTrackStrengthHistory:
         entry, extract = self._run(copy.deepcopy(W41_PPG))
         extract.assert_not_called()
         assert entry["sets_source"] == "campus_plan"
+
+    def test_the_athlete_text_reaches_the_per_side_decision(self):
+        """TEXT_1010 has no per-side wording: the stored Campus rows say so."""
+        entry, _ = self._run(copy.deepcopy(W41_PPG))
+        assert entry["parsed_sets"]
+        assert all(row["per_side"] is False for row in entry["parsed_sets"])
         assert float(entry["volume_kg"]) == 1584.0
         assert int(entry["total_sets"]) == 26
 

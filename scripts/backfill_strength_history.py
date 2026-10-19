@@ -37,6 +37,7 @@ import os
 import sys
 import re
 import time
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Dict, List
 
@@ -237,6 +238,9 @@ def backfill(user_id: str, region: str, apply: bool, replace: bool = False) -> D
         return {"added": 0, "skipped": skipped, "candidates": len(new_entries)}
 
     if new_entries:
+        # Every writer bumps last_updated: the per-side re-read uses it to refuse
+        # a plan made before the list changed.
+        stamp = datetime.now(timezone.utc).isoformat()
         # Same two-step shape as the fixed write path: the parent map cannot be
         # created by a nested SET.
         config_table.update_item(
@@ -250,8 +254,11 @@ def backfill(user_id: str, region: str, apply: bool, replace: bool = False) -> D
         if replace:
             config_table.update_item(
                 Key={"user_id": user_id},
-                UpdateExpression="SET user_preferences.strength_history.entries = :entries",
-                ExpressionAttributeValues={":entries": _to_decimal(new_entries)},
+                UpdateExpression=(
+                    "SET user_preferences.strength_history.entries = :entries, "
+                    "user_preferences.strength_history.last_updated = :ts"
+                ),
+                ExpressionAttributeValues={":entries": _to_decimal(new_entries), ":ts": stamp},
             )
         else:
             config_table.update_item(
@@ -259,11 +266,12 @@ def backfill(user_id: str, region: str, apply: bool, replace: bool = False) -> D
                 UpdateExpression=(
                     "SET user_preferences.strength_history.entries = "
                     "list_append(if_not_exists(user_preferences.strength_history.entries, "
-                    ":empty), :entries)"
+                    ":empty), :entries), user_preferences.strength_history.last_updated = :ts"
                 ),
                 ExpressionAttributeValues={
                     ":entries": _to_decimal(new_entries),
                     ":empty": [],
+                    ":ts": stamp,
                 },
             )
         print(f"  rows written: {len(new_entries)}")

@@ -22,7 +22,9 @@ Rule (a flag is written only where it is certain)
   ("35kg/cote" stays 35), so the text cannot tell a per-side figure from a total.
 * Other rows: the stored text is re-extracted with the current extractor. A row
   takes the re-read flag only when exactly one re-read row has the same canonical
-  exercise AND the same valid loads, and that row carries a boolean flag.
+  exercise AND the same valid loads, and that row carries a boolean flag. On a text
+  cut at storage, only ``true`` is taken: a "/c" lost past the cut could make a
+  ``false`` wrong.
 
 ``--recompute-volume`` also recomputes the stored volume figures of entries that
 hold a unilateral lift flagged per side: before the fix in
@@ -41,8 +43,12 @@ Safety
   (DynamoDB typed JSON, numbers kept as exact strings) to a new timestamped file,
   opened with ``x`` so an existing backup is never overwritten.
 * Writes are per field (``entries[i].parsed_sets[j].per_side``), never the whole
-  list, so no stored number is converted or rewritten. Each update is conditional
-  on ``last_updated`` and on the ``activity_id`` at every index it touches.
+  list, so no stored number is converted or rewritten. The whole plan is ONE
+  atomic update when it fits DynamoDB's expression limits (a live plan of 66 ops
+  does); otherwise whole-entry chunks, and a failure says which chunks landed.
+  Each update is conditional on ``last_updated``, on the ``activity_id`` of every
+  entry and on the ``exercise`` of every row it writes; ``--apply`` also checks
+  them before the backup.
 
 The one-off re-read of 2026-10-17 (43 per side, 244 not, 23 unflagged) was not kept
 as a script. This one applies the rule above; its counts can differ.
@@ -70,6 +76,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "lambda_functions"))
 
 from shared.strength_exercises import (  # noqa: E402
+    STORED_DESCRIPTION_MAX_CHARS,
     canonicalize_exercise_name,
     stored_text_may_hide_per_side,
 )
@@ -80,9 +87,11 @@ DEFAULT_USER_CONFIG_TABLE = "strava-ai-boost-user-configuration"
 DEFAULT_OUT_DIR = os.path.expanduser("~/strength-backfill")
 VOLUME_FIELDS = (
     "total_sets", "total_reps", "volume_kg", "volume_kg_incomplete",
-    "excluded_exercises", "per_exercise",
+    "incomplete_reason", "excluded_exercises", "per_exercise",
 )
-MAX_OPS_PER_UPDATE = 20
+# DynamoDB caps each expression string at 4 KB. Stay under it with a margin; the
+# whole plan goes in ONE atomic update whenever it fits.
+MAX_EXPRESSION_CHARS = 3800
 
 
 def _signature(row: Dict[str, Any]) -> Tuple[str, Tuple[float, ...]]:
@@ -142,6 +151,9 @@ def decide(
             elif entry.get("sets_source") == CAMPUS_PLAN:
                 stats["left_unflagged_campus"] += len(todo)
             else:
+                # A text cut at storage may have lost a "/c" past the cut: the
+                # re-read can then prove "per side" but never "not per side".
+                cut = isinstance(description, str) and len(description) >= STORED_DESCRIPTION_MAX_CHARS
                 by_sig: Dict[Tuple[str, Tuple[float, ...]], List[Optional[bool]]] = {}
                 for r in reread(description or "") or []:
                     if isinstance(r, dict):
@@ -156,6 +168,8 @@ def decide(
                         stats["left_unflagged_no_unique_match"] += 1
                     elif matches[0] is None:
                         stats["left_unflagged_reread_has_no_flag"] += 1
+                    elif cut and matches[0] is False:
+                        stats["left_unflagged_cut_text"] += 1
                     else:
                         planned[j] = matches[0]
                         stats["set_true_reread" if matches[0] else "set_false_reread"] += 1
@@ -188,36 +202,77 @@ def decide(
     return ops, stats
 
 
+def _entry_groups(ops: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
+    """Ops grouped by entry, in plan order: an entry's ops always travel together."""
+    groups: Dict[int, List[Dict[str, Any]]] = {}
+    for op in ops:
+        groups.setdefault(int(op["entry"]), []).append(op)
+    return list(groups.values())
+
+
+def _build_update(ops: List[Dict[str, Any]], last_updated: Any) -> Dict[str, Any]:
+    """One conditional, per-field ``update_item`` for ``ops``.
+
+    The condition pins ``last_updated``, the ``activity_id`` of every entry and the
+    ``exercise`` of every row it writes, so a shifted list fails instead of
+    landing on another lift. Attribute names are declared only when used:
+    DynamoDB rejects an unused one.
+    """
+    names = {"#up": "user_preferences", "#sh": "strength_history", "#e": "entries",
+             "#lu": "last_updated"}
+    values: Dict[str, Any] = {":lu": last_updated}
+    sets: List[str] = []
+    conds = ["#up.#sh.#lu = :lu"]
+    seen = set()
+    for n, op in enumerate(ops):
+        i = int(op["entry"])
+        base = f"#up.#sh.#e[{i}]"
+        if i not in seen:
+            seen.add(i)
+            names["#aid"] = "activity_id"
+            values[f":a{i}"] = op["activity_id"]
+            conds.append(f"{base}.#aid = :a{i}")
+        if op["kind"] == "per_side":
+            names.update({"#ps": "parsed_sets", "#f": "per_side", "#ex": "exercise"})
+            row = f"{base}.#ps[{int(op['row'])}]"
+            sets.append(f"{row}.#f = :v{n}")
+            values[f":v{n}"] = bool(op["value"])
+            conds.append(f"{row}.#ex = :x{n}")
+            values[f":x{n}"] = op["exercise"]
+        else:
+            for k, field in enumerate(VOLUME_FIELDS):
+                names[f"#v{k}"] = field
+                sets.append(f"{base}.#v{k} = :v{n}_{k}")
+                values[f":v{n}_{k}"] = _to_dynamo(op["fields"][field])
+    return {
+        "UpdateExpression": "SET " + ", ".join(sets),
+        "ConditionExpression": " AND ".join(conds),
+        "ExpressionAttributeNames": names,
+        "ExpressionAttributeValues": values,
+    }
+
+
+def _fits(update: Dict[str, Any]) -> bool:
+    return (len(update["UpdateExpression"]) <= MAX_EXPRESSION_CHARS
+            and len(update["ConditionExpression"]) <= MAX_EXPRESSION_CHARS)
+
+
 def _updates(ops: List[Dict[str, Any]], last_updated: Any) -> List[Dict[str, Any]]:
-    """Chunk the ops into conditional per-field ``update_item`` kwargs."""
-    out = []
-    for start in range(0, len(ops), MAX_OPS_PER_UPDATE):
-        chunk = ops[start:start + MAX_OPS_PER_UPDATE]
-        names = {"#up": "user_preferences", "#sh": "strength_history", "#e": "entries",
-                 "#ps": "parsed_sets", "#f": "per_side", "#aid": "activity_id",
-                 "#lu": "last_updated"}
-        values: Dict[str, Any] = {":lu": last_updated}
-        sets, conds, seen = [], ["#up.#sh.#lu = :lu"], set()
-        for n, op in enumerate(chunk):
-            base = f"#up.#sh.#e[{int(op['entry'])}]"
-            if op["entry"] not in seen:
-                seen.add(op["entry"])
-                values[f":a{op['entry']}"] = op["activity_id"]
-                conds.append(f"{base}.#aid = :a{op['entry']}")
-            if op["kind"] == "per_side":
-                sets.append(f"{base}.#ps[{int(op['row'])}].#f = :v{n}")
-                values[f":v{n}"] = bool(op["value"])
-            else:
-                for k, field in enumerate(VOLUME_FIELDS):
-                    names[f"#v{k}"] = field
-                    sets.append(f"{base}.#v{k} = :v{n}_{k}")
-                    values[f":v{n}_{k}"] = _to_dynamo(op["fields"][field])
-        out.append({
-            "UpdateExpression": "SET " + ", ".join(sets),
-            "ConditionExpression": " AND ".join(conds),
-            "ExpressionAttributeNames": names,
-            "ExpressionAttributeValues": values,
-        })
+    """The plan as conditional updates: ONE atomic update when it fits the
+    expression limits, otherwise whole-entry chunks (never split an entry)."""
+    if not ops:
+        return []
+    # Greedy over whole entries: when everything fits, this is ONE update.
+    out: List[Dict[str, Any]] = []
+    chunk: List[Dict[str, Any]] = []
+    for group in _entry_groups(ops):
+        if chunk and not _fits(_build_update(chunk + group, last_updated)):
+            out.append(_build_update(chunk, last_updated))
+            chunk = []
+        chunk += group
+        if not _fits(_build_update(chunk, last_updated)):
+            raise ValueError(f"entry {group[0]['entry']} alone exceeds the expression limit")
+    out.append(_build_update(chunk, last_updated))
     return out
 
 
@@ -285,13 +340,29 @@ def main(argv: Optional[List[str]] = None, table: Any = None, reread: Any = None
         if i >= len(entries) or entries[i].get("activity_id") != op["activity_id"]:
             print(f"  REFUSED: entry {i} is no longer activity {op['activity_id']}")
             return 2
+        if op["kind"] == "per_side":
+            rows = entries[i].get("parsed_sets") or []
+            j = op["row"]
+            row = rows[j] if j < len(rows) and isinstance(rows[j], dict) else None
+            if row is None or row.get("exercise") != op["exercise"] \
+                    or isinstance(row.get("per_side"), bool):
+                print(f"  REFUSED: entry {i} row {j} is no longer an unflagged {op['exercise']}")
+                return 2
     backup_path = os.path.join(args.out_dir, f"backup_{args.user_id}_{_stamp()}.json")
     with open(backup_path, "x", encoding="utf-8") as fh:
         json.dump(_typed_backup(history), fh, ensure_ascii=False)
     print(f"  backup written: {backup_path}")
-    for kwargs in _updates(plan["ops"], history.get("last_updated")):
-        table.update_item(Key={"user_id": args.user_id}, **kwargs)
-    print(f"  {len(plan['ops'])} ops written")
+    updates = _updates(plan["ops"], history.get("last_updated"))
+    for k, kwargs in enumerate(updates):
+        try:
+            table.update_item(Key={"user_id": args.user_id}, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - report progress, then stop
+            print(f"  FAILED on update {k + 1}/{len(updates)} ({exc}).")
+            print(f"  Updates 1..{k} were applied (whole entries only); nothing after.")
+            print(f"  Backup: {backup_path}. Re-run without --apply for a fresh plan:")
+            print("  rows already flagged are skipped, so it resumes where it stopped.")
+            return 3
+    print(f"  {len(plan['ops'])} ops written in {len(updates)} update(s)")
     return 0
 
 

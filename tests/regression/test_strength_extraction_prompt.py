@@ -97,8 +97,11 @@ class TestPerSideFlagInExamples:
         turn a doubled load into a plain one."""
         import re
         from shared.strength_exercises import has_per_side_wording
-        listed = re.search(r"PER SIDE loads: (.*?) mean", PROMPT).group(1)
-        prompt_spellings = re.findall(r"'([^']+)'", listed)
+        rule_list = re.search(r"PER SIDE loads: (.*?) mean", PROMPT).group(1)
+        flag_list = re.search(r"per_side: true ONLY when .*?\((.*?)\)", PROMPT, re.S).group(1)
+        prompt_spellings = re.findall(r"'([^']+)'", rule_list)
+        # The prompt lists the spellings twice (doubling rule, flag rule): same set.
+        assert set(re.findall(r"'([^']+)'", flag_list)) == set(prompt_spellings)
         assert set(prompt_spellings) == set(self.SPELLINGS)
         for spelling in prompt_spellings:
             assert has_per_side_wording(f"press 3x10 40{spelling}"), spelling

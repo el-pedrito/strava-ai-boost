@@ -53,21 +53,24 @@ def test_campus_row_with_per_side_wording_stays_unflagged():
     assert stats["left_unflagged_campus"] == 1
 
 
-def test_text_cut_at_storage_is_not_proof_of_no_wording():
-    """A 1000-character stored text may have lost a '/c': re-read instead of false."""
+def test_text_cut_at_storage_never_yields_false():
+    """A 1000-character stored text may have lost a '/c' past the cut: it is
+    re-read, but the re-read can only prove 'per side', never 'not per side'."""
     desc = "dc 3x10 80 " + "x" * 1000
     entries = [{"sets_source": "athlete_text", "description": desc,
-                "parsed_sets": [_row("Développé couché", 80)]}]
+                "parsed_sets": [_row("Développé couché", 80), _row("Développé incliné", 60)]}]
     calls = []
 
     def reread(text):
         calls.append(text)
-        return [_row("Développé couché", 80, per_side=False)]
+        return [_row("Développé couché", 80, per_side=False),
+                _row("Développé incliné", 60, per_side=True)]
 
     ops, stats = backfill.decide(entries, reread)
     assert calls == [desc]
     assert stats["set_false_no_wording"] == 0
-    assert _ops(ops) == {(0, 0): False}
+    assert stats["left_unflagged_cut_text"] == 1
+    assert _ops(ops) == {(0, 1): True}
 
 
 def test_reread_flag_is_copied_only_on_a_unique_exact_match():
@@ -183,10 +186,11 @@ def test_apply_backs_up_losslessly_first_then_writes_single_fields(tmp_path):
     assert '"N": "1123.456789"' in raw and '"N": "37.5"' in raw  # exact, typed
     kwargs = table.update_item.call_args.kwargs
     assert kwargs["UpdateExpression"] == "SET #up.#sh.#e[0].#ps[0].#f = :v0"
-    assert "#up.#sh.#lu = :lu" in kwargs["ConditionExpression"]
-    assert "#up.#sh.#e[0].#aid = :a0" in kwargs["ConditionExpression"]
+    assert kwargs["ConditionExpression"] == (
+        "#up.#sh.#lu = :lu AND #up.#sh.#e[0].#aid = :a0 AND #up.#sh.#e[0].#ps[0].#ex = :x0")
     assert kwargs["ExpressionAttributeValues"] == {
-        ":lu": "2026-10-19T06:43:36Z", ":a0": "a1", ":v0": False}
+        ":lu": "2026-10-19T06:43:36Z", ":a0": "a1", ":v0": False, ":x0": "Développé couché"}
+    _assert_all_placeholders_used(kwargs)
 
 
 def test_apply_refuses_a_stale_plan(tmp_path):
@@ -222,4 +226,117 @@ def test_an_existing_backup_is_never_overwritten(tmp_path, monkeypatch):
         backfill.main(["--user-id", "u", "--out-dir", str(tmp_path), "--apply",
                        "--plan", plan], table=table)
     assert (tmp_path / "backup_u_FIXED.json").read_text() == "original"
+    table.update_item.assert_not_called()
+
+
+# --- update building: atomic when it fits, whole entries otherwise ----------
+
+def _assert_all_placeholders_used(kwargs):
+    """DynamoDB rejects a declared name or value that no expression uses."""
+    text = kwargs["UpdateExpression"] + " " + kwargs["ConditionExpression"]
+    import re
+    used = set(re.findall(r"[#:][A-Za-z0-9_]+", text))
+    declared = set(kwargs["ExpressionAttributeNames"]) | set(kwargs["ExpressionAttributeValues"])
+    assert declared == used  # nothing unused, nothing undeclared
+
+
+def _no_float(value):
+    if isinstance(value, float):
+        return False
+    if isinstance(value, dict):
+        return all(_no_float(v) for v in value.values())
+    if isinstance(value, list):
+        return all(_no_float(v) for v in value)
+    return True
+
+
+def _volume_op(i, aid):
+    return {"kind": "volume", "entry": i, "activity_id": aid, "old_volume_kg": 6400.0,
+            "fields": {"total_sets": 8, "total_reps": 80, "volume_kg": 3200.5,
+                       "volume_kg_incomplete": False, "incomplete_reason": None,
+                       "excluded_exercises": [],
+                       "per_exercise": [{"exercise": "Tirage horizontal unilatéral machine",
+                                         "volume_kg": 3200.5, "unilateral": True}]}}
+
+
+def _flag_ops(n):
+    return [{"kind": "per_side", "entry": k // 3, "row": k % 3, "activity_id": f"a{k // 3}",
+             "exercise": f"Ex{k}", "value": bool(k % 2)} for k in range(n)]
+
+
+def test_a_volume_only_plan_declares_only_names_it_uses():
+    (update,) = backfill._updates([_volume_op(4, "a4")], "lu")
+    assert "#ps" not in update["ExpressionAttributeNames"]
+    _assert_all_placeholders_used(update)
+    assert _no_float(update["ExpressionAttributeValues"])
+
+
+def test_a_live_size_plan_is_one_atomic_update():
+    ops = _flag_ops(63) + [_volume_op(19, "a19"), _volume_op(23, "a23"), _volume_op(24, "a24")]
+    updates = backfill._updates(ops, "lu")
+    assert len(updates) == 1
+    (update,) = updates
+    assert update["UpdateExpression"].count(".#f = ") == 63
+    assert update["UpdateExpression"].count(".#v2 = ") == 3          # volume_kg x 3
+    assert update["ConditionExpression"].count(".#ex = ") == 63
+    assert _no_float(update["ExpressionAttributeValues"])
+    _assert_all_placeholders_used(update)
+
+
+def test_a_plan_too_big_for_one_update_is_cut_between_entries(monkeypatch):
+    monkeypatch.setattr(backfill, "MAX_EXPRESSION_CHARS", 400)
+    ops = _flag_ops(30) + [_volume_op(2, "a2")]
+    updates = backfill._updates(ops, "lu")
+    assert len(updates) > 1
+    owners = {}
+    for k, update in enumerate(updates):
+        assert update["ConditionExpression"].startswith("#up.#sh.#lu = :lu")
+        _assert_all_placeholders_used(update)
+        for i in {int(m) for m in __import__("re").findall(r"#e\[(\d+)\]",
+                                                          update["UpdateExpression"])}:
+            assert owners.setdefault(i, k) == k     # an entry never spans two updates
+    flags = sum(u["UpdateExpression"].count(".#f = ") for u in updates)
+    vols = sum(u["UpdateExpression"].count(".#v2 = ") for u in updates)
+    assert (flags, vols) == (30, 1)                  # every op exactly once
+
+
+def _two_entry_history():
+    return [
+        {"activity_id": f"a{k}", "sets_source": "athlete_text", "description": "dc 3x10 80",
+         "parsed_sets": [{"exercise": "Développé couché",
+                          "sets_detail": [{"reps": 10, "weight_kg": Decimal("80")}]}]}
+        for k in range(2)
+    ]
+
+
+def test_a_failed_update_reports_what_landed(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(backfill, "MAX_EXPRESSION_CHARS", 100)  # 1 entry fits, 2 do not
+    table = _table(_two_entry_history())
+    plan = _plan(tmp_path, table)
+    table.update_item.side_effect = [None, RuntimeError("ConditionalCheckFailed")]
+    code = backfill.main(["--user-id", "u", "--out-dir", str(tmp_path), "--apply",
+                          "--plan", plan], table=table)
+    out = capsys.readouterr().out
+    assert code == 3
+    assert table.update_item.call_count == 2
+    assert "FAILED on update 2/2" in out and "Updates 1..1 were applied" in out
+
+
+def test_apply_refuses_a_row_that_changed_exercise(tmp_path):
+    plan = _plan(tmp_path, _table(_entries()))
+    changed = _entries()
+    changed[0]["parsed_sets"][0]["exercise"] = "Squat"
+    table = _table(changed)
+    assert backfill.main(["--user-id", "u", "--out-dir", str(tmp_path), "--apply",
+                          "--plan", plan], table=table) == 2
+    table.update_item.assert_not_called()
+
+
+def test_apply_refuses_a_row_flagged_since_the_plan(tmp_path):
+    plan = _plan(tmp_path, _table(_entries()))
+    flagged = _entries()
+    flagged[0]["parsed_sets"][0]["per_side"] = True
+    table = _table(flagged)
+    assert backfill.main(["--user-id", "u", "--out-dir", str(tmp_path), "--apply",
+                          "--plan", plan], table=table) == 2
     table.update_item.assert_not_called()
