@@ -85,7 +85,7 @@ export function AudioPlayer({ src, duration, className, ariaLabel }: AudioPlayer
         aria-label={playLabel}
         aria-pressed={playing}
         className={cn(
-          'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full',
+          'flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full md:h-10 md:w-10',
           'bg-primary text-primary-foreground transition-all hover:brightness-110',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
         )}

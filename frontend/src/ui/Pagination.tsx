@@ -80,7 +80,7 @@ export function Pagination({
             onClick={() => onPageChange(safePage - 1)}
             disabled={safePage <= 1}
             aria-label={t('pagination.previous')}
-            className="h-9 w-9"
+            className="h-11 w-11 sm:h-9 sm:w-9"
           >
             <ChevronLeft className="h-4 w-4" aria-hidden="true" />
           </Button>
@@ -94,7 +94,7 @@ export function Pagination({
             onClick={() => onPageChange(safePage + 1)}
             disabled={safePage >= totalPages}
             aria-label={t('pagination.next')}
-            className="h-9 w-9"
+            className="h-11 w-11 sm:h-9 sm:w-9"
           >
             <ChevronRight className="h-4 w-4" aria-hidden="true" />
           </Button>

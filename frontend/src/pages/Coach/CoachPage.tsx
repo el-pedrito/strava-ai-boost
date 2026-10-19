@@ -220,7 +220,7 @@ function FeedbackCard({ item }: FeedbackCardProps) {
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
-            className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+            className="flex min-h-11 items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors md:min-h-0"
             aria-expanded={expanded}
           >
             {expanded ? (
@@ -456,7 +456,7 @@ function StrengthProgression({
               onClick={() => setMetric(m)}
               aria-pressed={metric === m}
               className={cn(
-                'cursor-pointer rounded px-2 py-1 text-xs transition-colors',
+                'inline-flex cursor-pointer items-center rounded px-2 py-1 text-xs transition-colors min-h-11 min-w-11 justify-center md:min-h-0 md:min-w-0',
                 metric === m
                   ? 'bg-primary-strong text-primary-foreground'
                   : 'text-muted-foreground hover:text-foreground',
@@ -484,7 +484,7 @@ function StrengthProgression({
             }}
             aria-pressed={active.exercise === e.exercise}
             className={cn(
-              'cursor-pointer rounded-full border px-2.5 py-1 text-xs transition-colors',
+              'inline-flex cursor-pointer items-center rounded-full border px-2.5 py-1 text-xs transition-colors min-h-11 min-w-11 justify-center md:min-h-0 md:min-w-0',
               active.exercise === e.exercise
                 ? 'border-primary bg-primary/10 text-primary-text'
                 : 'border-border text-muted-foreground hover:text-foreground',
@@ -653,7 +653,7 @@ function StrengthSessionTotals({
               onClick={() => setMetric(m)}
               aria-pressed={metric === m}
               className={cn(
-                'cursor-pointer rounded px-2 py-1 text-xs transition-colors',
+                'inline-flex cursor-pointer items-center rounded px-2 py-1 text-xs transition-colors min-h-11 min-w-11 justify-center md:min-h-0 md:min-w-0',
                 metric === m
                   ? 'bg-primary-strong text-primary-foreground'
                   : 'text-muted-foreground hover:text-foreground',
@@ -850,7 +850,7 @@ function StrengthWeeklyGroups({
               onClick={() => setGroup(g)}
               aria-pressed={current === g}
               className={cn(
-                'cursor-pointer rounded-full border px-2.5 py-1 text-xs transition-colors',
+                'inline-flex cursor-pointer items-center rounded-full border px-2.5 py-1 text-xs transition-colors min-h-11 min-w-11 justify-center md:min-h-0 md:min-w-0',
                 current === g
                   ? 'border-primary bg-primary/10 text-primary-text'
                   : 'border-border text-muted-foreground hover:text-foreground',
@@ -1683,7 +1683,7 @@ export function CoachPage() {
                     onClick={fetchRecaps}
                     aria-label={t('coach.recaps.refresh')}
                     title={t('coach.recaps.refresh')}
-                    className="text-xs px-2 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                    className="inline-flex min-h-11 min-w-11 items-center justify-center text-xs px-2 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted md:min-h-0 md:min-w-0"
                   >
                     <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
                   </button>
@@ -1691,7 +1691,7 @@ export function CoachPage() {
                     type="button"
                     onClick={handleGenerateRecap}
                     disabled={generating}
-                    className="text-xs px-3 py-1.5 rounded-md bg-primary-strong text-primary-foreground hover:bg-primary-strong-hover disabled:opacity-50"
+                    className="inline-flex min-h-11 items-center text-xs px-3 py-1.5 rounded-md bg-primary-strong text-primary-foreground hover:bg-primary-strong-hover disabled:opacity-50 md:min-h-0"
                   >
                     {generating ? t('coach.recaps.generating') : t('coach.recaps.generate')}
                   </button>

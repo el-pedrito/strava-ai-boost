@@ -34,7 +34,9 @@ export function InfoTooltip({
         type="button"
         aria-label={ariaLabel}
         className={cn(
-          'inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground/60 transition-colors',
+          // 44 px touch target on mobile; the negative margin keeps the 20 px footprint
+          // so titles do not move. Desktop keeps the compact 20 px button.
+          'inline-flex h-11 w-11 -m-3 items-center justify-center rounded-full text-muted-foreground/60 transition-colors md:m-0 md:h-5 md:w-5',
           'hover:text-muted-foreground hover:bg-muted',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           className,
