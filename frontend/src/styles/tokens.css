@@ -64,6 +64,11 @@
   --info: #1d4ed8;
   --info-foreground: #ffffff;
 
+  /* Second chart series (ATL, dashed). recharts reuses the stroke for the 12 px
+     legend text, so it must clear 4.5:1 on surface (#475569: 7.58:1). The old
+     muted #94a3b8 was 2.56:1. Pinned by ui/__tests__/contrast.test.ts. */
+  --chart-secondary: #475569;
+
   --ring: #fc4c02;
   --shadow-color: 220 13% 18%;
 }
@@ -107,6 +112,9 @@
   /* #4f93f8: text-info on its own bg-info/10 pill is 5.07:1 (#3b82f6 fell to 4.27). */
   --info: #4f93f8;
   --info-foreground: #ffffff;
+
+  /* Second chart series (ATL): #94a3b8 is 6.96:1 on surface (old #64748b was 3.60:1). */
+  --chart-secondary: #94a3b8;
 
   --ring: #fc4c02;
   --shadow-color: 220 40% 2%;

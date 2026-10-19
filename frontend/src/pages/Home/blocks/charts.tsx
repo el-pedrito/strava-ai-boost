@@ -76,10 +76,13 @@ export function MetricLineChart({
   );
 }
 
+const LEGEND_ORDER = ['ctl', 'atl'];
+
 /**
  * CTL and ATL on one unitless scale, with the load-gap periods shaded. Each
  * gap must start and end on a date present in `data` (the X axis is a
- * category axis).
+ * category axis). ATL is told apart by its dash, not only its colour
+ * (`--chart-secondary`, AA as legend text in both themes).
  */
 export function LoadLineChart({
   data,
@@ -115,12 +118,14 @@ export function LoadLineChart({
         />
         <YAxis stroke={chartTheme.axisColor} tick={{ fontSize: 12 }} width={32} tickFormatter={(v) => fmtNumber(Number(v), 0, lang) ?? ''} />
         <Tooltip content={<ChartTooltip valueFormatter={fmt} labelFormatter={dateTick(lang)} />} />
-        <Legend wrapperStyle={{ fontSize: 12 }} />
+        {/* CTL first, like the subtitle: recharts sorts the legend by name by default,
+            which put "Fatigue (ATL)" before "Forme de fond (CTL)". */}
+        <Legend wrapperStyle={{ fontSize: 12 }} itemSorter={(item) => LEGEND_ORDER.indexOf(String(item.dataKey))} />
         <Line type="monotone" dataKey="ctl" stroke="var(--info)" dot={false} strokeWidth={2} name={ctlName} connectNulls={false} isAnimationActive={false} />
         <Line
           type="monotone"
           dataKey="atl"
-          stroke={chartTheme.mutedColor}
+          stroke="var(--chart-secondary)"
           strokeDasharray="5 3"
           dot={false}
           strokeWidth={2}

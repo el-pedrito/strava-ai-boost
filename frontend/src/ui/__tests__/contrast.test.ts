@@ -131,6 +131,19 @@ describe('token contrast (WCAG AA)', () => {
     }
   });
 
+  it('the second chart series (ATL line and its legend text) clears AA on the chart surfaces', () => {
+    expect(light['chart-secondary']).toBe('#475569');
+    expect(dark['chart-secondary']).toBe('#94a3b8');
+    for (const [themeName, vars] of [['light', light], ['dark', dark]] as const) {
+      for (const bg of ['surface', 'surface-elevated']) {
+        expect(
+          ratio(token(vars, 'chart-secondary'), token(vars, bg)),
+          `${themeName}: chart-secondary on ${bg}`
+        ).toBeGreaterThanOrEqual(AA);
+      }
+    }
+  });
+
   it('dark theme status text matches the base status colours', () => {
     expect(dark['success-text']).toBe(dark['success']);
     expect(dark['warning-text']).toBe(dark['warning']);
