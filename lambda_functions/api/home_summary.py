@@ -318,7 +318,13 @@ def _build_week_sessions(
 
     ``next_session`` also carries ``session_id``, ``coach_advice``, ``description``
     and the ``.workout`` file (``_next_session_extras``). ``range_alerts`` is the
-    caller's ``RANGE_ALERTS_ENABLED`` switch; ``counters`` collects mapper metrics."""
+    caller's ``RANGE_ALERTS_ENABLED`` switch; ``counters`` collects mapper metrics.
+
+    Campus sessions are à la carte: the runner picks any open one of the week, the
+    order is only Campus's suggestion. So every open (``todo``) row also carries
+    ``session_id``, ``coach_advice``, ``workout_b64`` and ``filename`` (no
+    ``description``, to keep the payload small); done and missed rows carry none.
+    A done row matched to a Strava activity carries its ``activity_id``."""
     counters = counters if counters is not None else {}
     week_iso = _week_label(now)
     items = []
@@ -355,10 +361,17 @@ def _build_week_sessions(
             'status': _STATUS_MAP.get(st, 'todo'),
             'duration_min': int(dur) if dur is not None else None,
         }
+        if row['status'] == 'done' and s.get('matched_activity_id'):
+            # The Strava activity that closed it, so Home can link "done" to it.
+            row['activity_id'] = str(s['matched_activity_id'])
+        extras = None
+        if row['status'] == 'todo':
+            extras = _next_session_extras(s, range_alerts, counters)
+            row.update({k: extras[k] for k in ('session_id', 'coach_advice', 'workout_b64', 'filename')})
         out.append(row)
         if s is next_row:
             next_session = {k: row[k] for k in ('order', 'title', 'training_type', 'duration_min')}
-            next_session.update(_next_session_extras(s, range_alerts, counters))
+            next_session.update(extras if extras is not None else _next_session_extras(s, range_alerts, counters))
     return out, next_session
 
 

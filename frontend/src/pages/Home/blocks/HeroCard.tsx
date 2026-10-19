@@ -1,17 +1,18 @@
 /**
- * "Ce matin": the morning verdict (brief light in words), today's Campus
- * session with the coach's own words, the Watch download, weather chips and
- * the brief signals as dot + word. Signal VALUES live in the Récupération card,
- * so nothing is shown twice.
+ * "Ce matin": the morning verdict (brief light in words), the week's Campus
+ * sessions à la carte (pick any open one, its coach word and Watch file follow
+ * the pick; the ones already done are listed, linked to their activity),
+ * weather chips and the brief signals as dot + word. Signal VALUES live in the
+ * Récupération card, so nothing is shown twice.
  */
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
-import { ChevronRight, Clock, Info, MessageCircle, Watch } from 'lucide-react';
+import { Check, ChevronRight, Clock, Info, MessageCircle, Watch } from 'lucide-react';
 import { Alert, Button, buttonVariants } from '@/ui';
 import { cn } from '@/lib/cn';
 import { downloadWorkout } from '@/lib/downloadWorkout';
-import type { HomeBrief, HomeNextSession } from '@/types/home';
+import type { HomeBrief, HomeNextSession, HomeWeekSession } from '@/types/home';
 import { fmtNumber, formatClock, formatWeekdayDate } from '../format';
 import { CoachText } from '@/components/CoachText';
 import { HomeCard, Pill } from './common';
@@ -35,17 +36,74 @@ function CoachWords({ text }: { text: string | null | undefined }) {
   );
 }
 
-export function HeroCard({ brief, next }: { brief: HomeBrief | null; next: HomeNextSession | null }) {
+/** The session shown under the picker: coach word and Watch file follow the pick. */
+interface PickedSession {
+  order: number | null;
+  title: string | null;
+  duration_min: number | null;
+  coach_advice?: string | null;
+  workout_b64?: string | null;
+  filename?: string | null;
+}
+
+/** A week row, filled from `next_session` when it is that row: an older backend
+ * only sent the coach word and Watch file on `next_session`. */
+function toPicked(row: HomeWeekSession, next: HomeNextSession | null): PickedSession {
+  const isNext = next?.order != null && next.order === row.order;
+  return {
+    order: row.order,
+    title: row.title ?? null,
+    duration_min: row.duration_min ?? null,
+    coach_advice: row.coach_advice ?? (isNext ? next?.coach_advice : null),
+    workout_b64: row.workout_b64 ?? (isNext ? next?.workout_b64 : null),
+    filename: row.filename ?? (isNext ? next?.filename : null),
+  };
+}
+
+export function HeroCard({
+  brief,
+  next,
+  sessions = [],
+}: {
+  brief: HomeBrief | null;
+  next: HomeNextSession | null;
+  sessions?: HomeWeekSession[];
+}) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language;
   const [watchError, setWatchError] = useState(false);
+  const [pickedOrder, setPickedOrder] = useState<number | null>(null);
 
   const light = toLight(brief?.light);
-  // Only the live top-level `next_session`. `brief.next_session` was frozen when the
-  // morning brief was built and can name a session completed since.
-  const title = next?.title ?? null;
-  const duration = next?.duration_min ?? null;
-  const workoutB64 = typeof next?.workout_b64 === 'string' && next.workout_b64.length > 0 ? next.workout_b64 : null;
+  const ordered = [...sessions].sort((a, b) => a.order - b.order);
+  const openRows = ordered.filter((s) => s.status === 'todo');
+  const doneRows = ordered.filter((s) => s.status === 'done');
+  // Campus order is only a suggestion, the runner picks any open session of the
+  // week. Default pick: Campus's next open one.
+  const pickedRow =
+    openRows.find((s) => s.order === pickedOrder) ??
+    openRows.find((s) => s.order === next?.order) ??
+    openRows[0] ??
+    null;
+  // Only the live top-level `next_session` / `week_sessions`. `brief.next_session` was
+  // frozen when the morning brief was built and can name a session completed since.
+  const current: PickedSession | null = pickedRow
+    ? toPicked(pickedRow, next)
+    : next?.title
+      ? {
+          order: next.order,
+          title: next.title,
+          duration_min: next.duration_min,
+          coach_advice: next.coach_advice,
+          workout_b64: next.workout_b64,
+          filename: next.filename,
+        }
+      : null;
+  const title = current?.title ?? null;
+  const duration = current?.duration_min ?? null;
+  const workoutB64 =
+    typeof current?.workout_b64 === 'string' && current.workout_b64.length > 0 ? current.workout_b64 : null;
+  const showPicker = openRows.length > 1;
   const day = formatWeekdayDate(brief?.date, lang);
   const builtAt = formatClock(brief?.built_at);
   const signals = brief?.signals ?? [];
@@ -57,7 +115,7 @@ export function HeroCard({ brief, next }: { brief: HomeBrief | null; next: HomeN
   const addToWatch = () => {
     if (!workoutB64) return;
     try {
-      downloadWorkout(workoutB64, next?.filename || `${title ?? 'workout'}.workout`);
+      downloadWorkout(workoutB64, current?.filename || `${title ?? 'workout'}.workout`);
       setWatchError(false);
     } catch {
       setWatchError(true);
@@ -65,6 +123,8 @@ export function HeroCard({ brief, next }: { brief: HomeBrief | null; next: HomeN
   };
 
   const signalLabel = (key: string) => t(`home.brief.signal.${key}`, { defaultValue: key });
+  const doneChip =
+    'inline-flex min-h-8 max-w-full items-center gap-1.5 rounded-full border border-border px-2.5 text-[13px] text-muted-foreground';
 
   return (
     <HomeCard labelledBy="home-brief-title" className="flex flex-col gap-4 md:p-6">
@@ -86,9 +146,47 @@ export function HeroCard({ brief, next }: { brief: HomeBrief | null; next: HomeN
         </p>
       )}
 
+      {showPicker && (
+        <div>
+          <p id="home-pick-label" className="mb-1.5 text-sm text-muted-foreground">
+            {t('home.brief.pickLabel', { count: openRows.length })}
+          </p>
+          <div role="radiogroup" aria-labelledby="home-pick-label" className="flex flex-wrap gap-1.5" data-testid="home-session-pick">
+            {openRows.map((s) => {
+              const checked = s.order === pickedRow?.order;
+              return (
+                <button
+                  key={s.order}
+                  type="button"
+                  role="radio"
+                  aria-checked={checked}
+                  onClick={() => {
+                    setPickedOrder(s.order);
+                    setWatchError(false);
+                  }}
+                  className={cn(
+                    'inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-full border px-3 text-sm font-medium text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    checked ? 'border-primary bg-primary/10' : 'border-border bg-surface-muted hover:border-border-strong'
+                  )}
+                >
+                  <span className="truncate">{s.title ?? t('home.week.untitled')}</span>
+                  {s.duration_min != null && (
+                    <span className="whitespace-nowrap text-xs text-muted-foreground">
+                      {t('home.minutes', { value: s.duration_min })}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {title && (
         <div>
-          <p className="text-sm text-muted-foreground">{t('home.brief.nextSession')}</p>
+          <p className="text-sm text-muted-foreground">
+            {showPicker ? t('home.brief.pickedSession') : t('home.brief.nextSession')}
+          </p>
           <p className="text-2xl font-bold leading-tight tracking-tight text-foreground [overflow-wrap:anywhere] lg:text-[28px]">
             {title}
           </p>
@@ -101,7 +199,7 @@ export function HeroCard({ brief, next }: { brief: HomeBrief | null; next: HomeN
         </div>
       )}
 
-      <CoachWords text={next?.coach_advice} />
+      <CoachWords text={current?.coach_advice} />
 
       {title && (
         <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center">
@@ -119,6 +217,39 @@ export function HeroCard({ brief, next }: { brief: HomeBrief | null; next: HomeN
         </div>
       )}
       {watchError && <Alert variant="error">{t('home.brief.watchError')}</Alert>}
+
+      {doneRows.length > 0 && (
+        <div data-testid="home-done-sessions">
+          <p className="mb-1.5 text-xs text-muted-foreground">{t('home.brief.doneThisWeek', { count: doneRows.length })}</p>
+          <ul className="flex flex-wrap gap-1.5">
+            {doneRows.map((s) => {
+              const inner = (
+                <>
+                  <Check className="h-3.5 w-3.5 shrink-0 text-success-text" strokeWidth={3} aria-hidden="true" />
+                  <span className="truncate">{s.title ?? t('home.week.untitled')}</span>
+                </>
+              );
+              return (
+                <li key={s.order} className="max-w-full">
+                  {s.activity_id ? (
+                    <Link
+                      to={`/activities/${encodeURIComponent(s.activity_id)}`}
+                      className={cn(
+                        doneChip,
+                        'hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                      )}
+                    >
+                      {inner}
+                    </Link>
+                  ) : (
+                    <span className={doneChip}>{inner}</span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       {weather.length > 0 && (
         <div>

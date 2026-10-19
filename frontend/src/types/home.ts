@@ -81,6 +81,13 @@ export interface HomeWeekSession {
   training_type: string | null;
   status: SessionStatus | string;
   duration_min: number | null;
+  /** Open (`todo`) rows only: Campus sessions are à la carte, any open one can be started. */
+  session_id?: string | null;
+  coach_advice?: string | null;
+  workout_b64?: string | null;
+  filename?: string | null;
+  /** Done rows matched to a Strava activity: the activity that closed the session. */
+  activity_id?: string | null;
 }
 
 export interface HomeNextSession {

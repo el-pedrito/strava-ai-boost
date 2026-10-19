@@ -514,3 +514,46 @@ class TestNextSessionHandler:
             for value in ('true', 'True', 'false', ''):
                 assert self._call({'RANGE_ALERTS_ENABLED': value}, _next_row())[0]['statusCode'] == 200
         assert seen == [True, False, False, False]
+
+
+class TestWeekSessionsALaCarte:
+    """Campus sessions are à la carte: every open row carries what the Home card
+    needs to start it (coach word, Watch file); closed rows carry none."""
+
+    def test_open_rows_carry_coach_word_and_watch_file(self):
+        first = _next_row(session_id='7_0', training_index=Decimal(0), coach_advice='Renfo souple')
+        second = _next_row(session_id='7_1', training_index=Decimal(1), coach_advice='Seuil')
+        week, nxt = hs._build_week_sessions(_sessions_table(first, second), NOW)
+        assert [w['session_id'] for w in week] == ['7_0', '7_1']
+        assert [w['coach_advice'] for w in week] == ['Renfo souple', 'Seuil']
+        for w in week:
+            assert w['workout_b64'] and w['filename'].endswith('.workout')
+            assert 'description' not in w
+        # next_session keeps its full shape, description included.
+        assert nxt['session_id'] == '7_0' and 'description' in nxt
+
+    def test_done_and_skipped_rows_carry_no_extras(self):
+        done = _next_row(session_id='7_0', training_index=Decimal(0), local_status='done', coach_advice='x')
+        skip = _next_row(session_id='7_1', training_index=Decimal(1), local_status='skip', coach_advice='y')
+        open_row = _next_row(session_id='7_2', training_index=Decimal(2))
+        week, _ = hs._build_week_sessions(_sessions_table(done, skip, open_row), NOW)
+        assert [w['status'] for w in week] == ['done', 'missed', 'todo']
+        for w in week[:2]:
+            assert not {'session_id', 'coach_advice', 'workout_b64', 'filename'} & set(w)
+        assert week[2]['session_id'] == '7_2'
+
+    def test_mapper_runs_once_per_open_row(self):
+        counters = {}
+        rows = [_next_row(session_id=f'7_{i}', training_index=Decimal(i)) for i in range(3)]
+        with patch.object(plan_workouts.campus_workout, 'map_session', side_effect=RuntimeError('x')):
+            week, nxt = hs._build_week_sessions(_sessions_table(*rows), NOW, False, counters)
+        assert counters == {plan_workouts.METRIC_MAP_FAILED: 3}
+        assert all(w['workout_b64'] is None for w in week) and nxt['workout_b64'] is None
+
+    def test_done_row_links_its_matched_activity(self):
+        done = _next_row(session_id='7_0', training_index=Decimal(0), matched_activity_id=Decimal(20643418757))
+        manual = _next_row(session_id='7_1', training_index=Decimal(1), local_status='done')
+        week, _ = hs._build_week_sessions(_sessions_table(done, manual, _next_row(session_id='7_2', training_index=Decimal(2))), NOW)
+        assert week[0]['status'] == 'done' and week[0]['activity_id'] == '20643418757'
+        assert 'activity_id' not in week[1]
+        assert 'activity_id' not in week[2]
