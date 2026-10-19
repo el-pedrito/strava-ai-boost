@@ -13,7 +13,7 @@ import boto3
 from aws_lambda_powertools.metrics import single_metric
 from botocore.exceptions import ClientError
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
 from shared.logger import get_logger, MetricUnit, METRICS_NAMESPACE
 
 logger = get_logger("strava-updater")
@@ -121,6 +121,13 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         update_activity_status(activity_id, 'completed', enhanced_content)
         _record_outcome("ok" if update_result.get('status') == 'success' else "empty")
         
+
+        # Opt-in Web Push: one neutral "activity enriched" notification per activity,
+        # only when Strava was actually updated. Best-effort and gated by
+        # PUSH_ENABLED; never fails the Strava update.
+        if update_result.get('status') == 'success':
+            _maybe_push_completed(activity_id, user_id)
+
         return {
             'statusCode': 200,
             'activity_id': activity_id,
@@ -302,3 +309,69 @@ def update_activity_status(
     except Exception as e:
         logger.error(f"Failed to update activity status: {str(e)}")
         # Don't raise - this is not critical for processing
+
+
+def _maybe_push_completed(activity_id: str, user_id: str) -> None:
+    """Trigger one opt-in "activity enriched" push, best-effort.
+
+    Gated by the ``PUSH_ENABLED`` environment flag (set only when the Push stack is
+    deployed). A conditional ``UpdateItem`` on ``push_sent_at`` sends at most one
+    notification per pipeline run: a second StravaUpdater call in the same run does
+    not re-notify. A new run (late voice dictation, manual reprocess) starts with a
+    fresh activity row, because ActivityFetcher rewrites the row with ``put_item``,
+    so it notifies again: that is one notification per publication. If the dispatch
+    to PushSend fails, the marker is removed again so a later call can retry. Never
+    raises: a failed notification must never fail the Strava update.
+    """
+    if os.environ.get("PUSH_ENABLED", "").lower() not in ("1", "true", "yes"):
+        return
+    if not activity_id or not user_id:
+        return
+    try:
+        from boto3.dynamodb.conditions import Attr
+
+        from shared.push_notify import notify_activity_enriched
+
+        table = dynamodb.Table(ACTIVITIES_TABLE)
+        item = table.get_item(Key={'activity_id': activity_id}).get('Item', {}) or {}
+
+        # Athlete input (docs/design/rpe-athlete-input.md §10): an activity that
+        # went through the input window already got the "how did it feel?" push.
+        # One notification per activity, so no "enriched" push on top, including on
+        # a later republication (the fetcher keeps athlete_input_state). Flag off ->
+        # no athlete_input_state -> today's behaviour.
+        if 'athlete_input_state' in item:
+            return
+
+        # Dedup: only the first completion for this activity sets push_sent_at.
+        sent_at = datetime.now(timezone.utc).isoformat()
+        try:
+            table.update_item(
+                Key={'activity_id': activity_id},
+                UpdateExpression="SET push_sent_at = :now",
+                ConditionExpression=Attr('push_sent_at').not_exists(),
+                ExpressionAttributeValues={':now': sent_at},
+            )
+        except ClientError as exc:
+            if exc.response.get('Error', {}).get('Code') == 'ConditionalCheckFailedException':
+                return  # already notified for this activity
+            raise
+
+        # Only the activity title: the description can quote heart rate or pace,
+        # and a notification may show on a locked screen.
+        body = item.get('enhanced_title', '') or "Ta description enrichie est en ligne."
+        dispatched = notify_activity_enriched(
+            user_id=user_id,
+            activity_id=activity_id,
+            title="Activité enrichie",
+            body=body,
+        )
+        if not dispatched:
+            # Give the notification back to a later run instead of losing it.
+            table.update_item(
+                Key={'activity_id': activity_id},
+                UpdateExpression="REMOVE push_sent_at",
+                ConditionExpression=Attr('push_sent_at').eq(sent_at),
+            )
+    except Exception as exc:  # noqa: BLE001 - best-effort, never fail the Strava update
+        logger.warning(f"push notify skipped (non-blocking): {str(exc)}")

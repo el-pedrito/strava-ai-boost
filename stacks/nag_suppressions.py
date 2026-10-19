@@ -110,9 +110,13 @@ _GLOBAL: List[NagPackSuppression] = [
 # Service APIs that only accept Resource '*', keyed by stack -> construct paths.
 _STAR_ONLY_REASON = (
     "These actions do not support resource-level permissions "
-    "(logs delivery/resource policy, X-Ray config, Polly, dynamodb:ListStreams)."
+    "(logs delivery/resource policy, X-Ray config, Polly, dynamodb:ListStreams, "
+    "states:SendTaskSuccess)."
 )
 _STAR_ONLY: Dict[str, List[str]] = {
+    "StravaAIBoost-API": [
+        "/StravaAIBoost-API/InputSubmit/ServiceRole/DefaultPolicy/Resource",
+    ],
     "StravaAIBoost-Content": ["/StravaAIBoost-Content/StepFunctionsRole/DefaultPolicy/Resource"],
     "StravaAIBoost-Feedback": [
         # CDK singleton LogRetention provider id (a fixed hash, not a secret)
@@ -180,6 +184,23 @@ _BY_PATH: Dict[str, Dict[str, List[NagPackSuppression]]] = {
             "/StravaAIBoost-Core/CampusCoachSecret/Resource",
             "/StravaAIBoost-Core/IntervalsICUSecret/Resource",
         )
+    },
+    "StravaAIBoost-Content": {
+        "/StravaAIBoost-Content/InputWaitRole/DefaultPolicy/Resource": [
+            NagPackSuppression(
+                id="AwsSolutions-IAM5",
+                reason="states:SendTaskSuccess has no resource type, so '*' is the only accepted value; the statement grants that one action only.",
+                applies_to=["Resource::*"],
+            ),
+        ],
+    },
+    "StravaAIBoost-Push": {
+        "/StravaAIBoost-Push/VapidKeys/Resource": [
+            NagPackSuppression(
+                id="AwsSolutions-SMG4",
+                reason="VAPID keys are rotated by hand: a new pair invalidates every browser subscription, so there is no rotation Lambda.",
+            ),
+        ],
     },
 }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ApiError, api } from '../client';
+import { ApiError, api, getActivityFeedback, submitActivityFeedback } from '../client';
 
 vi.mock('../../config.ts', () => ({
   getConfig: () => ({
@@ -139,5 +139,54 @@ describe('api.delete', () => {
       expect.objectContaining({ method: 'DELETE' }),
     );
     expect(result).toEqual({ deleted: true });
+  });
+});
+
+describe('activity feedback', () => {
+  it('GETs the feedback window of an activity', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ state: 'awaiting', deadline_at: '2026-10-17T19:00:00Z' }),
+    });
+
+    const result = await getActivityFeedback('123');
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://api.example.com/activities/123/feedback',
+      expect.not.objectContaining({ method: 'POST' }),
+    );
+    expect(result).toEqual({ state: 'awaiting', deadline_at: '2026-10-17T19:00:00Z' });
+  });
+
+  it('POSTs the RPE and summary as JSON', async () => {
+    mockFetch.mockResolvedValue({ ok: true, status: 202, json: () => Promise.resolve({}) });
+
+    await submitActivityFeedback('123', { rpe: 7, summary: 'ok' });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://api.example.com/activities/123/feedback',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ rpe: 7, summary: 'ok' }) }),
+    );
+  });
+
+  it('surfaces a 409 as ApiError with its status', async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: () => Promise.resolve({ error: 'closed' }),
+    });
+
+    await expect(submitActivityFeedback('123', { rpe: 7 })).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('encodes the activity id in the path', async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ state: 'none' }) });
+
+    await getActivityFeedback('1/../x');
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://api.example.com/activities/1%2F..%2Fx/feedback',
+      expect.anything(),
+    );
   });
 });

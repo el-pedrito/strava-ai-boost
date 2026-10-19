@@ -67,7 +67,11 @@ def _frontend_test_count() -> int:
 def _code_lambda_count() -> int:
     names = set()
     for stack in (REPO_ROOT / "stacks").glob("*.py"):
-        names |= set(re.findall(r'function_name="(StravaAIBoost-[A-Za-z]+)"', stack.read_text()))
+        text = stack.read_text()
+        names |= set(re.findall(r'function_name="(StravaAIBoost-[A-Za-z]+)"', text))
+        # A name shared across stacks (e.g. an alarm in another stack) lives in a
+        # module constant, passed as function_name=CONSTANT.
+        names |= set(re.findall(r'^[A-Z_]+_FUNCTION_NAME\s*=\s*"(StravaAIBoost-[A-Za-z]+)"', text, re.M))
     return len(names)
 
 

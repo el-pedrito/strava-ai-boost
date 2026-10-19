@@ -1,0 +1,163 @@
+"""Push send Lambda (StravaAIBoost-PushSend).
+
+Invoked asynchronously after a Strava activity has been successfully updated, to send
+the single opt-in v1 notification ("your enriched description is live"). The click
+opens the activity route that exists in the frontend (``/activities/:id``).
+
+Expected event (direct, asynchronous invocation):
+    { "user_id": "...", "activity_id": "...",
+      "title": "...", "body": "...", "url"?: "/...", "tag"?: "...", "ttl"?: 3600 }
+
+``ttl`` (seconds, 1 to 24 h) is how long the push service keeps an undelivered
+message; absent or invalid -> the 24 h default. The athlete-input request passes
+3600: past its 1 h window the notification is useless.
+
+For each of the user's subscriptions the encrypted notification is sent; an expired
+endpoint (404/410) is deleted from the table (410 cleanup). One failing subscription
+never blocks the others. The payload carries a title, a short body and an internal
+route; the activity description (heart rate, pace) is never sent.
+"""
+
+from __future__ import annotations
+
+import os
+from typing import Any
+
+import boto3
+from boto3.dynamodb.conditions import Key
+from botocore.exceptions import ClientError
+
+from aws_lambda_powertools.metrics import single_metric
+
+from push.webpush_core import PUSH_TTL_SECONDS, PushExpired, send_push
+from shared.logger import METRICS_NAMESPACE, MetricUnit, get_logger, inject_correlation_id
+
+logger = get_logger("push_send")
+
+REGION = os.environ.get("AWS_REGION", "us-east-1")
+
+_dynamodb: Any = boto3.resource("dynamodb", region_name=REGION)
+
+# Neutral user-facing defaults, in the app's language (French, like the coach output).
+DEFAULT_TITLE = "Activité enrichie"
+DEFAULT_BODY = "Ta description enrichie est en ligne."
+# Mirrors push_api.MAX_SUBSCRIPTIONS_PER_USER.
+MAX_DEVICES = 10
+
+
+def _resolve_ttl(value: Any) -> int | None:
+    """Event ``ttl`` when it is an int in [1, PUSH_TTL_SECONDS], else None (default)."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    if value < 1 or value > PUSH_TTL_SECONDS:
+        return None
+    return value
+
+
+def _table() -> Any:
+    # Read at call time, not at import: this module must stay importable in a runtime
+    # that does not define PUSH_SUBSCRIPTIONS_TABLE (invariant 8).
+    return _dynamodb.Table(os.environ["PUSH_SUBSCRIPTIONS_TABLE"])
+
+
+def _resolve_url(activity_id: str, explicit_url: str | None) -> str:
+    """URL opened on click. An explicit ``url`` in the event wins; otherwise the
+    activity route that exists in frontend/src/App.tsx (``/activities/:id``)."""
+    if explicit_url:
+        return explicit_url
+    return f"/activities/{activity_id}"
+
+
+def _subscriptions(user_id: str) -> list[dict[str, Any]]:
+    resp = _table().query(KeyConditionExpression=Key("user_id").eq(user_id))
+    return resp.get("Items", [])
+
+
+def _delete(user_id: str, endpoint_hash: str) -> None:
+    try:
+        _table().delete_item(Key={"user_id": user_id, "endpoint_hash": endpoint_hash})
+        logger.info(f"push_cleanup user={user_id} endpoint_hash={endpoint_hash[:12]} reason=410")
+    except ClientError as exc:
+        logger.warning(f"Failed to delete expired subscription: {exc}")
+
+
+def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    inject_correlation_id(logger, event)
+
+    user_id = (event.get("user_id") or "").strip()
+    activity_id = (event.get("activity_id") or "").strip()
+    url = (event.get("url") or "").strip()
+    # activity_id is optional as soon as an explicit url is provided.
+    if not user_id or (not activity_id and not url):
+        logger.warning("push_send skipped: missing user_id, or both activity_id and url")
+        return {"statusCode": 400, "sent": 0}
+
+    title = event.get("title") or DEFAULT_TITLE
+    body = event.get("body") or DEFAULT_BODY
+    tag = event.get("tag") or (f"activity-{activity_id}" if activity_id else "strava-ai-boost")
+    payload = {
+        "title": title,
+        "body": body,
+        # The service worker opens this URL on click. Must start with '/'.
+        "url": _resolve_url(activity_id, url or None),
+        "tag": tag,
+    }
+    ttl = _resolve_ttl(event.get("ttl"))
+
+    # Same bound as the subscribe API: keeps the fan-out inside the timeout even
+    # if two subscribes raced past the cap.
+    subs = _subscriptions(user_id)[:MAX_DEVICES]
+    if not subs:
+        logger.info(f"push_send user={user_id} activity={activity_id} subscriptions=0")
+        return {"statusCode": 200, "sent": 0}
+
+    sent = 0
+    cleaned = 0
+    skipped = 0
+    for sub in subs:
+        if not (sub.get("endpoint") and sub.get("p256dh") and sub.get("auth")):
+            # Not a subscription row: never let one bad item stop the others.
+            skipped += 1
+            continue
+        subscription_info = {
+            "endpoint": sub["endpoint"],
+            "keys": {"p256dh": sub["p256dh"], "auth": sub["auth"]},
+        }
+        try:
+            if ttl is None:
+                send_push(subscription_info, payload)
+            else:
+                send_push(subscription_info, payload, ttl=ttl)
+            sent += 1
+        except PushExpired:
+            _delete(user_id, sub["endpoint_hash"])
+            cleaned += 1
+        except Exception as exc:  # noqa: BLE001 - one failing sub never blocks the others
+            logger.warning(f"push_send error user={user_id}: {exc}")
+
+    failed = len(subs) - sent - cleaned - skipped
+    _record_delivery(sent=sent, failed=failed, undelivered=int(sent == 0 and failed > 0))
+    if sent == 0 and failed > 0:
+        # Every device failed (e.g. VAPID secret never bootstrapped). Not retried
+        # by design, so make it visible.
+        logger.error(f"push_send delivered nothing user={user_id} failed={failed}")
+    logger.info(f"push_send user={user_id} activity={activity_id} sent={sent} cleaned={cleaned} failed={failed}")
+    return {"statusCode": 200, "sent": sent, "cleaned": cleaned, "failed": failed}
+
+
+def _record_delivery(sent: int, failed: int, undelivered: int) -> None:
+    """Emit PushDelivery{outcome=sent|failed|undelivered} counts (EMF), never raising.
+
+    ``failed`` counts devices; a leftover row for an old device fails while the
+    real phone still gets the message. ``undelivered`` = 1 when NO device got
+    it: that is what the alarm watches.
+    """
+    for outcome, value in (("sent", sent), ("failed", failed), ("undelivered", undelivered)):
+        try:
+            with single_metric(
+                name="PushDelivery", unit=MetricUnit.Count, value=value,
+                namespace=METRICS_NAMESPACE,
+            ) as metric:
+                metric.add_dimension(name="outcome", value=outcome)
+        except Exception as exc:  # noqa: BLE001 - a metric must never break the send
+            logger.warning(f"Could not emit PushDelivery{{outcome={outcome}}}: {exc}")

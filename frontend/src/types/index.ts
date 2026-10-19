@@ -90,6 +90,8 @@ export interface ModulesMap {
   campus_coach: ModuleConfig;
   enduraw: ModuleConfig;
   intervals_icu: ModuleConfig;
+  /** Post-session RPE + summary request (Preferences toggle). Absent on older backends. */
+  athlete_input?: ModuleConfig;
 }
 
 export interface EnhancementStatus {
