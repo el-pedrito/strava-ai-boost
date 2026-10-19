@@ -531,14 +531,14 @@ pytest tests/regression/ -v
 export AWS_PROFILE=<your-aws-profile>
 pytest tests/ -v --ignore=tests/unit/
 
-# Frontend unit tests (168 tests, ~4s)
+# Frontend unit tests (189 tests, ~4s)
 cd frontend && npm test
 
 # All backend tests
 pytest tests/ -v
 ```
 
-**Test coverage:** 1678 total tests (1404 backend unit + 106 regression + 168 frontend), plus integration tests.
+**Test coverage:** 1699 total tests (1404 backend unit + 106 regression + 189 frontend), plus integration tests.
 
 **Prompt regression (on-demand, live):** after changing prompts and redeploying the agents, replay 10 synthetic reference activities against the deployed runtime:
 
