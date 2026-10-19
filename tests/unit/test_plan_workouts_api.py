@@ -182,7 +182,7 @@ class TestOwnerResponse:
         assert response["statusCode"] == 200
         _assert_no_store(response)
         body = _body(response)
-        assert set(body) == {"workouts", "count", "truncated", "timestamp"}
+        assert set(body) == {"workouts", "count", "truncated", "next_session_id", "timestamp"}
         assert body["count"] == 1
         assert body["truncated"] is False
         item = body["workouts"][0]
@@ -543,3 +543,79 @@ class TestRangeAlertsSwitch:
         off = _body(handler(_event(), None))["workouts"][0]
         assert "5:55-6:25" in on["summary"] and "5:55-6:25" not in off["summary"]
         assert on["workout_b64"] != off["workout_b64"]
+
+
+class TestCampusTexts:
+    """``description`` (instructions) and ``coach_advice`` (coach word) on every item."""
+
+    DESCRIPTION = "  Échauffement **progressif**, puis les blocs. Guide : https://example.org/allures  \n"
+    ADVICE = "\tGarde de la marge sur le premier bloc, **pas de chrono** au début.  "
+
+    def _item(self, table, **extra):
+        table.scan.return_value = {"Items": [_row(**extra)]}
+        return _body(handler(_event(), None))["workouts"][0]
+
+    def test_present_texts_are_trimmed_and_kept_verbatim(self, owner_env, table):
+        item = self._item(table, description=self.DESCRIPTION, coach_advice=self.ADVICE)
+        assert item["description"] == self.DESCRIPTION.strip()
+        assert item["coach_advice"] == self.ADVICE.strip()
+
+    def test_absent_texts_are_null(self, owner_env, table):
+        item = self._item(table)
+        assert item["description"] is None
+        assert item["coach_advice"] is None
+
+    def test_blank_or_non_string_texts_are_null(self, owner_env, table):
+        item = self._item(table, description="   \n ", coach_advice=Decimal(3))
+        assert item["description"] is None
+        assert item["coach_advice"] is None
+
+    def test_long_texts_are_capped(self, owner_env, table):
+        long_text = "  " + "é" * (plan_workouts.MAX_TEXT_CHARS + 500)
+        item = self._item(table, description=long_text, coach_advice="x" * 5000)
+        assert item["description"] == "é" * plan_workouts.MAX_TEXT_CHARS
+        assert len(item["coach_advice"]) == plan_workouts.MAX_TEXT_CHARS
+
+    def test_lone_surrogate_text_is_sanitized(self, owner_env, table):
+        table.scan.return_value = {"Items": [_row(coach_advice="Allure \ud800 tenue")]}
+        response = handler(_event(), None)
+        assert response["statusCode"] == 200
+        assert _body(response)["workouts"][0]["coach_advice"] == "Allure ? tenue"
+
+    def test_texts_survive_a_raising_mapper(self, owner_env, table):
+        table.scan.return_value = {"Items": [_row(description="Consigne", coach_advice="Conseil")]}
+        with patch.object(plan_workouts.campus_workout, "map_session", side_effect=RuntimeError("x")):
+            item = _body(handler(_event(), None))["workouts"][0]
+        assert item["reason_code"] == "internal"
+        assert item["description"] == "Consigne"
+        assert item["coach_advice"] == "Conseil"
+
+    def test_worst_case_texts_on_nine_weeks_stay_under_the_byte_ceiling(self, owner_env, table):
+        # Both texts at the cap in 4-byte characters, 5 sessions a week, 9 weeks: the
+        # whole plan is still listed under the real ceiling (sized in MAX_RESPONSE_BYTES).
+        text = "\U0001F3C3" * plan_workouts.MAX_TEXT_CHARS
+        rows = [
+            _row(f"{week}_{i}", week_iso=f"2099-W{week + 2:02d}", index=i, week_ms=_week_ms(week),
+                 description=text, coach_advice=text)
+            for week in range(9) for i in range(5)
+        ]
+        table.scan.return_value = {"Items": rows}
+        body = _body(handler(_event(), None))
+        assert body["count"] == 45
+        assert body["truncated"] is False
+        assert all(w["encodable"] for w in body["workouts"])
+
+    def test_long_texts_follow_the_whole_week_byte_rule(self, owner_env, table, monkeypatch):
+        # Week 1 has one session, week 2 two; all carry capped texts. Room for two
+        # items: week 2 is dropped whole, never cut.
+        text = "é" * (plan_workouts.MAX_TEXT_CHARS + 100)
+        rows = [_row("a0", index=0, description=text, coach_advice=text)]
+        rows += [_row(f"b{i}", week_iso="2099-W03", index=i, week_ms=_week_ms(1),
+                      description=text, coach_advice=text) for i in range(2)]
+        table.scan.return_value = {"Items": rows}
+        one = len(json.dumps(_body(handler(_event(), None))["workouts"][0], ensure_ascii=False).encode())
+        assert one > 4 * plan_workouts.MAX_TEXT_CHARS  # the texts are really counted
+        monkeypatch.setattr(plan_workouts, "MAX_RESPONSE_BYTES", int(one * 2.5))
+        body = _body(handler(_event(), None))
+        assert [w["session_id"] for w in body["workouts"]] == ["a0"]
+        assert body["truncated"] is True

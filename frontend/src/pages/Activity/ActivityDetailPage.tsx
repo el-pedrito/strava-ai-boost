@@ -1,17 +1,12 @@
-import { lazy, Suspense, useState, useEffect, useMemo, type ComponentType } from 'react';
+import { lazy, Suspense, useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useLocation, useParams } from 'react-router';
+import { Link, useLocation, useParams } from 'react-router';
 import {
-  Activity as ActivityIcon,
-  Bike,
   ChevronDown,
   ChevronLeft,
   ChevronUp,
   Clock,
-  Dumbbell,
   Flame,
-  Flower2,
-  Footprints,
   Headphones,
   Heart,
   Loader2,
@@ -20,20 +15,21 @@ import {
   Ruler,
   Sparkles,
   TrendingUp,
-  Waves,
   Zap,
 } from 'lucide-react';
-import { AudioPlayer, Badge, Button, Card, EmptyState } from '../../ui';
+import { AudioPlayer, Badge, Card, EmptyState, buttonVariants } from '../../ui';
 import { api, ApiError } from '../../api/client.ts';
 import { cn } from '../../lib/cn.ts';
 import { formatDateTime } from '../../utils/formatDate.ts';
+import { formatKm, formatMoving, formatRunPace, qualityPct, type ListActivity } from '../Activities/activityList.ts';
+
+import { activityIcon, activityTypeLabel, type LucideIcon } from '../../utils/activityType.ts';
 import type { Activity, AudioDebriefPayload } from '../../types/index.ts';
 
 const ActivityMap = lazy(() =>
   import('./ActivityMap').then((m) => ({ default: m.ActivityMap })),
 );
 
-type LucideIcon = ComponentType<{ className?: string }>;
 type BadgeVariant = 'default' | 'primary' | 'success' | 'warning' | 'danger' | 'info' | 'outline';
 
 interface CoachFeedbackBlock {
@@ -53,32 +49,6 @@ interface CoachSummaryShape {
   recent_feedback: CoachFeedbackItem[];
 }
 
-function activityIcon(type?: string): LucideIcon {
-  switch (type) {
-    case 'Run':
-    case 'TrailRun':
-    case 'VirtualRun':
-      return Footprints;
-    case 'Ride':
-    case 'VirtualRide':
-    case 'EBikeRide':
-      return Bike;
-    case 'Swim':
-      return Waves;
-    case 'WeightTraining':
-    case 'Workout':
-    case 'Crossfit':
-      return Dumbbell;
-    case 'Hike':
-    case 'Walk':
-      return Mountain;
-    case 'Yoga':
-      return Flower2;
-    default:
-      return ActivityIcon;
-  }
-}
-
 function moduleBadge(name: string): { label: string; variant: BadgeVariant } {
   const lower = name.toLowerCase();
   if (name === 'campus_coach' || lower.includes('campus')) {
@@ -93,29 +63,17 @@ function moduleBadge(name: string): { label: string; variant: BadgeVariant } {
   return { label: name, variant: 'default' };
 }
 
-function formatDistanceKm(meters?: number): string | null {
-  if (meters === undefined || meters === null || Number.isNaN(meters)) return null;
-  if (meters <= 0) return null;
-  return `${(meters / 1000).toFixed(2)} km`;
+// Shared with the Activities list: French decimals, carried seconds, never "5:60/km".
+function formatDistanceKm(meters?: number, lang?: string): string | null {
+  return formatKm(meters, 2, lang);
 }
 
 function formatDurationSec(seconds?: number): string | null {
-  if (seconds === undefined || seconds === null || Number.isNaN(seconds) || seconds <= 0) return null;
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.round(seconds % 60);
-  if (h > 0) return `${h}h ${m.toString().padStart(2, '0')}m`;
-  return `${m}m ${s.toString().padStart(2, '0')}s`;
+  return formatMoving(seconds);
 }
 
-function formatPace(distanceMeters?: number, movingTimeSec?: number): string | null {
-  if (!distanceMeters || !movingTimeSec || distanceMeters <= 0 || movingTimeSec <= 0) return null;
-  const km = distanceMeters / 1000;
-  const secPerKm = movingTimeSec / km;
-  if (!Number.isFinite(secPerKm)) return null;
-  const m = Math.floor(secPerKm / 60);
-  const s = Math.round(secPerKm % 60);
-  return `${m}:${s.toString().padStart(2, '0')}/km`;
+function formatPace(activity: Activity): string | null {
+  return formatRunPace(activity as unknown as ListActivity);
 }
 
 function formatHr(value?: number): string | null {
@@ -169,9 +127,84 @@ function QualityBar({ label, value, suffix }: { label: string; value: number; su
   );
 }
 
+/** Lines shown before "Lire tout". */
+const COLLAPSED_LINES = 6;
+/** Rough characters per line on a phone, used when layout cannot be measured (jsdom). */
+const CHARS_PER_LINE = 48;
+
+/** Estimated rendered lines of a text with paragraph breaks, for the no-layout fallback. */
+function estimateLines(text: string): number {
+  return text
+    .split('\n')
+    .reduce((sum, line) => sum + Math.max(1, Math.ceil(line.trim().length / CHARS_PER_LINE)), 0);
+}
+
+/**
+ * Long text clamped to six lines with a "Lire tout" toggle. The toggle appears only
+ * when the text really overflows: measured from the layout, estimated otherwise.
+ */
+function CollapsibleText({ text }: { text: string }) {
+  const { t } = useTranslation();
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  // Paragraphs keep one blank line between them, whatever the source spacing.
+  const normalized = text.replace(/\n{3,}/g, '\n\n');
+  const [overflows, setOverflows] = useState(() => estimateLines(normalized) > COLLAPSED_LINES);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || expanded) return;
+    const measure = () => {
+      // jsdom has no layout: keep the estimate.
+      if (el.clientHeight === 0) return;
+      setOverflows(el.scrollHeight > el.clientHeight + 1);
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [normalized, expanded]);
+
+  return (
+    <div className="flex flex-col gap-1">
+      <p
+        ref={ref}
+        id="activity-description-text"
+        data-testid="activity-description"
+        data-expanded={expanded ? 'true' : 'false'}
+        className={cn(
+          'whitespace-pre-line text-sm leading-relaxed text-foreground [overflow-wrap:anywhere]',
+          !expanded && 'line-clamp-6',
+        )}
+      >
+        {normalized}
+      </p>
+      {overflows || expanded ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          aria-controls="activity-description-text"
+          className={cn(
+            'inline-flex min-h-11 items-center gap-1.5 self-start text-sm font-medium text-primary-text hover:underline',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded',
+          )}
+        >
+          {expanded ? (
+            <ChevronUp className="h-4 w-4" aria-hidden="true" />
+          ) : (
+            <ChevronDown className="h-4 w-4" aria-hidden="true" />
+          )}
+          <span>{expanded ? t('activity.readLess') : t('activity.readMore')}</span>
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function NotFoundState() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   return (
     <div className="flex min-h-[60vh] items-center justify-center px-6">
       <EmptyState
@@ -179,10 +212,10 @@ function NotFoundState() {
         title={t('activity.notFound')}
         description={t('activity.notFoundHint')}
         action={
-          <Button variant="outline" size="sm" onClick={() => navigate('/')}>
-            <ChevronLeft className="h-4 w-4" />
-            <span>{t('activity.backToDashboard')}</span>
-          </Button>
+          <Link to="/activities" className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'min-h-11')}>
+            <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+            <span>{t('activity.backToList')}</span>
+          </Link>
         }
       />
     </div>
@@ -190,8 +223,7 @@ function NotFoundState() {
 }
 
 export function ActivityDetailPage() {
-  const { t } = useTranslation();
-  const navigate = useNavigate();
+  const { t, i18n } = useTranslation();
   const location = useLocation();
   const { id: routeId } = useParams<{ id: string }>();
 
@@ -288,9 +320,9 @@ export function ActivityDetailPage() {
   const stats = useMemo(() => {
     if (!activity) return [] as StatTileProps[];
     const items: StatTileProps[] = [];
-    const distance = formatDistanceKm(activity.distance);
+    const distance = formatDistanceKm(activity.distance, i18n.language);
     const duration = formatDurationSec(activity.moving_time);
-    const pace = formatPace(activity.distance, activity.moving_time);
+    const pace = formatPace(activity);
     const avgHr = formatHr(activity.average_heartrate);
     const maxHr = formatHr(activity.max_heartrate);
     const elev = formatElevation(activity.total_elevation_gain);
@@ -304,33 +336,23 @@ export function ActivityDetailPage() {
     const cal = activity.calories ? Math.round(Number(activity.calories)) : 0;
     if (cal > 0) items.push({ icon: Flame, label: t('activity.stats.calories'), value: `${cal} kcal` });
     return items;
-  }, [activity, t]);
+  }, [activity, t, i18n.language]);
 
   if (!activity) {
     return <NotFoundState />;
   }
 
   const Icon = activityIcon(activity.activity_type);
+  const typeLabel = activityTypeLabel(t, activity.activity_type);
   const title = activity.enhanced_title || activity.name || activity.original_name || t('activity.untitled');
-  const subtitle = activity.created_at_raw
-    ? formatDateTime(activity.created_at_raw)
-    : activity.date || '';
+  // The activity's own start time (API field), never the AI processing time (created_at).
+  const startIso = activity.start_date ?? activity.start_date_raw;
+  const subtitle = startIso ? formatDateTime(startIso) : '';
 
   const description = activity.enhanced_description?.trim() ?? '';
-  const descriptionLines = description.split(/\n+/).filter((l) => l.trim().length > 0);
 
-  const confidencePct =
-    activity.confidence !== undefined && activity.confidence !== null
-      ? activity.confidence <= 1
-        ? activity.confidence * 100
-        : activity.confidence
-      : null;
-  const similarityPct =
-    activity.similarity_score !== undefined && activity.similarity_score !== null
-      ? activity.similarity_score <= 1
-        ? activity.similarity_score * 100
-        : activity.similarity_score
-      : null;
+  const confidencePct = qualityPct(activity.confidence);
+  const similarityPct = qualityPct(activity.similarity_score);
 
   const hasQuality = confidencePct !== null || similarityPct !== null;
 
@@ -338,15 +360,13 @@ export function ActivityDetailPage() {
     <div className="flex flex-col gap-6 md:gap-8 pb-10">
       <header className="flex flex-col gap-4">
         <div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate(-1)}
-            aria-label={t('activity.back')}
+          <Link
+            to="/activities"
+            className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), '-ml-3 min-h-11')}
           >
-            <ChevronLeft className="h-4 w-4" />
-            <span>{t('activity.back')}</span>
-          </Button>
+            <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+            <span>{t('activity.backToList')}</span>
+          </Link>
         </div>
 
         <div className="flex items-start gap-4">
@@ -359,9 +379,9 @@ export function ActivityDetailPage() {
               <h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">
                 {title}
               </h1>
-              {activity.activity_type ? (
-                <Badge variant="outline" size="sm">
-                  {activity.activity_type}
+              {typeLabel ? (
+                <Badge variant="outline" size="sm" data-testid="activity-type">
+                  {typeLabel}
                 </Badge>
               ) : null}
             </div>
@@ -417,11 +437,7 @@ export function ActivityDetailPage() {
                 {activity.enhanced_title}
               </h3>
             ) : null}
-            <div className="space-y-2 text-sm leading-relaxed text-foreground">
-              {descriptionLines.map((line, i) => (
-                <p key={i}>{line}</p>
-              ))}
-            </div>
+            <CollapsibleText text={description} />
           </Card>
         </section>
       ) : null}
@@ -495,15 +511,15 @@ export function ActivityDetailPage() {
                   type="button"
                   onClick={() => setFeedbackExpanded((v) => !v)}
                   className={cn(
-                    'inline-flex items-center gap-1.5 self-start text-xs font-medium text-primary hover:underline',
+                    'inline-flex min-h-11 items-center gap-1.5 self-start text-sm font-medium text-primary-text hover:underline',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded',
                   )}
                   aria-expanded={feedbackExpanded}
                 >
                   {feedbackExpanded ? (
-                    <ChevronUp className="h-3.5 w-3.5" />
+                    <ChevronUp className="h-4 w-4" aria-hidden="true" />
                   ) : (
-                    <ChevronDown className="h-3.5 w-3.5" />
+                    <ChevronDown className="h-4 w-4" aria-hidden="true" />
                   )}
                   <span>
                     {feedbackExpanded

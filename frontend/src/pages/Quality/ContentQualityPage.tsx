@@ -32,6 +32,7 @@ import type { Activity, QualityStats } from '@/types/index';
 interface RawActivity {
   enhanced_title?: string;
   original_name?: string;
+  start_date?: string;
   created_at?: string;
   updated_at?: string;
   processing_status?: string;
@@ -49,7 +50,9 @@ function transformActivities(raw: RawActivity[]): Activity[] {
     .filter((a) => a.processing_status === 'completed')
     .map((act) => ({
       name: act.enhanced_title || act.original_name || 'Unknown',
-      date: act.created_at ? formatDateTime(act.created_at) : 'N/A',
+      // "Date" is when the athlete did the activity, the same value the Monitoring page shows.
+      // created_at is the processing time and stays in processing_time below.
+      date: act.start_date ? formatDateTime(act.start_date) : 'N/A',
       processing_time: computeProcessingTime(act.created_at, act.updated_at),
       status: 'completed' as const,
       modules_used: act.modules_used || [],
@@ -60,6 +63,7 @@ function transformActivities(raw: RawActivity[]): Activity[] {
       feedback_analyzed: act.feedback_analyzed,
       generated_at: act.generated_at,
       created_at_raw: act.created_at,
+      start_date_raw: act.start_date,
     }));
 }
 
@@ -119,12 +123,27 @@ function getActivityLucideIcon(type?: string): LucideIcon {
   return ACTIVITY_ICONS[type] || ActivityIcon;
 }
 
-function confColor(value: number): string {
-  if (value >= 0.85) return '#00c896';
-  if (value >= 0.7) return '#84cc16';
-  if (value >= 0.5) return '#f59e0b';
-  return '#ef4444';
+type ScoreTone = 'success' | 'warning' | 'danger';
+
+function scoreTone(value: number): ScoreTone {
+  if (value >= 0.7) return 'success';
+  if (value >= 0.5) return 'warning';
+  return 'danger';
 }
+
+// Theme tokens only: the *-text variants clear WCAG AA as text in both themes
+// (pinned by ui/__tests__/contrast.test.ts). Bars are decorative and use the base tone.
+const SCORE_TEXT: Record<ScoreTone, string> = {
+  success: 'text-success-text',
+  warning: 'text-warning-text',
+  danger: 'text-danger',
+};
+
+const SCORE_BAR: Record<ScoreTone, string> = {
+  success: 'bg-success',
+  warning: 'bg-warning',
+  danger: 'bg-danger',
+};
 
 type EditStatus = {
   text: string;
@@ -172,8 +191,8 @@ function ConfidenceBar({ value }: ConfidenceBarProps) {
     <div className="flex items-center gap-2">
       <div className="flex-1 max-w-[120px] h-1.5 rounded-full bg-muted overflow-hidden">
         <div
-          className="h-full transition-all"
-          style={{ width: `${value * 100}%`, background: confColor(value) }}
+          className={cn('h-full transition-all', SCORE_BAR[scoreTone(value)])}
+          style={{ width: `${value * 100}%` }}
         />
       </div>
       <span className="font-numeric text-xs tabular-nums w-10 text-right text-foreground">
@@ -222,8 +241,10 @@ function DesktopRow({ item, t }: ActivityRowProps & { t: TFn }) {
       <td className="py-3 px-4">
         {hasSimilarity ? (
           <span
-            className="font-numeric font-semibold tabular-nums"
-            style={{ color: confColor(item.similarity_score as number) }}
+            className={cn(
+              'font-numeric font-semibold tabular-nums',
+              SCORE_TEXT[scoreTone(item.similarity_score as number)],
+            )}
           >
             {((item.similarity_score as number) * 100).toFixed(0)}%
           </span>
@@ -303,8 +324,10 @@ function MobileCard({ item, t }: ActivityRowProps & { t: TFn }) {
           {t('quality.mobile.simLabel')}{' '}
           {hasSimilarity ? (
             <span
-              className="font-numeric font-semibold tabular-nums"
-              style={{ color: confColor(item.similarity_score as number) }}
+              className={cn(
+                'font-numeric font-semibold tabular-nums',
+                SCORE_TEXT[scoreTone(item.similarity_score as number)],
+              )}
             >
               {((item.similarity_score as number) * 100).toFixed(0)}%
             </span>
@@ -382,8 +405,8 @@ export function ContentQualityPage() {
         av = a.name.toLowerCase();
         bv = b.name.toLowerCase();
       } else if (sortKey === 'date') {
-        av = a.created_at_raw ? new Date(a.created_at_raw).getTime() : 0;
-        bv = b.created_at_raw ? new Date(b.created_at_raw).getTime() : 0;
+        av = a.start_date_raw ? new Date(a.start_date_raw).getTime() : 0;
+        bv = b.start_date_raw ? new Date(b.start_date_raw).getTime() : 0;
       } else if (sortKey === 'confidence') {
         av = a.confidence ?? -1;
         bv = b.confidence ?? -1;

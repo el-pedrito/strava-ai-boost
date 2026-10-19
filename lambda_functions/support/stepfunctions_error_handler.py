@@ -9,6 +9,7 @@ import json
 import os
 from typing import Dict, Any
 import boto3
+from botocore.exceptions import ClientError
 from datetime import datetime, UTC
 from shared.logger import get_logger
 
@@ -63,6 +64,10 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             logger.error(f"Could not extract activity_id from execution name: {execution_name}")
             return {'statusCode': 400, 'error': 'Invalid execution name format'}
         
+        # An execution stopped or failed during the athlete-input wait leaves an
+        # open window and its task token on the row: close it, drop the token.
+        close_athlete_input_window(activity_id)
+
         # Get execution details for more context
         execution_details = get_execution_details(execution_arn)
         
@@ -128,6 +133,39 @@ def get_execution_details(execution_arn: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Failed to get execution details: {str(e)}")
         return {}
+
+
+def close_athlete_input_window(activity_id: str) -> bool:
+    """Close an open athlete-input window (docs/design/rpe-athlete-input.md).
+
+    Conditional: only a row in ``awaiting`` or ``submitted`` is touched, so a row
+    without a window (flag off) or already closed is left as is, without error.
+    Never raises. Returns True when a window was closed.
+    """
+    try:
+        dynamodb.Table(ACTIVITIES_TABLE).update_item(
+            Key={'activity_id': activity_id},
+            UpdateExpression="SET athlete_input_state = :closed REMOVE input_task_token",
+            ConditionExpression="athlete_input_state IN (:awaiting, :submitted)",
+            ExpressionAttributeValues={
+                ':closed': 'closed',
+                ':awaiting': 'awaiting',
+                ':submitted': 'submitted',
+            },
+        )
+    except ClientError as e:
+        if e.response.get('Error', {}).get('Code') == 'ConditionalCheckFailedException':
+            return False
+        logger.warning(
+            f"Could not close athlete-input window for {activity_id}: "
+            f"{e.response.get('Error', {}).get('Code')}"
+        )
+        return False
+    except Exception as e:  # noqa: BLE001 - never block the failure handling
+        logger.warning(f"Could not close athlete-input window for {activity_id}: {type(e).__name__}")
+        return False
+    logger.info(f"Closed athlete-input window for activity {activity_id}")
+    return True
 
 
 def update_activity_failure_status(

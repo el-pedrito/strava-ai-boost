@@ -18,7 +18,11 @@ from aws_cdk import (
     Aws
 )
 from constructs import Construct
-from .core_infrastructure_stack import ACTIVITY_STATE_MACHINE_NAME, CoreInfrastructureStack
+from .core_infrastructure_stack import (
+    ACTIVITY_STATE_MACHINE_NAME,
+    INPUT_WAIT_FUNCTION_NAME,
+    CoreInfrastructureStack,
+)
 from typing import Dict
 import os
 import sys
@@ -335,6 +339,8 @@ class ContentGenerationStack(Stack):
             }
         )
 
+        self._create_input_wait_lambda()
+
         # Strava updater Lambda
         self.strava_updater = lambda_.Function(
             self, "StravaUpdater",
@@ -358,6 +364,60 @@ class ContentGenerationStack(Stack):
                 "STRAVA_OAUTH_SECRET": self.core_stack.strava_oauth_secret.secret_name,
                 "BEDROCK_MODEL_ID": get_bedrock_model_id()
             }
+        )
+
+    def _create_input_wait_lambda(self) -> None:
+        """InputWait: opens the athlete-input window and sends the push request.
+
+        Its own role, least privilege: UpdateItem on the activities table and
+        states:SendTaskSuccess only (no Failure, no Heartbeat). The PushSend
+        invoke grant and PUSH_* variables are added from app.py when the Push
+        stack exists; without them the Lambda closes the window and releases the
+        execution at once.
+        """
+        input_wait_role = iam.Role(
+            self, "InputWaitRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AWSLambdaBasicExecutionRole"
+                )
+            ],
+        )
+        input_wait_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["dynamodb:UpdateItem"],
+                resources=[self.core_stack.activities_table.table_arn],
+            )
+        )
+        # SendTaskSuccess has no resource type (Service Authorization Reference):
+        # Resource "*" is the only accepted value. Justified IAM5 suppression in
+        # stacks/nag_suppressions.py.
+        input_wait_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["states:SendTaskSuccess"],
+                resources=["*"],
+            )
+        )
+        self.input_wait = lambda_.Function(
+            self, "InputWait",
+            function_name=INPUT_WAIT_FUNCTION_NAME,
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="athlete_input.input_wait.handler",
+            code=lambda_.Code.from_asset(
+                "lambda_functions",
+                exclude=["**/__pycache__", "**/*.pyc"],
+            ),
+            layers=[self.core_stack.dependencies_layer],
+            # Above the 90 s PushSend timeout it waits on synchronously.
+            timeout=Duration.seconds(120),
+            memory_size=256,
+            role=input_wait_role,
+            environment={
+                "ACTIVITIES_TABLE": self.core_stack.table_names["activities"],
+            },
         )
 
     # Errors a later attempt can fix (reliability plan, lot 3). TransientAgentError is
@@ -451,6 +511,44 @@ class ContentGenerationStack(Stack):
                 "processing_timestamp.$": "$$.State.EnteredTime"
             }
         )
+
+        # Athlete input (RPE + summary), docs/design/rpe-athlete-input.md §3.
+        # The Choice reads the RAW execution input, before TransformInput: an
+        # execution started by a processor that predates the field (the state
+        # machine deploys first) has no wait_for_input, and IsPresent keeps that
+        # case on the old path instead of raising States.Runtime.
+        wait_for_athlete_input = sfn_tasks.LambdaInvoke(
+            self, "WaitForAthleteInput",
+            lambda_function=self.input_wait,
+            comment="Ask the athlete for RPE + summary, wait up to 1 h for the callback",
+            integration_pattern=sfn.IntegrationPattern.WAIT_FOR_TASK_TOKEN,
+            payload=sfn.TaskInput.from_object({
+                "activity_id.$": "$.activity_id",
+                "user_id.$": "$.user_id",
+                "task_token": sfn.JsonPath.task_token,
+            }),
+            task_timeout=sfn.Timeout.duration(Duration.hours(1)),
+            result_path=sfn.JsonPath.DISCARD,
+            # A retry would mint a new token and find the window already open.
+            retry_on_service_exceptions=False,
+        )
+        # Fail open (D4, D8): timeout or any error goes on to TransformInput.
+        # States.ALL covers States.Timeout and must be alone in its list.
+        wait_for_athlete_input.add_catch(
+            transform_input, errors=["States.ALL"], result_path="$.input_wait_error"
+        )
+        wait_for_athlete_input.next(transform_input)
+        should_wait_for_input = sfn.Choice(
+            self, "ShouldWaitForInput",
+            comment="wait_for_input = athlete_input module on AND Strava create",
+        )
+        should_wait_for_input.when(
+            sfn.Condition.and_(
+                sfn.Condition.is_present("$.wait_for_input"),
+                sfn.Condition.boolean_equals("$.wait_for_input", True),
+            ),
+            wait_for_athlete_input,
+        ).otherwise(transform_input)
 
         # Fetch activity data task
         fetch_activity = sfn_tasks.LambdaInvoke(
@@ -570,21 +668,52 @@ class ContentGenerationStack(Stack):
             fetch_failed
         )
         
-        definition = (
-            transform_input
-            .next(fetch_activity)
-            .next(check_fetch_success)
-        )
+        transform_input.next(fetch_activity).next(check_fetch_success)
+        # The Choice is the start state.
+        definition = should_wait_for_input
         
-        # Parallel → Assembly → Update → Success
-        parallel_generation.next(assemble_content).next(update_strava).next(success)
+        # The Lambdas answer ordinary errors with a {"statusCode": 500} payload
+        # instead of raising, so a failed generation or update used to reach
+        # ProcessingComplete. Both payloads are checked: a non-200 fails the
+        # execution, which the Step Functions error handler then records (status
+        # failed + DLQ). The coach branch is not checked here: its failure is a
+        # degraded run (no coach block), not a failed one.
+        content_failed = sfn.Fail(
+            self, "ContentGenerationFailed",
+            comment="Content generation answered a non-200 payload",
+            cause="Content generation failed",
+        )
+        update_failed = sfn.Fail(
+            self, "StravaUpdateFailed",
+            comment="Strava update answered a non-200 payload",
+            cause="Strava update failed",
+        )
+        check_content_success = sfn.Choice(
+            self, "CheckContentSuccess",
+            comment="The merged payload carries the content branch statusCode",
+        )
+        check_update_success = sfn.Choice(
+            self, "CheckUpdateSuccess",
+            comment="Did UpdateStrava publish (or have nothing to change)?",
+        )
+        check_content_success.when(
+            sfn.Condition.number_equals("$.statusCode", 200), update_strava
+        ).otherwise(content_failed)
+        check_update_success.when(
+            sfn.Condition.number_equals("$.statusCode", 200), success
+        ).otherwise(update_failed)
+
+        # Parallel → Assembly → check → Update → check → Success
+        parallel_generation.next(assemble_content).next(check_content_success)
+        update_strava.next(check_update_success)
 
         # Create Step Functions state machine
         self.state_machine = sfn.StateMachine(
             self, "ActivityProcessingWorkflow",
             state_machine_name=ACTIVITY_STATE_MACHINE_NAME,
             definition_body=sfn.DefinitionBody.from_chainable(definition),
-            timeout=Duration.minutes(30),
+            # 1 h athlete-input wait + content (up to 2 x 11 min) + coach + update.
+            timeout=Duration.minutes(120),
             role=step_functions_role,
             # ALL events (cdk-nag SF1), but WITHOUT execution data: state inputs and
             # outputs carry the athlete's activity, titles and coach text, which have
@@ -604,7 +733,8 @@ class ContentGenerationStack(Stack):
             self.content_generator,
             self.coach_generator,
             self.assembly_lambda,
-            self.strava_updater
+            self.strava_updater,
+            self.input_wait,
         ]:
             lambda_function.grant_invoke(step_functions_role)
 

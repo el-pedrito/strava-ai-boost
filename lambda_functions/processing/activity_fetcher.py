@@ -7,15 +7,18 @@ Handles comprehensive data retrieval for analysis.
 
 import json
 import os
+import time
 from decimal import Decimal
 from typing import Dict, Any, Optional
 import boto3
+from boto3.dynamodb.types import TypeDeserializer
 from botocore.exceptions import ClientError
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from datetime import datetime, timedelta
-from shared.logger import get_logger, metrics, MetricUnit
+from aws_lambda_powertools.metrics import single_metric
+from shared.logger import METRICS_NAMESPACE, get_logger, metrics, MetricUnit
 from shared.strava_oauth import refresh_access_token as shared_refresh_access_token
 from shared.wellness import wellness_hrv, wellness_hrv_kind
 
@@ -101,6 +104,10 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
         logger.info(f"Fetching activity data for activity {activity_id}")
 
+        # Athlete input (RPE): close the window first, so a submit arriving from
+        # now on gets a 409 and the input read here is final (sole arbiter, §7).
+        athlete_input, athlete_input_state, input_guard = _close_window(str(activity_id))
+
         # Get OAuth tokens
         access_token = get_access_token(user_id)
 
@@ -139,16 +146,41 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Fetch Intervals.icu data if module is enabled
         intervals_icu_data = fetch_intervals_icu_data(activity_data, user_config)
 
+        # The athlete's own RPE and summary, as separate keys (D9): never merged
+        # into original_description, so the Enduraw text stays untouched.
+        apply_athlete_input(activity_data, athlete_input)
+
         # Store ALL data in DynamoDB to avoid Step Functions 256KB payload limit
-        store_activity_data(
+        store_kwargs = dict(
             activity_id=activity_id,
             activity_data=activity_data,
             athlete_stats=athlete_stats,
             athlete_profile=athlete_profile,
             user_config=user_config,
             intervals_icu_data=intervals_icu_data,
-            laps_data=laps_data
+            laps_data=laps_data,
         )
+        try:
+            store_activity_data(
+                **store_kwargs,
+                athlete_input=athlete_input,
+                athlete_input_state=athlete_input_state,
+                input_guard=input_guard,
+            )
+        except InputStateChanged:
+            # The close had fallen back to a read and a submit landed before the
+            # store (§7): close again, re-read the input and store once more. A
+            # second mismatch propagates (fetch fails rather than drop a 202 input).
+            athlete_input, athlete_input_state, input_guard = _close_window(str(activity_id))
+            activity_data.pop('athlete_rpe', None)
+            activity_data.pop('athlete_summary', None)
+            apply_athlete_input(activity_data, athlete_input)
+            store_activity_data(
+                **store_kwargs,
+                athlete_input=athlete_input,
+                athlete_input_state=athlete_input_state,
+                input_guard=input_guard,
+            )
         
         # Return minimal payload - only references, no large data
         return {
@@ -842,6 +874,166 @@ def fetch_intervals_icu_data(activity_data: Dict[str, Any], user_config: Dict[st
     return result
 
 
+INPUT_STATE_AWAITING = 'awaiting'
+INPUT_STATE_SUBMITTED = 'submitted'
+INPUT_STATE_CLOSED = 'closed'
+_deserializer = TypeDeserializer()
+
+
+def _record_input_wait(outcome: str) -> None:
+    """Emit ``InputWait{outcome}`` (EMF, self-flushing), never raising."""
+    try:
+        with single_metric(
+            name="InputWait", unit=MetricUnit.Count, value=1, namespace=METRICS_NAMESPACE
+        ) as metric:
+            metric.add_dimension(name="outcome", value=outcome)
+    except Exception as exc:  # noqa: BLE001 - a metric must never break the fetch
+        logger.warning(f"Could not emit InputWait{{outcome={outcome}}}: {exc}")
+
+
+# Non-conditional close errors (throttling, 5xx) are retried this many times in
+# total, with these pauses between attempts, before the consistent-read fallback.
+CLOSE_ATTEMPTS = 3
+CLOSE_BACKOFF_SECONDS = (0.05, 0.2)
+
+
+class InputStateChanged(Exception):
+    """The guarded store found an athlete-input state other than the one observed."""
+
+
+def _read_input_after_failed_close(table: Any, activity_id: str) -> tuple:
+    """Fallback when every close UpdateItem failed for a non-conditional reason.
+
+    Returns ``(athlete_input, state, observed_state)``. Without it the store would
+    rewrite the row with neither ``athlete_input`` nor ``athlete_input_state``: a
+    submitted RPE lost for good, and a second ("enriched") push after the input
+    request. ConsistentRead, unlike the fetcher's own get_item, so a submit that
+    already landed is seen. ``observed_state`` is what the store's put_item is
+    then conditioned on (None: the attribute was absent or the read failed), so a
+    submit landing between this read and the store cannot be overwritten.
+    """
+    try:
+        response = table.get_item(
+            Key={'activity_id': activity_id},
+            ConsistentRead=True,
+            ProjectionExpression='athlete_input, athlete_input_state',
+        )
+    except Exception as exc:  # noqa: BLE001 - fail open (D8)
+        logger.warning(f"Could not read athlete input for {activity_id}: {type(exc).__name__}")
+        return None, None, None
+    old = response.get('Item') or {}
+    if 'athlete_input_state' not in old:
+        return None, None, None
+    athlete_input = old.get('athlete_input')
+    return (
+        (athlete_input if isinstance(athlete_input, dict) else None),
+        INPUT_STATE_CLOSED,
+        old.get('athlete_input_state'),
+    )
+
+
+def _close_window(activity_id: str) -> tuple:
+    """Close the window; return ``(athlete_input, state, store_guard)``.
+
+    ``store_guard`` is None when the conditional close settled the row (closed by
+    us, or already closed / no window): the store may then put_item freely, since
+    no submit can land on a closed or window-less row. On the fallback path it is
+    ``{'observed_state': <state or None>}`` and the store must be conditional on it.
+    """
+    table = dynamodb.Table(ACTIVITIES_TABLE)
+    response = None
+    for attempt in range(CLOSE_ATTEMPTS):
+        try:
+            response = table.update_item(
+                Key={'activity_id': activity_id},
+                UpdateExpression='SET athlete_input_state = :closed REMOVE input_task_token',
+                ConditionExpression='athlete_input_state IN (:awaiting, :submitted)',
+                ExpressionAttributeValues={
+                    ':closed': INPUT_STATE_CLOSED,
+                    ':awaiting': INPUT_STATE_AWAITING,
+                    ':submitted': INPUT_STATE_SUBMITTED,
+                },
+                ReturnValues='ALL_NEW',
+                ReturnValuesOnConditionCheckFailure='ALL_OLD',
+            )
+            break
+        except ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code')
+            if code == 'ConditionalCheckFailedException':
+                raw = exc.response.get('Item') or {}
+                try:
+                    old = {k: _deserializer.deserialize(v) for k, v in raw.items()}
+                except Exception as des_exc:  # noqa: BLE001 - unreadable old item: no input
+                    logger.warning(f"Unreadable old item for {activity_id}: {type(des_exc).__name__}")
+                    return None, None, None
+                if 'athlete_input_state' not in old:
+                    return None, None, None
+                athlete_input = old.get('athlete_input')
+                return (athlete_input if isinstance(athlete_input, dict) else None), INPUT_STATE_CLOSED, None
+            logger.warning(
+                f"Could not close athlete-input window for {activity_id} "
+                f"(attempt {attempt + 1}/{CLOSE_ATTEMPTS}): {code}"
+            )
+        except Exception as exc:  # noqa: BLE001 - fail open (D8) after the retries
+            logger.warning(
+                f"Could not close athlete-input window for {activity_id} "
+                f"(attempt {attempt + 1}/{CLOSE_ATTEMPTS}): {type(exc).__name__}"
+            )
+        if attempt < CLOSE_ATTEMPTS - 1:
+            time.sleep(CLOSE_BACKOFF_SECONDS[min(attempt, len(CLOSE_BACKOFF_SECONDS) - 1)])
+    else:
+        athlete_input, state, observed = _read_input_after_failed_close(table, activity_id)
+        return athlete_input, state, {'observed_state': observed}
+
+    attributes = response.get('Attributes') or {}
+    athlete_input = attributes.get('athlete_input')
+    previous = INPUT_STATE_SUBMITTED if isinstance(athlete_input, dict) else INPUT_STATE_AWAITING
+    _record_input_wait('submitted' if previous == INPUT_STATE_SUBMITTED else 'expired')
+    logger.info(f"Closed athlete-input window for {activity_id} (was {previous})")
+    return (athlete_input if isinstance(athlete_input, dict) else None), INPUT_STATE_CLOSED, None
+
+
+def close_athlete_input_window(activity_id: str) -> tuple:
+    """Close the athlete-input window; return ``(athlete_input, state)``.
+
+    docs/design/rpe-athlete-input.md §7. One conditional UpdateItem moves an
+    ``awaiting`` or ``submitted`` window to ``closed`` and drops the task token.
+    DynamoDB serialises it with the submit API: a submit written first is read
+    here, a submit arriving after gets a 409.
+
+    - success: ``athlete_input`` comes from ``ALL_NEW``; the previous state counts
+      ``InputWait{outcome=expired|submitted}``.
+    - condition failed (flag off, reprocess, window already closed): not an error.
+      The old item (raw DynamoDB format) is deserialised to keep an RPE already
+      entered across a reprocess.
+    - any other error (throttling, 5xx): retried ``CLOSE_ATTEMPTS`` times with a
+      short backoff. If all fail, the input is not dropped: a consistent read
+      fetches ``athlete_input``/``athlete_input_state``; if a window existed the
+      state returned is ``closed`` and the complete put_item that follows is the
+      close, conditional on the state observed (see ``_close_window``, used by the
+      handler). If that read fails too: fail open (D8), no input.
+
+    Returns ``(None, None)`` when the activity never had a window (flag off): the
+    item then carries no ``athlete_input_state`` and behaves exactly as today.
+    """
+    athlete_input, state, _guard = _close_window(activity_id)
+    return athlete_input, state
+
+
+def apply_athlete_input(activity_data: Dict[str, Any], athlete_input: Optional[Dict[str, Any]]) -> None:
+    """Put ``athlete_rpe`` (int 1-10) and ``athlete_summary`` (non-empty str) into
+    activity_data. Invalid or missing values are left absent."""
+    if not isinstance(athlete_input, dict):
+        return
+    rpe = athlete_input.get('rpe')
+    if not isinstance(rpe, bool) and isinstance(rpe, (int, Decimal)):
+        if rpe == int(rpe) and 1 <= int(rpe) <= 10:
+            activity_data['athlete_rpe'] = int(rpe)
+    summary = athlete_input.get('summary')
+    if isinstance(summary, str) and summary.strip():
+        activity_data['athlete_summary'] = summary.strip()
+
+
 def store_activity_data(
     activity_id: str,
     activity_data: Dict[str, Any],
@@ -849,13 +1041,21 @@ def store_activity_data(
     athlete_profile: Optional[Dict[str, Any]],
     user_config: Dict[str, Any],
     intervals_icu_data: Optional[Dict[str, Any]] = None,
-    laps_data: Optional[list] = None
+    laps_data: Optional[list] = None,
+    athlete_input: Optional[Dict[str, Any]] = None,
+    athlete_input_state: Optional[str] = None,
+    input_guard: Optional[Dict[str, Any]] = None,
 ) -> None:
     """
     Store ALL activity data in DynamoDB to avoid Step Functions 256KB payload limit
 
     This stores the complete fetched data so downstream Lambdas can retrieve it
-    without passing large payloads through Step Functions
+    without passing large payloads through Step Functions.
+
+    ``input_guard`` (set only when the window close fell back to a read, see
+    ``_close_window``) makes the put_item conditional on the athlete-input state
+    observed then; a mismatch raises ``InputStateChanged`` instead of overwriting
+    a submit that landed in between.
     """
     try:
         from decimal import Decimal
@@ -974,10 +1174,36 @@ def store_activity_data(
             if _carry in existing_item:
                 item[_carry] = existing_item[_carry]
 
-        table.put_item(Item=item)
-        
+        # Athlete input (§7): set from the window close result, NEVER carried
+        # from existing_item (an eventually consistent read that may still say
+        # 'awaiting'). input_task_token and input_deadline_at are not rewritten:
+        # they disappear with this put_item.
+        if athlete_input_state:
+            item['athlete_input_state'] = athlete_input_state
+            if athlete_input:
+                item['athlete_input'] = athlete_input
+
+        put_kwargs: Dict[str, Any] = {'Item': item}
+        if input_guard is not None:
+            observed = input_guard.get('observed_state')
+            if observed:
+                put_kwargs['ConditionExpression'] = 'athlete_input_state = :observed'
+                put_kwargs['ExpressionAttributeValues'] = {':observed': observed}
+            else:
+                put_kwargs['ConditionExpression'] = 'attribute_not_exists(athlete_input_state)'
+        try:
+            table.put_item(**put_kwargs)
+        except ClientError as exc:
+            if (input_guard is not None
+                    and exc.response.get('Error', {}).get('Code') == 'ConditionalCheckFailedException'):
+                raise InputStateChanged(activity_id) from exc
+            raise
+
         logger.info(f"Stored complete activity data for {activity_id} in DynamoDB")
-        
+
+    except InputStateChanged:
+        logger.info(f"Athlete-input state of {activity_id} changed since it was read; not stored")
+        raise
     except Exception as e:
         logger.error(f"Failed to store activity data: {str(e)}")
         # Raise because this is critical - downstream Lambdas need this data

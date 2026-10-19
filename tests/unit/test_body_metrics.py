@@ -24,12 +24,14 @@ from processing.activity_fetcher import persist_body_weight_from_strava
 
 def _post_event(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Build an API Gateway POST event for the preferences API."""
-    return {'httpMethod': 'POST', 'path': '/preferences', 'body': json.dumps(payload)}
+    return {'httpMethod': 'POST', 'path': '/preferences', 'body': json.dumps(payload),
+            'requestContext': {'authorizer': {'claims': {'custom:strava_id': 'athlete1'}}}}
 
 
 def _get_event(user_id: str = 'athlete1') -> Dict[str, Any]:
     """Build an API Gateway GET event for the preferences API."""
-    return {'httpMethod': 'GET', 'path': '/preferences', 'queryStringParameters': {'user_id': user_id}}
+    return {'httpMethod': 'GET', 'path': '/preferences', 'queryStringParameters': {'user_id': user_id},
+            'requestContext': {'authorizer': {'claims': {'custom:strava_id': user_id}}}}
 
 
 class TestBodyMetricsApiValidation:

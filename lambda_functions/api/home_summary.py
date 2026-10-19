@@ -18,7 +18,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from boto3.dynamodb.conditions import Key
 
-from shared.campus_status import STATUS_DONE, effective_status
+from api import plan_workouts
+from shared.campus_next import current_week_rows, next_open_session
+from shared.campus_status import effective_status
 from shared.iso_week import iso_week_label
 from shared.wellness import activity_local_date, in_activity_window, paris_date
 
@@ -284,11 +286,40 @@ def _build_plan(goal: Optional[Dict[str, Any]], week_stat: Optional[Dict[str, An
     return plan
 
 
-def _build_week_sessions(sessions_table: Any, now: datetime) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
+def _next_session_extras(session: Dict[str, Any], range_alerts: bool,
+                         counters: Dict[str, int]) -> Dict[str, Any]:
+    """Coach words and Watch file of the next session, from the same item builder
+    as ``/plan/workouts`` (same mapper, filename, text caps and isolation).
+
+    ``workout_b64``/``filename`` are null unless the session is encodable. A mapping
+    failure only nulls them and counts ``WorkoutMapFailed`` in ``counters``: the
+    caller emits it, this module records no metric (test_metrics_flush.py).
+    """
+    item = plan_workouts.workout_item(session, counters, range_alerts)
+    encodable = bool(item.get('encodable')) and bool(item.get('workout_b64'))
+    return {
+        'session_id': item.get('session_id'),
+        'coach_advice': item.get('coach_advice'),
+        'description': item.get('description'),
+        'workout_b64': item['workout_b64'] if encodable else None,
+        'filename': item.get('filename') if encodable else None,
+    }
+
+
+def _build_week_sessions(
+    sessions_table: Any, now: datetime, range_alerts: bool = False,
+    counters: Optional[Dict[str, int]] = None,
+) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
     """This week's sessions in plan order with their effective_status, plus the
-    next unfinished one. Current week is chosen by the is_current_week flag (as
-    plan_workouts does), not a recomputed partition name. Campus has no per-session
-    date, so there is no date field, only an order."""
+    next unfinished one. Week and next session follow the single rule of
+    ``shared.campus_next`` (also used by ``/plan/workouts`` for its
+    ``next_session_id``). Campus has no per-session date, so there is no date
+    field, only an order.
+
+    ``next_session`` also carries ``session_id``, ``coach_advice``, ``description``
+    and the ``.workout`` file (``_next_session_extras``). ``range_alerts`` is the
+    caller's ``RANGE_ALERTS_ENABLED`` switch; ``counters`` collects mapper metrics."""
+    counters = counters if counters is not None else {}
     week_iso = _week_label(now)
     items = []
     resp = sessions_table.query(
@@ -307,8 +338,9 @@ def _build_week_sessions(sessions_table: Any, now: datetime) -> Tuple[List[Dict[
         if scanned:
             items = scanned
 
-    items = [s for s in items if s.get('session_date', '').startswith('week-')]
-    items.sort(key=lambda s: int(s.get('training_index', 0) or 0))
+    today = paris_date(now)
+    items = current_week_rows(items, today)
+    next_row = next_open_session(items, today)
 
     out = []
     next_session = None
@@ -324,8 +356,9 @@ def _build_week_sessions(sessions_table: Any, now: datetime) -> Tuple[List[Dict[
             'duration_min': int(dur) if dur is not None else None,
         }
         out.append(row)
-        if next_session is None and st != STATUS_DONE and _STATUS_MAP.get(st) != 'missed':
+        if s is next_row:
             next_session = {k: row[k] for k in ('order', 'title', 'training_type', 'duration_min')}
+            next_session.update(_next_session_extras(s, range_alerts, counters))
     return out, next_session
 
 
@@ -423,7 +456,11 @@ def build_home_summary(
     activities_reader,
     now: datetime,
     user_id: str,
+    range_alerts: bool = False,
+    counters: Optional[Dict[str, int]] = None,
 ) -> Dict[str, Any]:
+    """``range_alerts``: the ``RANGE_ALERTS_ENABLED`` switch, read by the caller.
+    ``counters``: filled with the next-session mapper metrics for the caller to emit."""
     today = paris_date(now)
     since = (today - timedelta(days=HEALTH_SERIES_DAYS)).isoformat()
 
@@ -435,7 +472,7 @@ def build_home_summary(
     preds = _read_prefix(wellness_table, user_id, 'campus#pred#')
     current_pred = next((p for p in preds if p.get('source_week') == week_iso), None)
 
-    week_sessions, next_session = _build_week_sessions(sessions_table, now)
+    week_sessions, next_session = _build_week_sessions(sessions_table, now, range_alerts, counters)
     predictions, predictions_history = _build_predictions(preds, week_iso)
 
     enduraw_since = (today - timedelta(weeks=ENDURAW_TREND_WEEKS)).isoformat()

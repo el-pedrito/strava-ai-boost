@@ -51,7 +51,7 @@ describe('workoutExportEnabled flag', () => {
 
   it('flag on: getNavItems inserts /plan right after /coach', () => {
     const routes = getNavItems(true).map((item) => item.to);
-    expect(routes).toEqual(['/', '/coach', '/plan', '/quality', '/monitoring', '/config', '/preferences']);
+    expect(routes).toEqual(['/', '/activities', '/health', '/coach', '/plan', '/quality', '/monitoring', '/config', '/preferences']);
     // The shared base list is never mutated.
     expect(NAV_ITEMS.some((item) => item.to === '/plan')).toBe(false);
   });
@@ -66,7 +66,7 @@ describe('workoutExportEnabled flag', () => {
     expect(screen.queryByRole('link', { name: 'Plan' })).not.toBeInTheDocument();
   });
 
-  it('flag on: Plan entry in the bottom nav and the sidebar, 7 bottom items', () => {
+  it('flag on: Plan entry in the bottom nav and the sidebar, 6 bottom items', () => {
     flag.enabled = true;
     render(
       <MemoryRouter>
@@ -75,12 +75,26 @@ describe('workoutExportEnabled flag', () => {
       </MemoryRouter>
     );
     const bottom = screen.getByRole('navigation', { name: 'Primary mobile navigation' });
-    expect(within(bottom).getAllByRole('link')).toHaveLength(7);
+    expect(within(bottom).getAllByRole('link')).toHaveLength(6);
     expect(within(bottom).getByRole('link', { name: 'Plan' })).toHaveAttribute('href', '/plan');
     expect(screen.getAllByRole('link', { name: 'Plan' })).toHaveLength(2);
   });
 
-  it('Monitoring tab: in the sidebar and in the mobile bar (short label)', () => {
+  it('Activities and Health: in the sidebar and in the mobile bar', () => {
+    render(
+      <MemoryRouter>
+        <BottomNav />
+        <Sidebar />
+      </MemoryRouter>
+    );
+    const bottom = screen.getByRole('navigation', { name: 'Primary mobile navigation' });
+    expect(within(bottom).getByRole('link', { name: 'Activities' })).toHaveAttribute('href', '/activities');
+    expect(within(bottom).getByRole('link', { name: 'Health' })).toHaveAttribute('href', '/health');
+    expect(screen.getAllByRole('link', { name: 'Activities' })).toHaveLength(2);
+    expect(screen.getAllByRole('link', { name: 'Health' })).toHaveLength(2);
+  });
+
+  it('admin pages (Quality, Monitoring, Config): sidebar and drawer only, not the mobile bar', () => {
     flag.enabled = true;
     render(
       <MemoryRouter>
@@ -89,12 +103,15 @@ describe('workoutExportEnabled flag', () => {
       </MemoryRouter>
     );
     const bottom = screen.getByRole('navigation', { name: 'Primary mobile navigation' });
-    expect(within(bottom).getByRole('link', { name: 'Monit.' })).toHaveAttribute('href', '/monitoring');
+    for (const href of ['/quality', '/monitoring', '/config']) {
+      expect(within(bottom).queryAllByRole('link').some((l) => l.getAttribute('href') === href)).toBe(false);
+    }
     expect(screen.getByRole('link', { name: 'Monitoring' })).toHaveAttribute('href', '/monitoring');
+    expect(screen.getByRole('link', { name: 'Quality' })).toHaveAttribute('href', '/quality');
   });
 
   // jsdom does no layout, so 375 px cannot be measured here. These tests pin what
-  // makes the 7 slots fit instead: every slot is a shrinkable flex item (flex-1 +
+  // makes the 6 slots fit instead: every slot is a shrinkable flex item (flex-1 +
   // min-w-0), every label is clamped to its slot (max-w-full + truncate), and the
   // long labels render in their short mobile form.
   it('flag on: every bottom slot shrinks and clamps its label', () => {
@@ -106,7 +123,7 @@ describe('workoutExportEnabled flag', () => {
     );
     const bottom = screen.getByRole('navigation', { name: 'Primary mobile navigation' });
     const links = within(bottom).getAllByRole('link');
-    expect(links).toHaveLength(7);
+    expect(links).toHaveLength(6);
     for (const link of links) {
       expect(link).toHaveClass('flex-1', 'min-w-0');
       const label = link.querySelector('span');
@@ -125,7 +142,7 @@ describe('workoutExportEnabled flag', () => {
     );
     const bottom = screen.getByRole('navigation', { name: 'Primary mobile navigation' });
     const bottomLabels = within(bottom).getAllByRole('link').map((link) => link.textContent);
-    expect(bottomLabels).toEqual(['Dashboard', 'Coach', 'Plan', 'Quality', 'Monit.', 'Config', 'Prefs']);
+    expect(bottomLabels).toEqual(['Dashboard', 'Activities', 'Health', 'Coach', 'Plan', 'Prefs']);
     for (const label of bottomLabels) expect(label!.length).toBeLessThanOrEqual(10);
     expect(within(bottom).queryByText('Configuration')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Configuration' })).toHaveAttribute('href', '/config');
@@ -144,7 +161,7 @@ describe('workoutExportEnabled flag', () => {
       ));
       const bottom = screen.getByRole('navigation', { name: 'Primary mobile navigation' });
       const labels = within(bottom).getAllByRole('link').map((link) => link.textContent);
-      expect(labels).toEqual(['Dashboard', 'Coach', 'Plan', 'Qualité', 'Monit.', 'Config', 'Préf.']);
+      expect(labels).toEqual(['Dashboard', 'Activités', 'Santé', 'Coach', 'Plan', 'Préf.']);
       for (const label of labels) expect(label!.length).toBeLessThanOrEqual(10);
     } finally {
       unmount?.();

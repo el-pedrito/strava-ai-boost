@@ -15,7 +15,7 @@ from aws_cdk import assertions
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from stacks.core_infrastructure_stack import CoreInfrastructureStack  # noqa: E402
+from stacks.core_infrastructure_stack import INPUT_WAIT_FUNCTION_NAME, CoreInfrastructureStack  # noqa: E402
 from stacks.webhook_processing_stack import WebhookProcessingStack  # noqa: E402
 
 SFN_ARN = "arn:aws:states:eu-west-1:123456789012:stateMachine:test"
@@ -136,3 +136,45 @@ def test_step_functions_executions_failed(alarms):
     assert props["Dimensions"] == [{"Name": "StateMachineArn", "Value": SFN_ARN}]
     assert props["Threshold"] == 1
     assert props["TreatMissingData"] == "notBreaching"
+
+
+def test_step_functions_executions_timed_out(alarms):
+    """ExecutionsFailed does not count TIMED_OUT: the 120 min timeout has its own alarm."""
+    props = alarms["strava-ai-boost-sfn-executions-timed-out"]
+    assert props["Namespace"] == "AWS/States"
+    assert props["MetricName"] == "ExecutionsTimedOut"
+    assert props["Dimensions"] == [{"Name": "StateMachineArn", "Value": SFN_ARN}]
+    assert props["Threshold"] == 1
+    assert props["ComparisonOperator"] == "GreaterThanOrEqualToThreshold"
+    assert props["TreatMissingData"] == "notBreaching"
+    assert props.get("AlarmActions")
+
+
+def test_input_wait_error_alarm(alarms):
+    """InputWait fails open: this alarm is the only signal of a broken wait.
+
+    It covers ``error``, ``push_error`` (PushSend broken) and ``callback_error``
+    (release failed), never ``no_push`` (a genuine sent == 0 is a normal outcome)."""
+    props = alarms["strava-ai-boost-input-wait-error"]
+    stats = _metric_stats(props)
+    assert stats == {
+        "error": ("StravaAIBoost", "InputWait", {"outcome": "error"}, 3600),
+        "push_error": ("StravaAIBoost", "InputWait", {"outcome": "push_error"}, 3600),
+        "callback_error": ("StravaAIBoost", "InputWait", {"outcome": "callback_error"}, 3600),
+    }
+    assert _expression(props) == "FILL(error, 0) + FILL(push_error, 0) + FILL(callback_error, 0)"
+    assert props["Threshold"] == 1
+    assert props["TreatMissingData"] == "notBreaching"
+    assert props.get("AlarmActions")
+
+
+def test_input_wait_lambda_errors_alarm(alarms):
+    """A crash or timeout of InputWait emits no outcome metric: Lambda Errors does."""
+    props = alarms["strava-ai-boost-input-wait-errors"]
+    assert props["Namespace"] == "AWS/Lambda"
+    assert props["MetricName"] == "Errors"
+    assert props["Dimensions"] == [{"Name": "FunctionName", "Value": INPUT_WAIT_FUNCTION_NAME}]
+    assert props["Threshold"] == 1
+    assert props["ComparisonOperator"] == "GreaterThanOrEqualToThreshold"
+    assert props["TreatMissingData"] == "notBreaching"
+    assert props.get("AlarmActions")

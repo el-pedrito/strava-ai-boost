@@ -580,8 +580,13 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # same pollution class as reliability lot 4). Dated continuity comes
         # from prev_coach_note in DynamoDB instead.
 
-        # Store feedback in DynamoDB
-        store_coach_feedback(activity_id, feedback)
+        # Store feedback in DynamoDB. A failed write still publishes the block
+        # (the post is worth more than the stored copy) but is no longer silent:
+        # it marks this run degraded, which the CoachProduced metric reports.
+        try:
+            store_coach_feedback(activity_id, feedback)
+        except Exception:  # noqa: BLE001 - logged in store_coach_feedback
+            _mark_degraded("store_coach_feedback")
 
         # Strip em/en dashes (anti-AI writing rule)
         for key in ("strava_block", "detailed_analysis", "recommendation_next"):
@@ -803,6 +808,25 @@ def _safe_float(val: Any) -> float:
         return float(val) if val else 0
     except (ValueError, TypeError):
         return 0
+
+
+def _athlete_rpe_of(activity: Dict[str, Any]) -> Optional[int]:
+    """The athlete's RPE stored on a past activity (int 1-10), or None.
+
+    Read from ``athlete_rpe`` in activity_data_json (written by the fetcher). A
+    bool, an out-of-range or a non-integral value counts as absent.
+    """
+    value = activity.get("athlete_rpe")
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+        if number != int(number):  # non-integral
+            return None
+    except (TypeError, ValueError, OverflowError):  # not a number, nan, inf
+        return None
+    rpe = int(number)
+    return rpe if 1 <= rpe <= 10 else None
 
 
 def _compute_coach_metrics(laps: list, activity_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -1368,6 +1392,12 @@ def build_historical_summary(
                 "pace": pace_str,
                 "avg_hr": a.get("average_heartrate"),
             }
+            # The athlete's own RPE for that session (1-10), listed per session in
+            # the weekly view. Kept apart from suffer_score, never combined (D7).
+            # Absent for sessions without input: the entry is then unchanged.
+            a_rpe = _athlete_rpe_of(a)
+            if a_rpe is not None:
+                entry["athlete_rpe"] = a_rpe
             # EF: pace @ HR for trend comparison
             a_hr = a.get("average_heartrate")
             if avg_speed > 0 and a_hr:
@@ -1490,3 +1520,4 @@ def store_coach_feedback(activity_id: str, feedback: Dict[str, Any]) -> None:
         logger.info(f"Stored coach feedback for activity {activity_id}")
     except Exception as e:
         logger.error(f"Failed to store coach feedback: {e}")
+        raise

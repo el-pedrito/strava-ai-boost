@@ -1,4 +1,4 @@
-import { LayoutDashboard, Sparkles, Gauge, Activity, Settings2, User, Watch } from 'lucide-react';
+import { LayoutDashboard, ListChecks, HeartPulse, Sparkles, Gauge, Activity, Settings2, User, Watch } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { isWorkoutExportEnabled } from '@/config';
 
@@ -12,12 +12,18 @@ export interface NavItem {
   mobile?: boolean;
 }
 
+/**
+ * Mobile bar keeps the daily pages (6 slots max with the plan flag on). The
+ * admin pages (Quality, Monitoring, Config) stay one tap away in the drawer.
+ */
 export const NAV_ITEMS: NavItem[] = [
   { to: '/', labelKey: 'nav.dashboard', Icon: LayoutDashboard },
+  { to: '/activities', labelKey: 'nav.activities', Icon: ListChecks },
+  { to: '/health', labelKey: 'nav.health', Icon: HeartPulse },
   { to: '/coach', labelKey: 'nav.coach', Icon: Sparkles },
-  { to: '/quality', labelKey: 'nav.quality', Icon: Gauge },
-  { to: '/monitoring', labelKey: 'nav.monitoring', shortLabelKey: 'nav.monitoringShort', Icon: Activity },
-  { to: '/config', labelKey: 'nav.configuration', shortLabelKey: 'nav.configurationShort', Icon: Settings2 },
+  { to: '/quality', labelKey: 'nav.quality', Icon: Gauge, mobile: false },
+  { to: '/monitoring', labelKey: 'nav.monitoring', shortLabelKey: 'nav.monitoringShort', Icon: Activity, mobile: false },
+  { to: '/config', labelKey: 'nav.configuration', shortLabelKey: 'nav.configurationShort', Icon: Settings2, mobile: false },
   { to: '/preferences', labelKey: 'nav.preferences', shortLabelKey: 'nav.preferencesShort', Icon: User },
 ];
 

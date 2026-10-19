@@ -19,6 +19,8 @@ export interface Activity {
   generated_at?: string;
   created_at_raw?: string;
   start_date_raw?: string;
+  /** Raw Strava start time, as returned by GET /dashboard/activities. */
+  start_date?: string;
   processing_time_seconds?: number;
   activity_id?: string;
   enhanced_title?: string;
@@ -88,6 +90,8 @@ export interface ModulesMap {
   campus_coach: ModuleConfig;
   enduraw: ModuleConfig;
   intervals_icu: ModuleConfig;
+  /** Post-session RPE + summary request (Preferences toggle). Absent on older backends. */
+  athlete_input?: ModuleConfig;
 }
 
 export interface EnhancementStatus {
@@ -179,6 +183,14 @@ export interface PlanWorkoutItem {
   /** Campus sport code (`road`, `ppg`, ...). */
   sport: string | null;
   duration_min: number | null;
+  /**
+   * Campus instructions for the session, trimmed and capped at 2000 characters.
+   * Raw text: may hold markdown bold (`**x**`) and URLs. Optional so an older API
+   * response (before the field existed) still type-checks.
+   */
+  description?: string | null;
+  /** Campus coach word for the session, same rules as `description`. */
+  coach_advice?: string | null;
   /** Step summary, null whenever the session is not encodable. */
   summary: string | null;
   filename: string;
@@ -197,6 +209,12 @@ export interface PlanWorkoutsResponse {
   count: number;
   /** True when the server dropped the furthest weeks to stay under its caps. */
   truncated: boolean;
+  /**
+   * `session_id` of the next session, same rule as `/home/summary`'s `next_session`
+   * (`shared/campus_next.py`). Null when the week has nothing open. May name a session
+   * absent from `workouts` (no intervals): then nothing is highlighted.
+   */
+  next_session_id?: string | null;
   timestamp?: string;
 }
 

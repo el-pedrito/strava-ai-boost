@@ -98,12 +98,24 @@ jobs:
         run: >-
           npx --yes aws-cdk@${{ env.CDK_CLI_VERSION }} synth --quiet
           -c account=123456789012 -c region=us-east-1 -c nag=true
+      # Same synth with the opt-in Web Push stack on: catches cross-stack cycles
+      # and nag findings that the default (push off) synth never builds.
+      - name: Build the Web Push layer
+        run: ./lambda_layer_push/build_layer.sh
+      - name: cdk synth with Web Push enabled + cdk-nag
+        run: >-
+          npx --yes aws-cdk@${{ env.CDK_CLI_VERSION }} synth --quiet
+          -c account=123456789012 -c region=us-east-1 -c nag=true
+          -c push_enabled=true -c vapid_subject=mailto:ci@example.com
+          -o cdk.out.push
       - name: Upload cdk-nag reports
         if: success() || failure()
         uses: actions/upload-artifact@v4
         with:
           name: cdk-nag-reports
-          path: cdk.out/AwsSolutions-*-NagReport.csv
+          path: |
+            cdk.out/AwsSolutions-*-NagReport.csv
+            cdk.out.push/AwsSolutions-*-NagReport.csv
           if-no-files-found: ignore
 
   security:
@@ -126,6 +138,9 @@ jobs:
       - name: pip-audit (Lambda layer)
         if: success() || failure()
         run: pip-audit --progress-spinner off -r lambda_layer/requirements.txt
+      - name: pip-audit (Web Push layer)
+        if: success() || failure()
+        run: pip-audit --progress-spinner off -r lambda_layer_push/requirements.txt
       - name: pip-audit (coach_chat runtime)
         if: success() || failure()
         run: pip-audit --progress-spinner off -r src/coach_chat/requirements.txt

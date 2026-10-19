@@ -143,6 +143,46 @@ if ! aws cloudformation describe-stacks --stack-name "StravaAIBoost-Core" "${PRO
     print_status "⏭️  Skipping advanced validations (will be done after deployment)"
 fi
 
+# Config preflight (existing stacks only). cdk.context.json, .env.agentcore and
+# .bedrock_agentcore.yaml are gitignored, so a fresh clone or a git worktree does not
+# have them. Without them synth still succeeds and the deploy silently blanks
+# COACH_AGENT_ARN, CONTENT_GENERATION_AGENT_ARN, CAMPUS_OWNER_STRAVA_ID... on the live
+# Lambdas (incident 19/10). Refuse instead. Copy the three files from the main checkout.
+if [ "$FIRST_DEPLOYMENT" = false ]; then
+    if ! CONFIG_PREFLIGHT=$(python3 - <<'PYEOF' 2>&1
+import json, os, sys
+missing = []
+for f in ("cdk.context.json", ".env.agentcore", ".bedrock_agentcore.yaml"):
+    if not os.path.isfile(f):
+        missing.append(f"{f} (file missing)")
+if os.path.isfile("cdk.context.json"):
+    ctx = json.load(open("cdk.context.json"))
+    if not str(ctx.get("default_user_id") or "").strip():
+        missing.append("cdk.context.json: default_user_id empty")
+if os.path.isfile(".env.agentcore"):
+    env = {}
+    for line in open(".env.agentcore"):
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            env[k.strip()] = v.strip().strip('"').strip("'")
+    for k in ("CONTENT_GENERATION_AGENT_ARN", "COACH_AGENT_ARN", "CAMPUS_COACH_AGENT_ARN"):
+        if not env.get(k):
+            missing.append(f".env.agentcore: {k} empty")
+if missing:
+    print("\n".join(missing))
+    sys.exit(1)
+PYEOF
+    ); then
+        print_error "Deploy config incomplete in $(pwd):"
+        echo "$CONFIG_PREFLIGHT" | while read -r line; do print_error "  - $line"; done
+        print_error "Deploying now would blank env vars on the live Lambdas. Aborting."
+        print_error "Copy cdk.context.json, .env.agentcore, .bedrock_agentcore.yaml from the main checkout."
+        exit 1
+    fi
+    print_status "Deploy config preflight passed (context, agent ARNs, owner id)"
+fi
+
 # Always verify AWS credentials (essential)
 print_status "Verifying AWS credentials..."
 if ! aws sts get-caller-identity "${PROFILE_ARGS[@]}" > /dev/null 2>&1; then
@@ -249,6 +289,20 @@ else
     print_warning "Lambda Layer build script not found, skipping layer build"
 fi
 
+# Web Push layer (pywebpush), only when push is enabled in cdk.json. Synth refuses
+# an unbuilt push layer, so build it here rather than shipping an empty one.
+PUSH_ENABLED_CTX=$(python3 -c "import json;print(str(json.load(open('cdk.json')).get('context',{}).get('push_enabled','')).lower())" 2>/dev/null || echo "")
+if [ "$PUSH_ENABLED_CTX" = "true" ]; then
+    print_status "Building Web Push layer (push_enabled=true)..."
+    chmod +x lambda_layer_push/build_layer.sh
+    if ./lambda_layer_push/build_layer.sh; then
+        print_status "✅ Web Push layer built successfully"
+    else
+        print_error "❌ Web Push layer build failed"
+        exit 1
+    fi
+fi
+
 
 # Step 5: CDK Synthesis and Validation
 print_section "🔍 Step 5: CDK synthesis and validation"
@@ -262,8 +316,9 @@ else
     if cdk synth "${PROFILE_ARGS[@]}" --region $REGION > /dev/null; then
         print_status "CDK synthesis successful"
     else
-        print_warning "CDK synthesis failed - continuing with deployment"
-        print_warning "CDK will attempt to resolve issues during deployment"
+        print_error "CDK synthesis failed - aborting deployment"
+        print_error "Re-run 'cdk synth' to see the error; nothing was deployed."
+        exit 1
     fi
 fi
 

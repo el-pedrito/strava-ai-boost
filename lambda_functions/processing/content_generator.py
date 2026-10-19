@@ -1461,4 +1461,8 @@ def store_generated_content(
         logger.info(f"Stored generated content for activity {activity_id}")
 
     except Exception as e:
+        # Raised, not swallowed: enhanced_description is the own-write guard of the
+        # late-dictation check and the base of the feedback loop. Publishing a text
+        # that is not stored would break both, so the run fails visibly instead.
         logger.error(f"Failed to store generated content: {str(e)}")
+        raise

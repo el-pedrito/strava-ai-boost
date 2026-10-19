@@ -410,10 +410,12 @@ class TestStoreGeneratedContent:
         assert isinstance(meta['confidence'], Decimal)
 
     @patch('processing.content_generator.dynamodb')
-    def test_store_error_does_not_raise(self, mock_dynamo):
+    def test_store_error_raises(self, mock_dynamo):
+        # Raised, not swallowed: an unstored enhanced_description breaks the
+        # late-dictation own-write guard, so the run must fail visibly (lot 0b).
         mock_dynamo.Table.return_value.update_item.side_effect = Exception("write error")
-        # Should not raise — errors are logged
-        store_generated_content('123', {'title': 'x', 'description': 'y'})
+        with pytest.raises(Exception, match="write error"):
+            store_generated_content('123', {'title': 'x', 'description': 'y'})
 
 
 def _converse_response(text: str) -> dict:
@@ -832,3 +834,14 @@ class TestMarkCampusSessionDone:
 
         mark_campus_session_done({'title': 'no keys'}, 'act-123')
         mock_table.update_item.assert_not_called()
+
+
+class TestRelativeEffortPrompt:
+    """Lot 0c: Strava's suffer_score is an open scale, not a score out of 100."""
+
+    def test_prompt_has_no_out_of_100_suffer_score(self):
+        src = open(os.path.join(os.path.dirname(__file__), "..", "..", "src", "agents", "content_agent.py")).read()
+        assert "suffer_score:.0f}/100" not in src
+        assert "Suffer Score:" not in src
+        assert "Strava Relative Effort" in src
+        assert "NOT the athlete's RPE" in src

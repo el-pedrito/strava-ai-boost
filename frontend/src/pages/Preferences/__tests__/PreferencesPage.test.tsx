@@ -14,6 +14,7 @@ vi.mock('@/api/client', () => ({
 
 vi.mock('@/config', () => ({
   getConfig: () => ({ defaultUserId: 'u1' }),
+  isPushEnabled: () => false,
 }));
 
 vi.mock('@/layouts/AppLayout', () => ({

@@ -37,18 +37,39 @@
 
   --primary: #fc4c02;
   --primary-foreground: #ffffff;
+  /* Filled-button background. White on brand #fc4c02 is only 3.40:1; #d23c00 gives 4.79:1
+     (WCAG AA for 14 px text). Keep --primary for icons, borders and large text.
+     Ratios pinned by ui/__tests__/contrast.test.ts. */
+  --primary-strong: #d23c00;
+  --primary-strong-hover: #b83400;
+  /* Orange TEXT (links, countdowns). #b93c0b is 5.65:1 on white and 4.91:1 on the
+     bg-info/10 tint the coach-text links sit on (#c2410c fell to 4.50 there);
+     --primary-strong stays the filled-background colour. Pinned by ui/__tests__/contrast.test.ts. */
+  --primary-text: #b93c0b;
 
   --accent: #0f172a;
   --accent-foreground: #ffffff;
 
   --success: #00a87d;
   --success-foreground: #ffffff;
+  /* Status TEXT colours: --success / --warning are fills and fail AA as text on white. */
+  --success-text: #047857;
   --warning: #d97706;
   --warning-foreground: #ffffff;
+  --warning-text: #b45309;
   --danger: #dc2626;
+  /* Red TEXT on surfaces and 10% tints: #b91c1c (6.47:1 on white); #dc2626 gave 4.46:1 on its tint. */
+  --danger-text: #b91c1c;
   --danger-foreground: #ffffff;
-  --info: #2563eb;
+  /* #1d4ed8: text-info on its own bg-info/10 pill is 5.72:1 (#2563eb fell to 4.49).
+     Pinned by ui/__tests__/contrast.test.ts. */
+  --info: #1d4ed8;
   --info-foreground: #ffffff;
+
+  /* Second chart series (ATL, dashed). recharts reuses the stroke for the 12 px
+     legend text, so it must clear 4.5:1 on surface (#475569: 7.58:1). The old
+     muted #94a3b8 was 2.56:1. Pinned by ui/__tests__/contrast.test.ts. */
+  --chart-secondary: #475569;
 
   --ring: #fc4c02;
   --shadow-color: 220 13% 18%;
@@ -70,18 +91,33 @@
 
   --primary: #fc4c02;
   --primary-foreground: #ffffff;
+  /* Filled-button background. White on brand #fc4c02 is only 3.40:1; #d23c00 gives 4.79:1
+     (WCAG AA for 14 px text). Keep --primary for icons, borders and large text.
+     Ratios pinned by ui/__tests__/contrast.test.ts. */
+  --primary-strong: #d23c00;
+  --primary-strong-hover: #b83400;
+  /* Orange TEXT: a lighter orange than the brand #fc4c02, which fell to 4.56:1 on the
+     bg-info/10 tint of the coach boxes; #fd6224 is 5.13:1 there and 5.87:1 on surface. */
+  --primary-text: #fd6224;
 
   --accent: #f5f7fa;
   --accent-foreground: #0a0e1a;
 
   --success: #00c896;
   --success-foreground: #0a0e1a;
+  --success-text: #00c896;
   --warning: #f59e0b;
   --warning-foreground: #0a0e1a;
+  --warning-text: #f59e0b;
   --danger: #ef4444;
+  --danger-text: #f87171;
   --danger-foreground: #ffffff;
-  --info: #3b82f6;
+  /* #4f93f8: text-info on its own bg-info/10 pill is 5.07:1 (#3b82f6 fell to 4.27). */
+  --info: #4f93f8;
   --info-foreground: #ffffff;
+
+  /* Second chart series (ATL): #94a3b8 is 6.96:1 on surface (old #64748b was 3.60:1). */
+  --chart-secondary: #94a3b8;
 
   --ring: #fc4c02;
   --shadow-color: 220 40% 2%;
@@ -100,12 +136,18 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-strong: var(--primary-strong);
+  --color-primary-strong-hover: var(--primary-strong-hover);
+  --color-primary-text: var(--primary-text);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
+  --color-success-text: var(--success-text);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
+  --color-warning-text: var(--warning-text);
+  --color-danger-text: var(--danger-text);
   --color-danger: var(--danger);
   --color-danger-foreground: var(--danger-foreground);
   --color-info: var(--info);
@@ -161,6 +203,20 @@ body {
 :focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
+}
+
+/* Activity map (Leaflet, pages/Activity/ActivityMap.tsx).
+   OSM tiles in both themes; dark mode inverts the tile pane only, so the route keeps its colour.
+   hue-rotate(180deg) brings water back to blue and parks green, brightness/contrast soften the
+   inverted white roads so the orange route stays the most salient line. */
+.activity-map .leaflet-container {
+  background: var(--surface-muted);
+}
+.dark .activity-map .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.85) saturate(0.6);
+}
+.activity-map .activity-route {
+  stroke: var(--primary);
 }
 
 /* Animations */

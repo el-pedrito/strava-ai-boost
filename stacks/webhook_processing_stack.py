@@ -30,7 +30,7 @@ from aws_cdk import (
 )
 from constructs import Construct
 from .api_logging import api_stage_logging_options
-from .core_infrastructure_stack import CoreInfrastructureStack
+from .core_infrastructure_stack import INPUT_WAIT_FUNCTION_NAME, CoreInfrastructureStack
 
 # Daily Bedrock cost guard, in "input-equivalent tokens" = input + 5 x output
 # (output is priced ~5x input on the Claude Sonnet/Haiku tiers). Derived from the
@@ -44,6 +44,9 @@ BEDROCK_OUTPUT_TOKEN_WEIGHT = 5
 WEBHOOK_THROTTLE_RATE_LIMIT = 5
 WEBHOOK_THROTTLE_BURST_LIMIT = 10
 
+
+# Ops alerts topic name; also used (by ARN, no stack dependency) by the Push stack.
+OPS_ALERTS_TOPIC_NAME = "strava-ai-boost-ops-alerts"
 
 class WebhookProcessingStack(Stack):
     """Webhook processing stack for Strava webhooks and SQS queuing"""
@@ -337,7 +340,7 @@ class WebhookProcessingStack(Stack):
         # SNS topic for operational alerts (alarms + budget)
         self.alerts_topic = sns.Topic(
             self, "OpsAlertsTopic",
-            topic_name="strava-ai-boost-ops-alerts",
+            topic_name=OPS_ALERTS_TOPIC_NAME,
             display_name="Strava AI Boost Ops Alerts",
             enforce_ssl=True,  # deny non-TLS publishes (cdk-nag SNS3)
         )
@@ -599,6 +602,54 @@ class WebhookProcessingStack(Stack):
         )
         voice_ratio.add_alarm_action(alarm_action)
 
+        # 4b. The athlete-input wait failed: InputWait{outcome=error} (bad event,
+        #     DynamoDB failure) or {outcome=push_error} (PushSend unreachable,
+        #     crashed or answered garbage, as opposed to a genuine sent == 0) or
+        #     {outcome=callback_error} (the release SendTaskSuccess failed: the
+        #     run stalls until the 1 h task timeout). The run is released anyway
+        #     (fail open, D8), so nothing else would ever surface it.
+        input_wait_outcomes = ("error", "push_error", "callback_error")
+        input_wait_error = cloudwatch.Alarm(
+            self, "InputWaitErrorAlarm",
+            alarm_name="strava-ai-boost-input-wait-error",
+            alarm_description="InputWait reported outcome=error|push_error|callback_error in the last hour",
+            metric=cloudwatch.MathExpression(
+                expression=" + ".join(f"FILL({o}, 0)" for o in input_wait_outcomes),
+                using_metrics={o: produced("InputWait", o, period_1h) for o in input_wait_outcomes},
+                period=period_1h,
+                label="InputWaitNotOk",
+            ),
+            threshold=1,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+        )
+        input_wait_error.add_alarm_action(alarm_action)
+
+        # 4c. InputWait itself crashed or timed out (import error, 120 s timeout).
+        #     The state machine's States.ALL catch releases the run, and no
+        #     InputWait{outcome} metric is emitted, so only the Lambda Errors
+        #     metric sees it. Same pattern as the input_status/input_submit alarms
+        #     (api_gateway_stack.py); referenced by its fixed name, not by a
+        #     cross-stack object, since the function lives in the Content stack.
+        input_wait_crash = cloudwatch.Alarm(
+            self, "InputWaitErrorsAlarm",
+            alarm_name="strava-ai-boost-input-wait-errors",
+            alarm_description=f"{INPUT_WAIT_FUNCTION_NAME} reported a Lambda error",
+            metric=cloudwatch.Metric(
+                namespace="AWS/Lambda",
+                metric_name="Errors",
+                dimensions_map={"FunctionName": INPUT_WAIT_FUNCTION_NAME},
+                statistic="Sum",
+                period=Duration.minutes(5),
+            ),
+            threshold=1,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+        )
+        input_wait_crash.add_alarm_action(alarm_action)
+
         # 5. Any content-generation Step Functions execution failed.
         if self.step_functions_arn:
             sfn_failed = cloudwatch.Alarm(
@@ -618,6 +669,27 @@ class WebhookProcessingStack(Stack):
                 treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
             )
             sfn_failed.add_alarm_action(alarm_action)
+
+            # 6. ...or hit its overall timeout (120 min). ExecutionsFailed does not
+            #    count TIMED_OUT. A caught athlete-input wait timeout never lands
+            #    here: it is the normal "no input" path (InputWait{outcome=expired}).
+            sfn_timed_out = cloudwatch.Alarm(
+                self, "StepFunctionsExecutionsTimedOutAlarm",
+                alarm_name="strava-ai-boost-sfn-executions-timed-out",
+                alarm_description="A content-generation Step Functions execution timed out",
+                metric=cloudwatch.Metric(
+                    namespace="AWS/States",
+                    metric_name="ExecutionsTimedOut",
+                    dimensions_map={"StateMachineArn": self.step_functions_arn},
+                    statistic="Sum",
+                    period=period_1h,
+                ),
+                threshold=1,
+                evaluation_periods=1,
+                comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+                treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+            )
+            sfn_timed_out.add_alarm_action(alarm_action)
 
     def _create_bedrock_cost_alarm(self, alarm_action: cw_actions.SnsAction) -> None:
         """Alarm when one day of Bedrock tokens exceeds the cost guard.

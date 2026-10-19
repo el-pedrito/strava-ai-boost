@@ -27,6 +27,7 @@ import { useAutoRefresh } from '../../hooks/useAutoRefresh.ts';
 import { useFlash } from '../../layouts/AppLayout.tsx';
 import { api } from '../../api/client.ts';
 import { formatDateTime, computeProcessingTime } from '../../utils/formatDate.ts';
+import { formatActivityPace, formatDistanceKm, formatMovingTime } from '../../utils/formatActivity.ts';
 import { cn } from '../../lib/cn.ts';
 import type { DashboardStats, SystemStatus, Activity } from '../../types/index.ts';
 
@@ -674,11 +675,15 @@ export function DashboardPage() {
                           <SortIcon active={sortKey === 'date'} dir={sortDir} />
                         </span>
                       </th>
+                      <th className="px-4 py-3 text-right font-medium">{t('dashboard.activities.col.distance')}</th>
+                      <th className="px-4 py-3 text-right font-medium">{t('dashboard.activities.col.movingTime')}</th>
+                      <th className="px-4 py-3 text-right font-medium">{t('dashboard.activities.col.pace')}</th>
                       <th className="px-4 py-3 text-left font-medium">{t('dashboard.activities.col.modules')}</th>
                       <th className="px-4 py-3 text-left font-medium">{t('dashboard.activities.col.status')}</th>
                       <th
                         className="px-4 py-3 text-right font-medium cursor-pointer select-none hover:text-foreground transition-colors"
                         onClick={() => handleSort('time')}
+                        title={t('dashboard.activities.processingTitle')}
                       >
                         <span className="inline-flex items-center justify-end gap-1">
                           {t('dashboard.activities.col.time')}
@@ -723,6 +728,15 @@ export function DashboardPage() {
                           </td>
                           <td className="px-4 py-3 font-numeric text-xs text-muted-foreground">
                             {act.date}
+                          </td>
+                          <td className="px-4 py-3 text-right font-numeric text-xs text-foreground whitespace-nowrap">
+                            {formatDistanceKm(act.distance) ?? '-'}
+                          </td>
+                          <td className="px-4 py-3 text-right font-numeric text-xs text-foreground whitespace-nowrap">
+                            {formatMovingTime(act.moving_time) ?? '-'}
+                          </td>
+                          <td className="px-4 py-3 text-right font-numeric text-xs text-foreground whitespace-nowrap">
+                            {formatActivityPace(act.distance, act.moving_time, act.activity_type) ?? '-'}
                           </td>
                           <td className="px-4 py-3">
                             {act.modules_used.length > 0 ? (
@@ -788,8 +802,17 @@ export function DashboardPage() {
                           <p className="truncate text-sm font-medium text-foreground">
                             {act.name}
                           </p>
+                          {/* The activity's own figures. The AI processing time stays in the desktop
+                              "Traitement" column: a bare "69s" here read as the workout length. */}
                           <p className="mt-0.5 font-numeric text-[11px] text-muted-foreground">
-                            {act.date} &middot; {act.processing_time}
+                            {[
+                              act.date,
+                              formatDistanceKm(act.distance),
+                              formatMovingTime(act.moving_time),
+                              formatActivityPace(act.distance, act.moving_time, act.activity_type),
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')}
                           </p>
                         </div>
                         <Badge variant={sBadge.variant} size="sm">

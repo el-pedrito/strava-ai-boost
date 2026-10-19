@@ -196,6 +196,7 @@ if [ "$CREATE_BACKUP" = true ]; then
         "StravaAIBoost-Content"
         "StravaAIBoost-Webhook"
         "StravaAIBoost-API"
+        "StravaAIBoost-Push"
         )
     
     for stack in "${STACKS[@]}"; do
@@ -414,6 +415,7 @@ STACKS=(
     "StravaAIBoost-API"
     "StravaAIBoost-Webhook"
     "StravaAIBoost-Content"
+    "StravaAIBoost-Push"
     "StravaAIBoost-Core"
 )
 
@@ -513,6 +515,7 @@ if [ "$KEEP_DATA" = false ]; then
     SECRETS=(
         "strava-ai-boost-oauth-tokens"
         "strava-ai-boost-campus-coach-credentials"
+        "strava-ai-boost-vapid-keys"
     )
     
     for secret in "${SECRETS[@]}"; do
@@ -521,6 +524,15 @@ if [ "$KEEP_DATA" = false ]; then
             aws secretsmanager delete-secret --secret-id $secret --force-delete-without-recovery --profile $PROFILE --region $REGION 2>/dev/null || print_warning "Could not remove secret $secret"
         fi
     done
+
+    # Web Push application server key (SecureString written by
+    # scripts/bootstrap_vapid.py, outside CDK). DeleteParameter and DeleteParameters
+    # are authorized separately; this uses the singular form on the exact name.
+    VAPID_PARAM="/strava-ai-boost/push/vapid-application-server-key"
+    if aws ssm get-parameter --name "$VAPID_PARAM" --profile $PROFILE --region $REGION > /dev/null 2>&1; then
+        print_status "Removing SSM parameter: $VAPID_PARAM"
+        aws ssm delete-parameter --name "$VAPID_PARAM" --profile $PROFILE --region $REGION 2>/dev/null || print_warning "Could not remove parameter $VAPID_PARAM"
+    fi
 else
     print_status "Data preservation enabled - keeping DynamoDB tables and Secrets Manager secrets"
 fi

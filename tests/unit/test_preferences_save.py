@@ -27,17 +27,20 @@ REGION = 'eu-west-1'
 ZONES_A = {'ef': {'min': '5:40', 'max': '6:10'}, 'tempo': {'min': '4:40', 'max': '4:50'}}
 ZONES_B = {'ef': {'min': '3:00', 'max': '3:10'}}
 HISTORY = {'entries': [{'date': '2026-10-01', 'volume_kg': Decimal('4200')}]}
+_CLAIMS = {'authorizer': {'claims': {'custom:strava_id': USER}}}
 RECORDS = [{'distance': '10K', 'time': '42:00', 'date': '2026-03-01', 'event': 'x'}]
 
 
 def _post(payload: Dict[str, Any]) -> Dict[str, Any]:
     body = {'user_id': USER, **payload}
-    return api.update_user_preferences({'httpMethod': 'POST', 'path': '/preferences', 'body': json.dumps(body)})
+    return api.update_user_preferences({'httpMethod': 'POST', 'path': '/preferences', 'body': json.dumps(body),
+                                        'requestContext': _CLAIMS})
 
 
 def _get() -> Dict[str, Any]:
     response = api.get_user_preferences(
-        {'httpMethod': 'GET', 'path': '/preferences', 'queryStringParameters': {'user_id': USER}})
+        {'httpMethod': 'GET', 'path': '/preferences', 'queryStringParameters': {'user_id': USER},
+         'requestContext': _CLAIMS})
     assert response['statusCode'] == 200
     return json.loads(response['body'])['preferences']
 

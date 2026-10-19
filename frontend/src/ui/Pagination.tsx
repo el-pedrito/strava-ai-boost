@@ -42,9 +42,11 @@ export function Pagination({
         </span>
       </div>
 
-      <div className="flex items-center gap-2">
+      {/* Below sm (375 px phones) the row must fit ~343 px: first/last and the page-size
+          select are hidden and the controls may wrap. */}
+      <div className="flex flex-wrap items-center gap-2">
         {showPageSize ? (
-          <div className="flex items-center gap-2">
+          <div className="hidden items-center gap-2 sm:flex" data-testid="pagination-page-size">
             <span className="text-xs text-muted-foreground whitespace-nowrap">
               {t('pagination.perPage')}
             </span>
@@ -59,7 +61,7 @@ export function Pagination({
           </div>
         ) : null}
 
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center gap-1">
           <Button
             type="button"
             variant="outline"
@@ -67,7 +69,7 @@ export function Pagination({
             onClick={() => onPageChange(1)}
             disabled={safePage <= 1}
             aria-label={t('pagination.first')}
-            className="h-9 w-9"
+            className="hidden h-9 w-9 sm:inline-flex"
           >
             <ChevronsLeft className="h-4 w-4" aria-hidden="true" />
           </Button>
@@ -103,7 +105,7 @@ export function Pagination({
             onClick={() => onPageChange(totalPages)}
             disabled={safePage >= totalPages}
             aria-label={t('pagination.last')}
-            className="h-9 w-9"
+            className="hidden h-9 w-9 sm:inline-flex"
           >
             <ChevronsRight className="h-4 w-4" aria-hidden="true" />
           </Button>

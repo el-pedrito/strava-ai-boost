@@ -1,5 +1,6 @@
 """A4: GET /home/summary — auth (403), no-store, no module cache, and the
 builder's health/race/plan/sessions/predictions assembly."""
+import base64
 import json
 import os
 import sys
@@ -8,11 +9,13 @@ from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
+from aws_lambda_powertools.metrics import MetricUnit
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'lambda_functions'))
 
 from api import dashboard_api
 from api import home_summary as hs
+from api import plan_workouts
 
 OWNER = "424242"
 NOW = datetime(2026, 10, 17, 6, 0, tzinfo=timezone.utc)
@@ -348,3 +351,166 @@ class TestWeekLabelParisBoundary:
         # 21:30 UTC summer -> 23:30 Paris Sunday, still the Sunday's week.
         sun_eve = datetime(2026, 7, 19, 21, 30, tzinfo=timezone.utc)
         assert hs._week_label(sun_eve) == '2026-W29'
+
+
+# ----------------------------------------------------------------- next session: coach words + Watch file
+_INTERVALS = [
+    {'type': 'warm-up', 'duration': '15 min', 'pace': 'EF (5:57/km)'},
+    {'type': 'block', 'repeat': Decimal(3), 'exercises': [
+        {'type': 'work', 'duration': '8 min', 'pace': 'Seuil (4:40/km)'},
+        {'type': 'recovery', 'duration': '2 min', 'pace': 'Lent (7:00/km)'},
+    ]},
+    {'type': 'cool-down', 'duration': '10 min', 'pace': 'EF (5:57/km)'},
+]
+
+
+def _next_row(**extra):
+    week_iso = hs._week_label(NOW)
+    row = {
+        'session_date': f'week-{week_iso}', 'session_id': '7_1', 'week_date_iso': week_iso,
+        'training_index': Decimal(1), 'title': 'Blocs seuil', 'training_type': 'Intensity',
+        'sport': 'road', 'expected_duration_min': Decimal(55), 'is_current_week': True,
+        'provider_status': 'todo', 'intervals': _INTERVALS,
+    }
+    row.update(extra)
+    return row
+
+
+def _sessions_table(*rows):
+    table = MagicMock()
+    table.query.return_value = {'Items': list(rows)}
+    table.scan.return_value = {'Items': []}
+    return table
+
+
+def _next(row, range_alerts=False, counters=None):
+    _, nxt = hs._build_week_sessions(_sessions_table(row), NOW, range_alerts, counters)
+    return nxt
+
+
+class TestNextSessionExtras:
+    def test_texts_and_session_id_are_present_and_trimmed(self):
+        nxt = _next(_next_row(description='  Consigne **claire**, voir https://example.org/s  ',
+                              coach_advice='\nReste souple sur le premier bloc.\n'))
+        assert nxt['session_id'] == '7_1'
+        assert nxt['description'] == 'Consigne **claire**, voir https://example.org/s'
+        assert nxt['coach_advice'] == 'Reste souple sur le premier bloc.'
+
+    def test_absent_texts_are_null(self):
+        nxt = _next(_next_row())
+        assert nxt['description'] is None
+        assert nxt['coach_advice'] is None
+
+    def test_long_texts_are_capped(self):
+        nxt = _next(_next_row(description='d' * 4000, coach_advice='é' * 2500))
+        assert len(nxt['description']) == plan_workouts.MAX_TEXT_CHARS
+        assert nxt['coach_advice'] == 'é' * plan_workouts.MAX_TEXT_CHARS
+
+    def test_encodable_session_carries_the_watch_file(self):
+        row = _next_row()
+        nxt = _next(row)
+        data = base64.b64decode(nxt['workout_b64'])
+        assert 0 < len(data) <= 8192
+        assert nxt['filename'] == plan_workouts.campus_workout.workout_filename(row)
+        assert nxt['filename'].endswith('.workout')
+
+    def test_non_encodable_session_has_null_file_but_keeps_texts(self):
+        nxt = _next(_next_row(sport='swim', coach_advice='Nage tranquille'))
+        assert nxt['workout_b64'] is None
+        assert nxt['filename'] is None
+        assert nxt['coach_advice'] == 'Nage tranquille'
+        assert nxt['title'] == 'Blocs seuil'
+
+    def test_session_without_intervals_has_null_file(self):
+        nxt = _next(_next_row(intervals=[]))
+        assert nxt['workout_b64'] is None and nxt['filename'] is None
+
+    def test_mapper_exception_nulls_only_the_file_and_is_counted(self):
+        counters = {}
+        with patch.object(plan_workouts.campus_workout, 'map_session', side_effect=RuntimeError('x')):
+            nxt = _next(_next_row(coach_advice='Conseil'), counters=counters)
+        assert nxt['workout_b64'] is None and nxt['filename'] is None
+        assert nxt['coach_advice'] == 'Conseil'
+        assert nxt['session_id'] == '7_1'
+        assert counters == {plan_workouts.METRIC_MAP_FAILED: 1}
+
+    def test_range_alerts_switch_reaches_the_mapper(self):
+        real = plan_workouts.campus_workout.map_session
+        seen = []
+
+        def spy(row, *args, **kwargs):
+            seen.append(kwargs.get('range_alerts'))
+            return real(row, *args, **kwargs)
+
+        with patch.object(plan_workouts.campus_workout, 'map_session', side_effect=spy):
+            _next(_next_row(), range_alerts=True)
+            _next(_next_row(), range_alerts=False)
+        assert seen == [True, False]
+
+    def test_done_sessions_are_skipped_for_the_extras(self):
+        done = _next_row(session_id='7_0', training_index=Decimal(0), local_status='done',
+                         coach_advice='ancien')
+        _, nxt = hs._build_week_sessions(_sessions_table(done, _next_row()), NOW)
+        assert nxt['session_id'] == '7_1'
+        assert nxt['coach_advice'] is None
+
+    def test_worst_case_extras_keep_the_payload_small(self):
+        # Both texts at the cap in 4-byte characters plus the file: well under 64 KB.
+        text = '\U0001F3C3' * 3000
+        nxt = _next(_next_row(description=text, coach_advice=text))
+        assert len(json.dumps(nxt, ensure_ascii=False).encode('utf-8')) < 64 * 1024
+
+
+def _home_tables(session_row):
+    """dynamodb.Table(name) fake for the handler path: empty wellness/config,
+    one session this week."""
+    wellness = _wellness_table_with(days=[], items={})
+    sessions = _sessions_table(session_row)
+    config = MagicMock()
+    config.get_item.return_value = {}
+
+    def _table(name):
+        if name == dashboard_api.COACHING_SESSIONS_TABLE:
+            return sessions
+        if name == dashboard_api.WELLNESS_TABLE:
+            return wellness
+        return config
+    return _table
+
+
+class TestNextSessionHandler:
+    def _call(self, env, row):
+        with patch.dict(os.environ, {'CAMPUS_OWNER_STRAVA_ID': OWNER, **env}, clear=False), \
+             patch.object(dashboard_api, 'dynamodb') as mock_ddb, \
+             patch.object(dashboard_api, '_query_user_activities', return_value=[]), \
+             patch('api.dashboard_api.metrics.add_metric') as add_metric:
+            mock_ddb.Table.side_effect = _home_tables(row)
+            resp = dashboard_api.get_home_summary_response(_event(OWNER))
+        return resp, add_metric
+
+    def test_mapper_exception_never_fails_the_summary_and_emits_the_metric(self):
+        with patch.object(plan_workouts.campus_workout, 'map_session', side_effect=RuntimeError('x')):
+            resp, add_metric = self._call({}, _next_row())
+        assert resp['statusCode'] == 200
+        nxt = json.loads(resp['body'])['next_session']
+        assert nxt['workout_b64'] is None and nxt['filename'] is None
+        add_metric.assert_any_call(name='WorkoutMapFailed', unit=MetricUnit.Count, value=1)
+
+    def test_encodable_next_session_in_the_http_body(self):
+        resp, _ = self._call({}, _next_row(coach_advice='Conseil du coach'))
+        nxt = json.loads(resp['body'])['next_session']
+        assert nxt['coach_advice'] == 'Conseil du coach'
+        assert nxt['workout_b64'] and nxt['filename'].endswith('.workout')
+
+    def test_handler_passes_range_alerts_only_when_exactly_true(self):
+        real = plan_workouts.campus_workout.map_session
+        seen = []
+
+        def spy(row, *args, **kwargs):
+            seen.append(kwargs.get('range_alerts'))
+            return real(row, *args, **kwargs)
+
+        with patch.object(plan_workouts.campus_workout, 'map_session', side_effect=spy):
+            for value in ('true', 'True', 'false', ''):
+                assert self._call({'RANGE_ALERTS_ENABLED': value}, _next_row())[0]['statusCode'] == 200
+        assert seen == [True, False, False, False]

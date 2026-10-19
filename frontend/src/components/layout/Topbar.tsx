@@ -25,8 +25,9 @@ export function Topbar({ onMenuClick }: TopbarProps) {
     void setLanguage(nextLang);
   };
 
+  // Standalone iPhone PWA (viewport-fit=cover): keep the bar below the status bar / Dynamic Island.
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-border bg-background/80 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60 md:px-6">
+    <header className="sticky top-0 z-30 flex h-[calc(3.5rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] items-center gap-2 border-b border-border bg-background/80 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60 md:px-6">
       <button
         type="button"
         onClick={onMenuClick}

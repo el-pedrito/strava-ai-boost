@@ -5,6 +5,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { Alert, Button, InfoTooltip } from '@/ui';
 import { api } from '../../api/client.ts';
 import { useFlash } from '../../layouts/AppLayout.tsx';
+import { formatDateTime } from '../../utils/formatDate.ts';
 import type { OAuthStatus } from '../../types/index.ts';
 
 interface TestResult {
@@ -122,8 +123,8 @@ export function OAuthConnection({ oauthStatus, onDisconnected }: Props) {
             <h3 className="text-base font-semibold text-foreground">{t('oauth.connection.connectedTitle')}</h3>
             <p className="mt-1 text-sm text-muted-foreground">
               {t('oauth.connection.connectedTo')}
-              {oauthStatus.obtained_at ? t('oauth.connection.authorizedOn', { date: oauthStatus.obtained_at }) : ''}
-              {oauthStatus.last_refreshed ? t('oauth.connection.lastRefresh', { date: oauthStatus.last_refreshed }) : ''}
+              {oauthStatus.obtained_at ? t('oauth.connection.authorizedOn', { date: formatDateTime(oauthStatus.obtained_at) }) : ''}
+              {oauthStatus.last_refreshed ? t('oauth.connection.lastRefresh', { date: formatDateTime(oauthStatus.last_refreshed) }) : ''}
             </p>
           </div>
         </div>
@@ -170,7 +171,7 @@ export function OAuthConnection({ oauthStatus, onDisconnected }: Props) {
                     </div>
                     <div>
                       <p className="text-muted-foreground">{t('oauth.connection.statusLabel')}</p>
-                      <p className="font-medium text-success">{t('oauth.connection.authenticated')}</p>
+                      <p className="font-medium text-success-text">{t('oauth.connection.authenticated')}</p>
                     </div>
                   </div>
                 ) : null}

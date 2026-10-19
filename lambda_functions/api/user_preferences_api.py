@@ -4,6 +4,11 @@ User Preferences API Lambda Function
 Handles user preferences for content personalization:
 - GET: Retrieve user preferences
 - POST: Update user preferences
+
+Caller binding: the user is the Cognito ``custom:strava_id`` claim. A ``user_id``
+in the query (GET) or body (POST) is only validated against it: absent/empty is
+accepted, a different value is a 403, a missing claim is a 401 (no
+DEFAULT_USER_ID fallback).
 """
 
 import json
@@ -45,6 +50,54 @@ BODY_WEIGHT_MAX_KG = 250
 HEIGHT_MIN_CM = 100
 HEIGHT_MAX_CM = 250
 
+USER_ID_PATTERN = re.compile(r'^[a-zA-Z0-9_-]{1,64}$')
+
+
+class CallerError(Exception):
+    """The request cannot be bound to the authenticated caller."""
+
+    def __init__(self, status_code: int, message: str):
+        super().__init__(message)
+        self.status_code = status_code
+        self.message = message
+
+
+def _get_strava_claim(event: Dict[str, Any]) -> str:
+    """Return the Cognito custom:strava_id claim, or '' when absent.
+
+    Same source as the owner-only APIs (dashboard_api._get_strava_claim): the
+    Cognito authorizer claims. ``cognito:username`` and ``sub`` are NOT usable,
+    the user_config table is keyed by Strava athlete id.
+    """
+    try:
+        claims = event.get('requestContext', {}).get('authorizer', {}).get('claims', {}) or {}
+        claim = claims.get('custom:strava_id', '') or ''
+        return claim if isinstance(claim, str) else ''
+    except (AttributeError, TypeError):
+        return ''
+
+
+def _resolve_caller_user_id(event: Dict[str, Any], requested: Any) -> str:
+    """Bind the request to the authenticated caller.
+
+    - no ``custom:strava_id`` claim: 401. No DEFAULT_USER_ID fallback, so an
+      authenticated user without a Strava link can never reach the default
+      athlete's preferences (same fail-closed rule as the Coach endpoints).
+    - a ``user_id`` sent by the client (query or body) that differs from the
+      claim: 403. An absent or empty one is accepted, the claim is used.
+    """
+    claim = _get_strava_claim(event)
+    if not claim:
+        logger.warning("Preferences request missing custom:strava_id claim; failing closed")
+        raise CallerError(401, 'Unauthorized: authenticated Strava identity required')
+    if not USER_ID_PATTERN.match(claim):
+        logger.warning("Preferences request with a malformed custom:strava_id claim")
+        raise CallerError(401, 'Unauthorized: invalid Strava identity')
+    if requested not in (None, '') and requested != claim:
+        logger.warning("Preferences request for another user_id denied")
+        raise CallerError(403, 'Forbidden')
+    return claim
+
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Lambda handler for user preferences API"""
@@ -70,11 +123,12 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 def get_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
     """Get user preferences from DynamoDB"""
     try:
-        # Get user_id from query parameters or use default
+        # The caller is the Cognito claim; a query user_id is only checked against it.
         query_params = event.get('queryStringParameters') or {}
-        user_id = query_params.get('user_id', os.environ.get('DEFAULT_USER_ID', ''))
-        if not user_id or not re.match(r'^[a-zA-Z0-9_-]{1,64}$', user_id):
-            return create_error_response(400, 'Invalid or missing user_id', cors_headers=CORS_HEADERS)
+        try:
+            user_id = _resolve_caller_user_id(event, query_params.get('user_id'))
+        except CallerError as e:
+            return create_error_response(e.status_code, e.message, cors_headers=CORS_HEADERS)
 
         table = dynamodb.Table(USER_CONFIG_TABLE)
         response = table.get_item(Key={'user_id': user_id})
@@ -140,9 +194,13 @@ def update_user_preferences(event: Dict[str, Any]) -> Dict[str, Any]:
         if len(body_str) > 10000:
             return create_error_response(413, 'Request body too large', cors_headers=CORS_HEADERS)
         body = json.loads(body_str)
-        user_id = body.get('user_id', os.environ.get('DEFAULT_USER_ID', ''))
-        if not user_id or not re.match(r'^[a-zA-Z0-9_-]{1,64}$', user_id):
-            return create_error_response(400, 'Invalid or missing user_id', cors_headers=CORS_HEADERS)
+        if not isinstance(body, dict):
+            return create_error_response(400, 'Request body must be a JSON object', cors_headers=CORS_HEADERS)
+        # The caller is the Cognito claim; a body user_id is only checked against it.
+        try:
+            user_id = _resolve_caller_user_id(event, body.get('user_id'))
+        except CallerError as e:
+            return create_error_response(e.status_code, e.message, cors_headers=CORS_HEADERS)
 
         # Validate preference values against allowed lists
         age_range = body.get('age_range', '26-35')
