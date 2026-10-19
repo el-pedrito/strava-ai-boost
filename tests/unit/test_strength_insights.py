@@ -297,6 +297,8 @@ class TestRecords:
             desc1='Presse à cuisses 4x10 40/c', desc2='Presse à cuisses 4x10 @100',
             vol1=3200, vol2=4000,
         )
+        entries[0]['parsed_sets'][0]['per_side'] = True
+        entries[1]['parsed_sets'][0]['per_side'] = False
         ins = build_strength_insights(entries, today=TODAY)
         # Nothing comparable is left, so the lift is off the board (the chart
         # carries the note).
@@ -331,53 +333,107 @@ class TestRecords:
         assert flags['Développé couché']['notation_mixed'] is False
         assert flags['Développé couché']['e1rm_eligible'] is True
 
-    def test_reps_equal_to_doubled_load_on_same_line_stay_per_side(self):
-        """'Curl 3x12 6/c' stores 12: the rep count 12 sits on the per-side line
-        and must not read as a plain 12. Both sessions are per-side."""
-        s1 = _session('2026-10-06', 'Curl biceps', [{'reps': 12, 'weight_kg': 12}] * 3,
-                      description='Curl haltères 3x12 6/c')
-        s2 = _session('2026-10-13', 'Curl biceps', [{'reps': 10, 'weight_kg': 16}] * 3,
-                      description='Curl haltères 3x10 8/c')
+    def test_unflagged_row_with_per_side_wording_is_ambiguous(self):
+        """Without the extractor flag, any per-side wording in the session makes
+        the stored load undecidable: the page no longer guesses which lift the
+        '/c' belonged to."""
+        from shared.strength_insights import row_notation
+        row = {'exercise': 'Développé couché', 'sets_detail': [{'reps': 8, 'weight_kg': 80}]}
+        for desc in (
+            'dc 80x10 + press inc 3x10 40/c',           # round-3 C2: no clause split
+            'Curl haltères 3x12 6/c',
+            'Press inc 3x10 37,5/c',
+            'low row 8x50kg par côté',
+            'tirages verts 40kg/côté sur 3x10, puis développé couché barre à 80kg',
+            'leg press 4x10 40 each side',
+        ):
+            assert row_notation({'description': desc}, row) == 'ambiguous', desc
+
+    def test_unflagged_row_without_per_side_wording_is_plain(self):
+        from shared.strength_insights import row_notation
+        row = {'exercise': 'Développé couché', 'sets_detail': [{'reps': 8, 'weight_kg': 80}]}
+        assert row_notation({'description': 'dc 4x8 80 puis 90x6'}, row) == 'plain'
+        assert row_notation({'description': ''}, row) == 'plain'
+        assert row_notation({}, row) == 'plain'
+
+    def test_flag_decides_even_when_the_text_has_per_side_wording(self):
+        from shared.strength_insights import row_notation
+        entry = {'description': 'dc 80x10 + press inc 3x10 40/c'}
+        detail = [{'reps': 10, 'weight_kg': 80}]
+        assert row_notation(entry, {'per_side': False, 'sets_detail': detail}) == 'plain'
+        assert row_notation(entry, {'per_side': True, 'sets_detail': detail}) == 'per_side'
+
+    def test_unflagged_c2_line_keeps_the_bench_record(self):
+        """Round-4 finding: an unflagged 'dc 80x10 + press inc 3x10 40/c' row used
+        to read the bench at 80 as per-side, pair it with a plain session and
+        null the whole bench record. Now the doubtful row counts as neither."""
+        s1 = _session('2026-10-06', 'Développé couché', [{'reps': 10, 'weight_kg': 80}],
+                      description='dc 80x10 + press inc 3x10 40/c')
+        s2 = _session('2026-10-13', 'Développé couché', [{'reps': 8, 'weight_kg': 90}] * 3,
+                      description='dc 3x8 90')
+        ins = build_strength_insights([s1, s2], today=TODAY)
+        rec = next(r for r in ins['records'] if r['exercise'] == 'Développé couché')
+        assert rec['notation_mixed'] is False
+        assert rec['top_weight_kg'] == 90.0
         flags = exercise_flags([s1, s2])
-        assert flags['Curl biceps']['notation_mixed'] is False
-        assert flags['Curl biceps']['per_side_seen'] is True
-        from shared.strength_insights import (
-            _notation_state, _per_side_doubled_loads, _plain_numbers,
-        )
-        assert _notation_state(
-            s1['parsed_sets'][0]['sets_detail'],
-            _per_side_doubled_loads(s1), _plain_numbers(s1),
-        ) == 'per_side'
+        assert flags['Développé couché']['notation_mixed'] is False
+        assert flags['Développé couché']['per_side_seen'] is False
+        assert '2026-10-06' not in per_day_e1rm([s1, s2]).get('Développé couché', {})
 
-    def test_load_written_plain_elsewhere_is_ambiguous_not_plain(self):
-        """'dc 80x10' next to 'Press inc 40/c': the incline press stored at 80
-        cannot be told apart. It must count as neither, so a later plain
-        incline session does not hide that it was noted per side."""
-        from shared.strength_insights import (
-            _notation_state, _per_side_doubled_loads, _plain_numbers,
-        )
-        entry = {'description': 'dc 80x10 90x8\nPress inc 3x10 40/c'}
-        doubled = _per_side_doubled_loads(entry)
-        plain = _plain_numbers(entry)
-        assert _notation_state([{'reps': 10, 'weight_kg': 80}] * 3, doubled, plain) == 'ambiguous'
-        assert _notation_state(
-            [{'reps': 10, 'weight_kg': 80}, {'reps': 8, 'weight_kg': 90}], doubled, plain,
-        ) == 'plain'
+    def test_unflagged_legacy_flat_row_with_per_side_wording_is_excluded(self):
+        """A legacy row with no sets_detail and only a flat weight_kg used to skip
+        the notation check ('unknown') yet still feed the top weight."""
+        legacy = {'date': '2026-10-06', 'activity_id': 'L1', 'sets_source': 'athlete_text',
+                  'description': 'Press inc 3x10 50/c',
+                  'parsed_sets': [{'exercise': 'Développé incliné', 'sets': 3, 'reps': 10,
+                                   'weight_kg': 100}]}
+        plain = _session('2026-10-13', 'Développé incliné', [{'reps': 10, 'weight_kg': 60}] * 3,
+                         description='Press inc 3x10 60')
+        ins = build_strength_insights([legacy, plain], today=TODAY)
+        rec = next(r for r in ins['records'] if r['exercise'] == 'Développé incliné')
+        assert rec['top_weight_kg'] == 60.0
+        from shared.strength_insights import row_notation
+        assert row_notation(legacy, legacy['parsed_sets'][0]) == 'ambiguous'
 
-    def test_prose_clauses_split_on_comma(self):
-        """Live 2026-06-01 prose: the bench at 80 kg sits in the same sentence as
-        a 40kg/côté pull-down. Split on ', ' so the bench reads as plain."""
-        from shared.strength_insights import (
-            _notation_state, _per_side_doubled_loads, _plain_numbers,
-        )
-        entry = {'description': (
-            'tirages verts machine convergente 40kg/côté sur 3x10, puis le morceau '
-            'de choix, développé couché barre à 80kg pour 4 séries de 8.'
-        )}
-        assert _notation_state(
-            [{'reps': 8, 'weight_kg': 80}] * 4,
-            _per_side_doubled_loads(entry), _plain_numbers(entry),
-        ) == 'ambiguous'
+    def test_flagged_row_with_no_valid_detail_load_is_unknown(self):
+        """sets_detail is authoritative: a flagged row whose detail has no valid
+        load is 'unknown' even if its flat weight_kg looks valid, so it cannot
+        make the lift notation-mixed without feeding any load."""
+        from shared.strength_insights import row_notation
+        row = {'per_side': True, 'weight_kg': 80, 'reps': 10, 'sets': 3,
+               'sets_detail': [{'reps': 10, 'weight_kg': None}] * 3}
+        assert row_notation({'description': ''}, row) == 'unknown'
+        s1 = {**_session('2026-10-06', 'Squat', row['sets_detail']), }
+        s1['parsed_sets'][0].update({'per_side': True, 'weight_kg': 80, 'reps': 10, 'sets': 3})
+        s2 = _session('2026-10-13', 'Squat', [{'reps': 5, 'weight_kg': 100}])
+        s2['parsed_sets'][0]['per_side'] = False
+        s3 = _session('2026-10-20', 'Squat', [{'reps': 5, 'weight_kg': 105}])
+        s3['parsed_sets'][0]['per_side'] = False
+        assert exercise_flags([s1, s2, s3])['Squat']['notation_mixed'] is False
+
+    def test_ambiguous_row_hides_only_itself_not_its_day(self):
+        """Two activities on one day: only the doubtful one loses its e1RM; the
+        clean one keeps the day's point."""
+        clean = {'date': '2026-10-06', 'activity_id': 'a1', 'sets_source': 'athlete_text',
+                 'description': 'dc 5x5 100',
+                 'parsed_sets': [{'exercise': 'Développé couché', 'per_side': False,
+                                  'sets_detail': [{'reps': 5, 'weight_kg': 100}]}]}
+        doubtful = {'date': '2026-10-06', 'activity_id': 'a2', 'sets_source': 'athlete_text',
+                    'description': 'dc 3x3 60/c',
+                    'parsed_sets': [{'exercise': 'Développé couché',
+                                     'sets_detail': [{'reps': 3, 'weight_kg': 120}]}]}
+        e1rm = per_day_e1rm([clean, doubtful])['Développé couché']['2026-10-06']
+        # Epley(100, 5) rounded to 0.5 kg; the doubtful 120x3 (132) is left out.
+        assert e1rm == 116.5
+
+    def test_ambiguous_weighted_bodyweight_set_gives_no_weighted_record(self):
+        s1 = _session('2026-10-06', 'Dips', [{'reps': 8, 'weight_kg': 20}],
+                      description='dips 8 lest 10/c')
+        s2 = _session('2026-10-13', 'Dips', [{'reps': 10, 'weight_kg': 10}],
+                      description='dips 10 lest 10')
+        ins = build_strength_insights([s1, s2], today=TODAY)
+        rec = next(r for r in ins['records'] if r['exercise'] == 'Dips')
+        assert rec['best_weighted_bw'] == {'reps': 10, 'added_weight_kg': 10.0, 'date': '2026-10-13'}
 
     def test_unhashable_activity_id_keeps_insights(self):
         entries = [
@@ -399,28 +455,6 @@ class TestRecords:
         ins = build_strength_insights(legacy, today=TODAY)
         rec = next(r for r in ins['records'] if r['exercise'] == 'Squat')
         assert rec['top_weight_kg'] == 110.0
-
-    def test_load_written_plain_and_per_side_is_not_per_side(self):
-        """'dc 4x8 80' plus 'Press inc 40/c': 80 is written plain, so a lift
-        stored at 80 is not proven per-side."""
-        from shared.strength_insights import (
-            _notation_state, _per_side_doubled_loads, _plain_numbers,
-        )
-        entry = {'description': 'dc 4x8 80\nPress inc 3x10 40/c'}
-        doubled = _per_side_doubled_loads(entry)
-        plain = _plain_numbers(entry)
-        assert 80.0 in doubled and 80.0 in plain
-        assert _notation_state([{'reps': 8, 'weight_kg': 80}], doubled, plain) == 'ambiguous'
-
-    def test_per_side_with_decimal_comma_and_kg_cote(self):
-        from shared.strength_insights import (
-            _notation_state, _per_side_doubled_loads, _plain_numbers,
-        )
-        entry = {'description': 'Press inc 3x10 37,5/c\nlow row 8x50kg par côté'}
-        doubled = _per_side_doubled_loads(entry)
-        plain = _plain_numbers(entry)
-        assert _notation_state([{'reps': 10, 'weight_kg': 75}], doubled, plain) == 'per_side'
-        assert _notation_state([{'reps': 8, 'weight_kg': 100}], doubled, plain) == 'per_side'
 
     def test_extractor_flag_wins_over_the_text(self):
         """One-line note: the text alone would mark the bench per-side (round-3
@@ -457,8 +491,56 @@ class TestRecords:
         assert rec['top_weight_kg'] == 60.0
         assert rec['e1rm_kg'] == 80.0  # Epley(60, 10) from the plain session only
         flags = exercise_flags([s1, s2])
-        assert flags['Développé incliné']['ambiguous_dates'] == ['2026-10-06']
+        assert 'ambiguous_dates' not in flags['Développé incliné']
+        assert flags['Développé incliné']['notation_mixed'] is False
         assert '2026-10-06' not in per_day_e1rm([s1, s2]).get('Développé incliné', {})
+
+    def test_end_to_end_flagged_and_unflagged_rows(self):
+        """Records and chart agree on one mixed history: flagged plain rows,
+        flagged per-side rows, and one unflagged doubtful row that is the
+        biggest figure and must appear nowhere."""
+        import os as _os
+        import sys as _sys
+        _sys.path.insert(0, _os.path.join(_os.path.dirname(__file__), '..', '..', 'lambda_functions'))
+        from api.dashboard_api import _build_strength_progression
+
+        def row(ex, reps, kg, n, flag):
+            r = {'exercise': ex, 'sets_detail': [{'reps': reps, 'weight_kg': kg}] * n}
+            if flag is not None:
+                r['per_side'] = flag
+            return r
+
+        entries = [
+            {'date': '2026-09-01', 'activity_id': 'b1', 'sets_source': 'athlete_text',
+             'description': 'dc 3x8 90 + dc machine 3x8 55/c',
+             'parsed_sets': [row('Développé couché', 8, 90, 3, False),
+                             row('Développé couché machine', 8, 110, 3, True)]},
+            {'date': '2026-09-08', 'activity_id': 'b2', 'sets_source': 'athlete_text',
+             'description': 'dc 3x5 95 + dc machine 3x10 60/c',
+             'parsed_sets': [row('Développé couché', 5, 95, 3, False),
+                             row('Développé couché machine', 10, 120, 3, True)]},
+            # Written before the flag; the "/c" makes the 130 undecidable.
+            {'date': '2026-09-15', 'activity_id': 'b3', 'sets_source': 'athlete_text',
+             'description': 'dc 3x5 130 incline 30/c',
+             'parsed_sets': [row('Développé couché', 5, 130, 3, None)]},
+        ]
+        ins = build_strength_insights(entries, today=TODAY)
+        recs = {r['exercise']: r for r in ins['records']}
+        assert recs['Développé couché']['top_weight_kg'] == 95.0
+        # Epley(90, 8) = 114 beats Epley(95, 5) = 111; the doubtful 130 (152) is out.
+        assert recs['Développé couché']['e1rm_kg'] == 114.0
+        assert recs['Développé couché']['notation_mixed'] is False
+        assert recs['Développé couché']['load_label'] is None
+        assert recs['Développé couché machine']['top_weight_kg'] == 120.0
+        assert recs['Développé couché machine']['e1rm_kg'] == 160.0  # Epley(120, 10)
+        assert recs['Développé couché machine']['load_label'] == 'total_noted'
+
+        series = {s['exercise']: s for s in _build_strength_progression(
+            entries, per_day_e1rm(entries), exercise_flags(entries))}
+        bench = {p['date']: p for p in series['Développé couché']['points']}
+        assert bench['2026-09-15']['top_weight_kg'] is None
+        assert bench['2026-09-15']['e1rm_kg'] is None
+        assert max(p['top_weight_kg'] or 0 for p in bench.values()) == 95.0
 
     def test_rows_without_any_record_are_dropped(self):
         entries = self._two_sessions(
@@ -509,6 +591,8 @@ class TestRecords:
         s3 = _session('2026-10-15', 'Presse à cuisses',
                       [{'reps': 12, 'weight_kg': None}] * 3,
                       description='Presse à cuisses 3x12 bodyweight test')
+        s1['parsed_sets'][0]['per_side'] = True
+        s2['parsed_sets'][0]['per_side'] = True
         flags = exercise_flags([s1, s2, s3])
         assert flags['Presse à cuisses']['notation_mixed'] is False
         assert flags['Presse à cuisses']['per_side_seen'] is True

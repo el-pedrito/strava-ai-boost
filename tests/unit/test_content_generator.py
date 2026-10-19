@@ -620,11 +620,13 @@ class TestExtractStrengthSets:
         sets_detail entry and in the flat summary — the per-side figure must never
         leak through."""
         mock_runtime.return_value.converse.return_value = _converse_response(
-            '[{"exercise":"Développé machine","sets":4,"reps":8,"weight_kg":110,'
+            '[{"exercise":"Développé machine","sets":4,"reps":8,"weight_kg":110,"per_side":true,'
             '"sets_detail":[{"reps":8,"weight_kg":110},{"reps":8,"weight_kg":110},'
             '{"reps":8,"weight_kg":110},{"reps":8,"weight_kg":110}]}]'
         )
         result = _extract_strength_sets("dc machine 4x8 55/c")
+        # The flag travels with the doubled load, so the page reads it as a total.
+        assert result[0]["per_side"] is True
         assert result[0]["sets"] == 4
         assert result[0]["weight_kg"] == 110.0
         assert all(s["weight_kg"] == 110.0 for s in result[0]["sets_detail"])

@@ -289,6 +289,9 @@ def ppg_history_sets(
                 "reps": max(set(reps_list), key=reps_list.count) if reps_list else None,
                 "weight_kg": max(loads) if loads else None,
                 "sides": item["sides"],
+                # Plan loads are stored as the athlete wrote them, never doubled
+                # from a per-side note: say so, so the page does not guess.
+                "per_side": False,
                 "sets_detail": detail,
             }
         )

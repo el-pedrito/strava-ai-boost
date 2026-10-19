@@ -23,6 +23,7 @@ from shared.strength_insights import (
     build_strength_insights,
     exercise_flags as _strength_exercise_flags,
     per_day_e1rm as _strength_per_day_e1rm,
+    row_notation as _strength_row_notation,
 )
 from shared.responses import (
     CORS_HEADERS_READ as CORS_HEADERS,
@@ -601,7 +602,7 @@ def get_activity_processing_stats(start_date: datetime, user_id: str) -> Dict[st
 def _build_strength_progression(
     entries: List[Dict[str, Any]],
     e1rm_by_day: Optional[Dict[str, Dict[str, Any]]] = None,
-    flags: Optional[Dict[str, Dict[str, bool]]] = None,
+    flags: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     """Aggregate strength_history entries into per-exercise progression series.
 
@@ -686,9 +687,10 @@ def _build_strength_progression(
                 flat_weight = to_finite_float(s.get('weight_kg'))
                 if flat_weight is not None and sets and reps:
                     volume = round(flat_weight * sets * reps, 1)
-            # A day whose notation is doubtful (load maybe doubled, maybe not)
-            # draws no load point: a false jump is worse than a gap.
-            if day in (flags.get(name, {}).get('ambiguous_dates') or ()):
+            # A row whose notation is doubtful (load maybe doubled, maybe not)
+            # draws no load point: a false jump is worse than a gap. Decided per
+            # row, so a clean session the same day keeps its point.
+            if _strength_row_notation(entry, s) == 'ambiguous':
                 top_weight = None
                 volume = None
             point = {
@@ -722,6 +724,8 @@ def _build_strength_progression(
         progression.append({
             'exercise': name,
             'points': merged,
+            # Days tracked, drawn or not: a bodyweight lift has no load point but
+            # its sessions still count, and so does a day with an ambiguous load.
             'sessions': len(merged),
             'e1rm_eligible': bool(exercise_flags.get('e1rm_eligible', False)),
             'mixed': bool(exercise_flags.get('mixed', False)),

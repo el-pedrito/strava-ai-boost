@@ -1049,7 +1049,7 @@ _STRENGTH_EXTRACTION_SYSTEM_PROMPT = (
     "\"weight_kg\": number|null, \"per_side\": boolean, "
     "\"sets_detail\": [{\"reps\": integer|null, \"weight_kg\": number|null}]}.\n"
     "- per_side: true ONLY when THIS exercise's load was written per side ('/c', '/cote', "
-    "'/côté', 'par cote', 'each side', '/side') and you doubled it; false otherwise. Decide it "
+    "'/côté', 'par cote', 'par côté', 'each side', '/side') and you doubled it; false otherwise. Decide it "
     "for each exercise from its own words, never from another exercise on the same line.\n"
     "Rules:\n"
     "- sets_detail is REQUIRED and is the authoritative field: one entry per set actually "
@@ -1067,7 +1067,7 @@ _STRENGTH_EXTRACTION_SYSTEM_PROMPT = (
     "'di' = Développé incliné. With a machine ('mach', 'machine', 'convergente'): "
     "'dc machine' -> 'Développé couché machine', 'dm machine' -> 'Presse épaules'. Never "
     "use 'Développé machine' for a new row: it cannot tell a chest press from a shoulder press.\n"
-    "- PER SIDE loads: '/c', '/cote', '/côté', 'par cote', 'each side', '/side' mean the load "
+    "- PER SIDE loads: '/c', '/cote', '/côté', 'par cote', 'par côté', 'each side', '/side' mean the load "
     "is per side, so the load actually moved is DOUBLE. '4x8 55/c' -> four entries at "
     "weight_kg 110. Apply the doubling in weight_kg, never leave the per-side figure.\n"
     "- PAIRED notation: 'A - B 3x10-10 15-35' is a superset of two exercises sharing one line. "
@@ -1119,18 +1119,26 @@ _STRENGTH_EXTRACTION_SYSTEM_PROMPT = (
     "\"sets_detail\":[{\"reps\":10,\"weight_kg\":80},{\"reps\":10,\"weight_kg\":80},"
     "{\"reps\":10,\"weight_kg\":80}]}]\n"
     "'elev lat - face pull 3x10-10 15-35' -> "
-    "[{\"exercise\":\"Élévations latérales\",\"sets\":3,\"reps\":10,\"weight_kg\":15,"
+    "[{\"exercise\":\"Élévations latérales\",\"sets\":3,\"reps\":10,\"weight_kg\":15,\"per_side\":false,"
     "\"sets_detail\":[{\"reps\":10,\"weight_kg\":15},{\"reps\":10,\"weight_kg\":15},"
     "{\"reps\":10,\"weight_kg\":15}]},"
-    "{\"exercise\":\"Face pull\",\"sets\":3,\"reps\":10,\"weight_kg\":35,"
+    "{\"exercise\":\"Face pull\",\"sets\":3,\"reps\":10,\"weight_kg\":35,\"per_side\":false,"
     "\"sets_detail\":[{\"reps\":10,\"weight_kg\":35},{\"reps\":10,\"weight_kg\":35},"
     "{\"reps\":10,\"weight_kg\":35}]}]\n"
     # Verbatim from his log (2026-10-10), lost one set before: after a load, a bare
     # number is the reps of ONE set; 'L NxR' is N sets of R at L.
     "'Face pull 40 10 45 2x10' -> "
-    "[{\"exercise\":\"Face pull\",\"sets\":3,\"reps\":10,\"weight_kg\":45,"
+    "[{\"exercise\":\"Face pull\",\"sets\":3,\"reps\":10,\"weight_kg\":45,\"per_side\":false,"
     "\"sets_detail\":[{\"reps\":10,\"weight_kg\":40},{\"reps\":10,\"weight_kg\":45},"
-    "{\"reps\":10,\"weight_kg\":45}]}]"
+    "{\"reps\":10,\"weight_kg\":45}]}]\n"
+    # One line, two lifts, only one written per side: the flag is decided per exercise.
+    "'curl - triceps corde 3x12-12 8/c-40' -> "
+    "[{\"exercise\":\"Curl biceps\",\"sets\":3,\"reps\":12,\"weight_kg\":16,\"per_side\":true,"
+    "\"sets_detail\":[{\"reps\":12,\"weight_kg\":16},{\"reps\":12,\"weight_kg\":16},"
+    "{\"reps\":12,\"weight_kg\":16}]},"
+    "{\"exercise\":\"Triceps à la corde\",\"sets\":3,\"reps\":12,\"weight_kg\":40,\"per_side\":false,"
+    "\"sets_detail\":[{\"reps\":12,\"weight_kg\":40},{\"reps\":12,\"weight_kg\":40},"
+    "{\"reps\":12,\"weight_kg\":40}]}]"
 )
 
 

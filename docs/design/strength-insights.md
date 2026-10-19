@@ -2,8 +2,10 @@
 
 Muscle-group sets, estimated 1RM, a records board and a push/pull balance, built
 from the athlete's own parsed strength sets. Scope is the dashboard summary API
-and the Coach page only: the pipeline, the coach agent, the parser and the stored
-data are unchanged, and DynamoDB is read-only.
+and the Coach page, plus one stored field: the extractor (and the Campus plan
+path) now write a `per_side` flag on each parsed exercise, and the history was
+re-read once to add it (`scripts/backfill_strength_per_side.py`). The coach agent
+is unchanged and the summary API only reads DynamoDB.
 
 ## Why
 
@@ -20,7 +22,7 @@ a push/pull balance.
 
 ```
 date, activity_id, duration_min, description,
-parsed_sets[{exercise, sets, reps, weight_kg,
+parsed_sets[{exercise, sets, reps, weight_kg, per_side (bool, may be absent),
              sets_detail[{reps, weight_kg, duration_s}], sides}],
 per_exercise[{exercise, volume_kg, volume_incomplete}],
 total_sets, total_reps, volume_kg, volume_kg_incomplete,
@@ -121,30 +123,39 @@ If an exercise's history mixes a per-side-noted session and a plain one, switchi
 notation would fake a record.
 
 **Source of truth: the extractor's `per_side` flag.** The extractor is the only
-step that sees the notation (it doubles the load), so it now writes
-`per_side: true|false` on each parsed exercise. When the flag is present it wins.
-History was backfilled once by re-running the extractor on each session text and
-copying its flag onto the stored row with the same exercise and loads; a text with
-no per-side token at all marks every row plain. Rows with no flag (a few legacy
-rows) fall back to reading the text, below, and a doubtful one feeds no load
-record.
+step that sees the notation (it doubles the load), so it writes
+`per_side: true|false` on each parsed exercise, decided per exercise from its own
+words. Campus plan rows always carry `per_side: false` (plan loads are stored as
+written, never doubled). The page never guesses which lift a "/c" belonged to.
 
-Text fallback, per (session, exercise): **per_side** when every stored
-positive load equals 2 x a number written just before a per-side token and none is
-written as a plain number on another clause; **plain** when at least one positive
-load on a valid set is not a doubled per-side value; **unknown** when there is no
-positive load on a valid set; **ambiguous** when every load matches a per-side value
-but one is also written plain elsewhere. An ambiguous session counts as neither for
-`notation_mixed` and feeds no top weight, e1RM, volume record or chart load point. A clause is a line, or a ", " / ". " in
-prose. Numbers on the per-side clause itself never count as plain, so a rep count
-equal to the doubled load ("Curl 3x12 6/c" stores 12) stays per-side. The load link ties the notation to the
-lift it belongs to: a first version tainted every exercise of a session as soon as
-one line said "/c", which on live data marked 19 of 22 lifts (bench press included)
-and emptied the records board. The "not written plain" rule stops a coincidence
-such as "dc 80x10" next to "Press inc 40/c" (stored 80).
+Per (session, exercise) row, `shared/strength_insights.py::row_notation` gives:
+
+- **unknown**: no valid positive load. `sets_detail` is authoritative when present;
+  the flat `weight_kg` counts only for a legacy row without detail.
+- **per_side** / **plain**: the flag says so.
+- No flag: **plain** only when the session text has no per-side wording at all
+  (so nothing can be a doubled figure); otherwise **ambiguous**.
+
+An ambiguous row counts as neither for `notation_mixed` and feeds no top weight,
+e1RM, volume or weighted-bodyweight record, and draws no chart load point. The
+exclusion is per row, not per date: a clean activity on the same day keeps its
+point. An ambiguous day still counts in the progression's `sessions` (days
+tracked), like a bodyweight day that draws no load point.
+
+History re-read: `scripts/backfill_strength_per_side.py` (dry-run by default,
+backup before `--apply`). Campus rows and rows from a text with no per-side
+wording get `false`; the others take the flag of the one re-extracted row with the
+same exercise and the same loads, or stay unflagged. The one-off run of
+2026-10-17 left 43 rows per side, 244 not and 23 unflagged; that run's script was
+not kept, so a new run can differ slightly (the extractor is a model).
+
+Unilateral lifts: a per-side note on a lift the volume module expands by sides
+("4x10 40/c" stored at 80) is divided by the sides before the expansion, so the
+volume is 8 x 10 x 40, not 8 x 10 x 80. Volumes stored before this fix are not
+recomputed.
 
 `notation_mixed` is set only when BOTH a per_side and a plain session were seen; an
-unknown (no-load) session counts as neither, so an always-per-side lift plus a
+unknown (no-load) or ambiguous session counts as neither, so an always-per-side lift plus a
 no-load session is not mixed (a no-load session cannot fake a record). A
 notation-mixed exercise is made e1RM-ineligible and excluded from the e1RM,
 top-weight and volume records. The chart shows a "total load noted, mixed notation"
@@ -208,9 +219,9 @@ text.
 }
 ```
 
-Each progression entry gains `e1rm_eligible`, `mixed`, `notation_mixed`,
-`per_side_seen` and `load_label` (`total_noted` only when the lift had a per-side
-session, otherwise `null`); each point gains `e1rm_kg` (the per-day maximum, or
+Each progression entry gains `e1rm_eligible`, `mixed`, `notation_mixed` and
+`load_label` (`total_noted` only when the lift had a per-side session, otherwise
+`null`; it comes from the internal `per_side_seen` flag, which is not returned); each point gains `e1rm_kg` (the per-day maximum, or
 `null`). The progression top weight uses the same valid-set rule as the records
 (positive load on a set with reps > 0 or a duration); the legacy flat `weight_kg`
 is used only when the flat row is itself a valid set, and the legacy volume

@@ -86,6 +86,9 @@ class TestPlanSets:
         assert rows["Mollets"]["weight_kg"] == 12.0
         assert rows["Swing avec charge"]["weight_kg"] is None
         assert rows["Bond sur place"]["sides"] == 1
+        # Plan loads are stored as written, never doubled: every row says so, so
+        # the page reads them without guessing from the text.
+        assert all(row["per_side"] is False for row in rows.values())
 
     def test_the_1010_totals(self):
         volume = _history_volume(W41_PPG, extract_athlete_loads(TEXT_1010))
