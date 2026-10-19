@@ -36,8 +36,8 @@ describe('home formatters', () => {
   });
 
   it('gives each metric its own unit and precision (never raw seconds)', () => {
-    expect(sp(formatMetricText('sleep', 28890, 'fr'))).toBe('8 h 01');
-    expect(sp(formatMetricText('sleep_s', 28412.2, 'fr'))).toBe('7 h 53');
+    expect(sp(formatMetricText('sleep', 28890, 'fr'))).toBe('8 h 02');
+    expect(sp(formatMetricText('sleep_s', 28412.2, 'fr'))).toBe('7 h 54');
     expect(sp(formatMetricText('hrv', 90.41, 'fr'))).toBe('90 ms');
     expect(sp(formatMetricText('resting_hr', 50, 'fr'))).toBe('50 bpm');
     expect(formatMetricText('form', -14.3, 'fr')).toBe(`${MINUS}14,3`);
@@ -55,6 +55,16 @@ describe('home formatters', () => {
     expect(sp(formatSleepDelta(477.8))).toBe('+8 min');
     expect(sp(formatSleepDelta(-3900))).toBe(`${MINUS}1 h 05`);
     expect(sp(formatSleepDelta(10))).toBe('0 min');
+  });
+
+  it('rounds the sleep value and its delta the same way (nearest minute)', () => {
+    // 8 h 01 min 30 s: both round up to the next minute.
+    expect(sp(formatSleep(28890))).toBe('8 h 02');
+    expect(sp(formatSleepDelta(28890))).toBe('+8 h 02');
+    expect(sp(formatSleep(89))).toBe('1 min');
+    expect(sp(formatSleepDelta(89))).toBe('+1 min');
+    expect(sp(formatSleep(29))).toBe('0 min');
+    expect(sp(formatSleepDelta(-29))).toBe('0 min');
   });
 
   it('tones a difference by the good direction of each metric', () => {

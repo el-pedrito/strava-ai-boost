@@ -73,7 +73,7 @@ export function EndurawCard({ trend }: { trend: EndurawTrendPoint[] }) {
           </LineChart>
         </ResponsiveContainer>
       </div>
-      <p className="text-xs text-muted-foreground">{t('home.enduraw.lowerIsFaster')}</p>
+      <p className="text-xs text-muted-foreground">{t('home.enduraw.axisNote')}</p>
     </HomeCard>
   );
 }

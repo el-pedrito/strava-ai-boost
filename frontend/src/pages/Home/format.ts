@@ -101,7 +101,7 @@ export interface FormattedValue {
 
 /**
  * The single per-metric display rule:
- * sleep `8 h 01`, HRV `90 ms`, resting HR `50 bpm`, form/CTL/ATL `−14,3`,
+ * sleep `8 h 02`, HRV `90 ms`, resting HR `50 bpm`, form/CTL/ATL `−14,3`,
  * VO2max `56,6`, weight `92,0 kg`.
  */
 export function formatMetric(
@@ -199,29 +199,34 @@ export function formatGap(seconds: number | null | undefined): string | null {
   return `${rounded > 0 ? '+' : MINUS}${body}`;
 }
 
-/**
- * Sleep duration, never a clock time: `28890` → `"8 h 01"`, `1500` → `"25 min"`.
- * Floors to the minute, like the watch apps.
- */
-export function formatSleep(seconds: number | null | undefined): string | null {
-  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return null;
-  const minutes = Math.floor(Math.round(seconds) / 60);
+/** `h mm` / `m min` for a whole number of minutes (no sign). */
+function sleepBody(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   if (h === 0) return `${m}${NNBSP}min`;
   return `${h}${NNBSP}h${NNBSP}${String(m).padStart(2, '0')}`;
 }
 
+/** Seconds → whole minutes, the one rounding shared by the sleep value and its delta. */
+function sleepMinutes(seconds: number): number {
+  return Math.round(Math.abs(seconds) / 60);
+}
+
+/**
+ * Sleep duration, never a clock time: `28890` → `"8 h 02"`, `1500` → `"25 min"`.
+ * Rounds to the nearest minute, like `formatSleepDelta`.
+ */
+export function formatSleep(seconds: number | null | undefined): string | null {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return null;
+  return sleepBody(sleepMinutes(seconds));
+}
+
 /** Signed sleep difference: `477.8` → `"+8 min"`, `-3900` → `"−1 h 05"`. */
 export function formatSleepDelta(seconds: number | null | undefined): string | null {
   if (seconds == null || !Number.isFinite(seconds)) return null;
-  const minutes = Math.round(Math.abs(seconds) / 60);
+  const minutes = sleepMinutes(seconds);
   if (minutes === 0) return `0${NNBSP}min`;
-  const sign = seconds > 0 ? '+' : MINUS;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  if (h === 0) return `${sign}${m}${NNBSP}min`;
-  return `${sign}${h}${NNBSP}h${NNBSP}${String(m).padStart(2, '0')}`;
+  return `${seconds > 0 ? '+' : MINUS}${sleepBody(minutes)}`;
 }
 
 /** Pace s/km → `"4:33"` (min:sec per km). */
@@ -252,17 +257,6 @@ function parseIsoDate(isoDate: string | null | undefined): Date | null {
   // no timezone can shift it to the previous or next day.
   const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12));
   return Number.isNaN(d.getTime()) ? null : d;
-}
-
-/**
- * ISO date `YYYY-MM-DD` → `"JJ/MM"`. Kept for chart ticks. Returns null for a
- * missing/garbled date so the caller drops the suffix rather than show "NaN".
- */
-export function formatDayMonth(isoDate: string | null | undefined): string | null {
-  if (!isoDate) return null;
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(isoDate);
-  if (!m) return null;
-  return `${m[3]}/${m[2]}`;
 }
 
 /** `"2026-10-16"` → `"16 oct."` (fr) / `"16 Oct"` (en). */

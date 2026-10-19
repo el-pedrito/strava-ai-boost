@@ -1,6 +1,7 @@
 /**
  * Race card: name, date, J-x, target time + pace, predicted time with the gap
- * to the target, and the predicted range as a bar with both markers.
+ * to the target, and the predicted range as a bar with both markers. The
+ * markers differ by shape, not only colour: target = ring, predicted = filled dot.
  */
 import { useTranslation } from 'react-i18next';
 import { Trophy } from 'lucide-react';
@@ -91,14 +92,16 @@ export function RaceCard({ race }: { race: HomeRace }) {
           >
             {targetPos != null && (
               <i
-                className="absolute top-1/2 -ml-[7px] -mt-[7px] h-3.5 w-3.5 rounded-full border-2 border-surface bg-success-text"
+                className="absolute top-1/2 -ml-[8px] -mt-[8px] h-4 w-4 rounded-full border-[3px] border-success-text bg-surface"
                 style={{ left: `${targetPos}%` }}
+                data-testid="home-race-marker-target"
               />
             )}
             {predictedPos != null && (
               <i
-                className="absolute top-1/2 -ml-[7px] -mt-[7px] h-3.5 w-3.5 rounded-full border-2 border-surface bg-info"
+                className="absolute top-1/2 -ml-[6px] -mt-[6px] h-3 w-3 rounded-full bg-info ring-2 ring-surface"
                 style={{ left: `${predictedPos}%` }}
+                data-testid="home-race-marker-predicted"
               />
             )}
           </div>
@@ -108,11 +111,11 @@ export function RaceCard({ race }: { race: HomeRace }) {
           </p>
           <p className="mt-2 flex flex-wrap gap-x-3.5 gap-y-1 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1.5">
-              <i className="h-2.5 w-2.5 rounded-full bg-success-text" aria-hidden="true" />
+              <i className="h-3 w-3 rounded-full border-2 border-success-text bg-surface" aria-hidden="true" data-testid="home-race-legend-target" />
               {t('home.race.target')}
             </span>
             <span className="inline-flex items-center gap-1.5">
-              <i className="h-2.5 w-2.5 rounded-full bg-info" aria-hidden="true" />
+              <i className="h-2.5 w-2.5 rounded-full bg-info" aria-hidden="true" data-testid="home-race-legend-predicted" />
               {t('home.race.predicted')}
             </span>
             {week != null && <span>{t('home.race.predictionWeek', { week })}</span>}

@@ -123,6 +123,22 @@ export function gapsAffectingLatest(
   });
 }
 
+/**
+ * Date of the newest point carrying a finite ATL or CTL: the day the load
+ * figures shown today refer to. A newer row holding only sleep or HRV does not
+ * move it, so it cannot push a still-relevant gap out of the 42-day window.
+ */
+export function latestLoadDate(
+  series: ReadonlyArray<Pick<HealthSeriesPoint, 'date' | 'atl' | 'ctl'>> | null | undefined
+): string | null {
+  let latest: string | null = null;
+  for (const p of series ?? []) {
+    const hasLoad = [p.atl, p.ctl].some((v) => v != null && Number.isFinite(v));
+    if (hasLoad && dayIndex(p.date) != null && (latest == null || p.date > latest)) latest = p.date;
+  }
+  return latest;
+}
+
 /** True when one of `gaps` still biases today's CTL / freshness. */
 export function loadGapAffectsLatest(
   gaps: ReadonlyArray<LoadGap>,

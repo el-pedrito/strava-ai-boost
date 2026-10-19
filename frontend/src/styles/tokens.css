@@ -42,9 +42,10 @@
      Ratios pinned by ui/__tests__/contrast.test.ts. */
   --primary-strong: #d23c00;
   --primary-strong-hover: #b83400;
-  /* Orange TEXT (links, countdowns). #c2410c on white is 5.18:1; --primary-strong stays the
-     filled-background colour. Pinned by ui/__tests__/contrast.test.ts. */
-  --primary-text: #c2410c;
+  /* Orange TEXT (links, countdowns). #b93c0b is 5.65:1 on white and 4.91:1 on the
+     bg-info/10 tint the coach-text links sit on (#c2410c fell to 4.50 there);
+     --primary-strong stays the filled-background colour. Pinned by ui/__tests__/contrast.test.ts. */
+  --primary-text: #b93c0b;
 
   --accent: #0f172a;
   --accent-foreground: #ffffff;
@@ -58,7 +59,9 @@
   --warning-text: #b45309;
   --danger: #dc2626;
   --danger-foreground: #ffffff;
-  --info: #2563eb;
+  /* #1d4ed8: text-info on its own bg-info/10 pill is 5.72:1 (#2563eb fell to 4.49).
+     Pinned by ui/__tests__/contrast.test.ts. */
+  --info: #1d4ed8;
   --info-foreground: #ffffff;
 
   --ring: #fc4c02;
@@ -86,8 +89,9 @@
      Ratios pinned by ui/__tests__/contrast.test.ts. */
   --primary-strong: #d23c00;
   --primary-strong-hover: #b83400;
-  /* Orange TEXT: brand orange is 5.07:1 on the dark surface, #d23c00 would fail there. */
-  --primary-text: #fc4c02;
+  /* Orange TEXT: a lighter orange than the brand #fc4c02, which fell to 4.56:1 on the
+     bg-info/10 tint of the coach boxes; #fd6224 is 5.13:1 there and 5.87:1 on surface. */
+  --primary-text: #fd6224;
 
   --accent: #f5f7fa;
   --accent-foreground: #0a0e1a;
@@ -100,7 +104,8 @@
   --warning-text: #f59e0b;
   --danger: #ef4444;
   --danger-foreground: #ffffff;
-  --info: #3b82f6;
+  /* #4f93f8: text-info on its own bg-info/10 pill is 5.07:1 (#3b82f6 fell to 4.27). */
+  --info: #4f93f8;
   --info-foreground: #ffffff;
 
   --ring: #fc4c02;

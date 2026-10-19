@@ -6,6 +6,7 @@ import {
   formZone,
   gapsAffectingLatest,
   isPrepRace,
+  latestLoadDate,
   loadGapAffectsLatest,
   paceDomain,
   rangePosition,
@@ -85,6 +86,12 @@ describe('detectLoadGaps', () => {
     expect(detectLoadGaps(series)).toEqual([]);
   });
 
+  it('flags a genuine 21-day break like an outage (the caller words it conditionally)', () => {
+    // The ATL decay cannot tell a real rest from missing data: both read as "no load".
+    const series = ewmaSeries('2026-09-01', [...training(21), ...zeros(21), ...training(7)], 35);
+    expect(detectLoadGaps(series)).toEqual([{ start: '2026-09-22', end: '2026-10-12', days: 21 }]);
+  });
+
   it('flags from exactly 14 days, not 13', () => {
     const at14 = ewmaSeries('2026-09-01', [...training(7), ...zeros(14), ...training(2)], 30);
     expect(detectLoadGaps(at14)).toEqual([{ start: '2026-09-08', end: '2026-09-21', days: 14 }]);
@@ -109,6 +116,22 @@ describe('detectLoadGaps', () => {
     expect(loadGapAffectsLatest([gap], '2026-10-17')).toBe(true);
     expect(loadGapAffectsLatest([], '2026-10-17')).toBe(false);
     expect(loadGapAffectsLatest([gap], null)).toBe(false);
+  });
+});
+
+describe('latestLoadDate', () => {
+  it('anchors on the newest row with a finite ATL or CTL, ignoring sleep-only rows', () => {
+    const rows = [
+      { date: '2026-10-10', atl: 20, ctl: 30 },
+      { date: '2026-10-12', atl: null, ctl: 31 },
+      { date: '2026-10-14', atl: null, ctl: null },
+      { date: '2026-10-15', atl: Number.NaN, ctl: null },
+    ];
+    expect(latestLoadDate(rows)).toBe('2026-10-12');
+    expect(latestLoadDate([...rows].reverse())).toBe('2026-10-12');
+    expect(latestLoadDate([{ date: '2026-10-14', atl: null, ctl: null }])).toBeNull();
+    expect(latestLoadDate([])).toBeNull();
+    expect(latestLoadDate(null)).toBeNull();
   });
 });
 

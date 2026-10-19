@@ -9,7 +9,7 @@ import { RefreshCw } from 'lucide-react';
 import { Alert, Button, EmptyState } from '@/ui';
 import { ApiError, getHomeSummary } from '@/api/client';
 import type { HomeHealth, HomeSummary } from '@/types/home';
-import { detectLoadGaps, gapsAffectingLatest } from './insights';
+import { detectLoadGaps, gapsAffectingLatest, latestLoadDate } from './insights';
 import { HeroCard } from './blocks/HeroCard';
 import { RaceCard } from './blocks/RaceCard';
 import { WeekCard } from './blocks/WeekCard';
@@ -18,10 +18,14 @@ import { LoadCard } from './blocks/LoadCard';
 import { PredictionsCard } from './blocks/PredictionsCard';
 import { EndurawCard } from './blocks/EndurawCard';
 
-/** True when at least one health signal carries a value (an all-null health
- * object means intervals.icu is on but has nothing yet -> hide the cards). */
+/** The health signals the Recovery and Load cards actually render. `sleep_score`
+ * is in the payload but not drawn, so it alone must not open empty cards. */
+const RENDERED_HEALTH_KEYS = ['hrv', 'resting_hr', 'sleep_s', 'form', 'ctl', 'atl', 'vo2max', 'weight'] as const;
+
+/** True when at least one rendered health signal carries a value (an all-null
+ * health object means intervals.icu is on but has nothing yet -> hide the cards). */
 function healthHasValues(health: HomeHealth): boolean {
-  return Object.values(health).some((m) => m != null && m.value != null);
+  return RENDERED_HEALTH_KEYS.some((k) => health[k]?.value != null);
 }
 
 /* ----------------------------------------------------------------- page */
@@ -68,12 +72,12 @@ export function HomePage() {
 
   const series = data?.health_series ?? null;
   // Only the gaps that still bias the latest CTL (42-day window) are shown: an older
-  // one no longer changes the numbers the athlete reads today.
-  const loadGaps = useMemo(() => {
-    const latestDate =
-      series && series.length > 0 ? series.reduce((m, p) => (p.date > m ? p.date : m), series[0].date) : null;
-    return gapsAffectingLatest(detectLoadGaps(series), latestDate);
-  }, [series]);
+  // one no longer changes the numbers the athlete reads today. The window is
+  // anchored on the newest load reading, not on a newer sleep-only row.
+  const loadGaps = useMemo(
+    () => gapsAffectingLatest(detectLoadGaps(series), latestLoadDate(series)),
+    [series]
+  );
   const formIncomplete = loadGaps.length > 0;
   const healthVisible = intervalsOn && !!data?.health && healthHasValues(data.health);
   const heroVisible = !!data?.brief || !!data?.next_session?.title;

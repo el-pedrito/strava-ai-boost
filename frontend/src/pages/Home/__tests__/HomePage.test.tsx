@@ -433,6 +433,75 @@ describe('HomePage', () => {
     expect(screen.getByTestId('home-recovery-form')).not.toHaveTextContent('underestimated, see Load');
   });
 
+  it('keeps a still-relevant gap when a newer sleep-only row has no load', async () => {
+    const fx = fullFixture();
+    // Outage 1 Sep..7 Oct, training to 15 Nov (latest load: 39 days after the gap,
+    // inside the 42-day window), then sleep-only rows to 30 Nov (54 days after).
+    const atl = atlFromLoads([...trainingLoads(31), ...Array<number>(37).fill(0), ...trainingLoads(39)], 35);
+    const loadRows = dailySeries('2026-08-01', atl.length, (i) => ({ atl: atl[i] }));
+    const sleepOnly = dailySeries('2026-11-16', 15, () => ({ atl: null, ctl: null, form: null }));
+    fx.health_series = [...loadRows, ...sleepOnly];
+    getHomeSummaryMock.mockResolvedValue(fx);
+    renderHome();
+    expect(await screen.findByTestId('home-load-gap-warning')).toHaveTextContent('No load recorded from 1 Sept to 7 Oct.');
+  });
+
+  it('does not revive a stale gap because of a sleep-only tail', async () => {
+    const fx = fullFixture();
+    // Outage 1 Sep..7 Oct, training to 19 Nov (43 days after: stale), then sleep-only rows.
+    const atl = atlFromLoads([...trainingLoads(31), ...Array<number>(37).fill(0), ...trainingLoads(43)], 35);
+    const loadRows = dailySeries('2026-08-01', atl.length, (i) => ({ atl: atl[i] }));
+    const sleepOnly = dailySeries('2026-11-20', 5, () => ({ atl: null, ctl: null, form: null }));
+    fx.health_series = [...loadRows, ...sleepOnly];
+    getHomeSummaryMock.mockResolvedValue(fx);
+    renderHome();
+    await screen.findByTestId('home-recovery-form');
+    expect(screen.queryByTestId('home-load-gap-warning')).not.toBeInTheDocument();
+  });
+
+  it('words a genuine 3-week break conditionally, not as an ingestion failure', async () => {
+    const fx = fullFixture();
+    const atl = atlFromLoads([...trainingLoads(31), ...Array<number>(21).fill(0), ...trainingLoads(10)], 35);
+    fx.health_series = dailySeries('2026-08-01', atl.length, (i) => ({ atl: atl[i] }));
+    getHomeSummaryMock.mockResolvedValue(fx);
+    renderHome();
+    const warning = await screen.findByTestId('home-load-gap-warning');
+    expect(warning).toHaveTextContent('No load recorded from 1 Sept to 21 Sept. If you ran,');
+  });
+
+  it('says "Race day" at 0 and uses the singular at 1', async () => {
+    const fx = fullFixture();
+    fx.race!.days_left = 0;
+    getHomeSummaryMock.mockResolvedValue(fx);
+    const { unmount } = renderHome();
+    const race = await screen.findByRole('region', { name: 'Semi-marathon' });
+    expect(within(race).getByText('Race day')).toBeInTheDocument();
+    unmount();
+
+    const fx1 = fullFixture();
+    fx1.race!.days_left = 1;
+    getHomeSummaryMock.mockResolvedValue(fx1);
+    renderHome();
+    const race1 = await screen.findByRole('region', { name: 'Semi-marathon' });
+    expect(within(race1).getByText('1 day left')).toBeInTheDocument();
+  });
+
+  it('draws the target as a ring and the prediction as a filled dot, in the bar and the legend', async () => {
+    getHomeSummaryMock.mockResolvedValue(fullFixture());
+    renderHome();
+    const race = await screen.findByRole('region', { name: 'Semi-marathon' });
+    for (const id of ['home-race-marker-target', 'home-race-legend-target']) {
+      const el = within(race).getByTestId(id);
+      expect(el.className).toMatch(/border-success-text/);
+      expect(el.className).toMatch(/bg-surface/);
+    }
+    for (const id of ['home-race-marker-predicted', 'home-race-legend-predicted']) {
+      const el = within(race).getByTestId(id);
+      expect(el.className).toMatch(/bg-info/);
+      expect(el.className).not.toMatch(/border-\[?\d|border-2|border-\[3px\]/);
+    }
+  });
+
   it('renders the Enduraw card with a summary and the pace note', async () => {
     getHomeSummaryMock.mockResolvedValue(fullFixture());
     renderHome();
@@ -441,7 +510,8 @@ describe('HomePage', () => {
     expect(within(endu).getByTestId('home-enduraw-summary')).toHaveTextContent(
       'With wind and elevation removed, your 16 Oct pace is 5:28/km instead of 5:34/km.'
     );
-    expect(within(endu).getByText('Pace in min/km: lower is faster.')).toBeInTheDocument();
+    // The Y axis is reversed (faster is up): the note must say so, not "lower is faster".
+    expect(within(endu).getByText('Pace in min/km, reversed axis: higher is faster.')).toBeInTheDocument();
   });
 
   it('hides the race card when the race is inactive', async () => {
@@ -562,6 +632,18 @@ describe('HomePage', () => {
     renderHome();
     const pred = await screen.findByRole('region', { name: /Predictions/ });
     expect(within(pred).getByText('No prediction this week')).toBeInTheDocument();
+  });
+
+  it('hides the health cards when only sleep_score (not rendered) has a value', async () => {
+    const fx = fullFixture();
+    fx.health = {
+      resting_hr: null, hrv: null, sleep_s: null, sleep_score: { value: 82, as_of: '2026-10-17', stale: false },
+      ctl: null, atl: null, form: null, vo2max: null, weight: null,
+    };
+    getHomeSummaryMock.mockResolvedValue(fx);
+    renderHome();
+    await screen.findByRole('region', { name: /This week/ });
+    expect(screen.queryByRole('region', { name: /Recovery/ })).not.toBeInTheDocument();
   });
 
   it('hides the health cards when intervals is on but there are no values', async () => {

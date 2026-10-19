@@ -79,8 +79,8 @@ describe('token contrast (WCAG AA)', () => {
   });
 
   it('orange text (primary-text) clears AA on surface and background in both themes', () => {
-    expect(light['primary-text']).toBe('#c2410c');
-    expect(dark['primary-text']).toBe('#fc4c02');
+    expect(light['primary-text']).toBe('#b93c0b');
+    expect(dark['primary-text']).toBe('#fd6224');
     for (const vars of [light, dark]) {
       for (const bg of ['surface', 'background']) {
         expect(ratio(token(vars, 'primary-text'), token(vars, bg)), `primary-text on ${bg}`).toBeGreaterThanOrEqual(AA);
@@ -104,6 +104,29 @@ describe('token contrast (WCAG AA)', () => {
       for (const [text, fill] of [['success-text', 'success'], ['warning-text', 'warning']] as const) {
         const tinted = blend(token(vars, fill), surface, 0.1);
         expect(ratio(token(vars, text), tinted), `${text} on ${fill}/10`).toBeGreaterThanOrEqual(AA);
+      }
+    }
+  });
+
+  it('primary-text and info text clear AA on the info / primary tints over surface (both themes)', () => {
+    // Coach text links sit on bg-info/10 (Home CoachWords, Plan CoachBox), the info pill
+    // on bg-info/10, active nav and the primary pill on bg-primary/10, the race card
+    // countdown on bg-primary/5.
+    const tints: ReadonlyArray<[string, number]> = [
+      ['info', 0.1],
+      ['primary', 0.1],
+      ['primary', 0.05],
+    ];
+    for (const [themeName, vars] of [['light', light], ['dark', dark]] as const) {
+      const surface = token(vars, 'surface');
+      for (const text of ['primary-text', 'info']) {
+        for (const [fill, alpha] of tints) {
+          const tinted = blend(token(vars, fill), surface, alpha);
+          expect(
+            ratio(token(vars, text), tinted),
+            `${themeName}: ${text} on ${fill}/${Math.round(alpha * 100)}`
+          ).toBeGreaterThanOrEqual(AA);
+        }
       }
     }
   });
