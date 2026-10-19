@@ -151,9 +151,10 @@ History re-read: `scripts/backfill_strength_per_side.py`. A run without
 `--apply` only writes a plan file; `--apply --plan FILE` writes exactly that
 reviewed plan, after a lossless typed backup to a new timestamped file. Writes
 are per field (never the whole list), in ONE atomic conditional update when the
-plan fits DynamoDB's expression limits (the live 63-op plan does), else in
-whole-entry chunks; the condition pins `last_updated`, each entry's
-`activity_id` and each row's `exercise`. On a text cut at storage the re-read
+plan fits DynamoDB's 4 KB expression limit, else in a few whole-entry updates
+(the live 63-op plan needs 2; each op is idempotent, so a fresh plan resumes
+after a failure). The condition pins `last_updated`, each entry's
+`activity_id`, each row's `exercise` and that the row is still unflagged. On a text cut at storage the re-read
 can prove `true` but never `false`. Rows from a text that rules
 out a per-side load get `false`; Campus rows otherwise stay unflagged; other rows
 take the flag of the one re-extracted row with the same exercise and the same

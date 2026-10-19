@@ -30,7 +30,8 @@ Rule (a flag is written only where it is certain)
 hold a unilateral lift flagged per side: before the fix in
 ``shared/strength_volume.py`` their volume counted the other side twice. Only the
 derived figures are rewritten (``total_sets``, ``total_reps``, ``volume_kg``,
-``volume_kg_incomplete``, ``excluded_exercises``, ``per_exercise``).
+``volume_kg_incomplete``, ``incomplete_reason``, ``excluded_exercises``,
+``per_exercise``).
 
 Safety
 ------
@@ -43,9 +44,10 @@ Safety
   (DynamoDB typed JSON, numbers kept as exact strings) to a new timestamped file,
   opened with ``x`` so an existing backup is never overwritten.
 * Writes are per field (``entries[i].parsed_sets[j].per_side``), never the whole
-  list, so no stored number is converted or rewritten. The whole plan is ONE
-  atomic update when it fits DynamoDB's expression limits (a live plan of 66 ops
-  does); otherwise whole-entry chunks, and a failure says which chunks landed.
+  list, so no stored number is converted or rewritten. The plan is ONE atomic
+  update when it fits DynamoDB's 4 KB expression limit, otherwise a few
+  whole-entry updates (the live plan of 2026-10-19 needs 2). A failure says
+  which updates landed; every op is idempotent, so a fresh plan resumes.
   Each update is conditional on ``last_updated``, on the ``activity_id`` of every
   entry and on the ``exercise`` of every row it writes; ``--apply`` also checks
   them before the backup.
@@ -76,9 +78,9 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "lambda_functions"))
 
 from shared.strength_exercises import (  # noqa: E402
-    STORED_DESCRIPTION_MAX_CHARS,
     canonicalize_exercise_name,
     stored_text_may_hide_per_side,
+    stored_text_was_cut,
 )
 from shared.strength_insights import CAMPUS_PLAN, _positive_loads  # noqa: E402
 from shared.strength_volume import _sides_for, compute_session_volume  # noqa: E402
@@ -153,7 +155,7 @@ def decide(
             else:
                 # A text cut at storage may have lost a "/c" past the cut: the
                 # re-read can then prove "per side" but never "not per side".
-                cut = isinstance(description, str) and len(description) >= STORED_DESCRIPTION_MAX_CHARS
+                cut = stored_text_was_cut(description)
                 by_sig: Dict[Tuple[str, Tuple[float, ...]], List[Optional[bool]]] = {}
                 for r in reread(description or "") or []:
                     if isinstance(r, dict):
@@ -237,7 +239,9 @@ def _build_update(ops: List[Dict[str, Any]], last_updated: Any) -> Dict[str, Any
             row = f"{base}.#ps[{int(op['row'])}]"
             sets.append(f"{row}.#f = :v{n}")
             values[f":v{n}"] = bool(op["value"])
+            # Still the same lift, and still unflagged at the moment of the write.
             conds.append(f"{row}.#ex = :x{n}")
+            conds.append(f"attribute_not_exists({row}.#f)")
             values[f":x{n}"] = op["exercise"]
         else:
             for k, field in enumerate(VOLUME_FIELDS):
@@ -348,6 +352,9 @@ def main(argv: Optional[List[str]] = None, table: Any = None, reread: Any = None
                     or isinstance(row.get("per_side"), bool):
                 print(f"  REFUSED: entry {i} row {j} is no longer an unflagged {op['exercise']}")
                 return 2
+        elif set(op.get("fields") or ()) != set(VOLUME_FIELDS):
+            print(f"  REFUSED: volume op for entry {i} does not carry the current fields; re-plan")
+            return 2
     backup_path = os.path.join(args.out_dir, f"backup_{args.user_id}_{_stamp()}.json")
     with open(backup_path, "x", encoding="utf-8") as fh:
         json.dump(_typed_backup(history), fh, ensure_ascii=False)
@@ -358,7 +365,11 @@ def main(argv: Optional[List[str]] = None, table: Any = None, reread: Any = None
             table.update_item(Key={"user_id": args.user_id}, **kwargs)
         except Exception as exc:  # noqa: BLE001 - report progress, then stop
             print(f"  FAILED on update {k + 1}/{len(updates)} ({exc}).")
-            print(f"  Updates 1..{k} were applied (whole entries only); nothing after.")
+            if k == 0:
+                print("  No earlier update was applied.")
+            else:
+                print(f"  Updates 1..{k} were applied (whole entries only).")
+            print(f"  On a timeout, update {k + 1} itself may have landed.")
             print(f"  Backup: {backup_path}. Re-run without --apply for a fresh plan:")
             print("  rows already flagged are skipped, so it resumes where it stopped.")
             return 3

@@ -56,7 +56,10 @@ def test_campus_row_with_per_side_wording_stays_unflagged():
 def test_text_cut_at_storage_never_yields_false():
     """A 1000-character stored text may have lost a '/c' past the cut: it is
     re-read, but the re-read can only prove 'per side', never 'not per side'."""
-    desc = "dc 3x10 80 " + "x" * 1000
+    from shared.strength_exercises import STORED_DESCRIPTION_MAX_CHARS
+    # Exactly what the pipeline stores: the text cut at the limit.
+    desc = ("dc 3x10 80 " + "x" * 2000)[:STORED_DESCRIPTION_MAX_CHARS]
+    assert len(desc) == 1000
     entries = [{"sets_source": "athlete_text", "description": desc,
                 "parsed_sets": [_row("Développé couché", 80), _row("Développé incliné", 60)]}]
     calls = []
@@ -187,7 +190,8 @@ def test_apply_backs_up_losslessly_first_then_writes_single_fields(tmp_path):
     kwargs = table.update_item.call_args.kwargs
     assert kwargs["UpdateExpression"] == "SET #up.#sh.#e[0].#ps[0].#f = :v0"
     assert kwargs["ConditionExpression"] == (
-        "#up.#sh.#lu = :lu AND #up.#sh.#e[0].#aid = :a0 AND #up.#sh.#e[0].#ps[0].#ex = :x0")
+        "#up.#sh.#lu = :lu AND #up.#sh.#e[0].#aid = :a0 AND #up.#sh.#e[0].#ps[0].#ex = :x0"
+        " AND attribute_not_exists(#up.#sh.#e[0].#ps[0].#f)")
     assert kwargs["ExpressionAttributeValues"] == {
         ":lu": "2026-10-19T06:43:36Z", ":a0": "a1", ":v0": False, ":x0": "Développé couché"}
     _assert_all_placeholders_used(kwargs)
@@ -271,16 +275,29 @@ def test_a_volume_only_plan_declares_only_names_it_uses():
     assert _no_float(update["ExpressionAttributeValues"])
 
 
-def test_a_live_size_plan_is_one_atomic_update():
-    ops = _flag_ops(63) + [_volume_op(19, "a19"), _volume_op(23, "a23"), _volume_op(24, "a24")]
-    updates = backfill._updates(ops, "lu")
-    assert len(updates) == 1
-    (update,) = updates
-    assert update["UpdateExpression"].count(".#f = ") == 63
-    assert update["UpdateExpression"].count(".#v2 = ") == 3          # volume_kg x 3
-    assert update["ConditionExpression"].count(".#ex = ") == 63
-    assert _no_float(update["ExpressionAttributeValues"])
+def test_a_small_plan_is_one_atomic_update():
+    ops = _flag_ops(9) + [_volume_op(1, "a1")]
+    (update,) = backfill._updates(ops, "lu")
+    assert update["UpdateExpression"].count(".#f = ") == 9
+    assert update["ConditionExpression"].count("attribute_not_exists(") == 9
     _assert_all_placeholders_used(update)
+
+
+def test_a_live_size_plan_stays_under_the_limits_in_few_whole_entry_updates():
+    """63 flags + 3 volumes (the live plan) does not fit one 4 KB condition once
+    every row is pinned twice; it goes in a few whole-entry updates."""
+    ops = _flag_ops(63) + [_volume_op(19, "a19"), _volume_op(20, "a20"), _volume_op(5, "a5")]
+    updates = backfill._updates(ops, "lu")
+    assert 1 < len(updates) <= 3
+    for update in updates:
+        assert len(update["UpdateExpression"]) <= 4096
+        assert len(update["ConditionExpression"]) <= 4096
+        assert _no_float(update["ExpressionAttributeValues"])
+        _assert_all_placeholders_used(update)
+    flags = sum(u["UpdateExpression"].count(".#f = ") for u in updates)
+    guards = sum(u["ConditionExpression"].count("attribute_not_exists(") for u in updates)
+    vols = sum(u["UpdateExpression"].count(".#v2 = ") for u in updates)
+    assert (flags, guards, vols) == (63, 63, 3)
 
 
 def test_a_plan_too_big_for_one_update_is_cut_between_entries(monkeypatch):
@@ -310,7 +327,7 @@ def _two_entry_history():
 
 
 def test_a_failed_update_reports_what_landed(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(backfill, "MAX_EXPRESSION_CHARS", 100)  # 1 entry fits, 2 do not
+    monkeypatch.setattr(backfill, "MAX_EXPRESSION_CHARS", 200)  # 1 entry fits, 2 do not
     table = _table(_two_entry_history())
     plan = _plan(tmp_path, table)
     table.update_item.side_effect = [None, RuntimeError("ConditionalCheckFailed")]
@@ -320,6 +337,7 @@ def test_a_failed_update_reports_what_landed(tmp_path, monkeypatch, capsys):
     assert code == 3
     assert table.update_item.call_count == 2
     assert "FAILED on update 2/2" in out and "Updates 1..1 were applied" in out
+    assert "update 2 itself may have landed" in out
 
 
 def test_apply_refuses_a_row_that_changed_exercise(tmp_path):
@@ -340,3 +358,26 @@ def test_apply_refuses_a_row_flagged_since_the_plan(tmp_path):
     assert backfill.main(["--user-id", "u", "--out-dir", str(tmp_path), "--apply",
                           "--plan", plan], table=table) == 2
     table.update_item.assert_not_called()
+
+
+def test_a_failed_single_update_says_nothing_was_applied(tmp_path, capsys):
+    table = _table(_entries())
+    plan = _plan(tmp_path, table)
+    table.update_item.side_effect = RuntimeError("timeout")
+    assert backfill.main(["--user-id", "u", "--out-dir", str(tmp_path), "--apply",
+                          "--plan", plan], table=table) == 3
+    out = capsys.readouterr().out
+    assert "No earlier update was applied" in out and "Updates 1..0" not in out
+
+
+def test_apply_refuses_an_old_plan_missing_a_volume_field(tmp_path):
+    table = _table(_entries())
+    old = _volume_op(0, "a1")
+    del old["fields"]["incomplete_reason"]
+    plan = tmp_path / "old_plan.json"
+    plan.write_text(json.dumps({"user_id": "u", "last_updated": "2026-10-19T06:43:36Z",
+                                "entries": 1, "ops": [old]}))
+    assert backfill.main(["--user-id", "u", "--out-dir", str(tmp_path), "--apply",
+                          "--plan", str(plan)], table=table) == 2
+    table.update_item.assert_not_called()
+    assert not list(tmp_path.glob("backup_u_*.json"))  # refused before the backup

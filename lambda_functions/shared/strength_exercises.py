@@ -214,9 +214,13 @@ def has_per_side_wording(text) -> bool:
     return isinstance(text, str) and bool(PER_SIDE_WORDING_RE.search(text))
 
 
+def stored_text_was_cut(text) -> bool:
+    """True when a stored session text reaches the storage cut: anything past
+    the cut, a per-side note included, may be lost. The one boundary rule."""
+    return isinstance(text, str) and len(text) >= STORED_DESCRIPTION_MAX_CHARS
+
+
 def stored_text_may_hide_per_side(text) -> bool:
     """True when a stored session text can not prove "no per-side wording":
     it has some, or it reaches the storage cut and may have lost one."""
-    if not isinstance(text, str):
-        return False
-    return has_per_side_wording(text) or len(text) >= STORED_DESCRIPTION_MAX_CHARS
+    return has_per_side_wording(text) or stored_text_was_cut(text)
