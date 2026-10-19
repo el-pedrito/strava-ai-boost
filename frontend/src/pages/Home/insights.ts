@@ -1,6 +1,7 @@
 /**
  * Pure decision helpers for the Home dashboard: data-trust checks, label maps
- * and text parsing. No React, no i18n: every function is unit-tested.
+ * and chart helpers. No React, no i18n: every function is unit-tested.
+ * Coach text is rendered by `components/CoachText.tsx` (shared with Plan).
  */
 import type { HealthSeriesPoint, HomeWeekSession } from '@/types/home';
 
@@ -14,10 +15,17 @@ export interface LoadGap {
   days: number;
 }
 
-/** ATL below this is "no training load at all" for a runner who trains weekly. */
-export const LOAD_GAP_ATL_MAX = 2;
-/** A run must last at least this many consecutive days to be flagged. */
+/**
+ * Daily decay of intervals.icu's ATL, a 7-day exponentially weighted average:
+ * ATL_t = k * ATL_{t-1} + (1 - k) * load_t, with k = e^(-1/7).
+ */
+export const ATL_DECAY = Math.exp(-1 / 7);
+/** An implied daily load below this is "nothing recorded that day". */
+export const LOAD_GAP_MAX_LOAD = 1;
+/** A run must span at least this many calendar days to be flagged. */
 export const LOAD_GAP_MIN_DAYS = 14;
+/** Missing days (no point, or a null ATL) tolerated inside a run. */
+export const LOAD_GAP_MAX_HOLE_DAYS = 2;
 
 const DAY_MS = 86_400_000;
 
@@ -27,50 +35,68 @@ function dayIndex(isoDate: string): number | null {
   return Math.round(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / DAY_MS);
 }
 
+function isoOfIndex(idx: number): string {
+  return new Date(idx * DAY_MS).toISOString().slice(0, 10);
+}
+
 /**
- * Find the runs of consecutive days where intervals.icu's ATL stays below
- * `LOAD_GAP_ATL_MAX` for at least `LOAD_GAP_MIN_DAYS` days.
+ * Find the runs of days on which intervals.icu recorded no training load.
  *
- * Why: when intervals.icu stops receiving activities, ATL decays to ~0 while
- * the athlete keeps running, so CTL and form (TSB) become silently wrong.
- * A real 2-week break would also match; the caller words the warning so the
- * athlete can tell. A null ATL or a missing calendar day breaks the run: we
- * only flag what the data actually shows.
+ * The load is not in the payload, so it is read back from the ATL decay:
+ * between two points `d` days apart, the load received is
+ * `(ATL_t - k^d * ATL_prev) / (1 - k)` (for d = 1, the daily load). A run is
+ * a stretch where that stays below `LOAD_GAP_MAX_LOAD` for at least
+ * `LOAD_GAP_MIN_DAYS` calendar days. Reading the decay instead of an absolute
+ * ATL threshold gives the true first day: from ATL 40, the average itself only
+ * falls under 2 after three weeks.
+ *
+ * Holes of up to `LOAD_GAP_MAX_HOLE_DAYS` missing days are bridged (the check
+ * then covers the whole interval); a longer hole ends the run. A real break
+ * matches too: the caller words the warning conditionally.
  */
 export function detectLoadGaps(
   series: ReadonlyArray<Pick<HealthSeriesPoint, 'date' | 'atl'>> | null | undefined,
-  { atlMax = LOAD_GAP_ATL_MAX, minDays = LOAD_GAP_MIN_DAYS } = {}
+  {
+    maxLoad = LOAD_GAP_MAX_LOAD,
+    minDays = LOAD_GAP_MIN_DAYS,
+    maxHoleDays = LOAD_GAP_MAX_HOLE_DAYS,
+    decay = ATL_DECAY,
+  } = {}
 ): LoadGap[] {
   if (!series || series.length === 0) return [];
-  const sorted = [...series].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const points = series
+    .map((p) => ({ idx: dayIndex(p.date), atl: p.atl }))
+    .filter((p): p is { idx: number; atl: number } => p.idx != null && p.atl != null && Number.isFinite(p.atl))
+    .sort((a, b) => a.idx - b.idx);
+
   const gaps: LoadGap[] = [];
-  let runStart: string | null = null;
-  let runEnd: string | null = null;
-  let runDays = 0;
-  let prevIdx: number | null = null;
+  let runStart: number | null = null;
+  let runEnd: number | null = null;
 
   const close = () => {
-    if (runStart && runEnd && runDays >= minDays) {
-      gaps.push({ start: runStart, end: runEnd, days: runDays });
+    if (runStart != null && runEnd != null && runEnd - runStart + 1 >= minDays) {
+      gaps.push({ start: isoOfIndex(runStart), end: isoOfIndex(runEnd), days: runEnd - runStart + 1 });
     }
     runStart = null;
     runEnd = null;
-    runDays = 0;
   };
 
-  for (const p of sorted) {
-    const idx = dayIndex(p.date);
-    const low = idx != null && p.atl != null && Number.isFinite(p.atl) && p.atl < atlMax;
-    const contiguous = idx != null && prevIdx != null && idx - prevIdx === 1;
-    if (low) {
-      if (runStart && !contiguous) close();
-      if (!runStart) runStart = p.date;
-      runEnd = p.date;
-      runDays += 1;
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1];
+    const cur = points[i];
+    const step = cur.idx - prev.idx;
+    if (step === 0) continue; // duplicate day: keep the first reading
+    if (step - 1 > maxHoleDays) {
+      close();
+      continue;
+    }
+    const load = (cur.atl - Math.pow(decay, step) * prev.atl) / (1 - decay);
+    if (load < maxLoad) {
+      if (runStart == null) runStart = prev.idx + 1;
+      runEnd = cur.idx;
     } else {
       close();
     }
-    prevIdx = idx;
   }
   close();
   return gaps;
@@ -80,21 +106,30 @@ export function detectLoadGaps(
 export const CTL_WINDOW_DAYS = 42;
 
 /**
- * True when one of `gaps` still biases today's CTL / freshness: it ended less
- * than `windowDays` days before `latestDate` (the newest point of the series).
+ * The gaps that still bias today's CTL / freshness: those that ended less than
+ * `windowDays` days before `latestDate` (the newest point of the series).
  */
+export function gapsAffectingLatest(
+  gaps: ReadonlyArray<LoadGap>,
+  latestDate: string | null | undefined,
+  windowDays = CTL_WINDOW_DAYS
+): LoadGap[] {
+  if (!latestDate || gaps.length === 0) return [];
+  const latest = dayIndex(latestDate);
+  if (latest == null) return [];
+  return gaps.filter((g) => {
+    const end = dayIndex(g.end);
+    return end != null && latest - end < windowDays;
+  });
+}
+
+/** True when one of `gaps` still biases today's CTL / freshness. */
 export function loadGapAffectsLatest(
   gaps: ReadonlyArray<LoadGap>,
   latestDate: string | null | undefined,
   windowDays = CTL_WINDOW_DAYS
 ): boolean {
-  if (!latestDate || gaps.length === 0) return false;
-  const latest = dayIndex(latestDate);
-  if (latest == null) return false;
-  return gaps.some((g) => {
-    const end = dayIndex(g.end);
-    return end != null && latest - end < windowDays;
-  });
+  return gapsAffectingLatest(gaps, latestDate, windowDays).length > 0;
 }
 
 /* ------------------------------------------------------- cycle themes */
@@ -129,56 +164,6 @@ export function cycleThemeKey(raw: string | null | undefined): string | null {
     if (re.test(norm)) return key;
   }
   return null;
-}
-
-/* ------------------------------------------------------- coach words */
-
-export type CoachSegment =
-  | { kind: 'text'; text: string }
-  | { kind: 'bold'; text: string }
-  | { kind: 'link'; href: string };
-
-const URL_RE = /https?:\/\/[^\s<>"')\]]+/g;
-
-function linkSegments(text: string, out: CoachSegment[], bold: boolean) {
-  let last = 0;
-  for (const m of text.matchAll(URL_RE)) {
-    const start = m.index ?? 0;
-    // Trailing punctuation belongs to the sentence, not the URL.
-    const href = m[0].replace(/[.,;:!?]+$/, '');
-    if (start > last) out.push({ kind: bold ? 'bold' : 'text', text: text.slice(last, start) });
-    out.push({ kind: 'link', href });
-    last = start + href.length;
-  }
-  if (last < text.length) out.push({ kind: bold ? 'bold' : 'text', text: text.slice(last) });
-}
-
-/**
- * Parse the Campus coach word into lines of safe segments: `**x**` becomes
- * bold, http(s) URLs become links. Everything else stays plain text, rendered
- * by React (escaped), never as HTML. Empty lines are dropped.
- */
-export function parseCoachText(raw: string | null | undefined): CoachSegment[][] {
-  if (!raw) return [];
-  const lines = raw.replace(/\r\n?/g, '\n').split('\n');
-  const result: CoachSegment[][] = [];
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    const segs: CoachSegment[] = [];
-    const parts = line.split('**');
-    // An odd number of parts means every `**` is paired; otherwise keep the
-    // stray markers as text rather than bolding half a sentence.
-    const paired = parts.length % 2 === 1;
-    if (!paired) {
-      linkSegments(line, segs, false);
-    } else {
-      parts.forEach((part, i) => {
-        if (part) linkSegments(part, segs, i % 2 === 1);
-      });
-    }
-    result.push(segs);
-  }
-  return result;
 }
 
 /* ------------------------------------------------------------ HRV */

@@ -52,22 +52,18 @@ function isVideoUrl(url: string): boolean {
   }
 }
 
-function renderBold(text: string, keyPrefix: string): ReactNode[] {
-  const nodes: ReactNode[] = [];
+/** Split a text into plain and `**bold**` chunks. Unpaired `**` stay as text. */
+function splitBold(text: string): Array<{ bold: boolean; value: string }> {
+  const chunks: Array<{ bold: boolean; value: string }> = [];
   let last = 0;
-  let n = 0;
   for (const match of text.matchAll(BOLD_RE)) {
     const start = match.index ?? 0;
-    if (start > last) nodes.push(text.slice(last, start));
-    nodes.push(
-      <strong key={`${keyPrefix}-b${n++}`} className="font-semibold text-foreground">
-        {match[1]}
-      </strong>
-    );
+    if (start > last) chunks.push({ bold: false, value: text.slice(last, start) });
+    chunks.push({ bold: true, value: match[1] });
     last = start + match[0].length;
   }
-  if (last < text.length) nodes.push(text.slice(last));
-  return nodes;
+  if (last < text.length) chunks.push({ bold: false, value: text.slice(last) });
+  return chunks;
 }
 
 export function CoachText({ text, clampLines, className }: CoachTextProps) {
@@ -91,20 +87,33 @@ export function CoachText({ text, clampLines, className }: CoachTextProps) {
     [clampLines]
   );
 
-  const nodes: ReactNode[] = splitUrls(text).flatMap((segment, i): ReactNode[] => {
-    if (segment.kind === 'text') return renderBold(segment.value, `s${i}`);
-    return [
-      <a
-        key={`s${i}-a`}
-        href={segment.value}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="font-medium text-primary-strong underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
-      >
-        {isVideoUrl(segment.value) ? t('coachText.video') : t('coachText.link')}
-      </a>,
-    ];
-  });
+  // Bold first, then URLs inside each chunk: `**voir https://x**` stays bold with its
+  // link, instead of the URL split leaving two stray `**` around it.
+  const inline = (value: string, key: string): ReactNode[] =>
+    splitUrls(value).map((segment, i) =>
+      segment.kind === 'text' ? (
+        segment.value
+      ) : (
+        <a
+          key={`${key}-a${i}`}
+          href={segment.value}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-medium text-primary-text underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+        >
+          {isVideoUrl(segment.value) ? t('coachText.video') : t('coachText.link')}
+        </a>
+      )
+    );
+  const nodes: ReactNode[] = splitBold(text).flatMap((chunk, i): ReactNode[] =>
+    chunk.bold
+      ? [
+          <strong key={`c${i}`} className="font-semibold text-foreground">
+            {inline(chunk.value, `c${i}`)}
+          </strong>,
+        ]
+      : inline(chunk.value, `c${i}`)
+  );
 
   return (
     <div className={cn('flex flex-col items-start gap-1', className)}>
@@ -132,7 +141,7 @@ export function CoachText({ text, clampLines, className }: CoachTextProps) {
           aria-expanded={expanded}
           aria-controls={id}
           onClick={() => setExpanded((v) => !v)}
-          className="min-h-11 rounded-sm text-sm font-medium text-primary-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="min-h-11 rounded-sm text-sm font-medium text-primary-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {expanded ? t('coachText.less') : t('coachText.more')}
         </button>

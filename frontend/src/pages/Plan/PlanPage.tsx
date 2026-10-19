@@ -52,7 +52,13 @@ const SPORT_ICONS: Record<string, LucideIcon> = {
  * minus `low-priority-race`: an intermediate race is a plan session, not the goal).
  */
 const RACE_TRAINING_TYPES: ReadonlySet<string> = new Set(['Competition', 'race']);
-const RACE_TITLE_RE = /marathon/i;
+/**
+ * Title fallback for a goal race typed as an ordinary session: the title must BE the
+ * race name ("Marathon de Paris", "Semi-marathon"), never a workout at race pace
+ * ("Allure marathon", "Sortie longue allure semi-marathon").
+ */
+const RACE_TITLE_RE = /^\s*(semi[- ]?)?marathon\b/i;
+const PACE_WORD_RE = /allure/i;
 
 const WEEK_NUMBER_RE = /W(\d{1,2})$/;
 
@@ -89,11 +95,13 @@ function isDownloadable(item: PlanWorkoutItem): item is PlanWorkoutItem & { work
   return item.encodable && typeof item.workout_b64 === 'string' && item.workout_b64.length > 0;
 }
 
-/** The goal race: a Campus competition, or a session titled "...MARATHON...". */
+/** The goal race: a Campus competition, or a session whose title is the race name. */
 function isRace(item: PlanWorkoutItem): boolean {
   // An intermediate race is an ordinary plan session, even when its title says "marathon".
   if (item.training_type === 'low-priority-race') return false;
-  return RACE_TRAINING_TYPES.has(item.training_type ?? '') || RACE_TITLE_RE.test(item.title ?? '');
+  if (RACE_TRAINING_TYPES.has(item.training_type ?? '')) return true;
+  const title = item.title ?? '';
+  return RACE_TITLE_RE.test(title) && !PACE_WORD_RE.test(title);
 }
 
 function reasonKey(item: PlanWorkoutItem): string {
@@ -316,7 +324,7 @@ function SessionCard({ item, role, primary, today, lang, failed, onAdd }: Sessio
           </div>
           {countdown && (
             <div className="flex shrink-0 flex-col items-end" aria-label={countdown.aria} role="img">
-              <span className="text-2xl font-bold leading-none tabular-nums text-primary-strong">
+              <span className="text-2xl font-bold leading-none tabular-nums text-primary-text">
                 {countdown.label}
               </span>
               <span className="text-xs text-muted-foreground">{t('plan.race.beforeStart')}</span>
@@ -409,7 +417,7 @@ function RaceStrip({ item, today, lang }: { item: PlanWorkoutItem; today: Date |
         {t('plan.race.strip', { title: item.title ?? t('plan.untitled'), date: formatDay(raceDay, lang) })}
       </span>
       {countdown && (
-        <span className="font-bold tabular-nums text-primary-strong" aria-label={countdown.aria} role="img">
+        <span className="font-bold tabular-nums text-primary-text" aria-label={countdown.aria} role="img">
           {countdown.label}
         </span>
       )}
@@ -480,12 +488,12 @@ export function PlanPage() {
   const workouts = useMemo(() => data?.workouts ?? [], [data]);
   const groups = useMemo(() => groupByWeek(workouts), [workouts]);
 
-  // The API lists only open sessions (done and skipped ones are filtered server-side),
-  // in Campus order, nearest week first. The next session is the current week's first
-  // remaining session, and nothing when the week is complete: same rule as /home/summary
-  // (home_summary._build_week_sessions), so Home and Plan never disagree.
+  // The server names the next session (`next_session_id`, computed by the same helper
+  // as /home/summary's `next_session`). The page never picks one itself: a session the
+  // list cannot show (no intervals) leaves nothing highlighted rather than another one.
   const currentWeek = today ? isoWeekLabel(today) : null;
-  const nextItem = groups.find((g) => g.weekIso !== null && g.weekIso === currentWeek)?.items[0] ?? null;
+  const nextId = data?.next_session_id ?? null;
+  const nextItem = nextId === null ? null : (workouts.find((w) => w.session_id === nextId) ?? null);
   const raceItem = workouts.find(isRace) ?? null;
   const followingWeek = today ? shiftedWeekLabel(today, 1) : null;
 
@@ -507,7 +515,7 @@ export function PlanPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
           {raceItem && <RaceStrip item={raceItem} today={today} lang={lang} />}
-          <Button variant="outline" size="md" onClick={reload} disabled={loading}>
+          <Button variant="outline" size="md" className="min-h-11" onClick={reload} disabled={loading}>
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
             {t('plan.refresh')}
           </Button>
@@ -530,7 +538,7 @@ export function PlanPage() {
         <Alert variant="error">
           <div className="flex items-center justify-between gap-3">
             <span>{t('plan.error.load')}</span>
-            <Button variant="outline" size="sm" onClick={reload} disabled={loading}>
+            <Button variant="outline" size="sm" className="min-h-11" onClick={reload} disabled={loading}>
               {t('common.retry')}
             </Button>
           </div>

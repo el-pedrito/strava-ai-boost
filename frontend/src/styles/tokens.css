@@ -42,6 +42,9 @@
      Ratios pinned by ui/__tests__/contrast.test.ts. */
   --primary-strong: #d23c00;
   --primary-strong-hover: #b83400;
+  /* Orange TEXT (links, countdowns). #c2410c on white is 5.18:1; --primary-strong stays the
+     filled-background colour. Pinned by ui/__tests__/contrast.test.ts. */
+  --primary-text: #c2410c;
 
   --accent: #0f172a;
   --accent-foreground: #ffffff;
@@ -83,6 +86,8 @@
      Ratios pinned by ui/__tests__/contrast.test.ts. */
   --primary-strong: #d23c00;
   --primary-strong-hover: #b83400;
+  /* Orange TEXT: brand orange is 5.07:1 on the dark surface, #d23c00 would fail there. */
+  --primary-text: #fc4c02;
 
   --accent: #f5f7fa;
   --accent-foreground: #0a0e1a;
@@ -117,6 +122,7 @@
   --color-primary-foreground: var(--primary-foreground);
   --color-primary-strong: var(--primary-strong);
   --color-primary-strong-hover: var(--primary-strong-hover);
+  --color-primary-text: var(--primary-text);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-success: var(--success);

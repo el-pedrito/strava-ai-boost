@@ -13,7 +13,7 @@ import { cn } from '@/lib/cn';
 import { downloadWorkout } from '@/lib/downloadWorkout';
 import type { BriefLight, HomeBrief, HomeNextSession, SignalStatus } from '@/types/home';
 import { fmtNumber, formatClock, formatWeekdayDate } from '../format';
-import { parseCoachText } from '../insights';
+import { CoachText } from '@/components/CoachText';
 import { HomeCard, Pill } from './common';
 import { TONE_TEXT, type Tone } from './tones';
 
@@ -40,39 +40,18 @@ function toStatus(status: string | null | undefined): SignalStatus {
   return status === 'ok' || status === 'warn' || status === 'bad' ? status : 'missing';
 }
 
-/** The Campus coach word: `**bold**` and links, rendered as React nodes only. */
+/** The Campus coach word, through the shared renderer (same parsing as the Plan page). */
 function CoachWords({ text }: { text: string | null | undefined }) {
   const { t } = useTranslation();
-  const lines = parseCoachText(text);
-  if (lines.length === 0) return null;
+  if (!text || !text.trim()) return null;
   return (
     <figure className="min-w-0 rounded-lg bg-info/10 px-3 py-2.5" data-testid="home-coach-advice">
       <figcaption className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-info">
         <MessageCircle className="h-4 w-4" aria-hidden="true" />
         {t('home.brief.coachAdvice')}
       </figcaption>
-      <blockquote className="flex flex-col gap-1 text-sm leading-relaxed text-foreground [overflow-wrap:anywhere] md:text-[15px]">
-        {lines.map((segs, i) => (
-          <p key={i}>
-            {segs.map((s, j) => {
-              if (s.kind === 'bold') return <strong key={j}>{s.text}</strong>;
-              if (s.kind === 'link') {
-                return (
-                  <a
-                    key={j}
-                    href={s.href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-medium text-info underline underline-offset-2"
-                  >
-                    {t('home.brief.videoLink')}
-                  </a>
-                );
-              }
-              return <span key={j}>{s.text}</span>;
-            })}
-          </p>
-        ))}
+      <blockquote className="[overflow-wrap:anywhere]">
+        <CoachText text={text.trim()} clampLines={4} />
       </blockquote>
     </figure>
   );
@@ -84,8 +63,10 @@ export function HeroCard({ brief, next }: { brief: HomeBrief | null; next: HomeN
   const [watchError, setWatchError] = useState(false);
 
   const light = toLight(brief?.light);
-  const title = next?.title ?? brief?.next_session?.title ?? null;
-  const duration = next?.duration_min ?? brief?.next_session?.duration_min ?? null;
+  // Only the live top-level `next_session`. `brief.next_session` was frozen when the
+  // morning brief was built and can name a session completed since.
+  const title = next?.title ?? null;
+  const duration = next?.duration_min ?? null;
   const workoutB64 = typeof next?.workout_b64 === 'string' && next.workout_b64.length > 0 ? next.workout_b64 : null;
   const day = formatWeekdayDate(brief?.date, lang);
   const builtAt = formatClock(brief?.built_at);

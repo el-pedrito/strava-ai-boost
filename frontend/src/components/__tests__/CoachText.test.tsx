@@ -27,6 +27,16 @@ describe('CoachText', () => {
     expect(screen.getByTestId('coach-text')).toHaveTextContent('(voir the link)');
   });
 
+  it('keeps a link inside bold text bold, with no stray **', () => {
+    render(<CoachText text="**Regarde https://youtu.be/xyz789** avant la séance." />);
+    const link = screen.getByRole('link', { name: 'the video' });
+    expect(link).toHaveAttribute('href', 'https://youtu.be/xyz789');
+    expect(link.closest('strong')).not.toBeNull();
+    const p = screen.getByTestId('coach-text');
+    expect(p.textContent).not.toContain('**');
+    expect(p).toHaveTextContent('Regarde the video avant la séance.');
+  });
+
   it('never interprets HTML in the text', () => {
     const { container } = render(<CoachText text={'<img src=x onerror="alert(1)"> <b>gras</b>'} />);
     expect(container.querySelector('img')).toBeNull();

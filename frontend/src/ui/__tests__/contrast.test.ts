@@ -78,6 +78,16 @@ describe('token contrast (WCAG AA)', () => {
     }
   });
 
+  it('orange text (primary-text) clears AA on surface and background in both themes', () => {
+    expect(light['primary-text']).toBe('#c2410c');
+    expect(dark['primary-text']).toBe('#fc4c02');
+    for (const vars of [light, dark]) {
+      for (const bg of ['surface', 'background']) {
+        expect(ratio(token(vars, 'primary-text'), token(vars, bg)), `primary-text on ${bg}`).toBeGreaterThanOrEqual(AA);
+      }
+    }
+  });
+
   it('status text clears AA on surface and background in both themes', () => {
     for (const vars of [light, dark]) {
       for (const text of ['success-text', 'warning-text', 'danger']) {

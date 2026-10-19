@@ -2,9 +2,9 @@
 
 /**
  * Small brand-tinted text. Brand orange fails AA as small text on white
- * (3.40:1) and --primary-strong fails on the dark surface, and there is no
- * theme-aware primary text token, so small "primary" text uses the foreground
- * colour on a primary tint. Large text (>= 24 px) may use `text-primary`
+ * (3.40:1) and --primary-strong fails on the dark surface. Orange text uses
+ * `text-primary-text` (theme-aware); the Home "primary" tone keeps the
+ * foreground colour on a primary tint. Large text (>= 24 px) may use `text-primary`
  * (3.40:1 light, 5.07:1 dark, AA for large text).
  */
 export const PRIMARY_TEXT = 'text-foreground';

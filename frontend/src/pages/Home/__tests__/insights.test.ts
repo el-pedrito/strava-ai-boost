@@ -4,10 +4,10 @@ import {
   cycleThemeKey,
   detectLoadGaps,
   formZone,
+  gapsAffectingLatest,
   isPrepRace,
   loadGapAffectsLatest,
   paceDomain,
-  parseCoachText,
   rangePosition,
   remainingSessions,
   sessionKind,
@@ -15,53 +15,100 @@ import {
 
 type AtlPoint = Pick<HealthSeriesPoint, 'date' | 'atl'>;
 
-/** `days` consecutive points from `start` with the ATL given by `atl(i)`. */
-function atlRun(start: string, days: number, atl: (i: number) => number | null): AtlPoint[] {
-  const t0 = Date.parse(`${start}T00:00:00Z`);
-  return Array.from({ length: days }, (_, i) => ({
-    date: new Date(t0 + i * 86_400_000).toISOString().slice(0, 10),
-    atl: atl(i),
-  }));
+const K = Math.exp(-1 / 7);
+/** A training week of daily loads with single rest days, as a runner logs them. */
+const TRAINING_WEEK = [55, 0, 70, 45, 0, 90, 40];
+
+function isoPlus(start: string, days: number): string {
+  return new Date(Date.parse(`${start}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * Daily ATL as intervals.icu computes it (EWMA, k = e^(-1/7)) from `atl0` the
+ * day before `start`, rounded to one decimal like the stored values.
+ */
+function ewmaSeries(start: string, loads: number[], atl0: number): AtlPoint[] {
+  let atl = atl0;
+  return loads.map((load, i) => {
+    atl = K * atl + (1 - K) * load;
+    return { date: isoPlus(start, i), atl: Math.round(atl * 10) / 10 };
+  });
+}
+
+function training(days: number): number[] {
+  return Array.from({ length: days }, (_, i) => TRAINING_WEEK[i % TRAINING_WEEK.length]);
+}
+
+function zeros(days: number): number[] {
+  return Array.from({ length: days }, () => 0);
 }
 
 describe('detectLoadGaps', () => {
-  it('finds the run of 37 days with ATL < 2 seen in the real data', () => {
-    const series = [
-      ...atlRun('2026-07-19', 44, () => 15),
-      ...atlRun('2026-09-01', 37, (i) => 1.9 - i * 0.04),
-      ...atlRun('2026-10-08', 10, () => 22),
-    ];
+  it('reports the true first day of a 37-day outage from a realistic ATL decay', () => {
+    // Training through 31 Aug (a 70 load that day), nothing recorded 1 Sep..7 Oct,
+    // training again from 8 Oct.
+    const series = ewmaSeries('2026-08-01', [...training(31), ...zeros(37), ...training(10)], 35);
+    expect(series[30]).toEqual({ date: '2026-08-31', atl: expect.any(Number) });
+    expect(series[30].atl).toBeGreaterThan(30);
+    // The ATL itself is still above 2 for about three weeks into the outage...
+    expect(series.find((p) => p.date === '2026-09-15')!.atl!).toBeGreaterThan(2);
+    // ...but the decay shows nothing was recorded from the very first day.
     expect(detectLoadGaps(series)).toEqual([{ start: '2026-09-01', end: '2026-10-07', days: 37 }]);
   });
 
-  it('ignores a short dip under the 14-day minimum', () => {
-    const series = [...atlRun('2026-09-01', 13, () => 0.5), ...atlRun('2026-09-14', 5, () => 10)];
+  it('flags an outage that starts from ATL 60, which an ATL threshold never reaches in 3 weeks', () => {
+    const series = ewmaSeries('2026-08-01', [...training(20).map((l) => l * 2), ...zeros(21), ...training(5)], 60);
+    const lastBefore = series[19].atl!;
+    expect(lastBefore).toBeGreaterThan(55);
+    expect(Math.min(...series.slice(20, 41).map((p) => p.atl!))).toBeGreaterThan(2);
+    expect(detectLoadGaps(series)).toEqual([{ start: '2026-08-21', end: '2026-09-10', days: 21 }]);
+  });
+
+  it('bridges a one-day hole and a null ATL inside an outage', () => {
+    const full = ewmaSeries('2026-09-01', [...training(14), ...zeros(20), ...training(3)], 30);
+    // 15 Sep..4 Oct has no load; drop 22 Sep and blank 28 Sep.
+    const series = full
+      .filter((p) => p.date !== '2026-09-22')
+      .map((p) => (p.date === '2026-09-28' ? { ...p, atl: null } : p));
+    expect(detectLoadGaps(series)).toEqual([{ start: '2026-09-15', end: '2026-10-04', days: 20 }]);
+  });
+
+  it('ends a run on a hole longer than two days', () => {
+    const full = ewmaSeries('2026-09-01', [...training(14), ...zeros(24), ...training(3)], 30);
+    // 15 Sep..8 Oct has no load; a 3-day hole (25..27 Sep) splits it into 10 + 11 days.
+    const series = full.filter((p) => !['2026-09-25', '2026-09-26', '2026-09-27'].includes(p.date));
     expect(detectLoadGaps(series)).toEqual([]);
-    // Exactly 14 days is flagged.
-    expect(detectLoadGaps(atlRun('2026-09-01', 14, () => 0.5))).toHaveLength(1);
   });
 
-  it('breaks a run on a missing calendar day or a null ATL', () => {
-    const missingDay = [...atlRun('2026-09-01', 10, () => 0.5), ...atlRun('2026-09-12', 10, () => 0.5)];
-    expect(detectLoadGaps(missingDay)).toEqual([]);
-    const nullAtl = atlRun('2026-09-01', 21, (i) => (i === 10 ? null : 0.5));
-    expect(detectLoadGaps(nullAtl)).toEqual([]);
+  it('does not flag a real 10-day break', () => {
+    const series = ewmaSeries('2026-09-01', [...training(21), ...zeros(10), ...training(14)], 35);
+    expect(detectLoadGaps(series)).toEqual([]);
   });
 
-  it('sorts unordered input and tolerates empty or null series', () => {
-    const series = atlRun('2026-09-01', 15, () => 1).reverse();
-    expect(detectLoadGaps(series)).toEqual([{ start: '2026-09-01', end: '2026-09-15', days: 15 }]);
+  it('flags from exactly 14 days, not 13', () => {
+    const at14 = ewmaSeries('2026-09-01', [...training(7), ...zeros(14), ...training(2)], 30);
+    expect(detectLoadGaps(at14)).toEqual([{ start: '2026-09-08', end: '2026-09-21', days: 14 }]);
+    const at13 = ewmaSeries('2026-09-01', [...training(7), ...zeros(13), ...training(2)], 30);
+    expect(detectLoadGaps(at13)).toEqual([]);
+  });
+
+  it('finds nothing in steady training, and tolerates unordered, empty or null input', () => {
+    expect(detectLoadGaps(ewmaSeries('2026-07-01', training(90), 35))).toEqual([]);
+    const outage = ewmaSeries('2026-09-01', [...training(7), ...zeros(15), ...training(2)], 30);
+    expect(detectLoadGaps([...outage].reverse())).toEqual([{ start: '2026-09-08', end: '2026-09-22', days: 15 }]);
     expect(detectLoadGaps([])).toEqual([]);
     expect(detectLoadGaps(null)).toEqual([]);
   });
 
-  it('says whether a gap still biases the latest CTL (42-day window)', () => {
-    const gap = [{ start: '2026-09-01', end: '2026-10-07', days: 37 }];
-    expect(loadGapAffectsLatest(gap, '2026-10-17')).toBe(true);
-    expect(loadGapAffectsLatest(gap, '2026-11-17')).toBe(true);
-    expect(loadGapAffectsLatest(gap, '2026-11-18')).toBe(false);
+  it('keeps only the gaps that still bias the latest CTL (42-day window)', () => {
+    const gap = { start: '2026-09-01', end: '2026-10-07', days: 37 };
+    expect(gapsAffectingLatest([gap], '2026-10-17')).toEqual([gap]);
+    expect(gapsAffectingLatest([gap], '2026-11-17')).toEqual([gap]);
+    expect(gapsAffectingLatest([gap], '2026-11-18')).toEqual([]);
+    expect(loadGapAffectsLatest([gap], '2026-11-18')).toBe(false);
+    expect(loadGapAffectsLatest([gap], '2026-10-17')).toBe(true);
     expect(loadGapAffectsLatest([], '2026-10-17')).toBe(false);
-    expect(loadGapAffectsLatest(gap, null)).toBe(false);
+    expect(loadGapAffectsLatest([gap], null)).toBe(false);
   });
 });
 
@@ -73,35 +120,6 @@ describe('cycleThemeKey', () => {
     expect(cycleThemeKey('Récupération')).toBe('recovery');
     expect(cycleThemeKey('XQ_17')).toBeNull();
     expect(cycleThemeKey(null)).toBeNull();
-  });
-});
-
-describe('parseCoachText', () => {
-  it('turns **bold** and URLs into safe segments, line by line', () => {
-    const lines = parseCoachText('Reste **relâché** ici.\n\nVoir https://example.com/v1. Merci');
-    expect(lines).toEqual([
-      [
-        { kind: 'text', text: 'Reste ' },
-        { kind: 'bold', text: 'relâché' },
-        { kind: 'text', text: ' ici.' },
-      ],
-      [
-        { kind: 'text', text: 'Voir ' },
-        { kind: 'link', href: 'https://example.com/v1' },
-        { kind: 'text', text: '. Merci' },
-      ],
-    ]);
-  });
-
-  it('keeps an unpaired ** and HTML as plain text', () => {
-    expect(parseCoachText('a ** b <b>x</b>')).toEqual([[{ kind: 'text', text: 'a ** b <b>x</b>' }]]);
-    expect(parseCoachText(null)).toEqual([]);
-    expect(parseCoachText('  \n ')).toEqual([]);
-  });
-
-  it('does not turn a javascript: scheme into a link', () => {
-    const lines = parseCoachText('javascript:alert(1)');
-    expect(lines.flat().some((s) => s.kind === 'link')).toBe(false);
   });
 });
 

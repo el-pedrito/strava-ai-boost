@@ -26,7 +26,7 @@ from decimal import Decimal
 from itertools import groupby
 from typing import Any, Dict, List, Optional, Tuple
 
-from shared import campus_workout
+from shared import campus_next, campus_workout
 from shared.campus_status import STATUS_DONE, STATUS_SKIP, effective_status
 
 MAX_ITEMS = 120
@@ -281,7 +281,12 @@ def workout_item(
 def build_plan_workouts(
     table: Any, now_utc: datetime, range_alerts: bool = False,
 ) -> Tuple[Dict[str, Any], Dict[str, int]]:
-    """Payload ``{workouts, count, truncated}`` and the metric counters to emit.
+    """Payload ``{workouts, count, truncated, next_session_id}`` and the metric counters.
+
+    ``next_session_id`` is the session ``/home/summary`` presents as next
+    (``shared.campus_next.next_open_session``), or null. It can name a session that
+    is not in ``workouts`` (no intervals, so no file): the client then highlights
+    nothing rather than a different session.
 
     ``range_alerts``: the ``RANGE_ALERTS_ENABLED`` switch, read by the caller.
 
@@ -291,7 +296,12 @@ def build_plan_workouts(
     therefore yields an empty, truncated list.
     """
     week_start_ms = current_week_start_ms(now_utc)
-    rows = sorted((r for r in scan_open_rows(table) if _is_open(r, week_start_ms)), key=_sort_key)
+    raw_rows = scan_open_rows(table)
+    # Same rule and same raw rows as /home/summary, BEFORE the display filter below
+    # (``_is_open`` drops rows without intervals, which Home keeps).
+    next_row = campus_next.next_open_session(raw_rows, paris_date(now_utc))
+    next_session_id = _str_or_none(next_row.get("session_id")) if next_row else None
+    rows = sorted((r for r in raw_rows if _is_open(r, week_start_ms)), key=_sort_key)
 
     counters: Dict[str, int] = {}
     workouts: List[Dict[str, Any]] = []
@@ -305,4 +315,10 @@ def build_plan_workouts(
             break
         workouts.extend(item for item, _ in week)
         size += week_size
-    return {"workouts": workouts, "count": len(workouts), "truncated": truncated}, counters
+    payload = {
+        "workouts": workouts,
+        "count": len(workouts),
+        "truncated": truncated,
+        "next_session_id": next_session_id,
+    }
+    return payload, counters

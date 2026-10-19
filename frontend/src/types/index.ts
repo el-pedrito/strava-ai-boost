@@ -207,6 +207,12 @@ export interface PlanWorkoutsResponse {
   count: number;
   /** True when the server dropped the furthest weeks to stay under its caps. */
   truncated: boolean;
+  /**
+   * `session_id` of the next session, same rule as `/home/summary`'s `next_session`
+   * (`shared/campus_next.py`). Null when the week has nothing open. May name a session
+   * absent from `workouts` (no intervals): then nothing is highlighted.
+   */
+  next_session_id?: string | null;
   timestamp?: string;
 }
 

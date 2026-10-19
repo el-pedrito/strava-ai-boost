@@ -19,7 +19,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from boto3.dynamodb.conditions import Key
 
 from api import plan_workouts
-from shared.campus_status import STATUS_DONE, effective_status
+from shared.campus_next import current_week_rows, next_open_session
+from shared.campus_status import effective_status
 from shared.iso_week import iso_week_label
 from shared.wellness import activity_local_date, in_activity_window, paris_date
 
@@ -310,9 +311,10 @@ def _build_week_sessions(
     counters: Optional[Dict[str, int]] = None,
 ) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
     """This week's sessions in plan order with their effective_status, plus the
-    next unfinished one. Current week is chosen by the is_current_week flag (as
-    plan_workouts does), not a recomputed partition name. Campus has no per-session
-    date, so there is no date field, only an order.
+    next unfinished one. Week and next session follow the single rule of
+    ``shared.campus_next`` (also used by ``/plan/workouts`` for its
+    ``next_session_id``). Campus has no per-session date, so there is no date
+    field, only an order.
 
     ``next_session`` also carries ``session_id``, ``coach_advice``, ``description``
     and the ``.workout`` file (``_next_session_extras``). ``range_alerts`` is the
@@ -336,8 +338,9 @@ def _build_week_sessions(
         if scanned:
             items = scanned
 
-    items = [s for s in items if s.get('session_date', '').startswith('week-')]
-    items.sort(key=lambda s: int(s.get('training_index', 0) or 0))
+    today = paris_date(now)
+    items = current_week_rows(items, today)
+    next_row = next_open_session(items, today)
 
     out = []
     next_session = None
@@ -353,7 +356,7 @@ def _build_week_sessions(
             'duration_min': int(dur) if dur is not None else None,
         }
         out.append(row)
-        if next_session is None and st != STATUS_DONE and _STATUS_MAP.get(st) != 'missed':
+        if s is next_row:
             next_session = {k: row[k] for k in ('order', 'title', 'training_type', 'duration_min')}
             next_session.update(_next_session_extras(s, range_alerts, counters))
     return out, next_session

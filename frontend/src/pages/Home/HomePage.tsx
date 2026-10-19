@@ -9,7 +9,7 @@ import { RefreshCw } from 'lucide-react';
 import { Alert, Button, EmptyState } from '@/ui';
 import { ApiError, getHomeSummary } from '@/api/client';
 import type { HomeHealth, HomeSummary } from '@/types/home';
-import { detectLoadGaps, loadGapAffectsLatest } from './insights';
+import { detectLoadGaps, gapsAffectingLatest } from './insights';
 import { HeroCard } from './blocks/HeroCard';
 import { RaceCard } from './blocks/RaceCard';
 import { WeekCard } from './blocks/WeekCard';
@@ -67,9 +67,14 @@ export function HomePage() {
     !!data?.race && data.race.active && (data.race.days_left == null || data.race.days_left >= 0);
 
   const series = data?.health_series ?? null;
-  const loadGaps = useMemo(() => detectLoadGaps(series), [series]);
-  const latestDate = series && series.length > 0 ? series.reduce((m, p) => (p.date > m ? p.date : m), series[0].date) : null;
-  const formIncomplete = loadGapAffectsLatest(loadGaps, latestDate);
+  // Only the gaps that still bias the latest CTL (42-day window) are shown: an older
+  // one no longer changes the numbers the athlete reads today.
+  const loadGaps = useMemo(() => {
+    const latestDate =
+      series && series.length > 0 ? series.reduce((m, p) => (p.date > m ? p.date : m), series[0].date) : null;
+    return gapsAffectingLatest(detectLoadGaps(series), latestDate);
+  }, [series]);
+  const formIncomplete = loadGaps.length > 0;
   const healthVisible = intervalsOn && !!data?.health && healthHasValues(data.health);
   const heroVisible = !!data?.brief || !!data?.next_session?.title;
   const weekSessions = data?.week_sessions ?? [];

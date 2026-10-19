@@ -182,7 +182,7 @@ class TestOwnerResponse:
         assert response["statusCode"] == 200
         _assert_no_store(response)
         body = _body(response)
-        assert set(body) == {"workouts", "count", "truncated", "timestamp"}
+        assert set(body) == {"workouts", "count", "truncated", "next_session_id", "timestamp"}
         assert body["count"] == 1
         assert body["truncated"] is False
         item = body["workouts"][0]

@@ -33,8 +33,14 @@ function item(overrides: Partial<PlanWorkoutItem>): PlanWorkoutItem {
   };
 }
 
-function respond(workouts: PlanWorkoutItem[], truncated = false) {
-  getPlanWorkoutsMock.mockResolvedValue({ workouts, count: workouts.length, truncated });
+/** `nextId`: the server's `next_session_id` (the page never picks the next session itself). */
+function respond(workouts: PlanWorkoutItem[], truncated = false, nextId: string | null = null) {
+  getPlanWorkoutsMock.mockResolvedValue({
+    workouts,
+    count: workouts.length,
+    truncated,
+    next_session_id: nextId,
+  });
 }
 
 describe('PlanPage', () => {
@@ -320,7 +326,7 @@ describe('PlanPage', () => {
         item({ session_id: 'a', week_iso: '2026-W43', title: 'Footing' }),
         item({ session_id: 'b', week_iso: '2026-W43', title: 'Allure 21 km' }),
         item({ session_id: 'c', week_iso: '2026-W44', title: 'Sortie longue' }),
-      ]);
+      ], false, 'a');
       render(<PlanPage />);
       const buttons = await screen.findAllByRole('button', { name: /^Add to Watch: / });
       expect(buttons).toHaveLength(3);
@@ -335,7 +341,7 @@ describe('PlanPage', () => {
       expect(within(cards[0]).getByText('Campus sets no day: to do by Sun 25 Oct.')).toBeInTheDocument();
     });
 
-    it('shows no next session when this week has none left, like the home page', async () => {
+    it('shows no next session when the server names none, like the home page', async () => {
       vi.setSystemTime(WED_W43);
       respond([
         item({ session_id: 'b', week_iso: '2026-W44', title: 'Allure 21 km' }),
@@ -346,12 +352,38 @@ describe('PlanPage', () => {
       expect(cards.map((c) => c.getAttribute('data-role'))).toEqual(['normal', 'normal']);
     });
 
+    it('highlights the session the server names, not the first of the week', async () => {
+      vi.setSystemTime(WED_W43);
+      respond(
+        [
+          item({ session_id: 'a', week_iso: '2026-W43', title: 'Footing' }),
+          item({ session_id: 'b', week_iso: '2026-W43', title: 'Allure 21 km' }),
+        ],
+        false,
+        'b'
+      );
+      render(<PlanPage />);
+      const cards = await screen.findAllByTestId('plan-session');
+      expect(cards.map((c) => c.getAttribute('data-role'))).toEqual(['normal', 'next']);
+      expect(screen.getByRole('button', { name: 'Add to Watch: Allure 21 km' })).toHaveTextContent('Add to Watch');
+    });
+
+    it('highlights nothing when the named next session is not in the list (no intervals)', async () => {
+      vi.setSystemTime(WED_W43);
+      // Home shows "x" as next; Plan cannot list it, so it must not promote "a" instead.
+      respond([item({ session_id: 'a', week_iso: '2026-W43', title: 'Footing' })], false, 'x');
+      render(<PlanPage />);
+      const cards = await screen.findAllByTestId('plan-session');
+      expect(cards.map((c) => c.getAttribute('data-role'))).toEqual(['normal']);
+      expect(screen.queryByText('Next')).not.toBeInTheDocument();
+    });
+
     it('never takes an intermediate race titled marathon for the goal race', async () => {
       vi.setSystemTime(WED_W43);
       respond([
         item({ session_id: 'p', training_type: 'low-priority-race', title: 'Semi-marathon de préparation' }),
         item({ session_id: 'r', week_iso: '2026-W46', training_type: 'Competition', title: 'SEMI-MARATHON' }),
-      ]);
+      ], false, 'p');
       render(<PlanPage />);
       const cards = await screen.findAllByTestId('plan-session');
       expect(cards.map((c) => c.getAttribute('data-role'))).toEqual(['next', 'race']);
@@ -367,7 +399,7 @@ describe('PlanPage', () => {
           description: 'Footing en endurance fondamentale.',
         }),
         item({ session_id: 'b', title: 'Allure', coach_advice: 'Arrive reposé.', description: 'Quatre fois neuf minutes.' }),
-      ]);
+      ], false, 'a');
       render(<PlanPage />);
       const [next, other] = await screen.findAllByTestId('plan-session');
 
@@ -409,7 +441,7 @@ describe('PlanPage', () => {
           coach_advice: 'Bon courage pour ta compétition !',
           description: 'Pars prudemment.',
         }),
-      ]);
+      ], false, 'a');
       render(<PlanPage />);
       const raceWeek = await screen.findByRole('region', { name: 'Race week' });
       const race = within(raceWeek).getByTestId('plan-session');
@@ -432,10 +464,34 @@ describe('PlanPage', () => {
       respond([
         item({ session_id: 'i', title: 'Course intermédiaire', training_type: 'low-priority-race' }),
         item({ session_id: 'm', week_iso: '2026-W46', title: 'Semi-marathon', training_type: null }),
-      ]);
+      ], false, 'i');
       render(<PlanPage />);
       const cards = await screen.findAllByTestId('plan-session');
       expect(cards.map((c) => c.getAttribute('data-role'))).toEqual(['next', 'race']);
+    });
+
+    it('never takes a session at marathon pace for the goal race', async () => {
+      vi.setSystemTime(WED_W43);
+      respond([
+        item({ session_id: 'a', title: 'Allure marathon', training_type: 'intensity' }),
+        item({ session_id: 'b', week_iso: '2026-W44', title: 'Allure semi-marathon', training_type: null }),
+        item({ session_id: 'c', week_iso: '2026-W45', title: 'Marathon allure spécifique', training_type: null }),
+      ]);
+      render(<PlanPage />);
+      const cards = await screen.findAllByTestId('plan-session');
+      expect(cards.map((c) => c.getAttribute('data-role'))).toEqual(['normal', 'normal', 'normal']);
+      expect(screen.queryByTestId('plan-race-strip')).not.toBeInTheDocument();
+      expect(screen.queryByRole('region', { name: 'Race week' })).not.toBeInTheDocument();
+    });
+
+    it('takes a title that is the race name for the goal race', async () => {
+      vi.setSystemTime(WED_W43);
+      respond([
+        item({ session_id: 'a', week_iso: '2026-W45', title: 'Marathon de Lyon', training_type: null }),
+      ]);
+      render(<PlanPage />);
+      const cards = await screen.findAllByTestId('plan-session');
+      expect(cards.map((c) => c.getAttribute('data-role'))).toEqual(['race']);
     });
 
     it('shows no race strip when the plan has no race', async () => {
@@ -454,7 +510,7 @@ describe('PlanPage', () => {
         respond([
           item({ session_id: 'a', week_iso: '2026-W43', title: 'Footing', coach_advice: 'Écoute ton corps.' }),
           item({ session_id: 'r', week_iso: '2026-W46', title: 'SEMI-MARATHON', training_type: 'Competition' }),
-        ]);
+        ], false, 'a');
         ({ unmount } = render(<PlanPage />));
         const thisWeek = await screen.findByRole('region', { name: 'Cette semaine' });
         expect(within(thisWeek).getByTestId('plan-week-range')).toHaveTextContent('lun. 19 – dim. 25 oct. · S43');

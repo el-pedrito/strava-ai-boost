@@ -1,8 +1,9 @@
 /**
  * "Charge et détails": CTL, ATL, VO2max and weight, collapsed by default.
  * The data-trust warning stays visible even when collapsed: when intervals.icu
- * stops receiving activities its ATL decays to ~0 and CTL / freshness become
- * silently wrong, so the athlete must see it before reading those numbers.
+ * records no load for weeks, CTL / freshness are wrong if the athlete did run,
+ * so he must see it before reading those numbers. The caller passes only the
+ * gaps that still bias the latest CTL.
  */
 import { useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -138,8 +139,8 @@ export function LoadCard({
             <div
               role="img"
               aria-label={t('home.load.chartAria', {
-                ctl: fmt(health.ctl?.value ?? t('home.na')),
-                atl: fmt(health.atl?.value ?? t('home.na')),
+                ctl: fmtNumber(health.ctl?.value, 1, lang) ?? t('home.na'),
+                atl: fmtNumber(health.atl?.value, 1, lang) ?? t('home.na'),
               })}
             >
               <ResponsiveContainer width="100%" height={160}>

@@ -46,7 +46,7 @@
 - **Code review fixes** : `get_cached_or_compute` return, `useMemo`→`useEffect`, global `user_id` removed, `activity_id` endpoint, polling, audio duration.
 - **All values configurable via env vars** : plus aucune valeur hardcodée (URLs, IDs, limites).
 - **Backward compatibility** : Campus Coach sync backward-compatible with existing DynamoDB schema and consumer Lambdas (content_generator, coach_generator, coach_ask_api).
-- **Tests** : 1699 (1404 backend unit + 106 régression + 189 frontend, au 2026-10-17).
+- **Tests** : 1715 (1412 backend unit + 106 régression + 197 frontend, au 2026-10-17).
 - **Plan Campus injection coach** : fix indentation `coach_generator.py` qui faisait que le plan n'était jamais injecté dans le contexte coach (sauf fallback WeekNumberIndex).
 - **Coach chat sees Campus weekly plan** : `coach_ask_api.py` fetch maintenant les séances de la semaine + IAM index access via Core stack.
 - **Quality > Memory column** : pastille icône color-coded + tooltip Radix au hover (mobile texte préservé).

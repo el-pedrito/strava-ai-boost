@@ -72,6 +72,22 @@ function dailySeries(start: string, days: number, make: (i: number) => Partial<H
   }));
 }
 
+/** Daily loads of a training week with single rest days. */
+function trainingLoads(days: number): number[] {
+  const week = [55, 0, 70, 45, 0, 90, 40];
+  return Array.from({ length: days }, (_, i) => week[i % week.length]);
+}
+
+/** ATL per day as intervals.icu computes it (EWMA, k = e^(-1/7)), rounded to 0.1. */
+function atlFromLoads(loads: number[], atl0: number): number[] {
+  const k = Math.exp(-1 / 7);
+  let atl = atl0;
+  return loads.map((load) => {
+    atl = k * atl + (1 - k) * load;
+    return Math.round(atl * 10) / 10;
+  });
+}
+
 function fullFixture(): HomeSummary {
   return {
     generated_at: '2026-10-17T08:00:00Z',
@@ -200,17 +216,21 @@ describe('HomePage', () => {
     expect(within(hero).getByText('Weather data by Open-Meteo.com (CC BY 4.0)')).toBeInTheDocument();
   });
 
-  it('renders the coach word safely: bold, a "the video" link, no HTML injection', async () => {
+  it('renders the coach word through CoachText: bold, link labels, no HTML injection', async () => {
     const fx = fullFixture();
     fx.next_session!.coach_advice =
-      'Reste **bien relâché**. <img src=x onerror="alert(1)"> Vois https://example.com/video-gammes.';
+      'Reste **bien relâché**. <img src=x onerror="alert(1)"> Vois https://www.youtube.com/watch?v=gammes1 et https://example.com/fiche.';
     getHomeSummaryMock.mockResolvedValue(fx);
     const { container } = renderHome();
 
     const advice = await screen.findByTestId('home-coach-advice');
+    // The shared renderer, the same as on the Plan page.
+    expect(within(advice).getByTestId('coach-text')).toBeInTheDocument();
     expect(within(advice).getByText('bien relâché').tagName).toBe('STRONG');
+    // Same labels as Plan: a video host is "the video", any other URL "the link".
+    expect(within(advice).getByRole('link', { name: 'the link' })).toHaveAttribute('href', 'https://example.com/fiche');
     const link = within(advice).getByRole('link', { name: 'the video' });
-    expect(link).toHaveAttribute('href', 'https://example.com/video-gammes');
+    expect(link).toHaveAttribute('href', 'https://www.youtube.com/watch?v=gammes1');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
     // The markup stays text: no <img> element is created.
     expect(container.querySelector('img[src="x"]')).toBeNull();
@@ -381,19 +401,17 @@ describe('HomePage', () => {
     expect(screen.queryByTestId('home-load-gap-warning')).not.toBeInTheDocument();
   });
 
-  it('warns that the load is incomplete when ATL stays near zero for weeks', async () => {
+  it('warns, conditionally, when no load was recorded for weeks (realistic ATL decay)', async () => {
     const fx = fullFixture();
-    // 30 normal days, 37 days of ATL < 2 (1 Sep..7 Oct), then 10 normal days.
-    fx.health_series = [
-      ...dailySeries('2026-08-02', 30, () => ({})),
-      ...dailySeries('2026-09-01', 37, () => ({ atl: 0.8, ctl: 6, form: 5 })),
-      ...dailySeries('2026-10-08', 10, () => ({ atl: 24 })),
-    ];
+    // EWMA like intervals.icu (k = e^(-1/7)) from ATL 35: training through 31 Aug,
+    // nothing recorded 1 Sep..7 Oct, training again from 8 Oct.
+    const atl = atlFromLoads([...trainingLoads(31), ...Array<number>(37).fill(0), ...trainingLoads(10)], 35);
+    fx.health_series = dailySeries('2026-08-01', atl.length, (i) => ({ atl: atl[i] }));
     getHomeSummaryMock.mockResolvedValue(fx);
     renderHome();
     const warning = await screen.findByTestId('home-load-gap-warning');
     expect(warning).toHaveTextContent(
-      'Incomplete load from 1 Sept to 7 Oct: Intervals.icu did not receive your runs. Fitness and freshness are underestimated.'
+      'No load recorded from 1 Sept to 7 Oct. If you ran, Intervals.icu did not receive your runs: fitness and freshness are then underestimated.'
     );
     // Visible without expanding the card.
     expect(warning).toBeVisible();
@@ -401,6 +419,18 @@ describe('HomePage', () => {
     const form = screen.getByTestId('home-recovery-form');
     expect(form).toHaveTextContent('underestimated, see Load');
     expect(form).not.toHaveTextContent('normal training fatigue');
+  });
+
+  it('drops the warning once the gap no longer weighs on the latest CTL (42 days)', async () => {
+    const fx = fullFixture();
+    // Same outage (1 Jul..6 Aug), then 42 days of training: it ended too long ago.
+    const atl = atlFromLoads([...trainingLoads(14), ...Array<number>(37).fill(0), ...trainingLoads(42)], 35);
+    fx.health_series = dailySeries('2026-06-17', atl.length, (i) => ({ atl: atl[i] }));
+    getHomeSummaryMock.mockResolvedValue(fx);
+    renderHome();
+    await screen.findByTestId('home-recovery-form');
+    expect(screen.queryByTestId('home-load-gap-warning')).not.toBeInTheDocument();
+    expect(screen.getByTestId('home-recovery-form')).not.toHaveTextContent('underestimated, see Load');
   });
 
   it('renders the Enduraw card with a summary and the pace note', async () => {
@@ -433,6 +463,26 @@ describe('HomePage', () => {
     renderHome();
     await screen.findByRole('region', { name: 'This morning' });
     expect(screen.queryByRole('region', { name: 'Semi-marathon' })).not.toBeInTheDocument();
+  });
+
+  it('never shows the brief\'s frozen session when the live next session is null', async () => {
+    const fx = fullFixture();
+    // The brief was built at 07:30 naming "Allure 21km"; the athlete has done it since.
+    fx.next_session = null;
+    expect(fx.brief!.next_session?.title).toBe('Allure 21km');
+    getHomeSummaryMock.mockResolvedValue(fx);
+    renderHome();
+
+    const hero = await screen.findByRole('region', { name: 'This morning' });
+    // The morning verdict and weather stay; nothing about a session.
+    expect(within(hero).getByText('Green light')).toBeInTheDocument();
+    expect(within(hero).getByText('07:00')).toBeInTheDocument();
+    expect(within(hero).queryByText("Today's session")).not.toBeInTheDocument();
+    expect(within(hero).queryByText('Allure 21km')).not.toBeInTheDocument();
+    expect(within(hero).queryByText('64 min')).not.toBeInTheDocument();
+    expect(within(hero).queryByRole('button', { name: 'Add to Watch' })).not.toBeInTheDocument();
+    expect(within(hero).queryByRole('link', { name: /plan/i })).not.toBeInTheDocument();
+    expect(within(hero).queryByTestId('home-coach-advice')).not.toBeInTheDocument();
   });
 
   it('hides the hero, enduraw and race when they are null', async () => {
