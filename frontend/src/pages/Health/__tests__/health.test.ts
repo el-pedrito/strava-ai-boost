@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import type { HealthMetric, HealthSeriesPoint, HomeHealth } from '@/types/home';
-import { readinessItems, readinessStatus } from '../readiness';
+import type { BriefSignal, HealthMetric, HealthSeriesPoint, HomeBrief, HomeHealth } from '@/types/home';
+import { readinessItems } from '../readiness';
+import { signalStatus } from '../../Home/brief';
 import { bodyTilesVisible, visibleBodyTiles } from '../body';
 import { clipGaps, fillDailySeries, lastDays, newestAsOf, overlappingGaps, seriesStats } from '../series';
 
@@ -23,47 +24,45 @@ const point = (date: string, extra: Partial<HealthSeriesPoint> = {}): HealthSeri
   ...extra,
 });
 
-describe('readinessStatus', () => {
-  it('maps HRV relative drops to good / watch / bad', () => {
-    expect(readinessStatus('hrv', m(60, { baseline_60d: 60, delta: 0 }))).toBe('good');
-    expect(readinessStatus('hrv', m(55, { baseline_60d: 60, delta: -5 }))).toBe('watch');
-    expect(readinessStatus('hrv', m(48, { baseline_60d: 60, delta: -12 }))).toBe('bad');
-    // A rise is never bad.
-    expect(readinessStatus('hrv', m(75, { baseline_60d: 60, delta: 15 }))).toBe('good');
-  });
+const sig = (key: string, status: string, value: number | null = 1, baseline: number | null = null): BriefSignal => ({
+  key,
+  value,
+  baseline,
+  status,
+  as_of: '2026-10-19',
+});
 
-  it('maps resting HR rises in bpm, a drop is good', () => {
-    expect(readinessStatus('resting_hr', m(47, { baseline_60d: 50, delta: -3 }))).toBe('good');
-    expect(readinessStatus('resting_hr', m(53, { baseline_60d: 50, delta: 3 }))).toBe('watch');
-    expect(readinessStatus('resting_hr', m(57, { baseline_60d: 50, delta: 7 }))).toBe('bad');
-  });
+const brief = (signals: BriefSignal[] | null, light = 'green'): HomeBrief => ({
+  date: '2026-10-19',
+  built_at: '2026-10-19T05:30:00Z',
+  light,
+  signals,
+  missing: null,
+  next_session: null,
+  weather: null,
+  weather_attribution: null,
+});
 
-  it('judges sleep on its absolute duration first, then the 7-night usual', () => {
-    expect(readinessStatus('sleep_s', m(5 * 3600))).toBe('bad');
-    expect(readinessStatus('sleep_s', m(6.5 * 3600))).toBe('watch');
-    expect(readinessStatus('sleep_s', m(8 * 3600, { baseline_7d: 9 * 3600, delta: -3600 }))).toBe('watch');
-    expect(readinessStatus('sleep_s', m(8 * 3600, { baseline_7d: 8 * 3600, delta: 0 }))).toBe('good');
-  });
-
-  it('maps the TSB zone, and turns uncertain while a load gap biases it', () => {
-    expect(readinessStatus('form', m(5))).toBe('good');
-    expect(readinessStatus('form', m(-15))).toBe('watch');
-    expect(readinessStatus('form', m(-35))).toBe('bad');
-    expect(readinessStatus('form', m(-35), { formIncomplete: true })).toBe('uncertain');
-  });
-
-  it('says missing without a value and uncertain without a usual value', () => {
-    expect(readinessStatus('hrv', null)).toBe('missing');
-    expect(readinessStatus('hrv', m(null))).toBe('missing');
-    expect(readinessStatus('resting_hr', m(50))).toBe('uncertain');
-  });
-
-  it('returns the four components in order with the form zone', () => {
-    const items = readinessItems({ hrv: m(60, { baseline_60d: 60 }), resting_hr: null, sleep_s: m(28000), form: m(-15) });
+describe('readinessItems', () => {
+  it('takes each status from the brief, sleep included under its brief key', () => {
+    const items = readinessItems(
+      brief([sig('hrv', 'warn'), sig('resting_hr', 'ok'), sig('sleep', 'bad'), sig('form', 'ok', 2)])
+    );
     expect(items.map((i) => i.key)).toEqual(['hrv', 'resting_hr', 'sleep_s', 'form']);
-    expect(items.map((i) => i.status)).toEqual(['good', 'missing', 'good', 'watch']);
-    expect(items[3].zone).toBe('productive');
-    expect(items[0].zone).toBeNull();
+    expect(items.map((i) => i.status)).toEqual(['warn', 'ok', 'bad', 'ok']);
+  });
+
+  it('reads a known value the brief skipped as stale, an absent signal as missing', () => {
+    const items = readinessItems(brief([sig('hrv', 'missing', 55), sig('resting_hr', 'missing', null)]));
+    expect(items.map((i) => i.status)).toEqual(['stale', 'missing', 'missing', 'missing']);
+    expect(readinessItems(null).map((i) => i.status)).toEqual(['missing', 'missing', 'missing', 'missing']);
+    expect(readinessItems(brief(null)).map((i) => i.status)).toEqual(['missing', 'missing', 'missing', 'missing']);
+  });
+
+  it('never applies a client threshold: an unknown status stays unavailable', () => {
+    // A 30 % HRV drop the brief did not rate is not turned into an alert here.
+    expect(readinessItems(brief([sig('hrv', 'weird', 42, 60)]))[0].status).toBe('missing');
+    expect(signalStatus(sig('hrv', 'bad', 59, 60))).toBe('bad');
   });
 });
 

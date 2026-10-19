@@ -3,6 +3,7 @@ import { render, screen, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import { HealthPage } from '../HealthPage';
+import { HeroCard } from '../../Home/blocks/HeroCard';
 import type { HealthSeriesPoint, HomeSummary } from '@/types/home';
 
 const getHomeSummaryMock = vi.hoisted(() => vi.fn<() => Promise<HomeSummary>>());
@@ -90,7 +91,24 @@ function fixture(overrides: Partial<HomeSummary> = {}): HomeSummary {
   return {
     generated_at: '2026-10-19T06:00:00Z',
     modules: { intervals_icu: true, campus_coach: false },
-    brief: null,
+    // Invented brief shaped like a real morning: the wellness sync is two days
+    // old, so the brief skips HRV, resting HR and sleep as too old ("missing"
+    // with a value) and only rates freshness, which turns the light red.
+    brief: {
+      date: '2026-10-19',
+      built_at: '2026-10-19T05:30:00Z',
+      light: 'red',
+      signals: [
+        { key: 'hrv', value: 55, baseline: 64, status: 'missing', as_of: '2026-10-17' },
+        { key: 'resting_hr', value: 49, baseline: 51, status: 'missing', as_of: '2026-10-17' },
+        { key: 'sleep', value: 28800, baseline: 27600, status: 'missing', as_of: '2026-10-17' },
+        { key: 'form', value: -26.4, baseline: -8.2, status: 'bad', as_of: '2026-10-19' },
+      ],
+      missing: ['hrv', 'resting_hr', 'sleep'],
+      next_session: null,
+      weather: null,
+      weather_attribution: null,
+    },
     race: null,
     plan: null,
     week_sessions: null,
@@ -105,7 +123,7 @@ function fixture(overrides: Partial<HomeSummary> = {}): HomeSummary {
       sleep_score: null,
       ctl: { value: 14.2, as_of: '2026-10-19', stale: false },
       atl: { value: 28.5, as_of: '2026-10-19', stale: false },
-      form: { value: -14.3, as_of: '2026-10-19', stale: false },
+      form: { value: -26.4, as_of: '2026-10-19', stale: false },
       vo2max: { value: 55.4, as_of: '2026-10-17', stale: true },
       weight: null,
     },
@@ -134,30 +152,91 @@ describe('HealthPage', () => {
     expect(await screen.findByTestId('health-subtitle')).toHaveTextContent('Intervals.icu · data as of 19 Oct');
   });
 
-  it('maps the four readiness components to a dot plus a word, value, usual value and diff', async () => {
+  it('shows the brief verdict and each brief status, never a second set of thresholds', async () => {
     getHomeSummaryMock.mockResolvedValue(fixture());
     renderHealth();
-    const hrv = await screen.findByTestId('health-ready-hrv');
-    // 55 vs 64 ms usual: a 14 % drop, worth watching.
-    expect(hrv).toHaveAttribute('data-status', 'watch');
-    expect(hrv).toHaveTextContent('watch');
+    const verdict = await screen.findByTestId('health-verdict');
+    expect(verdict).toHaveAttribute('data-light', 'red');
+    expect(verdict).toHaveTextContent('Red light');
+    expect(verdict).toHaveTextContent('Poor recovery: rest or keep it very easy today.');
+
+    // 55 vs 64 ms is a 14 % drop, but the brief skipped it as too old: "stale", not a client verdict.
+    const hrv = screen.getByTestId('health-ready-hrv');
+    expect(hrv).toHaveAttribute('data-status', 'stale');
+    expect(hrv).toHaveTextContent('stale');
     expect(hrv).toHaveTextContent('55 ms');
     expect(hrv).toHaveTextContent('usual 64 ms');
     expect(within(hrv).getByTestId('health-diff-hrv')).toBeInTheDocument();
 
     const rhr = screen.getByTestId('health-ready-resting_hr');
-    expect(rhr).toHaveAttribute('data-status', 'good');
+    expect(rhr).toHaveAttribute('data-status', 'stale');
     expect(rhr).toHaveTextContent('49 bpm');
 
     const sleep = screen.getByTestId('health-ready-sleep_s');
-    expect(sleep).toHaveAttribute('data-status', 'good');
+    expect(sleep).toHaveAttribute('data-status', 'stale');
     expect(sleep).toHaveTextContent('8 h 00');
 
-    // Freshness: the outage ended 12 days ago, so its zone is not trusted.
     const form = screen.getByTestId('health-ready-form');
-    expect(form).toHaveAttribute('data-status', 'uncertain');
-    expect(form).toHaveTextContent('uncertain');
+    expect(form).toHaveAttribute('data-status', 'bad');
+    expect(form).toHaveTextContent('Alert');
     expect(form).toHaveTextContent('unreliable: load incomplete, see below');
+  });
+
+  it('uses the Home words for fresh brief statuses', async () => {
+    const fx = fixture();
+    fx.brief = {
+      ...fx.brief!,
+      light: 'orange',
+      signals: [
+        { key: 'hrv', value: 55, baseline: 64, status: 'warn', as_of: '2026-10-19' },
+        { key: 'resting_hr', value: 49, baseline: 51, status: 'ok', as_of: '2026-10-19' },
+        { key: 'form', value: -12, baseline: -8.2, status: 'ok', as_of: '2026-10-19' },
+      ],
+    };
+    getHomeSummaryMock.mockResolvedValue(fx);
+    renderHealth();
+    expect(await screen.findByTestId('health-verdict')).toHaveTextContent('Mixed signals');
+    expect(screen.getByTestId('health-ready-hrv')).toHaveTextContent('Watch');
+    expect(screen.getByTestId('health-ready-resting_hr')).toHaveTextContent('Normal');
+    // Sleep is absent from the brief: "Unavailable", even though a value is known.
+    const sleep = screen.getByTestId('health-ready-sleep_s');
+    expect(sleep).toHaveAttribute('data-status', 'missing');
+    expect(sleep).toHaveTextContent('Unavailable');
+  });
+
+  it('gives the same verdict and status words as the Home hero for one payload', async () => {
+    const fx = fixture();
+    getHomeSummaryMock.mockResolvedValue(fx);
+    const { unmount } = renderHealth();
+    await screen.findByTestId('health-verdict');
+    const santeWords = ['hrv', 'resting_hr', 'sleep_s', 'form'].map(
+      (k) => screen.getByTestId(`health-status-${k}`).textContent
+    );
+    const santeVerdict = screen.getByTestId('health-verdict').textContent;
+    unmount();
+
+    render(
+      <MemoryRouter>
+        <HeroCard brief={fx.brief} next={null} />
+      </MemoryRouter>
+    );
+    const homeWords = within(screen.getByRole('list', { name: 'Signals' }))
+      .getAllByRole('listitem')
+      .map((li) => li.querySelector('span.font-semibold')?.textContent);
+    expect(santeWords).toEqual(homeWords);
+    expect(santeWords).toEqual(['stale', 'stale', 'stale', 'Alert']);
+    expect(santeVerdict).toContain('Red light');
+    expect(screen.getByText('Red light')).toBeInTheDocument();
+    expect(screen.getByText('Poor recovery: rest or keep it very easy today.')).toBeInTheDocument();
+  });
+
+  it('reads every signal as unavailable and shows no verdict without a brief', async () => {
+    getHomeSummaryMock.mockResolvedValue(fixture({ brief: null }));
+    renderHealth();
+    const hrv = await screen.findByTestId('health-ready-hrv');
+    expect(hrv).toHaveAttribute('data-status', 'missing');
+    expect(hrv).toHaveTextContent('Unavailable');
+    expect(screen.queryByTestId('health-verdict')).not.toBeInTheDocument();
   });
 
   it('words a stale value as "stale · on <date>" and a fresh one as "on <date>"', async () => {

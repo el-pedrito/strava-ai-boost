@@ -1,16 +1,20 @@
 /**
- * "Prêt pour aujourd'hui ?": VFC, FC repos, Sommeil and Fraîcheur, each with a
- * status dot plus a word, its value, the usual value and the difference, and
- * the date of the measurement ("ancien · au 17 oct." when it is not today's).
+ * "Prêt pour aujourd'hui ?": the morning brief verdict (same light and line as
+ * the Home hero), then VFC, FC repos, Sommeil and Fraîcheur, each with the
+ * brief status as a dot plus a word (Normal / À surveiller / Alerte / ancien /
+ * Indisponible), its value, the usual value and the difference, and the date
+ * of the measurement ("ancien · au 17 oct." when it is not today's).
  */
 import { useTranslation } from 'react-i18next';
 import { InfoTooltip } from '@/ui';
-import type { HealthMetric, HomeHealth } from '@/types/home';
+import { cn } from '@/lib/cn';
+import type { HealthMetric, HomeBrief, HomeHealth } from '@/types/home';
 import { formatMetric, formatShortDate } from '../Home/format';
 import { CardHead, HomeCard, Pill, ValueUnit } from '../Home/blocks/common';
-import { INFO_HIT, type Tone } from '../Home/blocks/tones';
+import { INFO_HIT } from '../Home/blocks/tones';
+import { LIGHT_TONE, STATUS_TONE, statusLabelKey, toLight } from '../Home/brief';
 import { UsualLine } from '../Home/blocks/UsualLine';
-import { readinessItems, type ReadinessItem, type ReadinessKey, type ReadinessStatus } from './readiness';
+import { readinessItems, type ReadinessItem, type ReadinessKey } from './readiness';
 
 const LABEL: Record<ReadinessKey, string> = {
   hrv: 'home.health.hrv',
@@ -24,14 +28,6 @@ const INFO: Record<ReadinessKey, string> = {
   resting_hr: 'metrics.restinghr',
   sleep_s: 'metrics.sleep',
   form: 'metrics.tsb',
-};
-
-const STATUS_TONE: Record<ReadinessStatus, Tone> = {
-  good: 'success',
-  watch: 'warning',
-  bad: 'danger',
-  uncertain: 'muted',
-  missing: 'muted',
 };
 
 /** "au 19 oct." or, for a value that is not today's, "ancien · au 17 oct.". */
@@ -62,7 +58,7 @@ function ReadinessTile({ item, metric, formIncomplete }: { item: ReadinessItem; 
         <span className="text-sm font-medium text-foreground">{t(LABEL[item.key])}</span>
         <InfoTooltip i18nKey={INFO[item.key]} className={INFO_HIT} />
         <Pill tone={STATUS_TONE[item.status]} dot className="ml-auto">
-          {t(`health.ready.status.${item.status}`)}
+          <span data-testid={`health-status-${item.key}`}>{t(statusLabelKey(item.status))}</span>
         </Pill>
       </div>
       <p className="mt-1 text-2xl font-semibold leading-tight text-foreground">
@@ -80,15 +76,41 @@ function ReadinessTile({ item, metric, formIncomplete }: { item: ReadinessItem; 
   );
 }
 
-export function ReadinessCard({ health, formIncomplete }: { health: HomeHealth; formIncomplete: boolean }) {
+/** The brief light and its sentence, worded exactly like the Home hero. */
+function BriefVerdict({ brief }: { brief: HomeBrief | null | undefined }) {
   const { t } = useTranslation();
-  const items = readinessItems(health, { formIncomplete });
+  if (!brief) return null;
+  const light = toLight(brief.light);
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1" data-testid="health-verdict" data-light={light}>
+      <Pill tone={LIGHT_TONE[light]} dot>
+        {t(`home.brief.light.${light}`)}
+      </Pill>
+      <p className={cn('text-base font-medium leading-snug', light === 'unknown' ? 'text-muted-foreground' : 'text-foreground')}>
+        {t(`home.brief.verdict.${light}`)}
+      </p>
+    </div>
+  );
+}
+
+export function ReadinessCard({
+  health,
+  brief,
+  formIncomplete,
+}: {
+  health: HomeHealth;
+  brief: HomeBrief | null | undefined;
+  formIncomplete: boolean;
+}) {
+  const { t } = useTranslation();
+  const items = readinessItems(brief);
   return (
     <HomeCard labelledBy="health-ready-title" className="flex flex-col gap-3">
       <div className="flex flex-col gap-0.5">
         <CardHead id="health-ready-title" title={t('health.ready.title')} />
         <p className="text-sm text-muted-foreground">{t('health.ready.intro')}</p>
       </div>
+      <BriefVerdict brief={brief} />
       <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {items.map((item) => (
           <ReadinessTile key={item.key} item={item} metric={health[item.key]} formIncomplete={formIncomplete} />

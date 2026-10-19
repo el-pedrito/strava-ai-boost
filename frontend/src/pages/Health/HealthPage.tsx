@@ -163,7 +163,7 @@ export function HealthPage() {
 
       {data && !error && intervalsOn && (hasValues(health) || daily.length > 0) && (
         <>
-          {hasValues(health) && <ReadinessCard health={health} formIncomplete={formIncomplete} />}
+          {hasValues(health) && <ReadinessCard health={health} brief={data?.brief} formIncomplete={formIncomplete} />}
 
           {daily.length > 0 && (
             <section aria-labelledby="health-trends-title" className="flex flex-col gap-3">

@@ -11,34 +11,12 @@ import { ChevronRight, Clock, Info, MessageCircle, Watch } from 'lucide-react';
 import { Alert, Button, buttonVariants } from '@/ui';
 import { cn } from '@/lib/cn';
 import { downloadWorkout } from '@/lib/downloadWorkout';
-import type { BriefLight, HomeBrief, HomeNextSession, SignalStatus } from '@/types/home';
+import type { HomeBrief, HomeNextSession } from '@/types/home';
 import { fmtNumber, formatClock, formatWeekdayDate } from '../format';
 import { CoachText } from '@/components/CoachText';
 import { HomeCard, Pill } from './common';
-import { TONE_TEXT, type Tone } from './tones';
-
-const LIGHT_TONE: Record<BriefLight, Tone> = {
-  green: 'success',
-  orange: 'warning',
-  red: 'danger',
-  unknown: 'muted',
-};
-
-const STATUS_TONE: Record<SignalStatus, Tone> = {
-  ok: 'success',
-  warn: 'warning',
-  bad: 'danger',
-  missing: 'muted',
-};
-
-function toLight(light: string | null | undefined): BriefLight {
-  if (light === 'amber') return 'orange';
-  return light === 'green' || light === 'orange' || light === 'red' ? light : 'unknown';
-}
-
-function toStatus(status: string | null | undefined): SignalStatus {
-  return status === 'ok' || status === 'warn' || status === 'bad' ? status : 'missing';
-}
+import { TONE_TEXT } from './tones';
+import { LIGHT_TONE, STATUS_TONE, signalStatus, statusLabelKey, toLight } from '../brief';
 
 /** The Campus coach word, through the shared renderer (same parsing as the Plan page). */
 function CoachWords({ text }: { text: string | null | undefined }) {
@@ -177,14 +155,14 @@ export function HeroCard({ brief, next }: { brief: HomeBrief | null; next: HomeN
       {signals.length > 0 && (
         <ul aria-label={t('home.brief.signalsAria')} className="flex flex-wrap gap-x-4 gap-y-2 border-t border-border pt-3">
           {signals.map((s) => {
-            const status = toStatus(s.status);
+            const status = signalStatus(s);
             return (
               <li key={s.key} className="flex items-center gap-1.5 text-sm" data-status={status}>
                 <span className="text-muted-foreground">{signalLabel(s.key)}</span>
                 <span className={cn('inline-flex items-center gap-1 text-xs font-semibold', TONE_TEXT[STATUS_TONE[status]])}>
                   <span className="h-2.5 w-2.5 rounded-full bg-current" aria-hidden="true" />
                   {/* A known value the brief skipped as too old reads "ancien", like the Recovery tile, never "Indisponible". */}
-                  {status === 'missing' && s.value != null ? t('home.health.stale') : t(`home.brief.status.${status}`)}
+                  {t(statusLabelKey(status))}
                 </span>
               </li>
             );
