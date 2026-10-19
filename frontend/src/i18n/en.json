@@ -983,6 +983,7 @@
   "home.plan.cycleTheme.transition": "Transition",
   "home.plan.cycleTheme.development": "Development",
   "home.recovery.title": "Recovery",
+  "home.recovery.seeHealth": "See my health",
   "home.recovery.measuredOn": "measured {{date}}",
   "home.recovery.usual": "usual {{value}}",
   "home.recovery.window60": "Your 60-day average",
