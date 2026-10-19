@@ -120,7 +120,15 @@ export function LoadLineChart({
         <Tooltip content={<ChartTooltip valueFormatter={fmt} labelFormatter={dateTick(lang)} />} />
         {/* CTL first, like the subtitle: recharts sorts the legend by name by default,
             which put "Fatigue (ATL)" before "Forme de fond (CTL)". */}
-        <Legend wrapperStyle={{ fontSize: 12 }} itemSorter={(item) => LEGEND_ORDER.indexOf(String(item.dataKey))} />
+        {/* The legend text colour is set here: recharts otherwise paints it with the muted
+            axis grey, which fails AA (2.56:1 light, 3.60:1 dark). */}
+        <Legend
+          wrapperStyle={{ fontSize: 12 }}
+          itemSorter={(item) => LEGEND_ORDER.indexOf(String(item.dataKey))}
+          formatter={(value, entry) => (
+            <span style={{ color: entry?.dataKey === 'atl' ? 'var(--chart-secondary)' : 'var(--info)' }}>{value}</span>
+          )}
+        />
         <Line type="monotone" dataKey="ctl" stroke="var(--info)" dot={false} strokeWidth={2} name={ctlName} connectNulls={false} isAnimationActive={false} />
         <Line
           type="monotone"
