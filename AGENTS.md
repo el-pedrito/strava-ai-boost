@@ -29,7 +29,7 @@ Strava AI Boost is a **serverless AWS application** that automatically enhances 
 - **24 Lambda functions** (API, processing, webhooks, support, voice, push, athlete input — role-based packages)
 - **3 AgentCore Runtimes** — `content_gen`, `strava_ai_boost_coach` (coach), `coach_chat` (agentic conversational coach): 2 agent definitions in `src/agents/` + 1 chat runtime in `src/coach_chat/`, sharing a single AgentCore Memory (`content_gen_mem`, 3 strategies)
 - **9 CDK stacks**
-- **2121 tests** (1675 backend unit + 110 regression + 336 frontend) + on-demand prompt regression harness (deterministic V1 + managed AgentCore Evaluations V2)
+- **2303 tests** (1841 backend unit + 114 regression + 348 frontend) + on-demand prompt regression harness (deterministic V1 + managed AgentCore Evaluations V2)
 - **Centralized LLM registry** — all Bedrock model IDs come from `src/config/llm_config.py` (mirrored in `lambda_functions/shared/llm_models.py` for Lambda bundling); anti-drift sync test
 - **Python 3.12** runtime, **React 19 + TypeScript + Vite** frontend
 - **Cognito authentication** (JWT, custom:strava_id attribute, no self-registration)
@@ -191,7 +191,7 @@ strava-ai-boost/
 │   └── vite.config.ts                  # Vite + Vitest configuration
 │
 ├── tests/                      # Test suite
-│   ├── unit/                           # Lambda unit tests (1675 tests)
+│   ├── unit/                           # Lambda unit tests (1841 tests)
 │   │   ├── conftest.py                 # Env vars for Lambda imports
 │   │   ├── test_webhook_handler.py     # Validation, routing, signature
 │   │   ├── test_content_generator.py   # DynamoDB, parsing, storage, strength extraction
@@ -201,7 +201,7 @@ strava-ai-boost/
 │   │   ├── test_coach_output_check.py  # Figure verifier: week-scope gate, km vs km/h, strip
 │   │   ├── test_metrics_flush.py       # Anti-drift: add_metric requires @metrics.log_metrics
 │   │   └── test_env_loader_memory_id.py # Synth must fail, not blank, an unreadable memory id
-│   ├── regression/                     # Prompt regression harness (110 tests + live runners)
+│   ├── regression/                     # Prompt regression harness (114 tests + live runners)
 │   │   ├── fixtures/                   # 10 synthetic activities (shared by V1 + V2 evals)
 │   │   ├── evaluators.py               # Deterministic criteria + BANNED_CLICHES (sync-tested vs prompt)
 │   │   ├── evaluators_managed/         # Custom LLM-as-a-Judge configs (AgentCore Evaluations)
@@ -408,12 +408,12 @@ class MyModule(BaseModule):
 
 ### Running Tests
 
-**Lambda Unit Tests (1675 tests, ~2s):**
+**Lambda Unit Tests (1841 tests, ~2s):**
 ```bash
 pytest tests/unit/ -v
 ```
 
-**Regression evaluators + LLM registry sync (110 tests, free, no AWS):**
+**Regression evaluators + LLM registry sync (114 tests, free, no AWS):**
 ```bash
 pytest tests/regression/ -v
 ```
@@ -433,7 +433,7 @@ export AWS_PROFILE=your-aws-profile
 pytest tests/ -v --ignore=tests/unit/
 ```
 
-**Frontend Tests (336 tests, ~4s):**
+**Frontend Tests (348 tests, ~4s):**
 ```bash
 cd frontend && npm test
 ```
@@ -641,8 +641,13 @@ A declaration therefore wins even alongside a movement list, while movements wit
    rebuild `sets_detail` from the flat fields when it is absent.
 2. **The athlete's notation has three traps**, all encoded in
    `_STRENGTH_EXTRACTION_SYSTEM_PROMPT` and pinned by tests:
-   - `/c`, `/cote`, `par cote`, `/side` mean the load is PER SIDE, so what is moved is
-     double (`4x8 55/c` is four sets at 110).
+   - `/c`, `/cote`, `/côté`, `par cote`, `par côté`, `each side`, `/side` mean the load
+     is PER SIDE, so what is moved is double (`4x8 55/c` is four sets at 110). The
+     extractor also writes `per_side: true|false` on each exercise, decided from
+     that exercise's own words. Readers trust the flag and never guess from the
+     text: an unflagged row is plain only when the stored text cannot hide a
+     per-side note (`shared/strength_insights.row_notation`), else it feeds no
+     load record.
    - a paired line `A - B 3x10-10 15-35` is a superset: two exercises, matched in order
      (A at 15, B at 35). Dropping the first value of a pair silently loses a load.
    - a trailing `xN` is the TOTAL number of sets for the pair it follows, not N extra
@@ -655,7 +660,8 @@ A declaration therefore wins even alongside a movement list, while movements wit
    recompute: the chat cannot import `lambda_functions/shared/` (its bundle is limited to
    `src/coach_chat/`), so a second implementation there drifted immediately. Bodyweight
    movements resolve through `BODYWEIGHT_EXERCISES` only, unilateral ones double through
-   `UNILATERAL_EXERCISES`, and `body_weight_kg` is NEVER defaulted (a plausible wrong
+   `UNILATERAL_EXERCISES` (a row flagged `per_side` is already a two-side total, so its
+   load is divided by the sides first), and `body_weight_kg` is NEVER defaulted (a plausible wrong
    weight is worse than a flagged gap).
 
 **Campus Coach data contracts** (three invariants, break them and the coach mixes weeks):

@@ -10,6 +10,7 @@ Provides dashboard data for the local web interface including:
 
 import json
 import os
+import re
 from typing import Dict, Any, List, Optional
 import boto3
 from botocore.exceptions import ClientError
@@ -17,6 +18,13 @@ from datetime import datetime, timedelta, timezone, date
 from shared.campus_status import STATUS_DONE, effective_status
 from shared.wellness import in_activity_window, wellness_hrv, wellness_hrv_kind
 from shared.strength_exercises import canonicalize_exercise_name
+from shared.numeric import to_finite_float
+from shared.strength_insights import (
+    build_strength_insights,
+    exercise_flags as _strength_exercise_flags,
+    per_day_e1rm as _strength_per_day_e1rm,
+    row_notation as _strength_row_notation,
+)
 from shared.responses import (
     CORS_HEADERS_READ as CORS_HEADERS,
     create_success_response,
@@ -598,27 +606,44 @@ def get_activity_processing_stats(start_date: datetime, user_id: str) -> Dict[st
             }
 
 
-def _build_strength_progression(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _build_strength_progression(
+    entries: List[Dict[str, Any]],
+    e1rm_by_day: Optional[Dict[str, Dict[str, Any]]] = None,
+    flags: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
     """Aggregate strength_history entries into per-exercise progression series.
 
-    Each entry may carry `parsed_sets` = [{exercise, sets, reps, weight_kg}].
-    For every (day, exercise) we compute the top weight and the total volume
-    (sets*reps*weight). Returns a list of exercises ordered by number of tracked
-    sessions (most tracked first) so the frontend can surface the top ones:
+    Each entry may carry ``parsed_sets`` = [{exercise, sets, reps, weight_kg,
+    sets_detail}]. For every (day, exercise) we compute the TOP WEIGHT (the max
+    load over the valid ``sets_detail`` rows; the flat ``weight_kg`` only as a
+    legacy fallback) and the total volume read from the pipeline's
+    ``per_exercise`` figures. Returns a list of exercises ordered by number of
+    tracked sessions:
 
         [{"exercise": str,
-          "points": [{"date": "YYYY-MM-DD", "top_weight_kg": float|None, "volume_kg": float|None}],
-          "sessions": int}]
+          "points": [{"date", "top_weight_kg", "volume_kg", "e1rm_kg"}],
+          "sessions": int,
+          "e1rm_eligible": bool, "mixed": bool, "notation_mixed": bool,
+          "load_label": "total_noted"|None}]
+
+    Hardened: every field is validated and coerced via ``to_finite_float`` /
+    ``isinstance`` so a malformed row cannot raise. ``e1rm_by_day`` and ``flags``
+    come from ``strength_insights`` and are merged in per point/exercise.
     """
+    e1rm_by_day = e1rm_by_day or {}
+    flags = flags or {}
     by_exercise: Dict[str, List[Dict[str, Any]]] = {}
     for entry in entries:
-        date = (entry.get('date') or '')[:10]
-        parsed = entry.get('parsed_sets') or []
-        if not date or not isinstance(parsed, list):
+        if not isinstance(entry, dict):
+            continue
+        raw_date = entry.get('date')
+        day = str(raw_date)[:10] if isinstance(raw_date, str) else ''
+        parsed = entry.get('parsed_sets')
+        if not day or not isinstance(parsed, list):
             continue
         per_exercise_volume = {
-            canonicalize_exercise_name(e.get('exercise') or ''): e.get('volume_kg')
-            for e in (entry.get('per_exercise') or []) if isinstance(e, dict)
+            canonicalize_exercise_name(str(e.get('exercise') or '')): to_finite_float(e.get('volume_kg'))
+            for e in (entry.get('per_exercise') if isinstance(entry.get('per_exercise'), list) else []) if isinstance(e, dict)
         }
         for s in parsed:
             if not isinstance(s, dict):
@@ -626,25 +651,61 @@ def _build_strength_progression(entries: List[Dict[str, Any]]) -> List[Dict[str,
             raw_name = s.get('exercise')
             if not raw_name:
                 continue
-            name = canonicalize_exercise_name(raw_name)
+            name = canonicalize_exercise_name(str(raw_name))
             if not name:
                 continue
-            weight = s.get('weight_kg')
-            # Volume comes from the figures the pipeline computed with
-            # shared/strength_volume.py (bodyweight coefficients, unilateral
-            # doubling, per-set detail). Recomputing it here from the flat
-            # sets/reps/weight summary under-reported by 33% on a real session,
-            # and would let the chart disagree with the coach on the same data.
-            volume = per_exercise_volume.get(canonicalize_exercise_name(raw_name))
-            if volume is None:
-                # Legacy row written before the wiring: explicit-weight only.
-                sets = s.get('sets') or 0
-                reps = s.get('reps') or 0
-                if weight is not None and sets and reps:
-                    volume = round(float(weight) * int(sets) * int(reps), 1)
+            # Top weight: max load over VALID sets (reps>0 or duration>0, load>0).
+            # Legacy flat fallback only when the flat row itself is a valid set.
+            detail = s.get('sets_detail')
+            top_weight: Optional[float] = None
+            if isinstance(detail, list) and detail:
+                for row in detail:
+                    if not isinstance(row, dict):
+                        continue
+                    load = to_finite_float(row.get('weight_kg'))
+                    if load is None or load <= 0:
+                        continue
+                    row_reps = to_finite_float(row.get('reps'))
+                    row_dur = to_finite_float(row.get('duration_s'))
+                    valid = (row_reps is not None and row_reps > 0) or (
+                        row_dur is not None and row_dur > 0
+                    )
+                    if not valid:
+                        continue
+                    if top_weight is None or load > top_weight:
+                        top_weight = load
+            if top_weight is None and not (isinstance(detail, list) and detail):
+                # Legacy row with only a flat weight_kg (no sets_detail at all):
+                # keep only when the flat row is itself a valid set. When detail
+                # exists it is authoritative, so an invalid detail never falls back.
+                flat_weight = to_finite_float(s.get('weight_kg'))
+                flat_reps = to_finite_float(s.get('reps'))
+                flat_dur = to_finite_float(s.get('duration_s'))
+                flat_valid = (flat_reps is not None and flat_reps > 0) or (
+                    flat_dur is not None and flat_dur > 0
+                )
+                if flat_weight is not None and flat_weight > 0 and flat_valid:
+                    top_weight = flat_weight
+            # Volume from the pipeline figures (never recomputed here).
+            volume = per_exercise_volume.get(name)
+            # Flat fallback only for a legacy row with no sets_detail: when detail
+            # exists it is authoritative, so an invalid detail never invents a
+            # volume from the flat summary (same rule as the top weight above).
+            if volume is None and not (isinstance(detail, list) and detail):
+                sets = to_finite_float(s.get('sets'))
+                reps = to_finite_float(s.get('reps'))
+                flat_weight = to_finite_float(s.get('weight_kg'))
+                if flat_weight is not None and sets and reps:
+                    volume = round(flat_weight * sets * reps, 1)
+            # A row whose notation is doubtful (load maybe doubled, maybe not)
+            # draws no load point: a false jump is worse than a gap. Decided per
+            # row, so a clean session the same day keeps its point.
+            if _strength_row_notation(entry, s) == 'ambiguous':
+                top_weight = None
+                volume = None
             point = {
-                'date': date,
-                'top_weight_kg': float(weight) if weight is not None else None,
+                'date': day,
+                'top_weight_kg': top_weight,
                 'volume_kg': volume,
             }
             by_exercise.setdefault(name, []).append(point)
@@ -664,16 +725,26 @@ def _build_strength_progression(entries: List[Dict[str, Any]]) -> List[Dict[str,
                 cur['top_weight_kg'] = max(cur['top_weight_kg'] or 0, p['top_weight_kg'])
             if p['volume_kg'] is not None:
                 cur['volume_kg'] = round((cur['volume_kg'] or 0) + p['volume_kg'], 1)
+        # Merge the e1RM per day (already the per-day max from strength_insights).
+        day_e1rm = e1rm_by_day.get(name, {})
         merged = sorted(per_day.values(), key=lambda x: x['date'])
+        for point in merged:
+            point['e1rm_kg'] = day_e1rm.get(point['date'])
+        exercise_flags = flags.get(name, {})
         progression.append({
             'exercise': name,
             'points': merged,
+            # Days tracked, drawn or not: a bodyweight lift has no load point but
+            # its sessions still count, and so does a day with an ambiguous load.
             'sessions': len(merged),
+            'e1rm_eligible': bool(exercise_flags.get('e1rm_eligible', False)),
+            'mixed': bool(exercise_flags.get('mixed', False)),
+            'notation_mixed': bool(exercise_flags.get('notation_mixed', False)),
+            'load_label': 'total_noted' if exercise_flags.get('per_side_seen') else None,
         })
 
     progression.sort(key=lambda e: e['sessions'], reverse=True)
     return progression
-
 
 
 def _build_strength_sessions(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -688,31 +759,37 @@ def _build_strength_sessions(entries: List[Dict[str, Any]]) -> List[Dict[str, An
     Rows written before that wiring carry no totals; they are returned with nulls
     and `incomplete: true` so the chart can skip them instead of drawing a dip that
     never happened.
+
+    Hardened: all numeric fields go through ``to_finite_float`` and every lookup is
+    type-checked, so a malformed row cannot raise.
     """
     sessions: List[Dict[str, Any]] = []
     for entry in entries or []:
         if not isinstance(entry, dict):
             continue
-        date = (entry.get('date') or '')[:10]
-        if not date:
+        raw_date = entry.get('date')
+        day = str(raw_date)[:10] if isinstance(raw_date, str) else ''
+        if not day:
             continue
-        total_reps = entry.get('total_reps')
+        total_sets = to_finite_float(entry.get('total_sets'))
+        total_reps = to_finite_float(entry.get('total_reps'))
+        volume = to_finite_float(entry.get('volume_kg'))
+        body_weight = to_finite_float(entry.get('body_weight_kg_used'))
+        duration = to_finite_float(entry.get('duration_min'))
+        excluded = entry.get('excluded_exercises')
         sessions.append({
-            'date': date,
+            'date': day,
             'activity_id': entry.get('activity_id'),
-            'duration_min': entry.get('duration_min'),
-            'total_sets': int(entry['total_sets']) if entry.get('total_sets') is not None else None,
+            'duration_min': duration,
+            'total_sets': int(total_sets) if total_sets is not None else None,
             'total_reps': int(total_reps) if total_reps is not None else None,
-            'volume_kg': float(entry['volume_kg']) if entry.get('volume_kg') is not None else None,
-            'body_weight_kg_used': (
-                float(entry['body_weight_kg_used'])
-                if entry.get('body_weight_kg_used') is not None else None
-            ),
+            'volume_kg': volume,
+            'body_weight_kg_used': body_weight,
             # True when a load was unknown: the tonnage is a floor, not a total.
             'volume_incomplete': bool(entry.get('volume_kg_incomplete')) or total_reps is None,
             'incomplete_reason': entry.get('incomplete_reason'),
             'sets_source': entry.get('sets_source') or 'athlete_text',
-            'excluded_exercises': list(entry.get('excluded_exercises') or []),
+            'excluded_exercises': list(excluded) if isinstance(excluded, list) else [],
         })
 
     sessions.sort(key=lambda e: e['date'])
@@ -1666,14 +1743,89 @@ def get_coach_summary(user_id: str) -> Dict[str, Any]:
         except Exception as e:
             logger.warning(f'Failed to compute compliance: {e}')
 
-        # Fetch strength history for muscu trends
-        strength_history = []
+        # Fetch + normalize strength history for muscu trends. Normalized ONCE:
+        # keep only dict entries with a valid ISO date (YYYY-MM-DD); everything
+        # else is dropped and counted in a warning. Every downstream builder reads
+        # this single normalized list.
+        strength_history: List[Dict[str, Any]] = []
         try:
             config_response = config_table.get_item(Key={'user_id': user_id})
             sh = config_response.get('Item', {}).get('user_preferences', {}).get('strength_history', {})
-            strength_history = sh.get('entries', [])
-        except Exception:
-            pass
+            raw_entries = sh.get('entries', [])
+            if not isinstance(raw_entries, list):
+                raw_entries = []
+            dropped = 0
+            for raw in raw_entries:
+                if not isinstance(raw, dict):
+                    dropped += 1
+                    continue
+                raw_date = raw.get('date')
+                if not isinstance(raw_date, str):
+                    dropped += 1
+                    continue
+                # Require a plain YYYY-MM-DD head: date.fromisoformat on 3.11+
+                # also accepts "20261013" and "2026-W42-1", which the UI cannot
+                # render and which break string date sorting.
+                if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', raw_date[:10]):
+                    dropped += 1
+                    continue
+                try:
+                    date.fromisoformat(raw_date[:10])
+                except ValueError:
+                    dropped += 1
+                    continue
+                strength_history.append(raw)
+            if dropped:
+                logger.warning(f'Dropped {dropped} malformed strength_history entries')
+        except Exception as e:
+            logger.warning(f'Failed to read strength_history: {e}')
+            strength_history = []
+
+        # Per-exercise e1RM-per-day and eligibility flags, computed once from the
+        # normalized history and merged into the progression series.
+        try:
+            strength_e1rm_by_day = _strength_per_day_e1rm(strength_history)
+            strength_flags = _strength_exercise_flags(strength_history)
+        except Exception as e:
+            logger.warning(f'Failed to compute strength e1RM/flags: {e}')
+            strength_e1rm_by_day, strength_flags = {}, {}
+
+        # strength_history projected to the four fields the UI uses, after
+        # normalization, then capped at 20. activity_id kept as stored;
+        # duration_min via to_finite_float; description coerced to str.
+        strength_history_projected: List[Dict[str, Any]] = []
+        for entry in strength_history:
+            description = entry.get('description')
+            strength_history_projected.append({
+                'date': str(entry.get('date'))[:10],
+                'activity_id': entry.get('activity_id'),
+                'duration_min': to_finite_float(entry.get('duration_min')),
+                'description': description if isinstance(description, str) else '',
+            })
+        strength_history_projected = strength_history_projected[-20:]
+
+        # Hardened builders, each in its own guard -> [] on failure (precedent:
+        # the compliance block above).
+        try:
+            strength_progression = _build_strength_progression(
+                strength_history, strength_e1rm_by_day, strength_flags
+            )
+        except Exception as e:
+            logger.warning(f'Failed to build strength_progression: {e}')
+            strength_progression = []
+        try:
+            strength_sessions = _build_strength_sessions(strength_history)
+        except Exception as e:
+            logger.warning(f'Failed to build strength_sessions: {e}')
+            strength_sessions = []
+
+        # strength_insights in its own guard -> None (precedent: compliance).
+        strength_insights = None
+        try:
+            strength_insights = build_strength_insights(strength_history)
+        except Exception as e:
+            logger.warning(f'Failed to build strength_insights: {e}')
+            strength_insights = None
 
         # Real current-week tally (post-reversal: last index = week in progress).
         # Computed live on every /coach/summary call so the frontend reflects the
@@ -1714,9 +1866,10 @@ def get_coach_summary(user_id: str) -> Dict[str, Any]:
                 'compliance': compliance,
                 'recovery': recovery,
                 'health_anomalies': _detect_health_anomalies(recovery),
-                'strength_history': strength_history[-20:],
-                'strength_progression': _build_strength_progression(strength_history),
-                'strength_sessions': _build_strength_sessions(strength_history),
+                'strength_history': strength_history_projected,
+                'strength_progression': strength_progression,
+                'strength_sessions': strength_sessions,
+                'strength_insights': strength_insights,
             }
         }
 

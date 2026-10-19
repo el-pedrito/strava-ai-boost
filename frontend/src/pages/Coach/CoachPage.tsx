@@ -6,6 +6,7 @@ import {
   CartesianGrid,
   Cell,
   Line,
+  Legend,
   LineChart,
   ReferenceDot,
   ReferenceLine,
@@ -47,6 +48,7 @@ import { cn } from '@/lib/cn';
 import { staggerContainer, staggerItem } from '@/lib/motion';
 import { api } from '../../api/client.ts';
 import { CoachChat } from './CoachChat.tsx';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 interface CoachFeedbackItem {
   activity_id: string;
@@ -85,13 +87,15 @@ interface CoachSummary {
     ef_paces?: PacePoint[];
     ramp_rate?: number | null;
     compliance?: { planned: number; completed: number; percentage: number } | null;
-    strength_history?: Array<{ date: string; activity_id: string; duration_min: number; description: string }>;
-    strength_sessions?: StrengthSessionEntry[];
-    strength_progression?: Array<{
-      exercise: string;
-      points: Array<{ date: string; top_weight_kg: number | null; volume_kg: number | null }>;
-      sessions: number;
+    strength_history?: Array<{
+      date: string;
+      activity_id?: string;
+      duration_min?: number | null;
+      description: string;
     }>;
+    strength_sessions?: StrengthSessionEntry[];
+    strength_progression?: StrengthProgressionEntry[];
+    strength_insights?: StrengthInsights | null;
     health_anomalies?: Array<{ id: string; severity: 'warning' | 'info'; message: string }>;
     recovery?: {
       form: number | null;
@@ -259,16 +263,97 @@ interface StrengthSessionEntry {
   excluded_exercises: string[];
 }
 
-interface StrengthProgressionEntry {
-  exercise: string;
-  points: Array<{ date: string; top_weight_kg: number | null; volume_kg: number | null }>;
-  sessions: number;
+interface StrengthProgressionPoint {
+  date: string;
+  top_weight_kg: number | null;
+  volume_kg: number | null;
+  e1rm_kg?: number | null;
 }
 
+interface StrengthProgressionEntry {
+  exercise: string;
+  points: StrengthProgressionPoint[];
+  sessions: number;
+  e1rm_eligible?: boolean;
+  mixed?: boolean;
+  notation_mixed?: boolean;
+  load_label?: string | null;
+}
+
+type MuscleSegment = { logged?: number; campus_plan?: number };
+
+interface StrengthWeek {
+  week: string;
+  partial?: boolean;
+  groups: Record<string, MuscleSegment>;
+  explosivite?: MuscleSegment;
+  autre?: MuscleSegment;
+}
+
+interface PushPullPoint {
+  week: string;
+  push: number;
+  pull: number;
+  ratio: number | null;
+}
+
+interface StrengthRecord {
+  exercise: string;
+  kind?: 'loaded' | 'bodyweight';
+  last_date: string;
+  notation_mixed?: boolean;
+  load_label?: string | null;
+  top_weight_kg?: number | null;
+  top_weight_date?: string | null;
+  e1rm_kg?: number | null;
+  e1rm_date?: string | null;
+  best_volume_kg?: number | null;
+  best_volume_date?: string | null;
+  best_reps_bw?: { reps: number; date: string } | null;
+  best_weighted_bw?: { reps: number; added_weight_kg: number; date: string } | null;
+}
+
+interface StrengthInsights {
+  counting_rule?: string;
+  weeks?: StrengthWeek[];
+  push_pull?: PushPullPoint[];
+  records?: StrengthRecord[];
+  unmapped_exercises?: Array<{ exercise: string; reason: string }>;
+  mixed_exercises?: Array<{ exercise: string; note_key: string }>;
+}
+
+type ProgressionMetric = 'weight' | 'volume' | 'e1rm';
+
+const METRICS: Record<
+  ProgressionMetric,
+  { field: 'top_weight_kg' | 'volume_kg' | 'e1rm_kg'; labelKey: string; unitKey: string; hintKey: string }
+> = {
+  weight: {
+    field: 'top_weight_kg',
+    labelKey: 'coach.strength.metric.weight',
+    unitKey: 'coach.strength.unit.weight',
+    hintKey: 'coach.strength.hint.weight',
+  },
+  volume: {
+    field: 'volume_kg',
+    labelKey: 'coach.strength.metric.volume',
+    unitKey: 'coach.strength.unit.volume',
+    hintKey: 'coach.strength.hint.volume',
+  },
+  e1rm: {
+    field: 'e1rm_kg',
+    labelKey: 'coach.strength.metric.e1rm',
+    unitKey: 'coach.strength.unit.e1rm',
+    hintKey: 'coach.strength.hint.e1rm',
+  },
+};
+
 /**
- * Per-exercise strength progression chart. Shows top weight or total volume
- * over time for exercises with enough tracked sessions. Renders nothing when
- * no exercise has >= 3 chartable points (the raw history list handles that).
+ * Per-exercise strength progression chart. Shows top weight, total volume or
+ * estimated 1RM over time. The e1RM toggle appears only when the selected
+ * exercise is e1rm_eligible; selecting a non-eligible exercise while on e1RM
+ * resets to weight. A metric with fewer than 3 points shows a metric-level empty
+ * state instead of silently hiding the component.
  */
 function StrengthProgression({
   data,
@@ -279,42 +364,54 @@ function StrengthProgression({
 }) {
   const { t } = useTranslation();
   const chartTheme = useChartTheme();
-  const [metric, setMetric] = useState<'weight' | 'volume'>('weight');
+  const [chosenMetric, setMetric] = useState<ProgressionMetric>('weight');
   const [selected, setSelected] = useState<string | null>(null);
 
+  // Exercises chartable on the baseline metrics (weight or volume). The chip row
+  // never depends on the e1RM metric so switching to e1RM cannot empty it.
   const chartable = useMemo(
     () =>
       data.filter(
         (e) =>
-          e.points.filter((p) =>
-            metric === 'weight' ? p.top_weight_kg != null : p.volume_kg != null,
-          ).length >= 3,
+          e.points.filter((p) => p.top_weight_kg != null).length >= 3 ||
+          e.points.filter((p) => p.volume_kg != null).length >= 3,
       ),
-    [data, metric],
+    [data],
   );
 
-  if (chartable.length === 0) return null;
+  const active = useMemo(
+    () => chartable.find((e) => e.exercise === selected) ?? chartable[0],
+    [chartable, selected],
+  );
 
-  const active = chartable.find((e) => e.exercise === selected) ?? chartable[0];
+  const e1rmEligible = Boolean(active?.e1rm_eligible);
+
+  // Selecting a non-eligible exercise while on e1RM falls back to weight, derived
+  // (no setState-in-effect): the chosen metric is overridden rather than reset.
+  const metric: ProgressionMetric =
+    chosenMetric === 'e1rm' && !e1rmEligible ? 'weight' : chosenMetric;
+
+  if (chartable.length === 0 || !active) return null;
+
+  const metricConfig = METRICS[metric];
   const chartData = active.points
     .map((p) => ({
       date: p.date,
-      value: metric === 'weight' ? p.top_weight_kg : p.volume_kg,
+      value: p[metricConfig.field] ?? null,
     }))
     .filter((p): p is { date: string; value: number } => p.value != null);
 
-  const unitLabel =
-    metric === 'weight'
-      ? t('coach.strength.unit.weight')
-      : t('coach.strength.unit.volume');
-  const activeMetricLabel =
-    metric === 'weight'
-      ? t('coach.strength.metric.weight')
-      : t('coach.strength.metric.volume');
+  const unitLabel = t(metricConfig.unitKey);
+  const activeMetricLabel = t(metricConfig.labelKey);
   const chartSummary = t('coach.strength.chartSummary', {
     exercise: active.exercise,
     metric: activeMetricLabel,
   });
+
+  // The metrics available for the selected exercise (e1RM only when eligible).
+  const availableMetrics: ProgressionMetric[] = e1rmEligible
+    ? ['weight', 'volume', 'e1rm']
+    : ['weight', 'volume'];
 
   return (
     <Card variant="default" padding="lg">
@@ -328,7 +425,7 @@ function StrengthProgression({
           role="group"
           aria-label={t('coach.strength.metricGroupLabel')}
         >
-          {(['weight', 'volume'] as const).map((m) => (
+          {availableMetrics.map((m) => (
             <button
               key={m}
               type="button"
@@ -341,9 +438,7 @@ function StrengthProgression({
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              {m === 'weight'
-                ? t('coach.strength.metric.weight')
-                : t('coach.strength.metric.volume')}
+              {t(METRICS[m].labelKey)}
             </button>
           ))}
         </div>
@@ -354,7 +449,14 @@ function StrengthProgression({
           <button
             key={e.exercise}
             type="button"
-            onClick={() => setSelected(e.exercise)}
+            onClick={() => {
+              setSelected(e.exercise);
+              // If this exercise is not e1RM-eligible and e1RM is the chosen
+              // metric, store weight so the choice persists across reselection.
+              if (chosenMetric === 'e1rm' && !e.e1rm_eligible) {
+                setMetric('weight');
+              }
+            }}
             aria-pressed={active.exercise === e.exercise}
             className={cn(
               'cursor-pointer rounded-full border px-2.5 py-1 text-xs transition-colors',
@@ -368,64 +470,77 @@ function StrengthProgression({
         ))}
       </div>
 
-      <div role="img" aria-label={chartSummary}>
-        <ResponsiveContainer width="100%" height={200}>
-        <LineChart
-          data={chartData}
-          margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+      {chartData.length < 3 ? (
+        <div
+          className="flex h-[200px] items-center justify-center rounded-md border border-dashed border-border px-4 text-center text-xs text-muted-foreground"
+          role="status"
         >
-          <CartesianGrid
-            horizontal
-            vertical={false}
-            strokeDasharray="3 3"
-            stroke={chartTheme.gridColor}
-          />
-          <XAxis
-            dataKey="date"
-            tick={{ fill: chartTheme.axisColor, fontSize: 10, fontFamily: 'var(--font-mono)' }}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={(v: string) => formatShortDate(v, locale)}
-            minTickGap={16}
-          />
-          <YAxis
-            tick={{ fill: chartTheme.axisColor, fontSize: 10, fontFamily: 'var(--font-mono)' }}
-            tickLine={false}
-            axisLine={false}
-            width={44}
-            domain={['dataMin - 5', 'dataMax + 5']}
-            tickFormatter={(v: number) => `${Math.round(v)}`}
-          />
-          <Tooltip
-            content={
-              <ChartTooltip
-                valueFormatter={(v) =>
-                  typeof v === 'number' ? `${v} ${unitLabel}` : String(v)
+          {t('coach.strength.metricEmpty')}
+        </div>
+      ) : (
+        <div role="img" aria-label={chartSummary}>
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+              <CartesianGrid
+                horizontal
+                vertical={false}
+                strokeDasharray="3 3"
+                stroke={chartTheme.gridColor}
+              />
+              <XAxis
+                dataKey="date"
+                tick={{ fill: chartTheme.axisColor, fontSize: 10, fontFamily: 'var(--font-mono)' }}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(v: string) => formatShortDate(v, locale)}
+                minTickGap={16}
+              />
+              <YAxis
+                tick={{ fill: chartTheme.axisColor, fontSize: 10, fontFamily: 'var(--font-mono)' }}
+                tickLine={false}
+                axisLine={false}
+                width={44}
+                domain={['dataMin - 5', 'dataMax + 5']}
+                tickFormatter={(v: number) => `${Math.round(v)}`}
+              />
+              <Tooltip
+                content={
+                  <ChartTooltip
+                    valueFormatter={(v) =>
+                      typeof v === 'number' ? `${v} ${unitLabel}` : String(v)
+                    }
+                  />
                 }
               />
-            }
-          />
-          <Line
-            type="monotone"
-            dataKey="value"
-            name={active.exercise}
-            stroke={chartTheme.primaryColor}
-            strokeWidth={2.5}
-            dot={{ r: 4, fill: chartTheme.primaryColor }}
-            activeDot={{ r: 6, fill: chartTheme.primaryColor }}
-            connectNulls
-            animationDuration={600}
-            animationEasing="ease-out"
-            isAnimationActive
-          />
-        </LineChart>
-      </ResponsiveContainer>
-      </div>
-      <p className="mt-2 text-xs text-muted-foreground">
-        {metric === 'weight'
-          ? t('coach.strength.hint.weight')
-          : t('coach.strength.hint.volume')}
-      </p>
+              <Line
+                type="monotone"
+                dataKey="value"
+                name={active.exercise}
+                stroke={chartTheme.primaryColor}
+                strokeWidth={2.5}
+                dot={{ r: 4, fill: chartTheme.primaryColor }}
+                activeDot={{ r: 6, fill: chartTheme.primaryColor }}
+                connectNulls
+                animationDuration={600}
+                animationEasing="ease-out"
+                isAnimationActive
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      <p className="mt-2 text-xs text-muted-foreground">{t(metricConfig.hintKey)}</p>
+      {metric === 'e1rm' && chartData.length >= 3 ? (
+        <p className="mt-1 text-xs text-muted-foreground">{t('coach.strength.e1rmLabel')}</p>
+      ) : null}
+      {active.mixed ? (
+        <p className="mt-1 text-xs text-warning">{t('coach.strength.note.mixed')}</p>
+      ) : active.notation_mixed ? (
+        <p className="mt-1 text-xs text-warning">{t('coach.strength.note.notationMixed')}</p>
+      ) : active.load_label === 'total_noted' && metric === 'weight' ? (
+        <p className="mt-1 text-xs text-muted-foreground">{t('coach.strength.note.totalNoted')}</p>
+      ) : null}
     </Card>
   );
 }
@@ -582,6 +697,372 @@ function StrengthSessionTotals({
           ? t('coach.strength.hint.tonnagePartial', { count: partialCount })
           : t(`coach.strength.hint.${metric}`)}
       </p>
+    </Card>
+  );
+}
+
+// Muscle groups rendered in the weekly stacked-bar block, in a stable order.
+const WEEKLY_GROUP_ORDER = [
+  'pectoraux', 'dos', 'epaules', 'biceps', 'triceps',
+  'quadriceps', 'ischios', 'fessiers', 'mollets', 'abdos',
+] as const;
+
+function segTotal(seg?: { logged?: number; campus_plan?: number }): number {
+  if (!seg) return 0;
+  return (seg.logged ?? 0) + (seg.campus_plan ?? 0);
+}
+
+/** The API zero-fills 8 weeks; a block with only zeros is hidden. */
+/** The API zero-fills 8 weeks; a block with only zeros is hidden. A malformed
+ * entry keeps the block shown, so its local ErrorBoundary reports it. */
+function hasWeeklySets(insights?: StrengthInsights | null): boolean {
+  const weeks: unknown = insights?.weeks;
+  if (!Array.isArray(weeks)) return false;
+  return weeks.some((wk) => {
+    if (!wk || typeof wk !== 'object') return true;
+    const w = wk as StrengthWeek;
+    const groups = w.groups && typeof w.groups === 'object' ? Object.values(w.groups) : [];
+    return (
+      groups.some((seg) => segTotal(seg) > 0) ||
+      segTotal(w.explosivite) > 0 ||
+      segTotal(w.autre) > 0
+    );
+  });
+}
+
+function hasPushPull(insights?: StrengthInsights | null): boolean {
+  const rows: unknown = insights?.push_pull;
+  if (!Array.isArray(rows)) return false;
+  return rows.some((p) => {
+    if (!p || typeof p !== 'object') return true;
+    const r = p as PushPullPoint;
+    return (r.push ?? 0) > 0 || (r.pull ?? 0) > 0;
+  });
+}
+
+/**
+ * Weekly stacked bars: logged vs Campus-plan sets per muscle group, with an
+ * explosiveness bar and an "other" bar carrying the unmapped list. One stacked
+ * bar per week; the metric picks which group (or bucket) to show.
+ */
+function StrengthWeeklyGroups({
+  insights,
+}: {
+  insights: StrengthInsights;
+}) {
+  const { t } = useTranslation();
+  const chartTheme = useChartTheme();
+  const weeks = useMemo(() => insights.weeks ?? [], [insights]);
+
+  // Groups that actually carry data across the window (keeps the selector short).
+  const activeGroups = useMemo(() => {
+    const used = new Set<string>();
+    for (const wk of weeks) {
+      for (const g of WEEKLY_GROUP_ORDER) {
+        if (segTotal(wk.groups?.[g]) > 0) used.add(g);
+      }
+      if (segTotal(wk.explosivite) > 0) used.add('explosivite');
+      if (segTotal(wk.autre) > 0) used.add('autre');
+    }
+    const ordered = WEEKLY_GROUP_ORDER.filter((g) => used.has(g)) as string[];
+    if (used.has('explosivite')) ordered.push('explosivite');
+    if (used.has('autre')) ordered.push('autre');
+    return ordered;
+  }, [weeks]);
+
+  const [group, setGroup] = useState<string>(() => activeGroups[0] ?? 'pectoraux');
+  const current = activeGroups.includes(group) ? group : activeGroups[0] ?? 'pectoraux';
+
+  const groupLabel = (g: string): string => {
+    if (g === 'explosivite') return t('coach.strength.insights.explosivite');
+    if (g === 'autre') return t('coach.strength.insights.autre');
+    return t(`coach.strength.muscle.${g}`, { defaultValue: g });
+  };
+
+  const chartData = weeks.map((wk) => {
+    const seg =
+      current === 'explosivite'
+        ? wk.explosivite
+        : current === 'autre'
+          ? wk.autre
+          : wk.groups?.[current];
+    return {
+      week: wk.week,
+      logged: seg?.logged ?? 0,
+      campus_plan: seg?.campus_plan ?? 0,
+    };
+  });
+
+  // Weeks flagged partial (the current, in-progress week) get a suffix on the
+  // axis tick so a lower bar reads as "not finished", not "a drop".
+  const partialWeeks = useMemo(
+    () => new Set(weeks.filter((wk) => wk.partial).map((wk) => wk.week)),
+    [weeks],
+  );
+  const formatWeekTick = (w: string): string => {
+    const short = w.replace(/^\d{4}-/, '');
+    return partialWeeks.has(w) ? `${short} ${t('coach.strength.insights.inProgress')}` : short;
+  };
+
+  const unmapped = insights.unmapped_exercises ?? [];
+
+  return (
+    <Card variant="default" padding="lg">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="flex items-center gap-1.5 text-sm font-semibold tracking-tight">
+          <Dumbbell className="h-4 w-4 text-primary" aria-hidden="true" />
+          {t('coach.strength.insights.weeklyTitle')}
+        </h3>
+      </div>
+
+      {activeGroups.length > 0 ? (
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {activeGroups.map((g) => (
+            <button
+              key={g}
+              type="button"
+              onClick={() => setGroup(g)}
+              aria-pressed={current === g}
+              className={cn(
+                'cursor-pointer rounded-full border px-2.5 py-1 text-xs transition-colors',
+                current === g
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {groupLabel(g)}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <div role="img" aria-label={t('coach.strength.insights.weeklyTitle')}>
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+            <CartesianGrid horizontal vertical={false} strokeDasharray="3 3" stroke={chartTheme.gridColor} />
+            <XAxis
+              dataKey="week"
+              tick={{ fill: chartTheme.axisColor, fontSize: 10, fontFamily: 'var(--font-mono)' }}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={formatWeekTick}
+              minTickGap={8}
+            />
+            <YAxis
+              tick={{ fill: chartTheme.axisColor, fontSize: 10, fontFamily: 'var(--font-mono)' }}
+              tickLine={false}
+              axisLine={false}
+              width={32}
+              allowDecimals
+            />
+            <Tooltip content={<ChartTooltip />} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Bar
+              dataKey="logged"
+              name={t('coach.strength.insights.segment.logged')}
+              stackId="s"
+              fill={chartTheme.primaryColor}
+            />
+            <Bar
+              dataKey="campus_plan"
+              name={t('coach.strength.insights.segment.campusPlan')}
+              stackId="s"
+              fill={chartTheme.successColor}
+            />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      <p className="mt-2 text-xs text-muted-foreground">{t('coach.strength.insights.weeklyHint')}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{t('coach.strength.insights.swingHint')}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{t('coach.strength.insights.countingRule')}</p>
+      {unmapped.length > 0 ? (
+        <div className="mt-2 text-xs text-muted-foreground">
+          <span className="font-medium">{t('coach.strength.insights.unmappedTitle')}: </span>
+          {unmapped
+            .map(
+              (u) =>
+                `${u.exercise} (${t(`coach.strength.insights.unmapped.${u.reason}`, { defaultValue: u.reason })})`,
+            )
+            .join(', ')}
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
+/**
+ * Records table: best top weight, e1RM, volume (loaded) or best reps / weighted
+ * set (bodyweight), per exercise. Scrolls horizontally on narrow screens.
+ */
+function StrengthRecordsTable({
+  insights,
+  locale,
+}: {
+  insights: StrengthInsights;
+  locale: string;
+}) {
+  const { t } = useTranslation();
+  const records = insights.records ?? [];
+  if (records.length === 0) return null;
+
+  const fmtDate = (d?: string | null): string =>
+    d ? new Date(d).toLocaleDateString(locale, { day: 'numeric', month: 'short' }) : '—';
+  const fmtKg = (v?: number | null): string => (v != null ? `${v} kg` : '—');
+
+  return (
+    <Card variant="default" padding="lg">
+      <h3 className="mb-4 flex items-center gap-1.5 text-sm font-semibold tracking-tight">
+        <Dumbbell className="h-4 w-4 text-primary" aria-hidden="true" />
+        {t('coach.strength.records.title')}
+      </h3>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[560px] text-left text-xs">
+          <thead>
+            <tr className="border-b border-border text-muted-foreground">
+              <th className="py-1.5 pr-2 font-medium">{t('coach.strength.records.exercise')}</th>
+              <th className="py-1.5 pr-2 font-medium">{t('coach.strength.records.topWeight')}</th>
+              <th className="py-1.5 pr-2 font-medium">{t('coach.strength.records.e1rm')}</th>
+              <th className="py-1.5 pr-2 font-medium">{t('coach.strength.records.bestVolume')}</th>
+              <th className="py-1.5 pr-2 font-medium">{t('coach.strength.records.lastDate')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {records.map((r) => (
+              <tr key={r.exercise} className="border-b border-border/50 last:border-0">
+                <td className="py-1.5 pr-2 font-medium text-foreground">
+                  {r.exercise}
+                  {r.notation_mixed ? (
+                    <span className="ml-1 text-warning" title={t('coach.strength.note.notationMixed')}>
+                      *
+                    </span>
+                  ) : null}
+                </td>
+                {r.kind === 'bodyweight' ? (
+                  <td className="py-1.5 pr-2" colSpan={3}>
+                    {r.best_reps_bw
+                      ? `${t('coach.strength.records.bestReps')}: ${t('coach.strength.records.reps', {
+                          reps: r.best_reps_bw.reps,
+                        })} (${fmtDate(r.best_reps_bw.date)})`
+                      : '—'}
+                    {r.best_weighted_bw
+                      ? ` · ${t('coach.strength.records.bestWeighted')}: ${t(
+                          'coach.strength.records.weighted',
+                          { reps: r.best_weighted_bw.reps, weight: r.best_weighted_bw.added_weight_kg },
+                        )} (${fmtDate(r.best_weighted_bw.date)})`
+                      : ''}
+                  </td>
+                ) : (
+                  <>
+                    <td className="py-1.5 pr-2 text-foreground">
+                      {fmtKg(r.top_weight_kg)}
+                      {r.top_weight_kg != null ? (
+                        <span className="ml-1 text-muted-foreground">({fmtDate(r.top_weight_date)})</span>
+                      ) : null}
+                      {r.load_label === 'total_noted' && r.top_weight_kg != null ? (
+                        <span className="ml-1 text-muted-foreground">
+                          ({t('coach.strength.records.totalNoted')})
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="py-1.5 pr-2 text-foreground">
+                      {fmtKg(r.e1rm_kg)}
+                      {r.e1rm_kg != null ? (
+                        <span className="ml-1 text-muted-foreground">({fmtDate(r.e1rm_date)})</span>
+                      ) : null}
+                    </td>
+                    <td className="py-1.5 pr-2 text-foreground">
+                      {fmtKg(r.best_volume_kg)}
+                      {r.best_volume_kg != null ? (
+                        <span className="ml-1 text-muted-foreground">({fmtDate(r.best_volume_date)})</span>
+                      ) : null}
+                    </td>
+                  </>
+                )}
+                <td className="py-1.5 pr-2 text-muted-foreground">{fmtDate(r.last_date)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * Push / pull balance over the last 4 weeks (logged sets only). No judgement
+ * text; the ratio is null when there is no pull.
+ */
+function StrengthPushPull({
+  insights,
+}: {
+  insights: StrengthInsights;
+}) {
+  const { t } = useTranslation();
+  const chartTheme = useChartTheme();
+  const points = insights.push_pull ?? [];
+  if (points.length === 0) return null;
+
+  const chartData = points.map((p) => ({
+    week: p.week,
+    push: p.push,
+    pull: p.pull,
+  }));
+
+  return (
+    <Card variant="default" padding="lg">
+      <h3 className="mb-4 flex items-center gap-1.5 text-sm font-semibold tracking-tight">
+        <Dumbbell className="h-4 w-4 text-primary" aria-hidden="true" />
+        {t('coach.strength.pushPull.title')}
+      </h3>
+      <div role="img" aria-label={t('coach.strength.pushPull.title')}>
+        <ResponsiveContainer width="100%" height={180}>
+          <LineChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+            <CartesianGrid horizontal vertical={false} strokeDasharray="3 3" stroke={chartTheme.gridColor} />
+            <XAxis
+              dataKey="week"
+              tick={{ fill: chartTheme.axisColor, fontSize: 10, fontFamily: 'var(--font-mono)' }}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(v: string) => v.replace(/^\d{4}-/, '')}
+            />
+            <YAxis
+              tick={{ fill: chartTheme.axisColor, fontSize: 10, fontFamily: 'var(--font-mono)' }}
+              tickLine={false}
+              axisLine={false}
+              width={28}
+              allowDecimals
+            />
+            <Tooltip content={<ChartTooltip />} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Line
+              type="monotone"
+              dataKey="push"
+              name={t('coach.strength.pushPull.push')}
+              stroke={chartTheme.primaryColor}
+              strokeWidth={2.5}
+              dot={{ r: 3 }}
+            />
+            <Line
+              type="monotone"
+              dataKey="pull"
+              name={t('coach.strength.pushPull.pull')}
+              stroke={chartTheme.axisColor}
+              strokeWidth={2.5}
+              dot={{ r: 3 }}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        {points.map((p) => (
+          <span key={p.week}>
+            {p.week.replace(/^\d{4}-/, '')} · {t('coach.strength.pushPull.ratio')}:{' '}
+            {p.ratio != null ? p.ratio : '—'}
+          </span>
+        ))}
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">{t('coach.strength.pushPull.hint')}</p>
     </Card>
   );
 }
@@ -1819,45 +2300,136 @@ export function CoachPage() {
                   </div>
                 ) : null}
 
-                {/* Strength progression charts (per exercise, weight/volume) */}
+                {/* Each strength block is isolated: a throwing block shows a
+                    compact "block unavailable" card while its siblings render.
+                    resetKey = the fetched summary reference (stable per fetch). */}
+                {/* Strength progression charts (per exercise, weight/volume/e1rm) */}
                 {(trends?.strength_progression?.length ?? 0) > 0 && (
-                  <StrengthProgression
-                    data={trends!.strength_progression!}
-                    locale={locale}
-                  />
+                  <ErrorBoundary
+                    resetKey={data}
+                    fallback={
+                      <Card padding="md">
+                        <p className="text-xs text-muted-foreground">
+                          {t('coach.strength.block.unavailable')}
+                        </p>
+                      </Card>
+                    }
+                  >
+                    <StrengthProgression
+                      data={trends!.strength_progression!}
+                      locale={locale}
+                    />
+                  </ErrorBoundary>
                 )}
 
                 {/* Per-session totals: tonnage, sets, reps */}
                 {(trends?.strength_sessions?.length ?? 0) > 0 && (
-                  <StrengthSessionTotals
-                    data={trends!.strength_sessions!}
-                    locale={locale}
-                  />
+                  <ErrorBoundary
+                    resetKey={data}
+                    fallback={
+                      <Card padding="md">
+                        <p className="text-xs text-muted-foreground">
+                          {t('coach.strength.block.unavailable')}
+                        </p>
+                      </Card>
+                    }
+                  >
+                    <StrengthSessionTotals
+                      data={trends!.strength_sessions!}
+                      locale={locale}
+                    />
+                  </ErrorBoundary>
+                )}
+
+                {/* Weekly sets per muscle group (stacked logged vs Campus plan) */}
+                {hasWeeklySets(trends?.strength_insights) && (
+                  <ErrorBoundary
+                    resetKey={data}
+                    fallback={
+                      <Card padding="md">
+                        <p className="text-xs text-muted-foreground">
+                          {t('coach.strength.block.unavailable')}
+                        </p>
+                      </Card>
+                    }
+                  >
+                    <StrengthWeeklyGroups
+                      insights={trends!.strength_insights!}
+                    />
+                  </ErrorBoundary>
+                )}
+
+                {/* Records table */}
+                {(trends?.strength_insights?.records?.length ?? 0) > 0 && (
+                  <ErrorBoundary
+                    resetKey={data}
+                    fallback={
+                      <Card padding="md">
+                        <p className="text-xs text-muted-foreground">
+                          {t('coach.strength.block.unavailable')}
+                        </p>
+                      </Card>
+                    }
+                  >
+                    <StrengthRecordsTable
+                      insights={trends!.strength_insights!}
+                      locale={locale}
+                    />
+                  </ErrorBoundary>
+                )}
+
+                {/* Push / pull balance */}
+                {hasPushPull(trends?.strength_insights) && (
+                  <ErrorBoundary
+                    resetKey={data}
+                    fallback={
+                      <Card padding="md">
+                        <p className="text-xs text-muted-foreground">
+                          {t('coach.strength.block.unavailable')}
+                        </p>
+                      </Card>
+                    }
+                  >
+                    <StrengthPushPull
+                      insights={trends!.strength_insights!}
+                    />
+                  </ErrorBoundary>
                 )}
 
                 {/* Strength History */}
                 {(trends?.strength_history?.length ?? 0) > 0 && (
-                  <Card padding="md">
-                    <h3 className="flex items-center gap-1.5 text-sm font-semibold mb-3">
-                      <Dumbbell className="h-4 w-4 text-primary" aria-hidden="true" />
-                      {t('coach.strength.historyTitle')}
-                    </h3>
-                    <div className="space-y-2">
-                      {trends!.strength_history!.map((entry, i) => (
-                        <div key={i} className="flex items-start gap-3 text-xs border-b border-border/50 pb-2 last:border-0">
-                          <span className="text-muted-foreground whitespace-nowrap font-medium">
-                            {new Date(entry.date).toLocaleDateString(locale, { day: 'numeric', month: 'short' })}
-                          </span>
-                          <span className="text-foreground leading-relaxed">{entry.description}</span>
-                        </div>
-                      ))}
-                    </div>
-                    {(trends?.strength_history?.length ?? 0) < 3 && (
-                      <p className="mt-3 text-xs text-muted-foreground italic">
-                        {t('coach.strength.historyHint')}
-                      </p>
-                    )}
-                  </Card>
+                  <ErrorBoundary
+                    resetKey={data}
+                    fallback={
+                      <Card padding="md">
+                        <p className="text-xs text-muted-foreground">
+                          {t('coach.strength.block.unavailable')}
+                        </p>
+                      </Card>
+                    }
+                  >
+                    <Card padding="md">
+                      <h3 className="flex items-center gap-1.5 text-sm font-semibold mb-3">
+                        <Dumbbell className="h-4 w-4 text-primary" aria-hidden="true" />
+                        {t('coach.strength.historyTitle')}
+                      </h3>
+                      <div className="space-y-2">
+                        {trends!.strength_history!.map((entry, i) => (
+                          <div key={i} className="flex items-start gap-3 text-xs border-b border-border/50 pb-2 last:border-0">
+                            <span className="text-muted-foreground whitespace-nowrap font-medium">
+                              {new Date(entry.date).toLocaleDateString(locale, { day: 'numeric', month: 'short' })}
+                            </span>
+                            <span className="text-foreground leading-relaxed">{entry.description}</span>
+                          </div>
+                        ))}
+                      </div>
+                      {(trends?.strength_history?.length ?? 0) < 3 && (
+                        <p className="mt-3 text-xs text-muted-foreground italic">
+                          {t('coach.strength.historyHint')}
+                        </p>
+                      )}
+                    </Card>
+                  </ErrorBoundary>
                 )}
 
                 {rampInsight && rampInsight.tone === 'warning' ? (

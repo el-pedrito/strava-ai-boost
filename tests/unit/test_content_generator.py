@@ -599,17 +599,36 @@ class TestExtractStrengthSets:
         ]
 
     @patch('processing.content_generator._get_bedrock_runtime')
+    def test_per_side_flag_is_kept_only_as_a_boolean(self, mock_runtime):
+        """The extractor records per-side notation per exercise; a non-boolean
+        value is dropped so the row stays 'unknown' instead of a wrong guess."""
+        mock_runtime.return_value.converse.return_value = _converse_response(
+            '[{"exercise":"Presse épaules","sets":3,"reps":10,"weight_kg":80,"per_side":true,'
+            '"sets_detail":[{"reps":10,"weight_kg":80}]},'
+            '{"exercise":"Développé couché","sets":1,"reps":10,"weight_kg":80,"per_side":false,'
+            '"sets_detail":[{"reps":10,"weight_kg":80}]},'
+            '{"exercise":"Squat","sets":1,"reps":5,"weight_kg":100,"per_side":"yes",'
+            '"sets_detail":[{"reps":5,"weight_kg":100}]}]'
+        )
+        result = _extract_strength_sets("dm mach 40/c 3x10 + dc 80x10 + squat 100x5")
+        assert result[0]["per_side"] is True
+        assert result[1]["per_side"] is False
+        assert "per_side" not in result[2]
+
+    @patch('processing.content_generator._get_bedrock_runtime')
     def test_per_side_load_is_doubled_in_every_entry(self, mock_runtime):
         """Regression: '4x8 55/c' is 55kg PER SIDE, so 110kg is actually moved.
         Storing 55 halved the tonnage. The doubled load must appear in every
         sets_detail entry and in the flat summary — the per-side figure must never
         leak through."""
         mock_runtime.return_value.converse.return_value = _converse_response(
-            '[{"exercise":"Développé machine","sets":4,"reps":8,"weight_kg":110,'
+            '[{"exercise":"Développé machine","sets":4,"reps":8,"weight_kg":110,"per_side":true,'
             '"sets_detail":[{"reps":8,"weight_kg":110},{"reps":8,"weight_kg":110},'
             '{"reps":8,"weight_kg":110},{"reps":8,"weight_kg":110}]}]'
         )
         result = _extract_strength_sets("dc machine 4x8 55/c")
+        # The flag travels with the doubled load, so the page reads it as a total.
+        assert result[0]["per_side"] is True
         assert result[0]["sets"] == 4
         assert result[0]["weight_kg"] == 110.0
         assert all(s["weight_kg"] == 110.0 for s in result[0]["sets_detail"])
@@ -622,6 +641,10 @@ class TestExtractStrengthSets:
         the model on the exact regressions that motivated the schema change: the
         per-side markers (all variants), variable series, and paired supersets."""
         p = _STRENGTH_EXTRACTION_SYSTEM_PROMPT
+        # The athlete's shorthand, and the split of the old mixed machine name.
+        assert "'dm machine' -> 'Presse épaules'" in p
+        assert "'dc machine' -> 'Développé couché machine'" in p
+        assert "'di' = Développé incliné" in p
         # Per-side markers — every variant the athlete actually writes.
         for marker in ("'/c'", "'/cote'", "'par cote'", "'/side'"):
             assert marker in p, f"missing per-side marker {marker}"

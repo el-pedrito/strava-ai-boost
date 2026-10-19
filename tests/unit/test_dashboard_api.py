@@ -237,7 +237,11 @@ class TestBuildStrengthProgression:
         # DC has 2 sessions, Tractions 1 → DC first
         assert result[0]['exercise'] == 'Développé couché'
         assert result[0]['sessions'] == 2
-        assert result[0]['points'][0] == {'date': '2026-07-01', 'top_weight_kg': 80.0, 'volume_kg': 2560.0}
+        # top_weight_kg is now the max load over sets_detail (flat fallback for
+        # legacy rows), and each point carries e1rm_kg (None when not eligible/present).
+        assert result[0]['points'][0] == {
+            'date': '2026-07-01', 'top_weight_kg': 80.0, 'volume_kg': 2560.0, 'e1rm_kg': None,
+        }
         assert result[0]['points'][1]['top_weight_kg'] == 82.5
         # Bodyweight exercise → weight/volume None
         tractions = next(e for e in result if e['exercise'] == 'Tractions')
@@ -305,6 +309,57 @@ class TestBuildStrengthProgression:
         assert len(pts) == 1  # merged into one day
         assert pts[0]['top_weight_kg'] == 110.0
         assert pts[0]['volume_kg'] == 3 * 5 * 100 + 2 * 3 * 110
+        # New: each merged point carries an e1rm_kg key (None here: no sets_detail).
+        assert pts[0]['e1rm_kg'] is None
+
+
+    def test_ambiguous_row_draws_no_load_point(self):
+        """Round-4: the chart exclusion had no test. An unflagged row whose text
+        holds a per-side wording draws no top weight, volume or e1RM."""
+        from shared.strength_insights import exercise_flags, per_day_e1rm
+        entries = [
+            {'date': '2026-10-06', 'activity_id': 'a1', 'sets_source': 'athlete_text',
+             'description': 'Press inc 3x10 40/c',
+             'parsed_sets': [{'exercise': 'Développé incliné',
+                              'sets_detail': [{'reps': 10, 'weight_kg': 80}] * 3}],
+             'per_exercise': [{'exercise': 'Développé incliné', 'volume_kg': 2400}]},
+            {'date': '2026-10-13', 'activity_id': 'a2', 'sets_source': 'athlete_text',
+             'description': 'Press inc 3x10 60',
+             'parsed_sets': [{'exercise': 'Développé incliné', 'per_side': False,
+                              'sets_detail': [{'reps': 10, 'weight_kg': 60}] * 3}],
+             'per_exercise': [{'exercise': 'Développé incliné', 'volume_kg': 1800}]},
+        ]
+        result = _build_strength_progression(
+            entries, per_day_e1rm(entries), exercise_flags(entries))
+        points = {p['date']: p for p in result[0]['points']}
+        assert points['2026-10-06'] == {
+            'date': '2026-10-06', 'top_weight_kg': None, 'volume_kg': None, 'e1rm_kg': None,
+        }
+        assert points['2026-10-13']['top_weight_kg'] == 60.0
+        assert points['2026-10-13']['volume_kg'] == 1800.0
+        assert points['2026-10-13']['e1rm_kg'] == 80.0
+
+    def test_clean_row_keeps_its_point_on_a_day_with_an_ambiguous_one(self):
+        """Exclusion is per row: a second activity the same day keeps its point."""
+        from shared.strength_insights import exercise_flags, per_day_e1rm
+        entries = [
+            {'date': '2026-10-06', 'activity_id': 'a1', 'sets_source': 'athlete_text',
+             'description': 'dc 5x5 100',
+             'parsed_sets': [{'exercise': 'Développé couché', 'per_side': False,
+                              'sets_detail': [{'reps': 5, 'weight_kg': 100}] * 5}],
+             'per_exercise': [{'exercise': 'Développé couché', 'volume_kg': 2500}]},
+            {'date': '2026-10-06', 'activity_id': 'a2', 'sets_source': 'athlete_text',
+             'description': 'dc 3x3 60/c',
+             'parsed_sets': [{'exercise': 'Développé couché',
+                              'sets_detail': [{'reps': 3, 'weight_kg': 120}] * 3}],
+             'per_exercise': [{'exercise': 'Développé couché', 'volume_kg': 1080}]},
+        ]
+        result = _build_strength_progression(
+            entries, per_day_e1rm(entries), exercise_flags(entries))
+        point = result[0]['points'][0]
+        assert point['top_weight_kg'] == 100.0
+        assert point['volume_kg'] == 2500.0
+        assert point['e1rm_kg'] == 116.5
 
 
 class TestDetectHealthAnomalies:

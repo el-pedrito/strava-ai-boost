@@ -40,6 +40,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional
 
+from .strength_exercises import has_per_side_wording
+
 # Canonical movement family -> the stems that appear in the PLAN's exercise names.
 # "fente" and "split squat" are the same movement (his own wording), which no shared
 # table currently knows.
@@ -243,6 +245,7 @@ def _plan_sides(exercise_name: str) -> int:
 def ppg_history_sets(
     session: Optional[Dict[str, Any]],
     loads_kg: Optional[Dict[str, float]] = None,
+    load_text: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """The Campus PLAN as strength-history sets, in the shape ``compute_session_volume`` reads.
 
@@ -250,7 +253,14 @@ def ppg_history_sets(
     only the loads from his text. One item per exercise, in order of first appearance;
     one ``sets_detail`` entry per planned round (per occurrence in the legacy flat shape).
     Holds carry ``reps: None`` and ``duration_s``. ``sides`` marks the per-leg moves.
+
+    ``per_side``: loads are stored as written, never doubled. A row says
+    ``per_side: false`` only when ``load_text`` (the athlete's text the loads came
+    from) has no per-side wording: "35kg/cote" is kept at 35, which is a per-side
+    figure, not a total. Otherwise the flag is left off and the page treats the
+    load as undecided rather than guessing.
     """
+    plain_loads = isinstance(load_text, str) and not has_per_side_wording(load_text)
     items: Dict[str, Dict[str, Any]] = {}
     for block in _blocks(session):
         rounds = block["repeat"]
@@ -290,6 +300,7 @@ def ppg_history_sets(
                 "weight_kg": max(loads) if loads else None,
                 "sides": item["sides"],
                 "sets_detail": detail,
+                **({"per_side": False} if plain_loads else {}),
             }
         )
     return result

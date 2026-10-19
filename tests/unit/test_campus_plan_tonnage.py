@@ -86,6 +86,19 @@ class TestPlanSets:
         assert rows["Mollets"]["weight_kg"] == 12.0
         assert rows["Swing avec charge"]["weight_kg"] is None
         assert rows["Bond sur place"]["sides"] == 1
+        # No load text given: the flag is left off (undecided), never guessed.
+        assert all("per_side" not in row for row in rows.values())
+
+    def test_per_side_flag_follows_the_athlete_text(self):
+        """Plan loads are stored as written. With a text that has no per-side
+        wording, every row is a plain total; with '35kg/cote' (kept at 35, a
+        per-side figure) the flag is left off so the page does not take 35 as a
+        total."""
+        plain = ppg_history_sets(W41_PPG, extract_athlete_loads(TEXT_1010), load_text=TEXT_1010)
+        assert all(row["per_side"] is False for row in plain)
+        text = "Split squat 35kg/cote\nmollets 12kg"
+        noted = ppg_history_sets(W41_PPG, extract_athlete_loads(text), load_text=text)
+        assert all("per_side" not in row for row in noted)
 
     def test_the_1010_totals(self):
         volume = _history_volume(W41_PPG, extract_athlete_loads(TEXT_1010))
@@ -192,6 +205,12 @@ class TestTrackStrengthHistory:
         assert entry["sets_source"] == "campus_plan"
         assert float(entry["volume_kg"]) == 1584.0
         assert int(entry["total_sets"]) == 26
+
+    def test_the_athlete_text_reaches_the_per_side_decision(self):
+        """TEXT_1010 has no per-side wording: the stored Campus rows say so."""
+        entry, _ = self._run(copy.deepcopy(W41_PPG))
+        assert entry["parsed_sets"]
+        assert all(row["per_side"] is False for row in entry["parsed_sets"])
 
     def test_outside_the_plan_his_text_is_read(self):
         entry, extract = self._run(None)

@@ -184,6 +184,32 @@ class TestUnilateral:
         assert result['per_exercise'][0]['sets'] * 10 * 30 == result['volume_kg']
         _assert_coherent(result)
 
+    def test_per_side_note_on_unilateral_lift_is_not_doubled_twice(self) -> None:
+        """'4x10 40/c' on a unilateral lift is stored at 80 (both sides). The
+        sides expansion must not double it again: 8 x 10 x 40, not 8 x 10 x 80."""
+        result = compute_session_volume(
+            [{
+                'exercise': 'Tirage horizontal unilatéral machine',
+                'sets': 4, 'reps': 10, 'weight_kg': 80, 'per_side': True,
+                'sets_detail': [{'reps': 10, 'weight_kg': 80}] * 4,
+            }],
+            body_weight_kg=92,
+        )
+        assert result['total_sets'] == 8
+        assert result['volume_kg'] == 3200  # 8 x 10 x 40
+        _assert_coherent(result)
+
+    def test_plain_load_on_unilateral_lift_keeps_the_expansion(self) -> None:
+        result = compute_session_volume(
+            [{
+                'exercise': 'Tirage horizontal unilatéral machine',
+                'sets': 4, 'reps': 10, 'weight_kg': 30, 'per_side': False,
+            }],
+            body_weight_kg=92,
+        )
+        assert result['volume_kg'] == 2400  # 8 x 10 x 30
+        _assert_coherent(result)
+
     def test_bilateral_exercise_not_doubled(self) -> None:
         result = compute_session_volume(
             [{'exercise': 'Tirage horizontal', 'sets': 4, 'reps': 10, 'weight_kg': 30}],

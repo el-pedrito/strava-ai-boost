@@ -59,3 +59,50 @@ class TestPreexistingRulesSurvive:
 
     def test_sets_detail_is_authoritative(self):
         assert "sets_detail is REQUIRED and is the authoritative field" in PROMPT
+
+
+class TestPerSideFlagInExamples:
+    """The model copies the examples. One without ``per_side`` teaches it to drop
+    the flag, and an unflagged row then counts in no record."""
+
+    def _example_objects(self):
+        import json
+        import re
+        objects = []
+        for raw in re.findall(r"-> (\[.*?\])(?:\n|$)", PROMPT):
+            objects.extend(json.loads(raw))
+        return objects
+
+    def test_every_example_object_carries_per_side(self):
+        objects = self._example_objects()
+        assert len(objects) >= 7
+        assert all(isinstance(o.get("per_side"), bool) for o in objects), [
+            o["exercise"] for o in objects if not isinstance(o.get("per_side"), bool)
+        ]
+
+    def test_a_paired_line_with_one_per_side_lift_is_shown(self):
+        flags = [o["per_side"] for o in self._example_objects()]
+        assert "8/c-40" in PROMPT
+        assert True in flags and False in flags
+
+    SPELLINGS = ("/c", "/cote", "/côté", "par cote", "par côté", "each side", "/side")
+
+    def test_every_per_side_spelling_is_listed(self):
+        for spelling in self.SPELLINGS:
+            assert f"'{spelling}'" in PROMPT, spelling
+
+    def test_the_page_recognises_every_spelling_the_prompt_lists(self):
+        """Anti-drift: an unflagged row is 'plain' when the page sees no per-side
+        wording. A spelling the prompt knows but the page's regex misses would
+        turn a doubled load into a plain one."""
+        import re
+        from shared.strength_exercises import has_per_side_wording
+        rule_list = re.search(r"PER SIDE loads: (.*?) mean", PROMPT).group(1)
+        flag_list = re.search(r"per_side: true ONLY when .*?\((.*?)\)", PROMPT, re.S).group(1)
+        prompt_spellings = re.findall(r"'([^']+)'", rule_list)
+        # The prompt lists the spellings twice (doubling rule, flag rule): same set.
+        assert set(re.findall(r"'([^']+)'", flag_list)) == set(prompt_spellings)
+        assert set(prompt_spellings) == set(self.SPELLINGS)
+        for spelling in prompt_spellings:
+            assert has_per_side_wording(f"press 3x10 40{spelling}"), spelling
+            assert has_per_side_wording(f"press 3x10 40 {spelling}"), spelling

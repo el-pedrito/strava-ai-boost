@@ -124,6 +124,10 @@ def compute_session_volume(
         canonical = canonicalize_exercise_name(entry.get('exercise', ''))
         sides = _sides_for(entry, canonical)
         is_unilateral = sides > 1
+        # A per-side note ("40/c") is stored already doubled (80 = both sides).
+        # Expanding by sides again would count the other side twice: the load of
+        # one side is the stored total divided by the sides.
+        load_divisor = sides if (is_unilateral and entry.get('per_side') is True) else 1
 
         sets_detail = entry.get('sets_detail')
         if not sets_detail:
@@ -168,7 +172,7 @@ def compute_session_volume(
                 # excluded rather than guessed.
                 exercise_incomplete = True
                 continue
-            exercise_volume += int(reps) * load
+            exercise_volume += int(reps) * load / load_divisor
             contributing_sets += 1
 
         if exercise_sets == 0:

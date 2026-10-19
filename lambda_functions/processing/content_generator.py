@@ -44,6 +44,7 @@ from shared.strength_volume import compute_session_volume
 from shared.logger import get_logger, metrics, MetricUnit, METRICS_NAMESPACE
 from shared.strength_exercises import (
     CANONICAL_STRENGTH_EXERCISES,
+    STORED_DESCRIPTION_MAX_CHARS,
     canonicalize_exercise_name,
 )
 
@@ -1046,7 +1047,11 @@ _STRENGTH_EXTRACTION_SYSTEM_PROMPT = (
     "You extract structured strength-training sets from a free-text workout description "
     "written by an athlete (French or English). Return ONLY a JSON array, no prose, no code fences.\n"
     "Each element is an object: {\"exercise\": string, \"sets\": integer, \"reps\": integer|null, "
-    "\"weight_kg\": number|null, \"sets_detail\": [{\"reps\": integer|null, \"weight_kg\": number|null}]}.\n"
+    "\"weight_kg\": number|null, \"per_side\": boolean, "
+    "\"sets_detail\": [{\"reps\": integer|null, \"weight_kg\": number|null}]}.\n"
+    "- per_side: true ONLY when THIS exercise's load was written per side ('/c', '/cote', "
+    "'/côté', 'par cote', 'par côté', 'each side', '/side') and you doubled it; false otherwise. Decide it "
+    "for each exercise from its own words, never from another exercise on the same line.\n"
     "Rules:\n"
     "- sets_detail is REQUIRED and is the authoritative field: one entry per set actually "
     "performed, in the order written, each with its OWN reps and its OWN load. Never collapse "
@@ -1059,7 +1064,11 @@ _STRENGTH_EXTRACTION_SYSTEM_PROMPT = (
     "25 sets to 26 and its tonnage by 800 kg.\n"
     "- sets/reps/weight_kg remain for backward compatibility: sets = len(sets_detail), and "
     "reps/weight_kg = the most frequent value across sets_detail (a summary, never a total).\n"
-    "- PER SIDE loads: '/c', '/cote', '/côté', 'par cote', 'each side', '/side' mean the load "
+    "- ABBREVIATIONS the athlete uses: 'dc' = Développé couché, 'dm' = Développé militaire, "
+    "'di' = Développé incliné. With a machine ('mach', 'machine', 'convergente'): "
+    "'dc machine' -> 'Développé couché machine', 'dm machine' -> 'Presse épaules'. Never "
+    "use 'Développé machine' for a new row: it cannot tell a chest press from a shoulder press.\n"
+    "- PER SIDE loads: '/c', '/cote', '/côté', 'par cote', 'par côté', 'each side', '/side' mean the load "
     "is per side, so the load actually moved is DOUBLE. '4x8 55/c' -> four entries at "
     "weight_kg 110. Apply the doubling in weight_kg, never leave the per-side figure.\n"
     "- PAIRED notation: 'A - B 3x10-10 15-35' is a superset of two exercises sharing one line. "
@@ -1097,26 +1106,40 @@ _STRENGTH_EXTRACTION_SYSTEM_PROMPT = (
     "- If nothing parseable, return [].\n"
     "Examples:\n"
     "'low row mach 10x80 8x90 8x90' -> "
-    "[{\"exercise\":\"Tirage horizontal machine\",\"sets\":3,\"reps\":8,\"weight_kg\":90,"
+    "[{\"exercise\":\"Tirage horizontal machine\",\"sets\":3,\"reps\":8,\"weight_kg\":90,\"per_side\":false,"
     "\"sets_detail\":[{\"reps\":10,\"weight_kg\":80},{\"reps\":8,\"weight_kg\":90},"
     "{\"reps\":8,\"weight_kg\":90}]}]\n"
     "'dc machine convergente 4x8 55/c' -> "
-    "[{\"exercise\":\"Développé machine\",\"sets\":4,\"reps\":8,\"weight_kg\":110,"
+    "[{\"exercise\":\"Développé couché machine\",\"sets\":4,\"reps\":8,\"weight_kg\":110,\"per_side\":true,"
     "\"sets_detail\":[{\"reps\":8,\"weight_kg\":110},{\"reps\":8,\"weight_kg\":110},"
     "{\"reps\":8,\"weight_kg\":110},{\"reps\":8,\"weight_kg\":110}]}]\n"
+    # Verbatim from his log: "dm mach" is the shoulder press machine, never the chest
+    # press. Both used to land on one "Développé machine" name and one mixed series.
+    "'Dm mach 40/c 3x10' -> "
+    "[{\"exercise\":\"Presse épaules\",\"sets\":3,\"reps\":10,\"weight_kg\":80,\"per_side\":true,"
+    "\"sets_detail\":[{\"reps\":10,\"weight_kg\":80},{\"reps\":10,\"weight_kg\":80},"
+    "{\"reps\":10,\"weight_kg\":80}]}]\n"
     "'elev lat - face pull 3x10-10 15-35' -> "
-    "[{\"exercise\":\"Élévations latérales\",\"sets\":3,\"reps\":10,\"weight_kg\":15,"
+    "[{\"exercise\":\"Élévations latérales\",\"sets\":3,\"reps\":10,\"weight_kg\":15,\"per_side\":false,"
     "\"sets_detail\":[{\"reps\":10,\"weight_kg\":15},{\"reps\":10,\"weight_kg\":15},"
     "{\"reps\":10,\"weight_kg\":15}]},"
-    "{\"exercise\":\"Face pull\",\"sets\":3,\"reps\":10,\"weight_kg\":35,"
+    "{\"exercise\":\"Face pull\",\"sets\":3,\"reps\":10,\"weight_kg\":35,\"per_side\":false,"
     "\"sets_detail\":[{\"reps\":10,\"weight_kg\":35},{\"reps\":10,\"weight_kg\":35},"
     "{\"reps\":10,\"weight_kg\":35}]}]\n"
     # Verbatim from his log (2026-10-10), lost one set before: after a load, a bare
     # number is the reps of ONE set; 'L NxR' is N sets of R at L.
     "'Face pull 40 10 45 2x10' -> "
-    "[{\"exercise\":\"Face pull\",\"sets\":3,\"reps\":10,\"weight_kg\":45,"
+    "[{\"exercise\":\"Face pull\",\"sets\":3,\"reps\":10,\"weight_kg\":45,\"per_side\":false,"
     "\"sets_detail\":[{\"reps\":10,\"weight_kg\":40},{\"reps\":10,\"weight_kg\":45},"
-    "{\"reps\":10,\"weight_kg\":45}]}]"
+    "{\"reps\":10,\"weight_kg\":45}]}]\n"
+    # One line, two lifts, only one written per side: the flag is decided per exercise.
+    "'curl - triceps corde 3x12-12 8/c-40' -> "
+    "[{\"exercise\":\"Curl biceps\",\"sets\":3,\"reps\":12,\"weight_kg\":16,\"per_side\":true,"
+    "\"sets_detail\":[{\"reps\":12,\"weight_kg\":16},{\"reps\":12,\"weight_kg\":16},"
+    "{\"reps\":12,\"weight_kg\":16}]},"
+    "{\"exercise\":\"Triceps à la corde\",\"sets\":3,\"reps\":12,\"weight_kg\":40,\"per_side\":false,"
+    "\"sets_detail\":[{\"reps\":12,\"weight_kg\":40},{\"reps\":12,\"weight_kg\":40},"
+    "{\"reps\":12,\"weight_kg\":40}]}]"
 )
 
 
@@ -1214,13 +1237,20 @@ def _extract_strength_sets(description: str) -> List[Dict[str, Any]]:
             # per-set view so consumers only ever handle one shape.
             detail = [{"reps": reps, "weight_kg": weight} for _ in range(min(sets, 20))]
 
-        clean.append({
+        row = {
             "exercise": canonicalize_exercise_name(exercise)[:60],
             "sets": len(detail) if detail else sets,
             "reps": reps,
             "weight_kg": weight,
             "sets_detail": detail,
-        })
+        }
+        # The extractor is the only place that SEES the per-side notation (it
+        # doubles the load). Recording it here replaces guessing it later from
+        # the text, which three review rounds showed cannot be done reliably.
+        # Only a real boolean is kept: a missing flag stays missing (unknown).
+        if isinstance(raw.get("per_side"), bool):
+            row["per_side"] = raw["per_side"]
+        clean.append(row)
 
     logger.info(f"Extracted {len(clean)} structured strength sets from description")
     return clean
@@ -1285,11 +1315,11 @@ def _track_strength_history(
         # against the strength_program to track progressions. In addition, a
         # best-effort LLM extraction produces structured sets for progression charts.
         if matched_session:
+            load_text = activity_data.get('original_description') or description
             parsed_sets = ppg_history_sets(
                 matched_session,
-                extract_athlete_loads(
-                    activity_data.get('original_description') or description
-                ),
+                extract_athlete_loads(load_text),
+                load_text=load_text,
             )
             sets_source = 'campus_plan'
         else:
@@ -1311,7 +1341,7 @@ def _track_strength_history(
             'date': activity_date[:10] if activity_date else datetime.now(timezone.utc).strftime('%Y-%m-%d'),
             'activity_id': activity_id,
             'duration_min': int(duration_min),
-            'description': description[:1000],
+            'description': description[:STORED_DESCRIPTION_MAX_CHARS],
             'parsed_sets': parsed_sets,
             'total_sets': volume['total_sets'],
             'total_reps': volume['total_reps'],

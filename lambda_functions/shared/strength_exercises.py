@@ -16,6 +16,7 @@ CANONICAL_STRENGTH_EXERCISES: Tuple[str, ...] = (
     'Développé militaire haltères',
     'Développé militaire assis',
     'Développé machine',
+    'Développé couché machine',
     'Presse épaules',
     'Dips',
     'Pompes',
@@ -71,9 +72,23 @@ _ALIAS_GROUPS = (
         'Élévation latérale haltères assis', 'Elevations laterales halteres assis',
     )),
     _aliases('Pull-over', ('Pullover', 'Pull over')),
+    # The athlete's shorthand (confirmed 2026-10-17): dc = développé couché,
+    # dm = développé militaire (on a machine: presse épaules), di = développé incliné.
+    # "Développé machine" stays canonical only for legacy rows that mixed a chest
+    # press machine and a shoulder press machine.
     _aliases('Développé couché', (
         'DC', 'DC barre', 'Développé couché barre',
     )),
+    _aliases('Développé couché machine', (
+        'DC machine', 'DC mach', 'DC machine convergente', 'DC mach convergente',
+        'Développé couché machine convergente', 'Chest press', 'Chest press machine',
+    )),
+    _aliases('Développé militaire', ('DM', 'DM barre', 'Développé militaire barre')),
+    _aliases('Presse épaules', (
+        'DM machine', 'DM mach', 'Développé militaire machine', 'Press ep mach',
+        'Press ep machine', 'Presse épaules machine', 'Shoulder press machine',
+    )),
+    _aliases('Développé incliné', ('DI', 'DI barre', 'DI smith', 'Développé incliné smith')),
     _aliases('Développé couché haltères', (
         'DC halt', 'DC haltere', 'DC halteres', 'Développé couché halt',
         'Développé couché haltère',
@@ -173,3 +188,39 @@ BODYWEIGHT_EXERCISES: Dict[str, float] = {
 UNILATERAL_EXERCISES: Dict[str, int] = {
     'Tirage horizontal unilatéral machine': 2,
 }
+
+
+# ---------------------------------------------------------------------------
+# Per-side wording
+# ---------------------------------------------------------------------------
+
+# Any per-side wording, with or without a number next to it: "35/c", "/ côté",
+# "par cote", "each side". It must match every spelling the extraction prompt
+# lists (pinned by tests/regression/test_strength_extraction_prompt.py). It never
+# decides per-side vs plain on its own: it only says a load MAY be per side.
+PER_SIDE_WORDING_RE = re.compile(
+    r'/\s*c\b|/\s*c[oô]t[eé]s?\b|par\s+c[oô]t[eé]s?\b|chaque\s+c[oô]t[eé]\b'
+    r'|each\s+side\b|/\s*side\b|per\s+side\b',
+    re.IGNORECASE,
+)
+
+# strength_history stores the session text cut to this many characters. A stored
+# text this long may have lost a per-side note past the cut.
+STORED_DESCRIPTION_MAX_CHARS = 1000
+
+
+def has_per_side_wording(text) -> bool:
+    """True when ``text`` holds any per-side wording."""
+    return isinstance(text, str) and bool(PER_SIDE_WORDING_RE.search(text))
+
+
+def stored_text_was_cut(text) -> bool:
+    """True when a stored session text reaches the storage cut: anything past
+    the cut, a per-side note included, may be lost. The one boundary rule."""
+    return isinstance(text, str) and len(text) >= STORED_DESCRIPTION_MAX_CHARS
+
+
+def stored_text_may_hide_per_side(text) -> bool:
+    """True when a stored session text can not prove "no per-side wording":
+    it has some, or it reaches the storage cut and may have lost one."""
+    return has_per_side_wording(text) or stored_text_was_cut(text)
