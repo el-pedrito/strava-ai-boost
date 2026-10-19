@@ -322,6 +322,13 @@ describe('HomePage', () => {
     expect(within(sessions[0]).getByText('Done')).toBeInTheDocument();
   });
 
+  it('links the week card footer to the full activities list', async () => {
+    getHomeSummaryMock.mockResolvedValue(fullFixture());
+    renderHome();
+    const week = await screen.findByRole('region', { name: /This week/ });
+    expect(within(week).getByRole('link', { name: 'All activities' })).toHaveAttribute('href', '/activities');
+  });
+
   it('hides unknown cycle codes rather than showing them', async () => {
     const fx = fullFixture();
     fx.plan!.cycle_theme = 'XQ_17';

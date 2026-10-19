@@ -4,7 +4,8 @@
  * the tune-up race named as such, and a single km target.
  */
 import { useTranslation } from 'react-i18next';
-import { Check, Flag, X } from 'lucide-react';
+import { Link } from 'react-router';
+import { Check, ChevronRight, Flag, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { HomePlan, HomeWeekSession } from '@/types/home';
 import { fmtNumber } from '../format';
@@ -189,6 +190,16 @@ export function WeekCard({
           </ol>
         </>
       )}
+
+      <div className="-mb-1 flex justify-end border-t border-border pt-1">
+        <Link
+          to="/activities"
+          className="inline-flex min-h-11 items-center gap-1 rounded-sm text-sm font-medium text-primary-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {t('activities.seeAll')}
+          <ChevronRight className="h-4 w-4" aria-hidden="true" />
+        </Link>
+      </div>
     </HomeCard>
   );
 }
