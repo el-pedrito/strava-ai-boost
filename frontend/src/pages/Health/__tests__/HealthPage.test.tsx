@@ -180,6 +180,23 @@ describe('HealthPage', () => {
     expect(form).toHaveAttribute('data-status', 'bad');
     expect(form).toHaveTextContent('Alert');
     expect(form).toHaveTextContent('unreliable: load incomplete, see below');
+    // −26,4 would be "normal training fatigue": computed on biased load, and it
+    // contradicts the Alert dot, so no zone word at all.
+    expect(within(form).queryByTestId('health-form-zone')).not.toBeInTheDocument();
+    expect(form).not.toHaveTextContent('normal training fatigue');
+  });
+
+  it('shows the zone word when the load is complete and it agrees with the dot', async () => {
+    const fx = fixture({
+      health_series: realLikeSeries().map((p) => ({ ...p, atl: 30, ctl: 20 })),
+    });
+    fx.brief = { ...fx.brief!, signals: [{ key: 'form', value: -18, baseline: -8.2, status: 'warn', as_of: '2026-10-19' }] };
+    getHomeSummaryMock.mockResolvedValue(fx);
+    renderHealth();
+    const form = await screen.findByTestId('health-ready-form');
+    expect(form).toHaveTextContent('Watch');
+    expect(within(form).getByTestId('health-form-zone')).toHaveTextContent('normal training fatigue');
+    expect(form).not.toHaveTextContent('unreliable');
   });
 
   it('uses the Home words for fresh brief statuses', async () => {

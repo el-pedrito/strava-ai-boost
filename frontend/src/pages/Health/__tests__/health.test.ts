@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { BriefSignal, HealthMetric, HealthSeriesPoint, HomeBrief, HomeHealth } from '@/types/home';
-import { readinessItems } from '../readiness';
+import { readinessItems, zoneAgrees } from '../readiness';
 import { signalStatus } from '../../Home/brief';
 import { bodyTilesVisible, visibleBodyTiles } from '../body';
 import { clipGaps, fillDailySeries, lastDays, newestAsOf, overlappingGaps, seriesStats } from '../series';
@@ -63,6 +63,35 @@ describe('readinessItems', () => {
     // A 30 % HRV drop the brief did not rate is not turned into an alert here.
     expect(readinessItems(brief([sig('hrv', 'weird', 42, 60)]))[0].status).toBe('missing');
     expect(signalStatus(sig('hrv', 'bad', 59, 60))).toBe('bad');
+  });
+});
+
+describe('TSB zone word', () => {
+  it('is never shown while the load is incomplete', () => {
+    const b = brief([sig('form', 'ok', 2)]);
+    expect(readinessItems(b)[3].zone).toBe('neutral');
+    expect(readinessItems(b, { formIncomplete: true })[3].zone).toBeNull();
+    expect(readinessItems(brief([sig('form', 'bad', -35)]), { formIncomplete: true })[3].zone).toBeNull();
+  });
+
+  it('never contradicts the brief dot', () => {
+    // −26,4: "normal training fatigue" for intervals.icu, "Alerte" for the brief.
+    expect(readinessItems(brief([sig('form', 'bad', -26.4)]))[3].zone).toBeNull();
+    expect(readinessItems(brief([sig('form', 'bad', -35)]))[3].zone).toBe('overload');
+    expect(readinessItems(brief([sig('form', 'warn', -18)]))[3].zone).toBe('productive');
+    expect(readinessItems(brief([sig('form', 'ok', -12)]))[3].zone).toBe('productive');
+    expect(readinessItems(brief([sig('form', 'ok', 30)]))[3].zone).toBe('veryFresh');
+    // Stale or missing: no dot to agree with, no zone.
+    expect(readinessItems(brief([sig('form', 'missing', 3)]))[3].zone).toBeNull();
+    expect(readinessItems(null)[3].zone).toBeNull();
+  });
+
+  it('pins the agreement table', () => {
+    expect(zoneAgrees('fresh', 'warn')).toBe(false);
+    expect(zoneAgrees('neutral', 'bad')).toBe(false);
+    expect(zoneAgrees('overload', 'ok')).toBe(false);
+    expect(zoneAgrees('productive', 'stale')).toBe(false);
+    expect(zoneAgrees(null, 'ok')).toBe(false);
   });
 });
 

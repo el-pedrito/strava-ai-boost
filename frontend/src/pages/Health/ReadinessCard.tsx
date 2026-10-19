@@ -66,7 +66,9 @@ function ReadinessTile({ item, metric, formIncomplete }: { item: ReadinessItem; 
       </p>
       {metric && item.key !== 'form' && <UsualLine metricKey={item.key} metric={metric} testIdPrefix="health" />}
       {item.key === 'form' && item.zone && (
-        <p className="mt-1 text-xs text-muted-foreground">{t(`home.recovery.formZone.${item.zone}`)}</p>
+        <p className="mt-1 text-xs text-muted-foreground" data-testid="health-form-zone">
+          {t(`home.recovery.formZone.${item.zone}`)}
+        </p>
       )}
       {item.key === 'form' && formIncomplete && value && (
         <p className="mt-1 text-xs font-semibold text-warning-text">{t('health.ready.formUnreliable')}</p>
@@ -103,7 +105,7 @@ export function ReadinessCard({
   formIncomplete: boolean;
 }) {
   const { t } = useTranslation();
-  const items = readinessItems(brief);
+  const items = readinessItems(brief, { formIncomplete });
   return (
     <HomeCard labelledBy="health-ready-title" className="flex flex-col gap-3">
       <div className="flex flex-col gap-0.5">
