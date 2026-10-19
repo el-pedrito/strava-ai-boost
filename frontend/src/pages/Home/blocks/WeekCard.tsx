@@ -176,7 +176,16 @@ export function WeekCard({
                       kind === 'done' ? 'text-muted-foreground' : 'text-foreground'
                     )}
                   >
-                    {s.title ?? t('home.week.untitled')}
+                    {kind === 'done' && s.activity_id ? (
+                      <Link
+                        to={`/activities/${encodeURIComponent(s.activity_id)}`}
+                        className="rounded-sm hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {s.title ?? t('home.week.untitled')}
+                      </Link>
+                    ) : (
+                      (s.title ?? t('home.week.untitled'))
+                    )}
                   </span>
                   {s.duration_min != null && (
                     <span className="whitespace-nowrap text-xs text-muted-foreground">

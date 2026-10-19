@@ -207,9 +207,12 @@ describe('HomePage', () => {
     const hero = await screen.findByRole('region', { name: 'This morning' });
     expect(within(hero).getByText('Green light')).toBeInTheDocument();
     expect(within(hero).getByText('Normal recovery: do your session as planned.')).toBeInTheDocument();
-    expect(within(hero).getByText("Today's session")).toBeInTheDocument();
-    expect(within(hero).getByText('Allure 21km')).toBeInTheDocument();
-    expect(within(hero).getByText('64 min')).toBeInTheDocument();
+    // Two open sessions: Campus's next one is picked by default, the other can be picked.
+    expect(within(hero).getByText('Picked session')).toBeInTheDocument();
+    const pick = within(hero).getByRole('radiogroup', { name: '2 sessions to do this week, pick by how you feel' });
+    expect(within(pick).getByRole('radio', { name: /Allure 21km/ })).toHaveAttribute('aria-checked', 'true');
+    expect(within(pick).getByRole('radio', { name: /Course 10 km/ })).toHaveAttribute('aria-checked', 'false');
+    expect(within(hero).getAllByText('64 min').length).toBeGreaterThanOrEqual(1);
     // Weather chips: dry slot in words, rain with its unit.
     expect(within(hero).getByText('07:00')).toBeInTheDocument();
     expect(within(hero).getByText('6 °C · wind 20 km/h · dry')).toBeInTheDocument();
@@ -323,12 +326,68 @@ describe('HomePage', () => {
     expect(sessions).toHaveLength(4);
     // No order number is rendered in a row.
     expect(sessions[0]).not.toHaveTextContent(/^1/);
-    const next = sessions.find((el) => el.dataset.next === 'true');
-    expect(within(next!).getByText('Allure 21km')).toBeInTheDocument();
-    expect(within(next!).getByText('Next')).toBeInTheDocument();
+    // Campus sessions are à la carte: no row is flagged "Next" any more.
+    expect(sessions.some((el) => el.dataset.next === 'true')).toBe(false);
+    expect(within(week).queryByText('Next')).not.toBeInTheDocument();
+    expect(within(sessions[2]).getByText('Allure 21km')).toBeInTheDocument();
     // The tune-up race is named as such, with a single badge.
     expect(within(sessions[3]).getByText('Tune-up race')).toBeInTheDocument();
     expect(within(sessions[0]).getByText('Done')).toBeInTheDocument();
+  });
+
+  it('lets the athlete pick any open session: coach word and Watch file follow the pick', async () => {
+    const fx = fullFixture();
+    fx.week_sessions![3] = {
+      ...fx.week_sessions![3],
+      session_id: 's4',
+      coach_advice: 'Course de préparation, pars prudent.',
+      workout_b64: 'BBBB',
+      filename: 'course-10-km.workout',
+    };
+    getHomeSummaryMock.mockResolvedValue(fx);
+    renderHome();
+
+    const hero = await screen.findByRole('region', { name: 'This morning' });
+    expect(within(hero).getByTestId('home-coach-advice')).toHaveTextContent('bien relâché');
+    fireEvent.click(within(hero).getByRole('radio', { name: /Course 10 km/ }));
+    expect(within(hero).getByRole('radio', { name: /Course 10 km/ })).toHaveAttribute('aria-checked', 'true');
+    expect(within(hero).getByTestId('home-coach-advice')).toHaveTextContent('Course de préparation, pars prudent.');
+    fireEvent.click(within(hero).getByRole('button', { name: 'Add to Watch' }));
+    expect(downloadWorkoutMock).toHaveBeenCalledWith('BBBB', 'course-10-km.workout');
+  });
+
+  it('picked session without its own Watch file hides the button (no stale file of another session)', async () => {
+    getHomeSummaryMock.mockResolvedValue(fullFixture());
+    renderHome();
+    const hero = await screen.findByRole('region', { name: 'This morning' });
+    fireEvent.click(within(hero).getByRole('radio', { name: /Course 10 km/ }));
+    expect(within(hero).queryByRole('button', { name: 'Add to Watch' })).not.toBeInTheDocument();
+    expect(within(hero).queryByTestId('home-coach-advice')).not.toBeInTheDocument();
+  });
+
+  it('lists the sessions already done this week, linked to their activity when matched', async () => {
+    const fx = fullFixture();
+    fx.week_sessions![0] = { ...fx.week_sessions![0], activity_id: '123' };
+    getHomeSummaryMock.mockResolvedValue(fx);
+    renderHome();
+    const hero = await screen.findByRole('region', { name: 'This morning' });
+    const done = within(hero).getByTestId('home-done-sessions');
+    expect(within(done).getByText('Already done this week (2)')).toBeInTheDocument();
+    expect(within(done).getByRole('link', { name: 'Footing EF' })).toHaveAttribute('href', '/activities/123');
+    expect(within(done).getByText('PPG').closest('a')).toBeNull();
+    const week = screen.getByRole('region', { name: /This week/ });
+    expect(within(week).getByRole('link', { name: 'Footing EF' })).toHaveAttribute('href', '/activities/123');
+  });
+
+  it('one open session left: no picker, the usual "Today\'s session" label', async () => {
+    const fx = fullFixture();
+    fx.week_sessions![3] = { ...fx.week_sessions![3], status: 'done' };
+    getHomeSummaryMock.mockResolvedValue(fx);
+    renderHome();
+    const hero = await screen.findByRole('region', { name: 'This morning' });
+    expect(within(hero).queryByRole('radiogroup')).not.toBeInTheDocument();
+    expect(within(hero).getByText("Today's session")).toBeInTheDocument();
+    expect(within(hero).getByText('Allure 21km')).toBeInTheDocument();
   });
 
   it('links the week card footer to the full activities list', async () => {
@@ -555,6 +614,7 @@ describe('HomePage', () => {
     const fx = fullFixture();
     // The brief was built at 07:30 naming "Allure 21km"; the athlete has done it since.
     fx.next_session = null;
+    fx.week_sessions = fx.week_sessions!.map((s) => ({ ...s, status: 'done' }));
     expect(fx.brief!.next_session?.title).toBe('Allure 21km');
     getHomeSummaryMock.mockResolvedValue(fx);
     renderHome();
@@ -564,7 +624,10 @@ describe('HomePage', () => {
     expect(within(hero).getByText('Green light')).toBeInTheDocument();
     expect(within(hero).getByText('07:00')).toBeInTheDocument();
     expect(within(hero).queryByText("Today's session")).not.toBeInTheDocument();
-    expect(within(hero).queryByText('Allure 21km')).not.toBeInTheDocument();
+    expect(within(hero).queryByText('Picked session')).not.toBeInTheDocument();
+    // The session only appears in the "already done" list, never as today's one.
+    expect(within(hero).getAllByText('Allure 21km')).toHaveLength(1);
+    expect(within(hero).getByTestId('home-done-sessions')).toHaveTextContent('Allure 21km');
     expect(within(hero).queryByText('64 min')).not.toBeInTheDocument();
     expect(within(hero).queryByRole('button', { name: 'Add to Watch' })).not.toBeInTheDocument();
     expect(within(hero).queryByRole('link', { name: /plan/i })).not.toBeInTheDocument();

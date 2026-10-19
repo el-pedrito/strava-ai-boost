@@ -121,13 +121,13 @@ export function HomePage() {
           className="grid grid-cols-1 items-start gap-3 md:gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]"
           data-testid="home-grid"
         >
-          {heroVisible && <HeroCard brief={data.brief} next={data.next_session} />}
+          {heroVisible && <HeroCard brief={data.brief} next={data.next_session} sessions={weekSessions} />}
 
           <div className="flex min-w-0 flex-col gap-3 md:gap-4">
             {raceVisible && data.race && <RaceCard race={data.race} />}
             {campusOn ? (
               (data.plan || weekSessions.length > 0) && (
-                <WeekCard plan={data.plan} sessions={weekSessions} nextOrder={data.next_session?.order ?? null} />
+                <WeekCard plan={data.plan} sessions={weekSessions} nextOrder={null} />
               )
             ) : (
               <EmptyState
