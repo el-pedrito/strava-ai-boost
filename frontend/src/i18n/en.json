@@ -73,6 +73,8 @@
   "common.dash": "—",
   "common.metricInfo": "About this metric",
   "nav.dashboard": "Dashboard",
+  "nav.activities": "Activities",
+  "nav.health": "Health",
   "nav.configuration": "Configuration",
   "nav.configurationShort": "Config",
   "nav.preferences": "Preferences",
