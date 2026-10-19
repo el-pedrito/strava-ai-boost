@@ -681,7 +681,10 @@ def _build_strength_progression(
                     top_weight = flat_weight
             # Volume from the pipeline figures (never recomputed here).
             volume = per_exercise_volume.get(name)
-            if volume is None:
+            # Flat fallback only for a legacy row with no sets_detail: when detail
+            # exists it is authoritative, so an invalid detail never invents a
+            # volume from the flat summary (same rule as the top weight above).
+            if volume is None and not (isinstance(detail, list) and detail):
                 sets = to_finite_float(s.get('sets'))
                 reps = to_finite_float(s.get('reps'))
                 flat_weight = to_finite_float(s.get('weight_kg'))

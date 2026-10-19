@@ -35,7 +35,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Dict, List, Optional, Tuple
 
 from .numeric import to_finite_float
-from .strength_exercises import canonicalize_exercise_name
+from .strength_exercises import canonicalize_exercise_name, stored_text_may_hide_per_side
 from .strength_muscles import (
     AUTRE,
     EXPLOSIVITE,
@@ -293,20 +293,10 @@ def _best_set_e1rm(sets_detail: List[Dict[str, Any]]) -> Optional[float]:
 # Records
 # ---------------------------------------------------------------------------
 
-# Any per-side wording, with or without a number next to it: "35/c", "/ côté",
-# "par cote", "each side". Used only to decide whether an UNFLAGGED row can be
-# trusted; it never decides per-side vs plain on its own.
-_PER_SIDE_TOKEN_RE = re.compile(
-    r'/\s*c\b|/\s*c[oô]t[eé]s?\b|par\s+c[oô]t[eé]s?\b|chaque\s+c[oô]t[eé]\b'
-    r'|each\s+side\b|/\s*side\b|per\s+side\b',
-    re.IGNORECASE,
-)
-
-
 def _has_per_side_token(entry: Dict[str, Any]) -> bool:
-    """True when the session text holds any per-side wording."""
-    description = entry.get('description')
-    return isinstance(description, str) and bool(_PER_SIDE_TOKEN_RE.search(description))
+    """True when the stored session text cannot rule out a per-side load: it holds
+    a per-side wording, or it was cut at storage and may have lost one."""
+    return stored_text_may_hide_per_side(entry.get('description'))
 
 
 def _positive_loads(detail: List[Dict[str, Any]]) -> List[float]:
@@ -329,7 +319,8 @@ def row_notation(entry: Dict[str, Any], parsed_set: Dict[str, Any]) -> str:
       place that saw which lift the notation belonged to.
     - Without the flag (rows written before it, or a row the history re-read could
       not settle): ``'plain'`` only when the session text has no per-side wording
-      at all, so the load cannot be a doubled figure. Otherwise ``'ambiguous'``:
+      at all and was not cut at storage, so the load cannot be a doubled figure.
+      Otherwise ``'ambiguous'``:
       the load may or may not be doubled, so it feeds no load record and draws no
       chart point. The page never guesses which lift a "/c" belonged to.
     """
@@ -670,8 +661,6 @@ def exercise_flags(entries: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
             seen[name] = True
             map_e1rm[name] = mapping.e1rm
             is_mixed[name] = name in MIXED_EXERCISES
-            detail = parsed_set.get('sets_detail')
-            detail = detail if isinstance(detail, list) else []
             state = row_notation(entry, parsed_set)
             if state == 'per_side':
                 per_side_seen[name] = True

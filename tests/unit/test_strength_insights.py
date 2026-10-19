@@ -349,6 +349,16 @@ class TestRecords:
         ):
             assert row_notation({'description': desc}, row) == 'ambiguous', desc
 
+    def test_unflagged_row_on_a_text_cut_at_storage_is_ambiguous(self):
+        """The stored text is cut at 1000 characters: a '/c' past the cut is lost,
+        so a cut text cannot prove the load is plain."""
+        from shared.strength_insights import row_notation
+        row = {'exercise': 'Développé couché', 'sets_detail': [{'reps': 8, 'weight_kg': 80}]}
+        cut = 'dc 4x8 80 ' + 'x' * 990
+        assert len(cut) == 1000
+        assert row_notation({'description': cut}, row) == 'ambiguous'
+        assert row_notation({'description': cut[:999]}, row) == 'plain'
+
     def test_unflagged_row_without_per_side_wording_is_plain(self):
         from shared.strength_insights import row_notation
         row = {'exercise': 'Développé couché', 'sets_detail': [{'reps': 8, 'weight_kg': 80}]}

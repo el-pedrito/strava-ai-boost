@@ -86,9 +86,19 @@ class TestPlanSets:
         assert rows["Mollets"]["weight_kg"] == 12.0
         assert rows["Swing avec charge"]["weight_kg"] is None
         assert rows["Bond sur place"]["sides"] == 1
-        # Plan loads are stored as written, never doubled: every row says so, so
-        # the page reads them without guessing from the text.
-        assert all(row["per_side"] is False for row in rows.values())
+        # No load text given: the flag is left off (undecided), never guessed.
+        assert all("per_side" not in row for row in rows.values())
+
+    def test_per_side_flag_follows_the_athlete_text(self):
+        """Plan loads are stored as written. With a text that has no per-side
+        wording, every row is a plain total; with '35kg/cote' (kept at 35, a
+        per-side figure) the flag is left off so the page does not take 35 as a
+        total."""
+        plain = ppg_history_sets(W41_PPG, extract_athlete_loads(TEXT_1010), load_text=TEXT_1010)
+        assert all(row["per_side"] is False for row in plain)
+        text = "Split squat 35kg/cote\nmollets 12kg"
+        noted = ppg_history_sets(W41_PPG, extract_athlete_loads(text), load_text=text)
+        assert all("per_side" not in row for row in noted)
 
     def test_the_1010_totals(self):
         volume = _history_volume(W41_PPG, extract_athlete_loads(TEXT_1010))

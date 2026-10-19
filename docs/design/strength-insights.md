@@ -125,16 +125,21 @@ notation would fake a record.
 **Source of truth: the extractor's `per_side` flag.** The extractor is the only
 step that sees the notation (it doubles the load), so it writes
 `per_side: true|false` on each parsed exercise, decided per exercise from its own
-words. Campus plan rows always carry `per_side: false` (plan loads are stored as
-written, never doubled). The page never guesses which lift a "/c" belonged to.
+words. Campus plan rows keep loads as written ("35kg/cote" stays 35, a per-side
+figure), so they carry `per_side: false` only when the athlete's text has no
+per-side wording; otherwise the flag is left off. The page never guesses which
+lift a "/c" belonged to.
 
 Per (session, exercise) row, `shared/strength_insights.py::row_notation` gives:
 
 - **unknown**: no valid positive load. `sets_detail` is authoritative when present;
   the flat `weight_kg` counts only for a legacy row without detail.
 - **per_side** / **plain**: the flag says so.
-- No flag: **plain** only when the session text has no per-side wording at all
-  (so nothing can be a doubled figure); otherwise **ambiguous**.
+- No flag: **plain** only when the stored session text has no per-side wording
+  at all AND is shorter than the 1000-character storage cut (a cut text may have
+  lost a "/c"); otherwise **ambiguous**. The wording regex lives in
+  `shared/strength_exercises.py` and is pinned against every spelling the
+  extraction prompt lists.
 
 An ambiguous row counts as neither for `notation_mixed` and feeds no top weight,
 e1RM, volume or weighted-bodyweight record, and draws no chart load point. The
@@ -142,17 +147,19 @@ exclusion is per row, not per date: a clean activity on the same day keeps its
 point. An ambiguous day still counts in the progression's `sessions` (days
 tracked), like a bodyweight day that draws no load point.
 
-History re-read: `scripts/backfill_strength_per_side.py` (dry-run by default,
-backup before `--apply`). Campus rows and rows from a text with no per-side
-wording get `false`; the others take the flag of the one re-extracted row with the
-same exercise and the same loads, or stay unflagged. The one-off run of
-2026-10-17 left 43 rows per side, 244 not and 23 unflagged; that run's script was
-not kept, so a new run can differ slightly (the extractor is a model).
+History re-read: `scripts/backfill_strength_per_side.py`. A run without
+`--apply` only writes a plan file; `--apply --plan FILE` writes exactly that
+reviewed plan, after a lossless typed backup to a new timestamped file, with one
+conditional update per field (never the whole list). Rows from a text that rules
+out a per-side load get `false`; Campus rows otherwise stay unflagged; other rows
+take the flag of the one re-extracted row with the same exercise and the same
+loads, or stay unflagged. The one-off run of 2026-10-17 left 43 rows per side,
+244 not and 23 unflagged; that run's script was not kept.
 
 Unilateral lifts: a per-side note on a lift the volume module expands by sides
 ("4x10 40/c" stored at 80) is divided by the sides before the expansion, so the
-volume is 8 x 10 x 40, not 8 x 10 x 80. Volumes stored before this fix are not
-recomputed.
+volume is 8 x 10 x 40, not 8 x 10 x 80. Volumes stored before this fix are
+recomputed by the same script with `--recompute-volume` (derived figures only).
 
 `notation_mixed` is set only when BOTH a per_side and a plain session were seen; an
 unknown (no-load) or ambiguous session counts as neither, so an always-per-side lift plus a

@@ -44,6 +44,7 @@ from shared.strength_volume import compute_session_volume
 from shared.logger import get_logger, metrics, MetricUnit, METRICS_NAMESPACE
 from shared.strength_exercises import (
     CANONICAL_STRENGTH_EXERCISES,
+    STORED_DESCRIPTION_MAX_CHARS,
     canonicalize_exercise_name,
 )
 
@@ -1314,11 +1315,11 @@ def _track_strength_history(
         # against the strength_program to track progressions. In addition, a
         # best-effort LLM extraction produces structured sets for progression charts.
         if matched_session:
+            load_text = activity_data.get('original_description') or description
             parsed_sets = ppg_history_sets(
                 matched_session,
-                extract_athlete_loads(
-                    activity_data.get('original_description') or description
-                ),
+                extract_athlete_loads(load_text),
+                load_text=load_text,
             )
             sets_source = 'campus_plan'
         else:
@@ -1340,7 +1341,7 @@ def _track_strength_history(
             'date': activity_date[:10] if activity_date else datetime.now(timezone.utc).strftime('%Y-%m-%d'),
             'activity_id': activity_id,
             'duration_min': int(duration_min),
-            'description': description[:1000],
+            'description': description[:STORED_DESCRIPTION_MAX_CHARS],
             'parsed_sets': parsed_sets,
             'total_sets': volume['total_sets'],
             'total_reps': volume['total_reps'],

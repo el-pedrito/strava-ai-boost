@@ -23,6 +23,17 @@ def test_invalid_detail_never_falls_back_to_the_flat_load():
     progression = _build_strength_progression(entries)
     points = progression[0]['points']
     assert all(p['top_weight_kg'] != 999 for p in points)
+    # No fake 3 x 5 x 999 volume from the flat summary either.
+    assert all(p['volume_kg'] is None for p in points)
+
+
+def test_legacy_row_without_detail_keeps_its_flat_volume():
+    entries = [{
+        'date': '2026-10-13',
+        'parsed_sets': [{'exercise': 'Squat', 'sets': 3, 'reps': 5, 'weight_kg': 100}],
+    }]
+    progression = _build_strength_progression(entries)
+    assert progression[0]['points'][0]['volume_kg'] == 1500.0
 
 
 def test_legacy_row_without_detail_keeps_its_flat_load():

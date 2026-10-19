@@ -188,3 +188,35 @@ BODYWEIGHT_EXERCISES: Dict[str, float] = {
 UNILATERAL_EXERCISES: Dict[str, int] = {
     'Tirage horizontal unilatéral machine': 2,
 }
+
+
+# ---------------------------------------------------------------------------
+# Per-side wording
+# ---------------------------------------------------------------------------
+
+# Any per-side wording, with or without a number next to it: "35/c", "/ côté",
+# "par cote", "each side". It must match every spelling the extraction prompt
+# lists (pinned by tests/regression/test_strength_extraction_prompt.py). It never
+# decides per-side vs plain on its own: it only says a load MAY be per side.
+PER_SIDE_WORDING_RE = re.compile(
+    r'/\s*c\b|/\s*c[oô]t[eé]s?\b|par\s+c[oô]t[eé]s?\b|chaque\s+c[oô]t[eé]\b'
+    r'|each\s+side\b|/\s*side\b|per\s+side\b',
+    re.IGNORECASE,
+)
+
+# strength_history stores the session text cut to this many characters. A stored
+# text this long may have lost a per-side note past the cut.
+STORED_DESCRIPTION_MAX_CHARS = 1000
+
+
+def has_per_side_wording(text) -> bool:
+    """True when ``text`` holds any per-side wording."""
+    return isinstance(text, str) and bool(PER_SIDE_WORDING_RE.search(text))
+
+
+def stored_text_may_hide_per_side(text) -> bool:
+    """True when a stored session text can not prove "no per-side wording":
+    it has some, or it reaches the storage cut and may have lost one."""
+    if not isinstance(text, str):
+        return False
+    return has_per_side_wording(text) or len(text) >= STORED_DESCRIPTION_MAX_CHARS

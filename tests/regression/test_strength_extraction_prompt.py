@@ -85,7 +85,21 @@ class TestPerSideFlagInExamples:
         assert "8/c-40" in PROMPT
         assert True in flags and False in flags
 
+    SPELLINGS = ("/c", "/cote", "/côté", "par cote", "par côté", "each side", "/side")
+
     def test_every_per_side_spelling_is_listed(self):
-        for spelling in ("'/c'", "'/cote'", "'/côté'", "'par cote'", "'par côté'",
-                         "'each side'", "'/side'"):
-            assert spelling in PROMPT, spelling
+        for spelling in self.SPELLINGS:
+            assert f"'{spelling}'" in PROMPT, spelling
+
+    def test_the_page_recognises_every_spelling_the_prompt_lists(self):
+        """Anti-drift: an unflagged row is 'plain' when the page sees no per-side
+        wording. A spelling the prompt knows but the page's regex misses would
+        turn a doubled load into a plain one."""
+        import re
+        from shared.strength_exercises import has_per_side_wording
+        listed = re.search(r"PER SIDE loads: (.*?) mean", PROMPT).group(1)
+        prompt_spellings = re.findall(r"'([^']+)'", listed)
+        assert set(prompt_spellings) == set(self.SPELLINGS)
+        for spelling in prompt_spellings:
+            assert has_per_side_wording(f"press 3x10 40{spelling}"), spelling
+            assert has_per_side_wording(f"press 3x10 40 {spelling}"), spelling
