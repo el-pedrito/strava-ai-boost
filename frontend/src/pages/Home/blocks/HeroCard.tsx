@@ -183,7 +183,8 @@ export function HeroCard({ brief, next }: { brief: HomeBrief | null; next: HomeN
                 <span className="text-muted-foreground">{signalLabel(s.key)}</span>
                 <span className={cn('inline-flex items-center gap-1 text-xs font-semibold', TONE_TEXT[STATUS_TONE[status]])}>
                   <span className="h-2.5 w-2.5 rounded-full bg-current" aria-hidden="true" />
-                  {t(`home.brief.status.${status}`)}
+                  {/* A known value the brief skipped as too old reads "ancien", like the Recovery tile, never "Indisponible". */}
+                  {status === 'missing' && s.value != null ? t('home.health.stale') : t(`home.brief.status.${status}`)}
                 </span>
               </li>
             );

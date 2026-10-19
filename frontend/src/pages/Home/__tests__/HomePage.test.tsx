@@ -411,7 +411,7 @@ describe('HomePage', () => {
     renderHome();
     const warning = await screen.findByTestId('home-load-gap-warning');
     expect(warning).toHaveTextContent(
-      'No load recorded from 1 Sept to 7 Oct. If you ran, Intervals.icu did not receive your runs: fitness and freshness are then underestimated.'
+      'No load recorded from 1 Sept to 7 Oct: if you ran, Intervals.icu did not receive your runs, and fitness and freshness are then underestimated.'
     );
     // Visible without expanding the card.
     expect(warning).toBeVisible();
@@ -443,7 +443,7 @@ describe('HomePage', () => {
     fx.health_series = [...loadRows, ...sleepOnly];
     getHomeSummaryMock.mockResolvedValue(fx);
     renderHome();
-    expect(await screen.findByTestId('home-load-gap-warning')).toHaveTextContent('No load recorded from 1 Sept to 7 Oct.');
+    expect(await screen.findByTestId('home-load-gap-warning')).toHaveTextContent('No load recorded from 1 Sept to 7 Oct:');
   });
 
   it('does not revive a stale gap because of a sleep-only tail', async () => {
@@ -466,7 +466,7 @@ describe('HomePage', () => {
     getHomeSummaryMock.mockResolvedValue(fx);
     renderHome();
     const warning = await screen.findByTestId('home-load-gap-warning');
-    expect(warning).toHaveTextContent('No load recorded from 1 Sept to 21 Sept. If you ran,');
+    expect(warning).toHaveTextContent('No load recorded from 1 Sept to 21 Sept: if you ran,');
   });
 
   it('says "Race day" at 0 and uses the singular at 1', async () => {

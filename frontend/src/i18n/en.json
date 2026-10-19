@@ -998,7 +998,7 @@
   "home.recovery.noHistory": "No history for this metric yet.",
   "home.recovery.gapsNote": "Gaps in the line are days with no measurement.",
   "home.load.title": "Load and details",
-  "home.load.gapWarning": "No load recorded from {{start}} to {{end}}. If you ran, Intervals.icu did not receive your runs: fitness and freshness are then underestimated.",
+  "home.load.gapWarning": "No load recorded from {{start}} to {{end}}: if you ran, Intervals.icu did not receive your runs, and fitness and freshness are then underestimated.",
   "home.load.chart": "CTL and ATL, 90 days",
   "home.load.chartAria": "CTL and ATL over 90 days, latest CTL {{ctl}}, latest ATL {{atl}}.",
   "home.predictions.pace": "{{pace}}/km",

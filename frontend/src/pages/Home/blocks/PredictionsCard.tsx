@@ -76,7 +76,8 @@ export function PredictionsCard({
         </dl>
       )}
 
-      {historyData.length > 0 && (
+      {/* One point is not a trend: the curve needs at least two weeks. */}
+      {historyData.length >= 2 && (
         <div className="mt-4">
           <h3 className="mb-2 text-sm font-semibold">{t('home.predictions.halfCurve')}</h3>
           <ResponsiveContainer width="100%" height={140}>

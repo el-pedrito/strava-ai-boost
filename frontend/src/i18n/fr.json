@@ -998,7 +998,7 @@
   "home.recovery.noHistory": "Pas encore d'historique pour cette mesure.",
   "home.recovery.gapsNote": "Les trous de la courbe sont des jours sans mesure.",
   "home.load.title": "Charge et détails",
-  "home.load.gapWarning": "Aucune charge enregistrée du {{start}} au {{end}}. Si tu as couru, Intervals.icu n'a pas reçu tes sorties : forme de fond et fraîcheur sont alors sous-estimées.",
+  "home.load.gapWarning": "Aucune charge enregistrée du {{start}} au {{end}} : si tu as couru, Intervals.icu n'a pas reçu tes sorties, et forme de fond et fraîcheur sont alors sous-estimées.",
   "home.load.chart": "CTL et ATL, 90 jours",
   "home.load.chartAria": "CTL et ATL sur 90 jours, dernière CTL {{ctl}}, dernière ATL {{atl}}.",
   "home.predictions.pace": "{{pace}}/km",
