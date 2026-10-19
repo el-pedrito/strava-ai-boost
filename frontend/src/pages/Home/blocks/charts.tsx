@@ -20,7 +20,7 @@ import type { LoadGap } from '../insights';
 
 export type SeriesMetric = 'hrv' | 'resting_hr' | 'sleep_s';
 
-type Row = { date: string } & Partial<Record<string, number | string | null | undefined>>;
+type Row = { date: string };
 
 const dateTick = (lang: string) => (d: unknown) => formatShortDate(String(d), lang) ?? String(d);
 

@@ -9,23 +9,10 @@ import { ArrowDown, ArrowRight, ArrowUp } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import type { HealthMetric } from '@/types/home';
 import { formatDiff, formatMetricText } from '../format';
+import { usualBaseline, usualDelta, type UsualKey } from '../insights';
 import { TONE_TEXT } from './tones';
 
-export type UsualKey = 'hrv' | 'resting_hr' | 'sleep_s' | 'form';
-
 const DIFF_TONE = { good: 'success', bad: 'warning', neutral: 'muted' } as const;
-
-/** Sleep compares to the last 7 nights, the other signals to 60 days. */
-export function usualBaseline(key: UsualKey, metric: HealthMetric): number | null {
-  return (key === 'sleep_s' ? metric.baseline_7d : metric.baseline_60d) ?? null;
-}
-
-/** The payload's delta, or value − baseline when only those two are present. */
-export function usualDelta(key: UsualKey, metric: HealthMetric): number | null {
-  const baseline = usualBaseline(key, metric);
-  if (metric.delta != null) return metric.delta;
-  return metric.value != null && baseline != null ? metric.value - baseline : null;
-}
 
 export function UsualLine({
   metricKey,

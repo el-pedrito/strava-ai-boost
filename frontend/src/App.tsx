@@ -14,6 +14,7 @@ const DashboardPage = lazy(() => import('./pages/Dashboard/DashboardPage.tsx').t
 const ConfigurationPage = lazy(() => import('./pages/Configuration/ConfigurationPage.tsx').then(m => ({ default: m.ConfigurationPage })));
 const PreferencesPage = lazy(() => import('./pages/Preferences/PreferencesPage.tsx').then(m => ({ default: m.PreferencesPage })));
 const ContentQualityPage = lazy(() => import('./pages/Quality/ContentQualityPage.tsx').then(m => ({ default: m.ContentQualityPage })));
+const HealthPage = lazy(() => import('./pages/Health/HealthPage.tsx').then(m => ({ default: m.HealthPage })));
 const CoachPage = lazy(() => import('./pages/Coach/CoachPage.tsx').then(m => ({ default: m.CoachPage })));
 const OnboardingPage = lazy(() => import('./pages/Onboarding/OnboardingPage.tsx').then(m => ({ default: m.OnboardingPage })));
 const ActivityDetailPage = lazy(() => import('./pages/Activity/ActivityDetailPage.tsx').then(m => ({ default: m.ActivityDetailPage })));
@@ -45,6 +46,7 @@ export function AppRoutes() {
         <Route path="/preferences" element={<PreferencesPage />} />
         <Route path="/quality" element={<ContentQualityPage />} />
         <Route path="/coach" element={<CoachPage />} />
+        <Route path="/health" element={<HealthPage />} />
         <Route path="/plan" element={<PlanGate />} />
         <Route path="/onboarding" element={<OnboardingPage />} />
         <Route path="/activities/:id" element={<ActivityDetailPage />} />

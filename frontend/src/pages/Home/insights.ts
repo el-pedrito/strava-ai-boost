@@ -3,7 +3,7 @@
  * and chart helpers. No React, no i18n: every function is unit-tested.
  * Coach text is rendered by `components/CoachText.tsx` (shared with Plan).
  */
-import type { HealthSeriesPoint, HomeWeekSession } from '@/types/home';
+import type { HealthMetric, HealthSeriesPoint, HomeWeekSession } from '@/types/home';
 
 /* ------------------------------------------------------- load gap check */
 
@@ -195,6 +195,22 @@ export function filterHrvByLatestKind<T extends { hrv: number | null; hrv_kind?:
     ...p,
     hrv: latest != null && p.hrv_kind !== latest ? null : p.hrv,
   }));
+}
+
+/* ------------------------------------------------------ usual value */
+
+export type UsualKey = 'hrv' | 'resting_hr' | 'sleep_s' | 'form';
+
+/** Sleep compares to the last 7 nights, the other signals to 60 days. */
+export function usualBaseline(key: UsualKey, metric: HealthMetric): number | null {
+  return (key === 'sleep_s' ? metric.baseline_7d : metric.baseline_60d) ?? null;
+}
+
+/** The payload's delta, or value − baseline when only those two are present. */
+export function usualDelta(key: UsualKey, metric: HealthMetric): number | null {
+  const baseline = usualBaseline(key, metric);
+  if (metric.delta != null) return metric.delta;
+  return metric.value != null && baseline != null ? metric.value - baseline : null;
 }
 
 /* --------------------------------------------------------- freshness */
