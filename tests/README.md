@@ -4,7 +4,7 @@ Integration test suite with dynamic AWS resource discovery.
 
 > This README covers the **integration suite** (live AWS). Two other suites live alongside:
 > - `tests/unit/` — 1671 mocked Lambda unit tests, no AWS credentials (`pytest tests/unit/`)
-> - `tests/regression/` — 106 prompt-regression & docs-sync tests + live runners (see `docs/design/regression-evals.md`)
+> - `tests/regression/` — 110 prompt-regression & docs-sync tests + live runners (see `docs/design/regression-evals.md`)
 
 ## Test Files
 

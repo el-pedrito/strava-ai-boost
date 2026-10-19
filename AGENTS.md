@@ -29,7 +29,7 @@ Strava AI Boost is a **serverless AWS application** that automatically enhances 
 - **24 Lambda functions** (API, processing, webhooks, support, voice, push, athlete input — role-based packages)
 - **3 AgentCore Runtimes** — `content_gen`, `strava_ai_boost_coach` (coach), `coach_chat` (agentic conversational coach): 2 agent definitions in `src/agents/` + 1 chat runtime in `src/coach_chat/`, sharing a single AgentCore Memory (`content_gen_mem`, 3 strategies)
 - **9 CDK stacks**
-- **2108 tests** (1671 backend unit + 106 regression + 331 frontend) + on-demand prompt regression harness (deterministic V1 + managed AgentCore Evaluations V2)
+- **2113 tests** (1671 backend unit + 110 regression + 332 frontend) + on-demand prompt regression harness (deterministic V1 + managed AgentCore Evaluations V2)
 - **Centralized LLM registry** — all Bedrock model IDs come from `src/config/llm_config.py` (mirrored in `lambda_functions/shared/llm_models.py` for Lambda bundling); anti-drift sync test
 - **Python 3.12** runtime, **React 19 + TypeScript + Vite** frontend
 - **Cognito authentication** (JWT, custom:strava_id attribute, no self-registration)
@@ -201,7 +201,7 @@ strava-ai-boost/
 │   │   ├── test_coach_output_check.py  # Figure verifier: week-scope gate, km vs km/h, strip
 │   │   ├── test_metrics_flush.py       # Anti-drift: add_metric requires @metrics.log_metrics
 │   │   └── test_env_loader_memory_id.py # Synth must fail, not blank, an unreadable memory id
-│   ├── regression/                     # Prompt regression harness (106 tests + live runners)
+│   ├── regression/                     # Prompt regression harness (110 tests + live runners)
 │   │   ├── fixtures/                   # 10 synthetic activities (shared by V1 + V2 evals)
 │   │   ├── evaluators.py               # Deterministic criteria + BANNED_CLICHES (sync-tested vs prompt)
 │   │   ├── evaluators_managed/         # Custom LLM-as-a-Judge configs (AgentCore Evaluations)
@@ -413,7 +413,7 @@ class MyModule(BaseModule):
 pytest tests/unit/ -v
 ```
 
-**Regression evaluators + LLM registry sync (106 tests, free, no AWS):**
+**Regression evaluators + LLM registry sync (110 tests, free, no AWS):**
 ```bash
 pytest tests/regression/ -v
 ```
@@ -433,7 +433,7 @@ export AWS_PROFILE=your-aws-profile
 pytest tests/ -v --ignore=tests/unit/
 ```
 
-**Frontend Tests (331 tests, ~4s):**
+**Frontend Tests (332 tests, ~4s):**
 ```bash
 cd frontend && npm test
 ```
