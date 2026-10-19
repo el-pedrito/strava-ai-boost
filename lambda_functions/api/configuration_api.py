@@ -617,6 +617,9 @@ def get_modules() -> Dict[str, Any]:
         intervals_icu_enabled = intervals_icu_config.get('enabled', False)
         intervals_icu_configured = intervals_icu_config.get('configured', False)
 
+        athlete_input_config = modules_config.get('athlete_input', {})
+        athlete_input_enabled = athlete_input_config.get('enabled', False)
+
         modules = {
             'campus_coach': {
                 'id': 'campus_coach',
@@ -646,6 +649,15 @@ def get_modules() -> Dict[str, Any]:
                 'configured': intervals_icu_configured,
                 'requires_credentials': True,
                 'status': 'active' if intervals_icu_enabled else 'disabled'
+            },
+            'athlete_input': {
+                'id': 'athlete_input',
+                'name': 'Ressenti après séance',
+                'description': 'Ask for an RPE and optional summary before enrichment',
+                'enabled': athlete_input_enabled,
+                'configured': True,
+                'requires_credentials': False,
+                'status': 'active' if athlete_input_enabled else 'disabled'
             }
         }
 
@@ -656,6 +668,52 @@ def get_modules() -> Dict[str, Any]:
         return create_error_response(500, 'Failed to get modules', cors_headers=CORS_HEADERS)
 
 
+def _store_module_config(
+    table: Any, user_id: str, module_id: str, fields: Dict[str, Any]
+) -> None:
+    """Atomically SET ``modules_config.<module_id>.<field>`` for each field.
+
+    Other attributes of the user item, other modules and other keys of this
+    module's map are never touched. DynamoDB does not create intermediate maps
+    for a nested path, so the fast path is conditional on the module map
+    existing; when it does not, the missing levels are created with
+    ``if_not_exists`` (one call per level: overlapping paths cannot share an
+    expression) and the nested SET runs again.
+    """
+    names: Dict[str, str] = {'#mc': 'modules_config', '#m': module_id}
+    values: Dict[str, Any] = {}
+    set_parts = []
+    for index, (key, value) in enumerate(fields.items()):
+        names[f'#f{index}'] = key
+        values[f':v{index}'] = value
+        set_parts.append(f'#mc.#m.#f{index} = :v{index}')
+    nested_set = {
+        'Key': {'user_id': user_id},
+        'UpdateExpression': 'SET ' + ', '.join(set_parts),
+        'ExpressionAttributeNames': names,
+        'ExpressionAttributeValues': values,
+    }
+    try:
+        table.update_item(**nested_set, ConditionExpression='attribute_exists(#mc.#m)')
+        return
+    except ClientError as e:
+        if e.response.get('Error', {}).get('Code') != 'ConditionalCheckFailedException':
+            raise
+    table.update_item(
+        Key={'user_id': user_id},
+        UpdateExpression='SET #mc = if_not_exists(#mc, :empty)',
+        ExpressionAttributeNames={'#mc': 'modules_config'},
+        ExpressionAttributeValues={':empty': {}},
+    )
+    table.update_item(
+        Key={'user_id': user_id},
+        UpdateExpression='SET #mc.#m = if_not_exists(#mc.#m, :empty)',
+        ExpressionAttributeNames={'#mc': 'modules_config', '#m': module_id},
+        ExpressionAttributeValues={':empty': {}},
+    )
+    table.update_item(**nested_set)
+
+
 def configure_module(event: Dict[str, Any]) -> Dict[str, Any]:
     """Configure a module"""
     try:
@@ -664,8 +722,14 @@ def configure_module(event: Dict[str, Any]) -> Dict[str, Any]:
         enabled = body.get('enabled', False)
         config = body.get('config', {})
 
-        if not module_id or module_id not in ['campus_coach', 'enduraw', 'intervals_icu']:
+        if not module_id or module_id not in ['campus_coach', 'enduraw', 'intervals_icu', 'athlete_input']:
             return create_error_response(400, 'Invalid or missing module_id', cors_headers=CORS_HEADERS)
+        if module_id == 'athlete_input' and (
+            'enabled' not in body or type(enabled) is not bool
+        ):
+            return create_error_response(
+                400, 'athlete_input enabled must be a boolean', cors_headers=CORS_HEADERS
+            )
 
         user_id = get_authenticated_user_id()
 
@@ -750,29 +814,18 @@ def configure_module(event: Dict[str, Any]) -> Dict[str, Any]:
                     else:
                         raise
 
-        # Store module configuration in DynamoDB (user-specific)
-        table = dynamodb.Table(USER_CONFIG_TABLE)
-
-        try:
-            response = table.get_item(Key={'user_id': user_id})
-            user_config = response.get('Item', {'user_id': user_id})
-        except ClientError:
-            user_config = {'user_id': user_id}
-
-        if 'modules_config' not in user_config:
-            user_config['modules_config'] = {}
-
-        if module_id not in user_config['modules_config']:
-            user_config['modules_config'][module_id] = {}
-
-        user_config['modules_config'][module_id]['enabled'] = enabled
-        user_config['modules_config'][module_id]['configured'] = True
-        user_config['modules_config'][module_id]['updated_at'] = datetime.now(UTC).isoformat()
-
+        # Store module configuration in DynamoDB (user-specific), by child path.
+        # A read/modify/put_item of the whole user item would overwrite any
+        # preference or module written concurrently (the Preferences page saves
+        # both from the same screen).
+        module_fields = {
+            'enabled': enabled,
+            'configured': True,
+            'updated_at': datetime.now(UTC).isoformat(),
+        }
         if module_id == 'enduraw':
-            user_config['modules_config'][module_id]['wait_time'] = config.get('wait_time', '2 minutes')
-
-        table.put_item(Item=user_config)
+            module_fields['wait_time'] = config.get('wait_time', '2 minutes')
+        _store_module_config(dynamodb.Table(USER_CONFIG_TABLE), user_id, module_id, module_fields)
 
         # No EventBridge toggle needed: the daily REST sync
         # (strava-ai-boost-campus-coach-daily-sync) checks module activation

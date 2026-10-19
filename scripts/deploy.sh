@@ -249,6 +249,20 @@ else
     print_warning "Lambda Layer build script not found, skipping layer build"
 fi
 
+# Web Push layer (pywebpush), only when push is enabled in cdk.json. Synth refuses
+# an unbuilt push layer, so build it here rather than shipping an empty one.
+PUSH_ENABLED_CTX=$(python3 -c "import json;print(str(json.load(open('cdk.json')).get('context',{}).get('push_enabled','')).lower())" 2>/dev/null || echo "")
+if [ "$PUSH_ENABLED_CTX" = "true" ]; then
+    print_status "Building Web Push layer (push_enabled=true)..."
+    chmod +x lambda_layer_push/build_layer.sh
+    if ./lambda_layer_push/build_layer.sh; then
+        print_status "✅ Web Push layer built successfully"
+    else
+        print_error "❌ Web Push layer build failed"
+        exit 1
+    fi
+fi
+
 
 # Step 5: CDK Synthesis and Validation
 print_section "🔍 Step 5: CDK synthesis and validation"

@@ -181,8 +181,15 @@ def process_activity_record(record: Dict[str, Any]) -> None:
         # Update activity status to processing
         update_activity_status(activity_id, 'processing', critical=True)
         
+        # Athlete input (RPE): wait only on a create, so a late dictation (update)
+        # never waits again. The Strava payload is nested under webhook_data.
+        wait_for_input = should_wait_for_input(user_config, message_body)
+
         # Start Step Functions workflow with Enduraw metadata
-        execution_arn = start_step_functions_workflow(activity_id, user_id, message_body, enduraw_enabled and enduraw_waited)
+        execution_arn = start_step_functions_workflow(
+            activity_id, user_id, message_body, enduraw_enabled and enduraw_waited,
+            wait_for_input=wait_for_input,
+        )
         
         if execution_arn:
             logger.info(f"Started Step Functions workflow for activity {activity_id}: {execution_arn}")
@@ -530,22 +537,40 @@ def _execution_arn_for(name: str) -> str:
     return f"{STEP_FUNCTIONS_ARN.replace(':stateMachine:', ':execution:', 1)}:{name}"
 
 
+def should_wait_for_input(user_config: Dict[str, Any], message_body: Dict[str, Any]) -> bool:
+    """``athlete_input`` module on AND Strava ``create`` (docs/design/rpe-athlete-input.md §2).
+
+    Strict: only a real ``True`` flag counts, so a malformed config never waits.
+    A late-dictation message never waits either, whatever its aspect_type.
+    """
+    if message_body.get('late_dictation'):
+        return False
+    module = (user_config.get('modules_config') or {}).get('athlete_input') or {}
+    enabled = isinstance(module, dict) and module.get('enabled') is True
+    webhook_data = message_body.get('webhook_data') or {}
+    aspect_type = webhook_data.get('aspect_type') if isinstance(webhook_data, dict) else None
+    return enabled and aspect_type == 'create'
+
+
 def start_step_functions_workflow(
     activity_id: str, 
     user_id: str, 
     webhook_data: Dict[str, Any],
-    enduraw_waited: bool = False
+    enduraw_waited: bool = False,
+    wait_for_input: bool = False,
 ) -> str:
     """Start Step Functions workflow for activity processing.
 
     ExecutionAlreadyExists is a success: this message (or a duplicate of it)
-    already started the pipeline.
+    already started the pipeline. ``wait_for_input`` is always written (a bool):
+    the state machine's ShouldWaitForInput Choice reads it.
     """
     workflow_input = {
         'activity_id': activity_id,
         'user_id': user_id,
         'webhook_data': webhook_data,
         'enduraw_waited': enduraw_waited,
+        'wait_for_input': bool(wait_for_input),
         'processing_started_at': datetime.now(UTC).isoformat()
     }
     execution_name = build_execution_name(activity_id, webhook_data)
@@ -631,6 +656,7 @@ def fetch_user_configuration(user_id: str) -> Dict[str, Any]:
             # Debug: log module structure
             enduraw_config = modules_config_data.get('enduraw', {})
             campus_coach_config = modules_config_data.get('campus_coach', {})
+            athlete_input_config = modules_config_data.get('athlete_input') or {'enabled': False}
             
             logger.info(f"enduraw config: {enduraw_config}")
             logger.info(f"campus_coach config: {campus_coach_config}")
@@ -640,7 +666,8 @@ def fetch_user_configuration(user_id: str) -> Dict[str, Any]:
                 'user_id': user_id,
                 'modules_config': {
                     'enduraw': enduraw_config,
-                    'campus_coach': campus_coach_config
+                    'campus_coach': campus_coach_config,
+                    'athlete_input': athlete_input_config,
                 },
                 'enhancement_enabled': user_config.get('enhancement_enabled', True)
             }
@@ -650,7 +677,8 @@ def fetch_user_configuration(user_id: str) -> Dict[str, Any]:
                 'user_id': user_id,
                 'modules_config': {
                     'campus_coach': {'enabled': False},
-                    'enduraw': {'enabled': False}
+                    'enduraw': {'enabled': False},
+                    'athlete_input': {'enabled': False},
                 },
                 'enhancement_enabled': True
             }
@@ -664,7 +692,8 @@ def fetch_user_configuration(user_id: str) -> Dict[str, Any]:
             'user_id': user_id,
             'modules_config': {
                 'campus_coach': {'enabled': False},
-                'enduraw': {'enabled': False}
+                'enduraw': {'enabled': False},
+                'athlete_input': {'enabled': False},
             },
             'enhancement_enabled': True
         }
