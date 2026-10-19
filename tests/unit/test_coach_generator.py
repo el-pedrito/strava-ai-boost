@@ -52,6 +52,25 @@ class TestHandler:
         assert response["coach_feedback"] == coach_feedback
         mock_store.assert_called_once_with("act123", coach_feedback)
 
+    @patch('processing.coach_generator._record_outcome')
+    @patch('processing.coach_generator.store_coach_feedback', side_effect=Exception("write error"))
+    @patch('processing.coach_generator.build_historical_summary', return_value={"weeks": 4, "total_activities": 0})
+    @patch('processing.coach_generator.retrieve_activity_data')
+    @patch('processing.coach_generator._invoke_coach_agent')
+    def test_store_failure_keeps_block_and_marks_degraded(self, mock_invoke, mock_retrieve, mock_history,
+                                                         mock_store, mock_outcome,
+                                                         activity_event, activity_data, coach_feedback):
+        # Lot 0b: a failed DynamoDB write is no longer silent, but the block
+        # still goes out with the post.
+        mock_retrieve.return_value = activity_data
+        mock_invoke.return_value = coach_feedback
+
+        response = handler(activity_event, None)
+
+        assert response["statusCode"] == 200
+        assert response["coach_feedback"]["strava_block"]
+        mock_outcome.assert_called_with("degraded")
+
     @patch('processing.coach_generator.retrieve_activity_data', return_value=None)
     def test_handler_missing_activity(self, mock_retrieve, activity_event):
         response = handler(activity_event, None)

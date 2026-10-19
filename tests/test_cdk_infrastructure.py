@@ -167,6 +167,34 @@ class TestContentGenerationStack:
         
         template.resource_count_is("AWS::StepFunctions::StateMachine", 1)
     
+    def test_non_200_payloads_fail_the_execution(self, content_stack):
+        """Lot 0b: a {"statusCode": 500} from content or update must not reach success."""
+        import json as _json
+
+        template = assertions.Template.from_stack(content_stack).to_json()
+        sm = next(
+            r for r in template["Resources"].values()
+            if r["Type"] == "AWS::StepFunctions::StateMachine"
+        )
+        raw = sm["Properties"]["DefinitionString"]
+        if isinstance(raw, dict):  # Fn::Join with ARN tokens
+            raw = "".join(p if isinstance(p, str) else "TOKEN" for p in raw["Fn::Join"][1])
+        states = _json.loads(raw)["States"]
+
+        assert states["AssembleContent"]["Next"] == "CheckContentSuccess"
+        content_check = states["CheckContentSuccess"]
+        assert content_check["Choices"][0]["Variable"] == "$.statusCode"
+        assert content_check["Choices"][0]["NumericEquals"] == 200
+        assert content_check["Choices"][0]["Next"] == "UpdateStrava"
+        assert content_check["Default"] == "ContentGenerationFailed"
+
+        assert states["UpdateStrava"]["Next"] == "CheckUpdateSuccess"
+        update_check = states["CheckUpdateSuccess"]
+        assert update_check["Choices"][0]["Next"] == "ProcessingComplete"
+        assert update_check["Default"] == "StravaUpdateFailed"
+        assert states["ContentGenerationFailed"]["Type"] == "Fail"
+        assert states["StravaUpdateFailed"]["Type"] == "Fail"
+
     def test_no_eventbridge_schedule(self, content_stack):
         """The Campus Coach schedule moved to the webhook stack (REST sync)"""
         template = assertions.Template.from_stack(content_stack)
