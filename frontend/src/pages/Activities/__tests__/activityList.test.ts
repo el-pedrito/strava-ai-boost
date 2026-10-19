@@ -4,6 +4,7 @@ import {
   formatWeekStart,
   groupByWeek,
   inWindow,
+  qualityPct,
   matchesFilter,
   parisWeekLabel,
   parseTypeFilter,
@@ -145,5 +146,30 @@ describe('filters and summary', () => {
     expect(rowStatus('failed')).toBe('failed');
     expect(rowStatus('waiting_enduraw')).toBe('processing');
     expect(rowStatus('processing')).toBe('processing');
+  });
+});
+
+describe('qualityPct (no fake 0 %)', () => {
+  it('hides an empty, non-numeric or out-of-range score', () => {
+    expect(qualityPct('')).toBeNull();
+    expect(qualityPct(null)).toBeNull();
+    expect(qualityPct(Number.NaN)).toBeNull();
+    expect(qualityPct(-0.2)).toBeNull();
+    expect(qualityPct(140)).toBeNull();
+  });
+
+  it('reads a fraction or a percentage', () => {
+    expect(qualityPct(0.92)).toBeCloseTo(92);
+    expect(qualityPct(85)).toBe(85);
+    expect(qualityPct(0)).toBe(0);
+  });
+});
+
+describe('inWindow upper bound', () => {
+  it('drops a session that starts after now', () => {
+    const now = new Date('2026-10-19T08:00:00Z');
+    const past = { activity_id: 'p', activity_type: 'Run', start_date: '2026-10-19T07:59:00Z' };
+    const future = { activity_id: 'f', activity_type: 'Run', start_date: '2026-10-19T08:01:00Z' };
+    expect(inWindow([past, future] as ListActivity[], now).map((a) => a.activity_id)).toEqual(['p']);
   });
 });

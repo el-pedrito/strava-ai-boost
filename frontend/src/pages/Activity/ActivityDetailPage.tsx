@@ -21,6 +21,8 @@ import { AudioPlayer, Badge, Card, EmptyState, buttonVariants } from '../../ui';
 import { api, ApiError } from '../../api/client.ts';
 import { cn } from '../../lib/cn.ts';
 import { formatDateTime } from '../../utils/formatDate.ts';
+import { formatKm, formatMoving, formatRunPace, qualityPct, type ListActivity } from '../Activities/activityList.ts';
+
 import { activityIcon, activityTypeLabel, type LucideIcon } from '../../utils/activityType.ts';
 import type { Activity, AudioDebriefPayload } from '../../types/index.ts';
 
@@ -61,29 +63,17 @@ function moduleBadge(name: string): { label: string; variant: BadgeVariant } {
   return { label: name, variant: 'default' };
 }
 
-function formatDistanceKm(meters?: number): string | null {
-  if (meters === undefined || meters === null || Number.isNaN(meters)) return null;
-  if (meters <= 0) return null;
-  return `${(meters / 1000).toFixed(2)} km`;
+// Shared with the Activities list: French decimals, carried seconds, never "5:60/km".
+function formatDistanceKm(meters?: number, lang?: string): string | null {
+  return formatKm(meters, 2, lang);
 }
 
 function formatDurationSec(seconds?: number): string | null {
-  if (seconds === undefined || seconds === null || Number.isNaN(seconds) || seconds <= 0) return null;
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.round(seconds % 60);
-  if (h > 0) return `${h}h ${m.toString().padStart(2, '0')}m`;
-  return `${m}m ${s.toString().padStart(2, '0')}s`;
+  return formatMoving(seconds);
 }
 
-function formatPace(distanceMeters?: number, movingTimeSec?: number): string | null {
-  if (!distanceMeters || !movingTimeSec || distanceMeters <= 0 || movingTimeSec <= 0) return null;
-  const km = distanceMeters / 1000;
-  const secPerKm = movingTimeSec / km;
-  if (!Number.isFinite(secPerKm)) return null;
-  const m = Math.floor(secPerKm / 60);
-  const s = Math.round(secPerKm % 60);
-  return `${m}:${s.toString().padStart(2, '0')}/km`;
+function formatPace(activity: Activity): string | null {
+  return formatRunPace(activity as unknown as ListActivity);
 }
 
 function formatHr(value?: number): string | null {
@@ -233,7 +223,7 @@ function NotFoundState() {
 }
 
 export function ActivityDetailPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const location = useLocation();
   const { id: routeId } = useParams<{ id: string }>();
 
@@ -330,9 +320,9 @@ export function ActivityDetailPage() {
   const stats = useMemo(() => {
     if (!activity) return [] as StatTileProps[];
     const items: StatTileProps[] = [];
-    const distance = formatDistanceKm(activity.distance);
+    const distance = formatDistanceKm(activity.distance, i18n.language);
     const duration = formatDurationSec(activity.moving_time);
-    const pace = formatPace(activity.distance, activity.moving_time);
+    const pace = formatPace(activity);
     const avgHr = formatHr(activity.average_heartrate);
     const maxHr = formatHr(activity.max_heartrate);
     const elev = formatElevation(activity.total_elevation_gain);
@@ -346,7 +336,7 @@ export function ActivityDetailPage() {
     const cal = activity.calories ? Math.round(Number(activity.calories)) : 0;
     if (cal > 0) items.push({ icon: Flame, label: t('activity.stats.calories'), value: `${cal} kcal` });
     return items;
-  }, [activity, t]);
+  }, [activity, t, i18n.language]);
 
   if (!activity) {
     return <NotFoundState />;
@@ -361,18 +351,8 @@ export function ActivityDetailPage() {
 
   const description = activity.enhanced_description?.trim() ?? '';
 
-  const confidencePct =
-    activity.confidence !== undefined && activity.confidence !== null
-      ? activity.confidence <= 1
-        ? activity.confidence * 100
-        : activity.confidence
-      : null;
-  const similarityPct =
-    activity.similarity_score !== undefined && activity.similarity_score !== null
-      ? activity.similarity_score <= 1
-        ? activity.similarity_score * 100
-        : activity.similarity_score
-      : null;
+  const confidencePct = qualityPct(activity.confidence);
+  const similarityPct = qualityPct(activity.similarity_score);
 
   const hasQuality = confidencePct !== null || similarityPct !== null;
 

@@ -6,7 +6,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useNavigate, useSearchParams } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { ChevronRight } from 'lucide-react';
 import { Alert, Badge, Button, EmptyState } from '@/ui';
 import { api } from '@/api/client';
@@ -206,7 +206,6 @@ function WeekList({ groups }: { groups: WeekGroup[] }) {
 
 function WeekTable({ groups }: { groups: WeekGroup[] }) {
   const { t, i18n } = useTranslation();
-  const navigate = useNavigate();
   const weekText = useWeekText();
   const lang = i18n.language;
   const th = 'px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground';
@@ -244,8 +243,7 @@ function WeekTable({ groups }: { groups: WeekGroup[] }) {
                   <tr
                     key={a.activity_id ?? `${g.label}-${i}`}
                     data-testid="activity-row"
-                    onClick={path ? () => navigate(path, { state: { activity: a } }) : undefined}
-                    className={cn('h-11 border-b border-border last:border-b-0', path && 'cursor-pointer hover:bg-muted')}
+                    className={cn('relative h-11 border-b border-border last:border-b-0', path && 'cursor-pointer hover:bg-muted focus-within:bg-muted')}
                   >
                     <td className="px-3 py-2 whitespace-nowrap font-numeric text-muted-foreground">
                       {a.start_date ? formatDateTime(a.start_date, lang) : null}
@@ -256,8 +254,9 @@ function WeekTable({ groups }: { groups: WeekGroup[] }) {
                           <Link
                             to={path}
                             state={{ activity: a }}
-                            onClick={(e) => e.stopPropagation()}
-                            className="line-clamp-2 font-medium text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+                            // Stretched link: its ::after covers the whole row, so the row is one
+                            // keyboard-operable target (44 px tall) with a visible focus ring.
+                            className="line-clamp-2 font-medium text-foreground hover:underline focus-visible:outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-ring"
                           >
                             {activityTitle(a, t('activity.untitled'))}
                           </Link>

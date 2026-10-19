@@ -56,7 +56,7 @@ export function inWindow(activities: ListActivity[], now: Date = new Date()): Li
   return activities
     .filter((a) => {
       const ms = startMs(a);
-      return ms != null && ms >= from && ms <= now.getTime() + DAY_MS;
+      return ms != null && ms >= from && ms <= now.getTime();
     })
     .sort((a, b) => (startMs(b) ?? 0) - (startMs(a) ?? 0));
 }
@@ -186,4 +186,11 @@ export function rowStatus(status: string | null | undefined): RowStatus {
   if (status === 'failed' || status === 'error' || status === 'processing_error') return 'failed';
   if (IN_FLIGHT.has(status)) return 'processing';
   return null;
+}
+
+/** A quality score as a percentage, or null when it is not a real measure ("" or a bad value is not 0 %). */
+export function qualityPct(raw: unknown): number | null {
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0) return null;
+  const pct = raw <= 1 ? raw * 100 : raw;
+  return pct > 100 ? null : pct;
 }
