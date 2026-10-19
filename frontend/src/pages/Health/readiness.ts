@@ -5,7 +5,7 @@
  * "Indisponible", a known value the brief skipped as too old reads "ancien".
  * Pure, unit-tested.
  */
-import type { BriefSignal, HomeBrief } from '@/types/home';
+import type { BriefSignal, HealthMetric, HomeBrief } from '@/types/home';
 import { formZone, type FormZone, type UsualKey } from '../Home/insights';
 import { signalStatus, type BriefSignalStatus } from '../Home/brief';
 
@@ -66,4 +66,15 @@ export function readinessItems(
     }
     return { key, status, signal, zone };
   });
+}
+
+/**
+ * The freshness metric with the brief's 60-day TSB baseline, so the shared
+ * "habituel" line can render it like the other signals. Null without a value
+ * or a baseline (the line is then hidden, never invented).
+ */
+export function formWithBaseline(metric: HealthMetric | null | undefined, signal: BriefSignal | null): HealthMetric | null {
+  const baseline = signal?.baseline;
+  if (metric?.value == null || baseline == null || !Number.isFinite(baseline)) return null;
+  return { ...metric, baseline_60d: baseline, delta: metric.value - baseline };
 }

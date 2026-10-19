@@ -14,7 +14,7 @@ import { CardHead, HomeCard, Pill, ValueUnit } from '../Home/blocks/common';
 import { INFO_HIT } from '../Home/blocks/tones';
 import { LIGHT_TONE, STATUS_TONE, statusLabelKey, toLight } from '../Home/brief';
 import { UsualLine } from '../Home/blocks/UsualLine';
-import { readinessItems, type ReadinessItem, type ReadinessKey } from './readiness';
+import { formWithBaseline, readinessItems, type ReadinessItem, type ReadinessKey } from './readiness';
 
 const LABEL: Record<ReadinessKey, string> = {
   hrv: 'home.health.hrv',
@@ -48,6 +48,8 @@ export function AsOfLine({ metric, testId }: { metric: HealthMetric | null | und
 function ReadinessTile({ item, metric, formIncomplete }: { item: ReadinessItem; metric: HealthMetric | null; formIncomplete: boolean }) {
   const { t, i18n } = useTranslation();
   const value = formatMetric(item.key, metric?.value, i18n.language);
+  // Freshness has no baseline in the health block: its usual value is the brief's 60-day TSB mean.
+  const usualMetric = item.key === 'form' ? formWithBaseline(metric, item.signal) : metric;
   return (
     <li
       className="min-w-0 rounded-lg bg-surface-muted px-3 py-3"
@@ -64,7 +66,7 @@ function ReadinessTile({ item, metric, formIncomplete }: { item: ReadinessItem; 
       <p className="mt-1 text-2xl font-semibold leading-tight text-foreground">
         {value ? <ValueUnit value={value.value} unit={value.unit} /> : <span className="text-muted-foreground">{t('home.na')}</span>}
       </p>
-      {metric && item.key !== 'form' && <UsualLine metricKey={item.key} metric={metric} testIdPrefix="health" />}
+      {usualMetric && <UsualLine metricKey={item.key} metric={usualMetric} testIdPrefix="health" />}
       {item.key === 'form' && item.zone && (
         <p className="mt-1 text-xs text-muted-foreground" data-testid="health-form-zone">
           {t(`home.recovery.formZone.${item.zone}`)}

@@ -184,6 +184,19 @@ describe('HealthPage', () => {
     // contradicts the Alert dot, so no zone word at all.
     expect(within(form).queryByTestId('health-form-zone')).not.toBeInTheDocument();
     expect(form).not.toHaveTextContent('normal training fatigue');
+    // Usual value and difference from the brief baseline (−8,2 over 60 days).
+    expect(form).toHaveTextContent('usual \u22128.2');
+    expect(within(form).getByTestId('health-diff-form')).toHaveTextContent('\u221218.2');
+  });
+
+  it('hides the freshness usual line when the brief has no baseline', async () => {
+    const fx = fixture();
+    fx.brief = { ...fx.brief!, signals: [{ key: 'form', value: -26.4, baseline: null, status: 'bad', as_of: '2026-10-19' }] };
+    getHomeSummaryMock.mockResolvedValue(fx);
+    renderHealth();
+    const form = await screen.findByTestId('health-ready-form');
+    expect(form).not.toHaveTextContent('usual');
+    expect(within(form).queryByTestId('health-diff-form')).not.toBeInTheDocument();
   });
 
   it('shows the zone word when the load is complete and it agrees with the dot', async () => {

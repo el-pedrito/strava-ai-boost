@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { BriefSignal, HealthMetric, HealthSeriesPoint, HomeBrief, HomeHealth } from '@/types/home';
-import { readinessItems, zoneAgrees } from '../readiness';
+import { formWithBaseline, readinessItems, zoneAgrees } from '../readiness';
 import { signalStatus } from '../../Home/brief';
 import { bodyTilesVisible, visibleBodyTiles } from '../body';
 import { clipGaps, fillDailySeries, lastDays, newestAsOf, overlappingGaps, seriesStats } from '../series';
@@ -92,6 +92,23 @@ describe('TSB zone word', () => {
     expect(zoneAgrees('overload', 'ok')).toBe(false);
     expect(zoneAgrees('productive', 'stale')).toBe(false);
     expect(zoneAgrees(null, 'ok')).toBe(false);
+  });
+});
+
+describe('formWithBaseline', () => {
+  it('carries the brief TSB baseline and the difference to the displayed value', () => {
+    expect(formWithBaseline(m(-26.4), sig('form', 'bad', -26.4, -8.2))).toMatchObject({
+      value: -26.4,
+      baseline_60d: -8.2,
+    });
+    expect(formWithBaseline(m(-26.4), sig('form', 'bad', -26.4, -8.2))?.delta).toBeCloseTo(-18.2, 5);
+  });
+
+  it('returns null without a value or a baseline, never an invented usual', () => {
+    expect(formWithBaseline(m(-26.4), sig('form', 'bad', -26.4, null))).toBeNull();
+    expect(formWithBaseline(m(-26.4), null)).toBeNull();
+    expect(formWithBaseline(m(null), sig('form', 'bad', -26.4, -8.2))).toBeNull();
+    expect(formWithBaseline(null, sig('form', 'bad', -26.4, -8.2))).toBeNull();
   });
 });
 
