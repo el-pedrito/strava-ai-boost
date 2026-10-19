@@ -459,7 +459,7 @@ export function ContentQualityPage() {
         <div className="flex items-center gap-2 self-start sm:self-auto">
           <Link
             to="/monitoring"
-            className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-sm font-medium text-foreground transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-sm md:min-h-0 font-medium text-foreground transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Cpu className="h-4 w-4" aria-hidden="true" />
             {t('nav.monitoring')}

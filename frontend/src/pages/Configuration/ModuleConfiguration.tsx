@@ -169,7 +169,7 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
               href="https://app.campus.coach"
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 self-start text-xs font-medium text-primary hover:underline"
+              className="inline-flex min-h-11 items-center gap-1.5 self-start text-xs font-medium text-primary-text hover:underline md:min-h-0"
             >
               {t('modules.campus.visit')}
               <ExternalLink className="h-3 w-3" aria-hidden="true" />
@@ -246,7 +246,7 @@ export function ModuleConfiguration({ modules, onModuleChanged }: Props) {
               href="https://enduraw-report-strava.onrender.com"
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 self-start text-xs font-medium text-primary hover:underline"
+              className="inline-flex min-h-11 items-center gap-1.5 self-start text-xs font-medium text-primary-text hover:underline md:min-h-0"
             >
               {t('modules.enduraw.openReport')}
               <ExternalLink className="h-3 w-3" aria-hidden="true" />

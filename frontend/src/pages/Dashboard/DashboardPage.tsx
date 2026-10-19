@@ -199,11 +199,11 @@ type StatusTone = 'success' | 'warning' | 'danger' | 'muted';
 function toneClasses(tone: StatusTone): { bg: string; text: string; ring: string } {
   switch (tone) {
     case 'success':
-      return { bg: 'bg-success/10', text: 'text-success', ring: 'ring-success/20' };
+      return { bg: 'bg-success/10', text: 'text-success-text', ring: 'ring-success/20' };
     case 'warning':
-      return { bg: 'bg-warning/10', text: 'text-warning', ring: 'ring-warning/20' };
+      return { bg: 'bg-warning/10', text: 'text-warning-text', ring: 'ring-warning/20' };
     case 'danger':
-      return { bg: 'bg-danger/10', text: 'text-danger', ring: 'ring-danger/20' };
+      return { bg: 'bg-danger/10', text: 'text-danger-text', ring: 'ring-danger/20' };
     default:
       return { bg: 'bg-muted', text: 'text-muted-foreground', ring: 'ring-border' };
   }
@@ -294,11 +294,11 @@ function EnhancementToggle({
       aria-checked={enabled}
       aria-label={enabled ? t('dashboard.enhancement.pauseAria') : t('dashboard.enhancement.resumeAria')}
       className={cn(
-        'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-all',
+        'inline-flex min-h-11 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-all md:min-h-0',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
         enabled
-          ? 'border-success/30 bg-success/10 text-success hover:bg-success/15'
-          : 'border-warning/30 bg-warning/10 text-warning hover:bg-warning/15',
+          ? 'border-success/30 bg-success/10 text-success-text hover:bg-success/15'
+          : 'border-warning/30 bg-warning/10 text-warning-text hover:bg-warning/15',
       )}
     >
       <Power className="h-3.5 w-3.5" />
@@ -804,7 +804,7 @@ export function DashboardPage() {
                           </p>
                           {/* The activity's own figures. The AI processing time stays in the desktop
                               "Traitement" column: a bare "69s" here read as the workout length. */}
-                          <p className="mt-0.5 font-numeric text-[11px] text-muted-foreground">
+                          <p className="mt-0.5 font-numeric text-xs text-muted-foreground">
                             {[
                               act.date,
                               formatDistanceKm(act.distance),

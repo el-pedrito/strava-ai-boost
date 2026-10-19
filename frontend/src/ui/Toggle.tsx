@@ -22,7 +22,8 @@ export const Toggle = forwardRef<HTMLButtonElement, ToggleProps>(
         onCheckedChange={onCheckedChange}
         disabled={disabled}
         className={cn(
-          'peer inline-flex h-6 w-10 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors',
+          // The track stays 40x24; the ::before layer widens the touch area to 60x44.
+          'peer relative inline-flex h-6 w-10 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors before:absolute before:-inset-2.5 before:content-[""]',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
           'disabled:cursor-not-allowed disabled:opacity-50',
           'data-[state=checked]:bg-primary data-[state=unchecked]:bg-muted-foreground/30',

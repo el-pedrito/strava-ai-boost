@@ -19,13 +19,14 @@ const buttonVariants = cva(
         destructive:
           'bg-danger text-danger-foreground hover:brightness-110',
         link:
-          'bg-transparent text-primary underline-offset-4 hover:underline shadow-none',
+          'bg-transparent text-primary-text underline-offset-4 hover:underline shadow-none',
       },
       size: {
-        sm: 'h-8 px-3 text-sm',
-        md: 'h-10 px-4 text-sm',
+        // Mobile: 44 px minimum touch target; desktop keeps the compact heights.
+        sm: 'h-11 px-3 text-sm md:h-8',
+        md: 'h-11 px-4 text-sm md:h-10',
         lg: 'h-12 px-6 text-base',
-        icon: 'h-10 w-10',
+        icon: 'h-11 w-11 shrink-0 md:h-10 md:w-10',
       },
     },
     defaultVariants: {

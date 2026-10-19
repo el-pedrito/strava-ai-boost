@@ -661,7 +661,7 @@ export function PreferencesPage() {
                     }
                     aria-pressed={checked}
                     className={
-                      'flex items-center justify-center rounded-lg border px-3 py-2 text-sm font-medium transition-colors ' +
+                      'flex min-h-11 items-center justify-center rounded-lg border px-3 py-2 text-sm font-medium transition-colors md:min-h-0 ' +
                       (checked
                         ? 'border-primary bg-primary/10 text-primary'
                         : 'border-border bg-surface text-foreground hover:bg-muted')
