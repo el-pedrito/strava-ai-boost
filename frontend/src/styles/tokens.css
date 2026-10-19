@@ -58,6 +58,8 @@
   --warning-foreground: #ffffff;
   --warning-text: #b45309;
   --danger: #dc2626;
+  /* Red TEXT on surfaces and 10% tints: #b91c1c (6.47:1 on white); #dc2626 gave 4.46:1 on its tint. */
+  --danger-text: #b91c1c;
   --danger-foreground: #ffffff;
   /* #1d4ed8: text-info on its own bg-info/10 pill is 5.72:1 (#2563eb fell to 4.49).
      Pinned by ui/__tests__/contrast.test.ts. */
@@ -108,6 +110,7 @@
   --warning-foreground: #0a0e1a;
   --warning-text: #f59e0b;
   --danger: #ef4444;
+  --danger-text: #f87171;
   --danger-foreground: #ffffff;
   /* #4f93f8: text-info on its own bg-info/10 pill is 5.07:1 (#3b82f6 fell to 4.27). */
   --info: #4f93f8;
@@ -144,6 +147,7 @@
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
   --color-warning-text: var(--warning-text);
+  --color-danger-text: var(--danger-text);
   --color-danger: var(--danger);
   --color-danger-foreground: var(--danger-foreground);
   --color-info: var(--info);

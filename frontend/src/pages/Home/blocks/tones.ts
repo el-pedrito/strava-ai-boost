@@ -14,7 +14,7 @@ export type Tone = 'success' | 'warning' | 'danger' | 'primary' | 'muted' | 'inf
 export const TONE_TEXT: Record<Tone, string> = {
   success: 'text-success-text',
   warning: 'text-warning-text',
-  danger: 'text-danger',
+  danger: 'text-danger-text',
   primary: PRIMARY_TEXT,
   muted: 'text-muted-foreground',
   info: 'text-info',

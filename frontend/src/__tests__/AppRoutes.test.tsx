@@ -30,6 +30,7 @@ vi.mock('@/theme/ThemeProvider', () => ({
 // The home page fetches data; the routing tests only need to know it was reached.
 vi.mock('@/pages/Home/HomePage', () => ({ HomePage: () => <div>home page stub</div> }));
 vi.mock('@/pages/Health/HealthPage', () => ({ HealthPage: () => <div>health page stub</div> }));
+vi.mock('@/pages/Activities/ActivitiesPage', () => ({ ActivitiesPage: () => <div>activities page stub</div> }));
 
 function renderAt(path: string) {
   return render(
@@ -90,6 +91,19 @@ describe('/health route', () => {
   it('renders the Health page inside the Shell', async () => {
     renderAt('/health');
     expect(await screen.findByText('health page stub')).toBeInTheDocument();
+    expect(screen.getByRole('banner')).toBeInTheDocument();
+  });
+});
+
+describe('/activities route', () => {
+  beforeEach(() => {
+    auth.isAuthenticated = true;
+    auth.isLoading = false;
+  });
+
+  it('renders the Activities page inside the Shell', async () => {
+    renderAt('/activities');
+    expect(await screen.findByText('activities page stub')).toBeInTheDocument();
     expect(screen.getByRole('banner')).toBeInTheDocument();
   });
 });

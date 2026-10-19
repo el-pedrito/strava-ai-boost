@@ -90,7 +90,7 @@ describe('token contrast (WCAG AA)', () => {
 
   it('status text clears AA on surface and background in both themes', () => {
     for (const vars of [light, dark]) {
-      for (const text of ['success-text', 'warning-text', 'danger']) {
+      for (const text of ['success-text', 'warning-text', 'danger-text']) {
         for (const bg of ['surface', 'background']) {
           expect(ratio(token(vars, text), token(vars, bg)), `${text} on ${bg}`).toBeGreaterThanOrEqual(AA);
         }

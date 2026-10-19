@@ -173,3 +173,28 @@ describe('inWindow upper bound', () => {
     expect(inWindow([past, future] as ListActivity[], now).map((a) => a.activity_id)).toEqual(['p']);
   });
 });
+
+describe('inWindow boundaries', () => {
+  const now = new Date('2026-10-25T00:30:00Z'); // the night of the late-October DST change
+  const at = (id: string, iso: string) => ({ activity_id: id, activity_type: 'Run', start_date: iso }) as ListActivity;
+
+  it('keeps a session starting exactly now and exactly 30 days ago, drops one just outside', () => {
+    const ids = inWindow(
+      [
+        at('now', '2026-10-25T00:30:00Z'),
+        at('after', '2026-10-25T00:30:01Z'),
+        at('start', '2026-09-25T00:30:00Z'),
+        at('before', '2026-09-25T00:29:59Z'),
+      ],
+      now,
+    ).map((a) => a.activity_id);
+    expect(ids).toEqual(['now', 'start']);
+  });
+});
+
+describe('figures never show 60 seconds', () => {
+  it('carries the rounded second into the minute for time and pace', () => {
+    const r = { activity_id: 'x', activity_type: 'Run', start_date: '2026-10-19T07:00:00Z', distance: 1000, moving_time: 359.6 } as ListActivity;
+    expect(plain(rowFigures(r))).toBe('1.00 km · 6:00 · 6:00 /km');
+  });
+});
