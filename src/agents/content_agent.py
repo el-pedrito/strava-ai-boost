@@ -599,7 +599,7 @@ def _format_laps_for_prompt(laps: list) -> str:
     lines = [f"- Laps: {len(laps)} lap(s) recorded by device"]
     for lap in laps:
         idx = lap.get('lap_index', 0)
-        name = lap.get('name', f'Lap {idx}')
+        name = (lap.get('name') or f'Lap {idx}')
         distance_m = lap.get('distance', 0)
         moving_time = lap.get('moving_time', 0)
         elapsed_time = lap.get('elapsed_time', 0)
@@ -898,8 +898,11 @@ def invoke(payload, context=None):
         
         # CRITICAL: Validate user-provided content with guardrail BEFORE including in prompt
         # This prevents prompt injection without processing the entire 230K+ char prompt
-        original_title = activity_data.get('name', 'Untitled')
-        original_description = activity_data.get('description', 'No description provided')
+        # Strava sends "description": null when the athlete wrote none (and can
+        # send an empty name): .get(key, default) keeps None, which crashed the
+        # prompt log below on None[:150] (activity 20683904387, 22/10).
+        original_title = activity_data.get('name') or 'Untitled'
+        original_description = activity_data.get('description') or 'No description provided'
         
         validated_title, title_blocked = validate_user_input_with_guardrail(original_title, "title")
         validated_description, desc_blocked = validate_user_input_with_guardrail(original_description, "description")
@@ -1011,7 +1014,7 @@ def invoke(payload, context=None):
         
         # Build data payload for agent (system_prompt already has all instructions)
         user_profile_str = build_preference_instructions(user_profile)
-        active_modules_str = ', '.join([m.get('name', 'unknown') for m in active_modules]) if active_modules else 'No active modules'
+        active_modules_str = ', '.join([(m.get('name') or 'unknown') for m in active_modules]) if active_modules else 'No active modules'
         campus_session_str = json.dumps(campus_coach_session, indent=2) if campus_coach_session else 'No Campus Coach session matched'
         enduraw_str = json.dumps(enduraw_data, indent=2) if enduraw_data else 'No Enduraw data available'
         
@@ -1045,7 +1048,7 @@ def invoke(payload, context=None):
             achievements_context += f"💪 Best efforts: {len(best_efforts)} recorded\n"
             # Add details of best efforts (e.g., best 1km, 5km, etc.)
             for effort in best_efforts[:3]:  # Top 3 best efforts
-                effort_name = effort.get('name', 'Unknown')
+                effort_name = (effort.get('name') or 'Unknown')
                 effort_time = effort.get('elapsed_time', 0)
                 achievements_context += f"   - {effort_name}: {effort_time//60}:{effort_time%60:02d}\n"
         if segment_efforts:
@@ -1240,7 +1243,7 @@ affirmation avec ces données, retire-la au lieu de la reformuler."""
         
         # Invoke agent
         logger.info(f"Invoking agent with prompt length: {len(prompt)} characters")
-        logger.info(f"🎯 User original input - Title: '{validated_title}' | Description: '{validated_description[:150]}'")
+        logger.info(f"🎯 User original input - Title: '{validated_title}' | Description: '{(validated_description or '')[:150]}'")
         logger.info(f"🎯 Prompt starts with: {prompt[:500]}")
         result = agent(prompt)
 
